@@ -18,6 +18,10 @@ pub struct CmdLine {
     typed_since_selection: bool,
     pub history: Vec<String>,
     pub history_pos: Option<usize>,
+    /// Keyboard-selected AutoComplete row (Shift+Up/Down).
+    suggestion_index: Option<usize>,
+    /// Input for which the suggestion selection was calculated.
+    suggestion_prefix: String,
     /// What was typed at command prompts (not command names), oldest first: the in-command
     /// shortcut menu's Recent Input.
     pub recent_input: Vec<String>,
@@ -102,8 +106,13 @@ fn tab(app: &mut CadApp) {
     {
         // Both values typed: Tab locks the second one as well.
         app.cmd.locked_second = Some(app.cmd.buffer.clone());
-    } else if let Some(s) = suggestions(&app.cmd.buffer).first() {
-        app.cmd.buffer = s.id.clone();
+    } else {
+        let choices = suggestions(&app.cmd.buffer);
+        if let Some(s) = choices.get(app.cmd.suggestion_index.unwrap_or(0)) {
+            app.cmd.buffer = s.id.clone();
+            app.cmd.suggestion_index = None;
+            app.cmd.suggestion_prefix.clear();
+        }
     }
 }
 
@@ -303,6 +312,29 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
     }
     options_still_fit(app);
     for ev in events {
+        // A changed command prefix invalidates the previous suggestion selection.
+        if app.cmd.suggestion_prefix != app.cmd.buffer {
+            app.cmd.suggestion_index = None;
+            app.cmd.suggestion_prefix = app.cmd.buffer.clone();
+        }
+        // Preserve the existing prompt options menu and ordinary history arrows.
+        if app.cmd.options.is_none() && !app.session.prompting() {
+            if let egui::Event::Key { key: Key::ArrowUp | Key::ArrowDown, pressed: true, modifiers, .. } = &ev {
+                if modifiers.shift && !modifiers.alt && !modifiers.ctrl && !modifiers.command {
+                    let count = suggestions(&app.cmd.buffer).len();
+                    if count > 0 {
+                        let current = app.cmd.suggestion_index;
+                        let next = if *key == Key::ArrowDown {
+                            current.map(|i| (i + 1) % count).unwrap_or(0)
+                        } else {
+                            current.map(|i| (i + count - 1) % count).unwrap_or(count - 1)
+                        };
+                        app.cmd.suggestion_index = Some(next);
+                        continue;
+                    }
+                }
+            }
+        }
         // The options menu takes the arrows, Enter and Escape; typing closes it.
         if app.cmd.options.is_some() {
             let space = matches!(&ev, egui::Event::Text(t) if t == " ") && !text_prompt;
@@ -595,7 +627,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
             for (i, s) in sug.iter().enumerate() {
                 let r = Rect::from_min_size(pos2(lr.left(), lr.top() + rh * i as f32), vec2(lr.width(), rh));
                 let resp = ui.interact(r, ui.scope_id().with(("sug", i)), Sense::click());
-                if resp.hovered() || i == 0 {
+                if resp.hovered() || i == app.cmd.suggestion_index.unwrap_or(0) {
                     p.rect_filled(r.shrink(1.0), 2.0, if resp.hovered() { t.cmd_keyword_hover } else { t.list_row });
                 }
                 p.text(Pos2::new(r.left() + 8.0, r.center().y), egui::Align2::LEFT_CENTER, &s.display, crate::theme::body(), t.text);
