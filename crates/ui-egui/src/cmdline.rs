@@ -319,7 +319,7 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
         }
         // Preserve the existing prompt options menu and ordinary history arrows.
         if app.cmd.options.is_none() && !app.session.prompting() {
-            if let egui::Event::Key { key: Key::ArrowUp | Key::ArrowDown, pressed: true, modifiers, .. } = &ev {
+            if let egui::Event::Key { key: key @ (Key::ArrowUp | Key::ArrowDown), pressed: true, modifiers, .. } = &ev {
                 if modifiers.shift && !modifiers.alt && !modifiers.ctrl && !modifiers.command {
                     let count = suggestions(&app.cmd.buffer).len();
                     if count > 0 {
