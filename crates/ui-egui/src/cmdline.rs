@@ -318,21 +318,24 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
             app.cmd.suggestion_prefix = app.cmd.buffer.clone();
         }
         // Preserve the existing prompt options menu and ordinary history arrows.
-        if app.cmd.options.is_none() && !app.session.prompting() {
-            if let egui::Event::Key { key: key @ (Key::ArrowUp | Key::ArrowDown), pressed: true, modifiers, .. } = &ev {
-                if modifiers.shift && !modifiers.alt && !modifiers.ctrl && !modifiers.command {
-                    let count = suggestions(&app.cmd.buffer).len();
-                    if count > 0 {
-                        let current = app.cmd.suggestion_index;
-                        let next = if *key == Key::ArrowDown {
-                            current.map(|i| (i + 1) % count).unwrap_or(0)
-                        } else {
-                            current.map(|i| (i + count - 1) % count).unwrap_or(count - 1)
-                        };
-                        app.cmd.suggestion_index = Some(next);
-                        continue;
-                    }
-                }
+        if app.cmd.options.is_none()
+            && !app.session.prompting()
+            && let egui::Event::Key { key: key @ (Key::ArrowUp | Key::ArrowDown), pressed: true, modifiers, .. } = &ev
+            && modifiers.shift
+            && !modifiers.alt
+            && !modifiers.ctrl
+            && !modifiers.command
+        {
+            let count = suggestions(&app.cmd.buffer).len();
+            if count > 0 {
+                let current = app.cmd.suggestion_index;
+                let next = if *key == Key::ArrowDown {
+                    current.map(|i| (i + 1) % count).unwrap_or(1 % count)
+                } else {
+                    current.map(|i| (i + count - 1) % count).unwrap_or(count - 1)
+                };
+                app.cmd.suggestion_index = Some(next);
+                continue;
             }
         }
         // The options menu takes the arrows, Enter and Escape; typing closes it.
@@ -440,6 +443,10 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                 _ => {}
             },
             _ => {}
+        }
+        if app.cmd.suggestion_prefix != app.cmd.buffer {
+            app.cmd.suggestion_index = None;
+            app.cmd.suggestion_prefix = app.cmd.buffer.clone();
         }
         app.cmd.note_typing();
     }
