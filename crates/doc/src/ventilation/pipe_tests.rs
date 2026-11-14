@@ -341,3 +341,23 @@ fn a_refrigerant_pair_is_one_run_with_the_liquid_and_the_gas_tubes_side_by_side(
     let t = d.takeoff("").unwrap();
     assert_eq!(t.pipes.first().map(|q| q.size.as_str()), Some("3/8\" - 5/8\""));
 }
+
+#[test]
+fn a_heat_recovery_link_shows_three_tube_sizes_on_its_label() {
+    let mut p = pipe(PipeService::RefrigerantTriple, PipeLeg::Supply, 9.52);
+    (p.gas_dn_mm, p.gas2_dn_mm) = (22.2, 19.05);
+    assert_eq!(p.size_text(), "3/8\" - 7/8\" - 3/4\"", "the liquid, the suction gas, the high/low-pressure gas");
+    assert_eq!(p.label_text(), "3/8\" - 7/8\" - 3/4\" REF-HR");
+    // 9.52 + 19.05 + 22.2 and two gaps of 20.
+    assert!((p.plan_width_mm() - 90.77).abs() < 1e-9, "{}", p.plan_width_mm());
+    let pieces = p.generate(false).unwrap();
+    let on = |layer: &str| pieces.iter().filter(|x| x.layer == layer && matches!(x.kind, EntityKind::Line(_))).count();
+    assert_eq!((on(PIPE_REFRIGERANT_LIQUID_LAYER), on(PIPE_REFRIGERANT_HPLP_LAYER), on(PIPE_REFRIGERANT_GAS_LAYER)), (2, 2, 2));
+    assert!(PipeParams { gas2_dn_mm: 0.0, ..p.clone() }.validate().is_err(), "the third tube is needed");
+    assert_eq!(PipeService::parse("récupération d'énergie"), Some(PipeService::RefrigerantTriple));
+    assert!(PipeService::RefrigerantTriple.is_refrigerant() && !PipeService::RefrigerantTriple.has_legs());
+    let mut d = Drawing::new_metric();
+    let h = d.add_pipe(&Space::Model, Common::default(), p, cadcraft_geom::Vec2::ZERO, cadcraft_geom::Vec2::new(3000.0, 0.0)).unwrap();
+    assert_eq!(d.entity(h).unwrap().common.layer, PIPE_REFRIGERANT_TRIPLE_LAYER);
+    assert_eq!(pipe_of(d.entity(h).unwrap()).unwrap().gas2_dn_mm, 19.05);
+}

@@ -433,6 +433,16 @@ pub(super) fn paint_pipe(p: &Painter, r: Rect, service: PipeService, leg: PipeLe
     let t = Th::new(p, r);
     let layer = cadcraft_doc::pipe_layer_of(service, leg);
     let side = pipe_color(layer, t.base);
+    if service == PipeService::RefrigerantTriple {
+        // Liquid, high/low-pressure gas and suction gas together: orange, red and grey.
+        let (liquid, gas) =
+            (pipe_color(cadcraft_doc::PIPE_REFRIGERANT_LIQUID_LAYER, t.base), pipe_color(cadcraft_doc::PIPE_REFRIGERANT_GAS_LAYER, t.base));
+        let hp = pipe_color(cadcraft_doc::PIPE_REFRIGERANT_HPLP_LAYER, t.base);
+        t.poly(&[(4.0, 20.0), (4.0, 8.0), (21.0, 8.0)], false, liquid);
+        t.poly(&[(8.0, 20.0), (8.0, 12.0), (21.0, 12.0)], false, hp);
+        t.poly(&[(12.0, 20.0), (12.0, 16.0), (21.0, 16.0)], false, gas);
+        return;
+    }
     if service == PipeService::RefrigerantPair {
         // The liquid and the gas tubes together: orange and grey.
         let (liquid, gas) =
@@ -496,4 +506,76 @@ pub(super) fn paint_corner_window(p: &Painter, r: Rect) {
     t.l((8.0, 9.0), (8.0, 15.0), t.acc);
     t.l((9.0, 16.0), (16.0, 16.0), t.acc);
     t.dot(8.0, 16.0);
+}
+
+/// A pipework part's own symbol, scaled into `r`: what the drawing will show, without its label.
+pub(crate) fn paint_part(p: &Painter, r: Rect, part: &cadcraft_doc::PartParams, color: Color32) {
+    let Ok(pieces) = part.generate() else { return };
+    // Every piece as polylines of points in the part's own coordinates.
+    let mut strokes: Vec<Vec<(f64, f64)>> = Vec::new();
+    for piece in &pieces {
+        match &piece.kind {
+            EntityKind::Line(l) => strokes.push(vec![(l.a.x, l.a.y), (l.b.x, l.b.y)]),
+            EntityKind::LwPolyline(pl) => {
+                let mut v: Vec<(f64, f64)> = pl.vertices.iter().map(|x| (x.p.x, x.p.y)).collect();
+                if pl.closed
+                    && let Some(first) = v.first().copied()
+                {
+                    v.push(first);
+                }
+                strokes.push(v);
+            }
+            EntityKind::Circle(c) => {
+                strokes.push((0..=24).map(|i| arc_point(c.center.x, c.center.y, c.radius, std::f64::consts::TAU * f64::from(i) / 24.0)).collect())
+            }
+            EntityKind::Arc(a) => strokes
+                .push((0..=12).map(|i| arc_point(a.center.x, a.center.y, a.radius, a.start + (a.end - a.start) * f64::from(i) / 12.0)).collect()),
+            _ => {}
+        }
+    }
+    let pts = strokes.iter().flatten();
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for &(x, y) in pts {
+        (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+    }
+    if x0 > x1 || y0 > y1 {
+        return;
+    }
+    let (bw, bh) = ((x1 - x0).max(1e-9), (y1 - y0).max(1e-9));
+    let scale = (f64::from(r.width()) / bw).min(f64::from(r.height()) / bh) * 0.85;
+    let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+    let to = |(x, y): (f64, f64)| pos2(r.center().x + ((x - cx) * scale) as f32, r.center().y - ((y - cy) * scale) as f32);
+    for s in strokes {
+        let line: Vec<Pos2> = s.into_iter().map(to).collect();
+        p.add(egui::Shape::line(line, Stroke::new(1.1, color)));
+    }
+}
+
+fn arc_point(cx: f64, cy: f64, r: f64, a: f64) -> (f64, f64) {
+    (cx + r * a.cos(), cy + r * a.sin())
+}
+
+/// The colour a part is drawn in on its layer.
+pub(crate) fn part_color(kind: cadcraft_doc::PartKind, fallback: Color32) -> Color32 {
+    match cadcraft_doc::part_layer_color(kind.layer()) {
+        Some(cadcraft_color::Color::True(rgb)) => Color32::from_rgb(rgb.0, rgb.1, rgb.2),
+        _ => fallback,
+    }
+}
+
+/// The library, as a shelf of symbols: Pipework Part Library.
+pub(super) fn paint_library(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    for (x, y) in [(3.0, 5.0), (13.0, 5.0), (3.0, 13.0), (13.0, 13.0)] {
+        t.rect(x, y, 8.0, 6.0, t.base);
+    }
+    t.dot(7.0, 8.0);
+    t.dot(17.0, 16.0);
+}
+
+/// A part of the pipework with a pencil: Edit Pipework Part.
+pub(super) fn paint_edit_part(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.poly(&[(2.0, 8.0), (9.0, 14.0), (9.0, 8.0), (2.0, 14.0)], true, t.base);
+    t.pencil();
 }

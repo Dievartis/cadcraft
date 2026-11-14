@@ -39,6 +39,7 @@ pub struct LastUsed {
     pub duct: cmd::DuctLastUsed,
     /// PIPEADD's service, leg, diameter and insulation.
     pub pipe: cmd::PipeLastUsed,
+    pub part: cmd::PartLastUsed,
     pub slab: cmd::SlabLastUsed,
     /// DUCTACCESSORYADD's type.
     pub accessory: cmd::AccessoryLastUsed,
@@ -72,6 +73,7 @@ impl Default for LastUsed {
             ahu: cmd::AhuLastUsed::default(),
             duct: cmd::DuctLastUsed::default(),
             pipe: cmd::PipeLastUsed::default(),
+            part: cmd::PartLastUsed::default(),
             slab: cmd::SlabLastUsed::default(),
             accessory: cmd::AccessoryLastUsed::default(),
             zone: cmd::ZoneLastUsed::default(),

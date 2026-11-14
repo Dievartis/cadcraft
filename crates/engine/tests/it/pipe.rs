@@ -179,3 +179,25 @@ fn pipeadd_at_the_command_line_takes_the_refrigerant_sizes_in_inches() {
     let p = s.doc().unwrap().model.iter().filter_map(|e| pipe_of(e)).next().unwrap();
     assert_eq!((p.service, p.dn_mm, p.gas_dn_mm), (PipeService::RefrigerantPair, 6.35, 12.7));
 }
+
+#[test]
+fn a_heat_recovery_link_takes_three_sizes_in_inches() {
+    let mut s = metric();
+    let r = s
+        .execute("pipeadd", &json!({"points": [[0, 0], [4000, 0]], "service": "refrigerantTriple", "dn": "3/8", "gas": "7/8", "hpGas": "3/4"}))
+        .unwrap();
+    let h = hd(&r["handles"][0]);
+    let p = pipe(&s, h);
+    assert_eq!((p.service, p.dn_mm, p.gas_dn_mm, p.gas2_dn_mm), (PipeService::RefrigerantTriple, 9.52, 22.2, 19.05));
+    s.execute("pipeedit", &json!({"handle": h.hex(), "hpGas": "1 1/8"})).unwrap();
+    assert_eq!(pipe(&s, h).gas2_dn_mm, 28.58);
+    // A pair changed into a heat-recovery link gets a third tube of its own.
+    let q = s.execute("pipeadd", &json!({"points": [[0, 1000], [2000, 1000]], "service": "refrigerantPair"})).unwrap();
+    s.execute("pipeedit", &json!({"handle": q["handles"][0], "service": "refrigerantTriple"})).unwrap();
+    assert_eq!(pipe(&s, hd(&q["handles"][0])).gas2_dn_mm, 19.05);
+    for t in ["pipeadd", "se", "refrigeranttriple", "d", "1/4", "g", "1/2", "hp", "5/8", "0,3000", "3000,3000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    let last = s.doc().unwrap().model.iter().filter_map(|e| pipe_of(e)).last().unwrap();
+    assert_eq!((last.dn_mm, last.gas_dn_mm, last.gas2_dn_mm), (6.35, 12.7, 15.88));
+}

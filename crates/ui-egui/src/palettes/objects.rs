@@ -4,8 +4,8 @@
 
 use cadcraft_doc::{
     AccessoryKind, AccessoryParams, AhuKind, AhuParams, AirDirection, Drawing, DuctKind, DuctParams, DuctShape, Handle, OpeningKind, OpeningParams,
-    PipeParams, PipeService, RiserParams, SlabParams, SpaceParams, TerminalKind, TerminalParams, WallJustification, ZoneParams, accessory_of, ahu_of,
-    air_terminal_of, duct_of, opening_of, pipe_of, riser_of, slab_of, space_of, wall_of, zone_of,
+    PartParams, PipeParams, PipeService, RiserParams, SlabParams, SpaceParams, TerminalKind, TerminalParams, WallJustification, ZoneParams,
+    accessory_of, ahu_of, air_terminal_of, duct_of, opening_of, part_of, pipe_of, riser_of, slab_of, space_of, wall_of, zone_of,
 };
 use cadcraft_hvac::RoomUse;
 use egui::{Sense, pos2, vec2};
@@ -79,11 +79,72 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     if !pipes.is_empty() && pipes.len() == sel.len() {
         return pipe_section(ui, sel, &pipes, len, bad);
     }
+    let parts: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| part_of(e))).collect();
+    if !parts.is_empty() && parts.len() == sel.len() {
+        return part_section(ui, sel, &parts, bad);
+    }
     let slabs: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| slab_of(e))).collect();
     if !slabs.is_empty() && slabs.len() == sel.len() {
         return slab_section(ui, sel, &slabs, bad);
     }
     None
+}
+
+/// The Properties group of pipework parts: their tag, size, volume, power, flow and head, their outlets and their connections.
+fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], bad: &mut Option<String>) -> Action {
+    let ids = handles(sel);
+    let mut action: Action = None;
+    let edit = |key: &str, value: Value| Some(("pipepartedit", json!({ "handles": ids, key: value })));
+    group(ui, "Pipework Part");
+    let name = shared(&ps.iter().map(|p| p.name.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Tag", |ui| {
+        if let Some(n) = edit_field(ui, ui.scope_id().with(("part_name", &ids)), name).filter(|n| !n.trim().is_empty() && n != VARIES) {
+            action = edit("name", json!(n));
+        }
+    });
+    let model = shared(&ps.iter().map(|p| p.model.to_string()).collect::<Vec<String>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Model", |ui| read_only(ui, &model));
+    // Numbers that may be left empty (not known): a number sets, empty clears.
+    for (label, key, get) in [
+        ("Nominal diameter (mm)", "dn", (|p: &PartParams| p.dn_mm) as fn(&PartParams) -> Option<f64>),
+        ("Volume (l)", "volume", |p| p.volume_l),
+        ("Power (kW)", "power", |p| p.power_kw),
+        ("Flow (m³/h)", "flow", |p| p.flow_m3h),
+        ("Head (kPa)", "head", |p| p.head_kpa),
+        ("Weight (kg)", "weight", |p| p.weight_kg),
+    ] {
+        let v = shared(&ps.iter().map(|p| get(p).map_or(String::new(), |f| format!("{f}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+        prop_row(ui, label, |ui| {
+            if let Some(t) = edit_field(ui, ui.scope_id().with(("part_value", key, &ids)), v).filter(|t| t != VARIES) {
+                if t.trim().is_empty() {
+                    action = edit(key, Value::Null);
+                } else if let Some(n) = number(Some(t), bad) {
+                    action = edit(key, json!(n));
+                }
+            }
+        });
+    }
+    if ps.iter().any(|p| p.outlets > 0) {
+        let outlets = shared(&ps.iter().map(|p| p.outlets.to_string()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+        prop_row(ui, "Outlets", |ui| {
+            if let Some(n) = number(edit_field(ui, ui.scope_id().with(("part_outlets", &ids)), outlets).filter(|t| t != VARIES), bad) {
+                action = edit("outlets", json!(n.round()));
+            }
+        });
+    }
+    let connections = shared(&ps.iter().map(|p| p.connections.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Connections", |ui| {
+        if let Some(c) = edit_field(ui, ui.scope_id().with(("part_connections", &ids)), connections).filter(|c| c != VARIES) {
+            action = edit("connections", json!(c));
+        }
+    });
+    if let [p] = ps {
+        if !p.brand.is_empty() {
+            prop_row(ui, "Make", |ui| read_only(ui, &p.brand));
+        }
+        prop_row(ui, "Size in plan (mm)", |ui| read_only(ui, &format!("{:.0} × {:.0}", p.length_mm, p.width_mm)));
+    }
+    action
 }
 
 /// The Properties group of slabs: their kind, name, thickness and the elevation of their top, with the area and volume.
@@ -132,6 +193,7 @@ pub(crate) fn is_parametric(d: &Drawing, h: Handle) -> bool {
             || duct_of(e).is_some()
             || pipe_of(e).is_some()
             || slab_of(e).is_some()
+            || part_of(e).is_some()
             || accessory_of(e).is_some()
             || riser_of(e).is_some()
             || cadcraft_doc::equipment_of(e).is_some()
@@ -148,6 +210,7 @@ pub(super) fn pipe_service_label(s: PipeService) -> &'static str {
         PipeService::RefrigerantLiquid => "Refrigerant liquid line",
         PipeService::RefrigerantGas => "Refrigerant gas line",
         PipeService::RefrigerantPair => "Refrigerant link (liquid + gas)",
+        PipeService::RefrigerantTriple => "Refrigerant link, heat recovery (3 tubes)",
     }
 }
 
@@ -167,6 +230,7 @@ fn pipe_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PipeParams], len: &dyn 
             ("refrigerantLiquid", "Refrigerant liquid line"),
             ("refrigerantGas", "Refrigerant gas line"),
             ("refrigerantPair", "Refrigerant link (liquid + gas)"),
+            ("refrigerantTriple", "Refrigerant link, heat recovery (3 tubes)"),
         ];
         if let Some(k) = choice(ui, service.map_or(VARIES, pipe_service_label), &items) {
             action = edit("service", json!(k));
@@ -195,7 +259,8 @@ fn pipe_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PipeParams], len: &dyn 
     let refrigerant = ps.iter().all(|p| p.service.is_refrigerant());
     if refrigerant {
         // A refrigerant tube is sized in inches ("3/8"); a size typed in mm is understood too.
-        let pair = ps.iter().all(|p| p.service == PipeService::RefrigerantPair);
+        let pair = ps.iter().all(|p| p.service.has_gas_tube());
+        let triple = ps.iter().all(|p| p.service == PipeService::RefrigerantTriple);
         let mut tube = |ui: &mut egui::Ui, label: &str, key: &'static str, get: fn(&PipeParams) -> f64, action: &mut Action| {
             let shown = shared(&ps.iter().map(|p| cadcraft_doc::refrigerant_size_label(get(p)).replace('"', "")).collect::<Vec<_>>())
                 .unwrap_or_else(|| VARIES.into());
@@ -211,7 +276,10 @@ fn pipe_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PipeParams], len: &dyn 
         };
         tube(ui, if pair { "Liquid tube (inches)" } else { "Tube diameter (inches)" }, "dn", |p| p.dn_mm, &mut action);
         if pair {
-            tube(ui, "Gas tube (inches)", "gas", |p| p.gas_dn_mm, &mut action);
+            tube(ui, if triple { "Suction gas tube (inches)" } else { "Gas tube (inches)" }, "gas", |p| p.gas_dn_mm, &mut action);
+        }
+        if triple {
+            tube(ui, "High/low-pressure gas tube (inches)", "hpGas", |p| p.gas2_dn_mm, &mut action);
         }
     } else {
         let dn = shared(&ps.iter().map(|p| format!("{}", p.dn_mm)).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
@@ -1411,6 +1479,20 @@ mod hvac_tests {
         type_into(&mut hn, "5/8", "3/4");
         let p = cadcraft_doc::pipe_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
         assert_eq!((p.dn_mm, p.gas_dn_mm), (9.52, 19.05));
+    }
+
+    #[test]
+    fn a_selected_pipework_part_takes_its_values_typed_in_the_palette() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        *app.session.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+        let r = app.run("pipepartadd", json!({ "at": [0, 0], "model": "Expansion vessel 24 l" })).unwrap();
+        let h = cadcraft_doc::Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+        assert!(super::is_parametric(app.session.doc().unwrap(), h), "a double-click opens Properties");
+        app.session.set_selection(vec![h]);
+        let mut hn = palette(app);
+        type_into(&mut hn, "24", "35");
+        let p = cadcraft_doc::part_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
+        assert_eq!(p.volume_l, Some(35.0));
     }
 
     #[test]

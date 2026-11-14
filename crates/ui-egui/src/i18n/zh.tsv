@@ -1598,3 +1598,34 @@ menu	View	视图
 	Liquid tube (inches)	液管（英寸）
 	Gas tube (inches)	气管（英寸）
 	Tube diameter (inches)	管径（英寸）
+	Refrigerant link, heat recovery (3 tubes)	制冷剂连接管，热回收（3 管）
+	Suction gas tube (inches)	吸气管（英寸）
+	High/low-pressure gas tube (inches)	高/低压气管（英寸）
+	Valves	阀门
+	Fittings	管件
+	Air and dirt	空气与污物
+	Instruments	仪表
+	Pumps	水泵
+	Vessels and tanks	容器与水箱
+	Heat sources	热源
+	Refrigerant branches (Refnet)	制冷剂分支（Refnet）
+	Branch selector boxes	分支选择箱
+	Pipework Parts	管道附件
+	Pipework Part	管道附件
+	Edit Pipework Part	编辑管道附件
+	Pipework Part Library	管道附件库
+	Library…	库…
+	Search	搜索
+	No part matches.	没有匹配的附件。
+	All the valves, pumps, vessels, boilers, instruments and refrigerant branches and boxes: click one, then click where it goes, or drag it onto the drawing.	所有阀门、水泵、容器、锅炉、仪表以及制冷剂分支和箱体：点击其一，再点击放置位置，或将其拖到图纸上。
+	Click a part, then click where it goes (on a pipe it turns along it), or drag it onto the drawing.	点击一个附件，再点击放置位置（在管道上会沿管道旋转），或将其拖到图纸上。
+	Tag	标记
+	Volume (l)	容积 (l)
+	Power (kW)	功率 (kW)
+	Flow (m³/h)	流量 (m³/h)
+	Head (kPa)	扬程 (kPa)
+	Weight (kg)	重量 (kg)
+	Outlets	出口数
+	Connections	连接
+	Make	品牌
+	Size in plan (mm)	平面尺寸 (mm)

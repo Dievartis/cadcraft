@@ -1457,3 +1457,29 @@
 	Gas tube (inches)	Tube gaz (pouces)
 	Tube diameter (inches)	Diamètre du tube (pouces)
 	Requires a size in inches (3/8, 1 1/8) or millimetres.	Taille en pouces (3/8, 1 1/8) ou en millimètres.
+	Refrigerant link, heat recovery (3 tubes)	Liaison frigorifique, récupération d'énergie (3 tubes)
+	Suction gas tube (inches)	Tube gaz d'aspiration (pouces)
+	High/low-pressure gas tube (inches)	Tube gaz HP/BP (pouces)
+	Valves	Vannes
+	Air and dirt	Air et boues
+	Instruments	Instruments de mesure
+	Pumps	Pompes
+	Vessels and tanks	Vases et ballons
+	Heat sources	Production de chaleur
+	Refrigerant branches (Refnet)	Piquages frigorifiques (Refnet)
+	Branch selector boxes	Boîtes de détente (BS)
+	Pipework Parts	Accessoires de tuyauterie
+	Pipework Part	Accessoire de tuyauterie
+	Edit Pipework Part	Modifier l'accessoire de tuyauterie
+	Pipework Part Library	Bibliothèque d'accessoires de tuyauterie
+	Library…	Bibliothèque…
+	Search	Rechercher
+	No part matches.	Aucun accessoire ne correspond.
+	All the valves, pumps, vessels, boilers, instruments and refrigerant branches and boxes: click one, then click where it goes, or drag it onto the drawing.	Toutes les vannes, pompes, vases, chaudières, instruments, piquages et boîtes frigorifiques : cliquez sur l'un, puis cliquez où le mettre, ou glissez-le sur le dessin.
+	Click a part, then click where it goes (on a pipe it turns along it), or drag it onto the drawing.	Cliquez sur un accessoire, puis cliquez où le mettre (sur un tuyau, il s'oriente selon lui), ou glissez-le sur le dessin.
+	Tag	Repère
+	Volume (l)	Volume (l)
+	Head (kPa)	Hauteur manométrique (kPa)
+	Outlets	Sorties
+	Make	Marque
+	Size in plan (mm)	Dimensions en plan (mm)

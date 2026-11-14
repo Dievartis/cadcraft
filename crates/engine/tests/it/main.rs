@@ -122,6 +122,7 @@ mod oops_command;
 mod options_profile;
 mod overkill;
 mod parallel_display_list;
+mod part;
 mod pedit_heights;
 mod pedit_multiple;
 mod pedit_splinedit;

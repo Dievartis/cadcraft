@@ -596,6 +596,11 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             crate::takeoffdlg::open(app);
             Ok(Value::Null)
         }
+        // Typed or from the HVAC tab (no parameters): the Pipework Part Library window. JSON calls keep the JSON form (the list).
+        "pipepartmodels" if params.is_null() => {
+            crate::partlibdlg::open(app);
+            Ok(Value::Null)
+        }
         // Typed or from the Architecture tab (no parameters): the Wall Styles dialog. JSON calls keep the JSON form.
         "wallstyleedit" if params.is_null() => {
             crate::wallstyledlg::open(app);

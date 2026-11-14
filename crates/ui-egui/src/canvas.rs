@@ -1026,6 +1026,12 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     let scale = f64::from(rect.height()) / view.height.max(1e-12);
     let xf = Xf { rect, center: view.center, scale, twist: view.twist };
     app.canvas.xf = Some(xf);
+    // A part dragged from the Pipework Part Library and dropped here goes where it was dropped.
+    if let Some(drag) = resp.dnd_release_payload::<crate::partlibdlg::PartDrag>()
+        && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+    {
+        crate::partlibdlg::drop_part(app, &drag.0, xf.to_world(pos));
+    }
     // The paper (display) transform; equal to `xf` except inside an MSPACE viewport.
     let (xf_paper, active_vp) = match app.session.state() {
         Ok(st) => {

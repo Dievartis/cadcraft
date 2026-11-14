@@ -184,6 +184,8 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut chosen_equipment: Option<cadcraft_doc::EquipmentKind> = None;
     let pipe_now = (app.session.last_used.pipe.service, app.session.last_used.pipe.leg);
     let mut chosen_pipe: Option<(PipeService, PipeLeg)> = None;
+    let part_now = app.session.last_used.part.model.clone();
+    let mut chosen_part: Option<&'static str> = None;
     let mut size_pipes = false;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -299,6 +301,9 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         }
         ui.add_space(6.0);
         separator(ui);
+        parts_section(ui, &part_now, &mut chosen_part, &mut start);
+        ui.add_space(6.0);
+        separator(ui);
         header(ui, "Quantities");
         if row_tip(ui, crate::i18n::t("HVAC Quantities"), crate::i18n::t("Counts the ducts, fittings, terminals, units, risers and equipment of this drawing (one drawing per level), and saves a spreadsheet."), Some("HVAC Quantities"), false, thumbs::paint_quantities) {
             start = Some("hvactakeoff");
@@ -336,6 +341,11 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         (last.service, last.leg, last.dn_mm) = (service, leg, None);
         app.cmd.buffer.clear();
         app.start("pipeadd");
+    } else if let Some(name) = chosen_part {
+        // The part clicked becomes PIPEPARTADD's model, then it starts with it.
+        app.session.last_used.part.model = name.to_string();
+        app.cmd.buffer.clear();
+        app.start("pipepartadd");
     } else if let Some(kind) = chosen_equipment {
         // The kind clicked becomes EQUIPMENTADD's, at its first model, then it starts with it.
         app.session.last_used.equipment = cadcraft_engine::cmd::EquipmentLastUsed { kind, model: String::new() };
@@ -563,6 +573,53 @@ const SLABS: &[(&str, cadcraft_doc::SlabKind)] = &[
     ("Foundation slab", cadcraft_doc::SlabKind::Foundation),
 ];
 
+/// The Pipework Parts group: the parts used most, the library, and Edit.
+fn parts_section(ui: &mut egui::Ui, part_now: &str, chosen_part: &mut Option<&'static str>, start: &mut Option<&'static str>) {
+    header(ui, "Pipework Parts");
+    let fr = crate::i18n::current_language().starts_with("fr");
+    for name in COMMON_PARTS {
+        let Some(m) = cadcraft_doc::standard_part_model_named(name) else { continue };
+        let params = m.params("", cadcraft_doc::HvacUnits::default());
+        let color = thumbs::part_color(m.kind, Tokens::get().text);
+        let selected = part_now == m.name;
+        if row_button(ui, if fr { m.name_fr } else { m.name }, selected, |p, r| thumbs::paint_part(p, r, &params, color)) {
+            *chosen_part = Some(m.name);
+        }
+    }
+    if row_tip(
+        ui,
+        crate::i18n::t("Library…"),
+        crate::i18n::t(
+            "All the valves, pumps, vessels, boilers, instruments and refrigerant branches and boxes: click one, then click where it goes, or drag it onto the drawing.",
+        ),
+        None,
+        false,
+        thumbs::paint_library,
+    ) {
+        *start = Some("pipepartmodels");
+    }
+    if row_button(ui, crate::i18n::t("Edit Pipework Part"), false, thumbs::paint_edit_part) {
+        *start = Some("pipepartedit");
+    }
+}
+
+/// The parts the HVAC tab offers at once: what is used most; the rest is in the library.
+const COMMON_PARTS: &[&str] = &[
+    "Isolation valve (ball)",
+    "Balancing valve (TA)",
+    "2-way control valve",
+    "3-way control valve",
+    "Check valve",
+    "Y strainer",
+    "Automatic air vent",
+    "Circulator (single)",
+    "Expansion vessel 24 l",
+    "Buffer tank 500 l",
+    "Refnet joint KHRQ23M20T",
+    "Refnet header KHRQ23M29H",
+    "BS6A14AJV1B9",
+];
+
 /// The pipes of the Piping group: the label, the service and the leg.
 const PIPES: &[(&str, PipeService, PipeLeg)] = &[
     ("Chilled water supply", PipeService::ChilledWater, PipeLeg::Supply),
@@ -575,6 +632,7 @@ const PIPES: &[(&str, PipeService, PipeLeg)] = &[
     ("Refrigerant liquid line", PipeService::RefrigerantLiquid, PipeLeg::Supply),
     ("Refrigerant gas line", PipeService::RefrigerantGas, PipeLeg::Supply),
     ("Refrigerant link (liquid + gas)", PipeService::RefrigerantPair, PipeLeg::Supply),
+    ("Refrigerant link, heat recovery (3 tubes)", PipeService::RefrigerantTriple, PipeLeg::Supply),
 ];
 
 /// The label of an equipment kind in the Tool Sets and in Properties.

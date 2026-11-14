@@ -20,8 +20,8 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("pipeadd", "Pipe", run_pipeadd)
             .menu(&["Draw", "HVAC", "Pipe"])
             .params(
-                "{points (2 or more; one pipe per segment), service?: chilledWater|hotWater|changeOver|condensate|refrigerantLiquid|refrigerantGas|refrigerantPair (the liquid and the gas lines drawn as one run), \
-                 leg?: supply|return (the water networks), dn? (mm: the nominal diameter of a steel pipe; a refrigerant tube takes its outer diameter in mm or in inches, \"3/8\", \"1 1/8\"; for a pair, the liquid tube), gas? (the gas tube of a pair, as dn), \
+                "{points (2 or more; one pipe per segment), service?: chilledWater|hotWater|changeOver|condensate|refrigerantLiquid|refrigerantGas|refrigerantPair (the liquid and the gas lines drawn as one run)|refrigerantTriple (heat recovery: liquid, suction gas and high/low-pressure gas drawn as one run), \
+                 leg?: supply|return (the water networks), dn? (mm: the nominal diameter of a steel pipe; a refrigerant tube takes its outer diameter in mm or in inches, \"3/8\", \"1 1/8\"; for a pair, the liquid tube), gas? (the gas tube of a link, as dn; for a heat-recovery link, the suction gas), hpGas? (the high/low-pressure gas tube of a heat-recovery link), \
                  insulation? (mm), altitude? (m, the underside), load? (kW at the free end; l/h for a condensate drain), source? (true: the run starts at the source of its network), \
                  labelHeight? (mm)} → {handles}",
             )
@@ -32,7 +32,7 @@ pub fn specs() -> Vec<CommandSpec> {
              each network starts at the run marked as its source, the loads typed at the free ends (kW; l/h for a drain) are added up towards it",
         ),
         CommandSpec::new("pipeedit", "Edit Pipe", run_pipeedit).params(
-            "{handle | handles, service?, leg?, dn? (mm, inches for a refrigerant tube, or auto: sizing chooses the size), gas? (mm or inches: the gas tube of a pair), insulation? (mm), altitude? (m or null), load? (kW, l/h for a condensate drain, or null), \
+            "{handle | handles, service?, leg?, dn? (mm, inches for a refrigerant tube, or auto: sizing chooses the size), gas? (mm or inches: the gas tube of a link), hpGas? (the high/low-pressure gas tube of a heat-recovery link), insulation? (mm), altitude? (m or null), load? (kW, l/h for a condensate drain, or null), \
              source? (true or false)} → {changed}",
         ),
     ]
@@ -47,12 +47,14 @@ pub struct PipeLastUsed {
     pub dn_mm: Option<f64>,
     /// The gas tube of a refrigerant pair, mm; `None`: the default.
     pub gas_mm: Option<f64>,
+    /// The high/low-pressure gas tube of a heat-recovery link, mm; `None`: the default.
+    pub gas2_mm: Option<f64>,
     pub insulation_mm: f64,
 }
 
 impl Default for PipeLastUsed {
     fn default() -> Self {
-        PipeLastUsed { service: PipeService::ChilledWater, leg: PipeLeg::Supply, dn_mm: None, gas_mm: None, insulation_mm: 0.0 }
+        PipeLastUsed { service: PipeService::ChilledWater, leg: PipeLeg::Supply, dn_mm: None, gas_mm: None, gas2_mm: None, insulation_mm: 0.0 }
     }
 }
 
@@ -63,13 +65,9 @@ pub fn default_dn_mm(service: PipeService) -> f64 {
         PipeService::HotWater => 40.0,
         PipeService::Condensate => 25.0,
         PipeService::RefrigerantLiquid => 9.52,
-        PipeService::RefrigerantGas | PipeService::RefrigerantPair => {
-            if service == PipeService::RefrigerantPair {
-                9.52
-            } else {
-                15.88
-            }
-        }
+        PipeService::RefrigerantGas => 15.88,
+        // The liquid tube of a link.
+        PipeService::RefrigerantPair | PipeService::RefrigerantTriple => 9.52,
     }
 }
 
@@ -141,8 +139,11 @@ fn pipe_params(s: &Session, last: &PipeLastUsed, label_mm: f64) -> Result<PipePa
     let mut p = PipeParams::new(last.service, last.dn_mm.unwrap_or_else(|| default_dn_mm(last.service)), units);
     p.leg = if last.service.has_legs() { last.leg } else { PipeLeg::Supply };
     p.imposed = last.dn_mm.is_some();
-    if last.service == PipeService::RefrigerantPair {
+    if last.service.has_gas_tube() {
         p.gas_dn_mm = last.gas_mm.unwrap_or(15.88);
+    }
+    if last.service == PipeService::RefrigerantTriple {
+        p.gas2_dn_mm = last.gas2_mm.unwrap_or(19.05);
     }
     p.insulation_mm = last.insulation_mm;
     p.label_height_mm = label_mm;
@@ -171,6 +172,7 @@ fn run_pipeadd(s: &mut Session, p: &Value) -> Result<Value> {
     let refrigerant = last.service.is_refrigerant();
     last.dn_mm = p.get("dn").filter(|v| !v.is_null()).map(|v| size_value(CMD, "dn", v, refrigerant)).transpose()?;
     last.gas_mm = p.get("gas").filter(|v| !v.is_null()).map(|v| size_value(CMD, "gas", v, true)).transpose()?;
+    last.gas2_mm = p.get("hpGas").filter(|v| !v.is_null()).map(|v| size_value(CMD, "hpGas", v, true)).transpose()?;
     last.insulation_mm = number(CMD, p, "insulation", 0.0)?.unwrap_or(0.0);
     let mut params = pipe_params(s, &last, number(CMD, p, "labelHeight", 1.0)?.unwrap_or(100.0))?;
     if let Some(a) = altitude_param(CMD, p)? {
@@ -201,6 +203,7 @@ fn run_pipeedit(s: &mut Session, p: &Value) -> Result<Value> {
         Some(v) => Some(Some(v.clone())),
     };
     let gas: Option<f64> = p.get("gas").filter(|v| !v.is_null()).map(|v| size_value(CMD, "gas", v, true)).transpose()?;
+    let hp_gas: Option<f64> = p.get("hpGas").filter(|v| !v.is_null()).map(|v| size_value(CMD, "hpGas", v, true)).transpose()?;
     let insulation = number(CMD, p, "insulation", 0.0)?;
     let altitude = altitude_param(CMD, p)?;
     let load: Option<Option<f64>> = match p.get("load") {
@@ -231,11 +234,17 @@ fn run_pipeedit(s: &mut Session, p: &Value) -> Result<Value> {
             Some(None) => pp.imposed = false,
             None => {}
         }
-        if pp.service == PipeService::RefrigerantPair {
+        if pp.service.has_gas_tube() {
             if pp.gas_dn_mm <= 0.0 {
                 pp.gas_dn_mm = 15.88;
             }
             pp.gas_dn_mm = gas.unwrap_or(pp.gas_dn_mm);
+        }
+        if pp.service == PipeService::RefrigerantTriple {
+            if pp.gas2_dn_mm <= 0.0 {
+                pp.gas2_dn_mm = 19.05;
+            }
+            pp.gas2_dn_mm = hp_gas.unwrap_or(pp.gas2_dn_mm);
         }
         pp.insulation_mm = insulation.unwrap_or(pp.insulation_mm);
         if let Some(a) = altitude {
@@ -301,6 +310,7 @@ enum PipeAsk {
     Leg,
     Diameter,
     Gas,
+    HpGas,
     Insulation,
 }
 
@@ -317,11 +327,13 @@ impl PipeAddM {
     }
     fn settings(&self, s: &mut Session) {
         let dn = self.last.dn_mm.map_or("Auto".to_string(), |d| self.size_text(d));
-        let gas = if self.last.service == PipeService::RefrigerantPair {
-            format!(", Gas = {}", self.size_text(self.last.gas_mm.unwrap_or(15.88)))
-        } else {
-            String::new()
-        };
+        let mut gas = String::new();
+        if self.last.service.has_gas_tube() {
+            gas = format!(", Gas = {}", self.size_text(self.last.gas_mm.unwrap_or(15.88)));
+        }
+        if self.last.service == PipeService::RefrigerantTriple {
+            gas.push_str(&format!(", HPgas = {}", self.size_text(self.last.gas2_mm.unwrap_or(19.05))));
+        }
         s.echo(format!(
             "Current settings: Service = {}, Leg = {}, Diameter = {dn}{gas}, Insulation = {}",
             self.last.service.name(),
@@ -361,7 +373,8 @@ impl PipeAddM {
             "Service" => self.ask = PipeAsk::Service,
             "Leg" => self.ask = PipeAsk::Leg,
             "Diameter" => self.ask = PipeAsk::Diameter,
-            "Gas" if self.last.service == PipeService::RefrigerantPair => self.ask = PipeAsk::Gas,
+            "Gas" if self.last.service.has_gas_tube() => self.ask = PipeAsk::Gas,
+            "HPgas" if self.last.service == PipeService::RefrigerantTriple => self.ask = PipeAsk::HpGas,
             "Insulation" => self.ask = PipeAsk::Insulation,
             "Undo" => {
                 if self.pts.len() >= 2
@@ -383,7 +396,7 @@ impl PipeAddM {
         match (self.ask, text.as_deref()) {
             (PipeAsk::Service, Some(t)) => {
                 self.last.service = PipeService::parse(t).ok_or_else(|| {
-                    other("Enter ChilledWater, HotWater, ChangeOver, Condensate, RefrigerantLiquid, RefrigerantGas or RefrigerantPair.")
+                    other("Enter ChilledWater, HotWater, ChangeOver, Condensate, RefrigerantLiquid, RefrigerantGas, RefrigerantPair or RefrigerantTriple.")
                 })?;
             }
             (PipeAsk::Leg, Some(t)) => self.last.leg = PipeLeg::parse(t).ok_or_else(|| other("Enter Supply or Return."))?,
@@ -392,6 +405,7 @@ impl PipeAddM {
                 self.last.dn_mm = Some(size_value("pipeadd", "diameter", &Value::String(t.to_string()), self.last.service.is_refrigerant())?)
             }
             (PipeAsk::Gas, Some(t)) => self.last.gas_mm = Some(size_value("pipeadd", "gas", &Value::String(t.to_string()), true)?),
+            (PipeAsk::HpGas, Some(t)) => self.last.gas2_mm = Some(size_value("pipeadd", "hpGas", &Value::String(t.to_string()), true)?),
             (PipeAsk::Insulation, Some(t)) => {
                 self.last.insulation_mm = t
                     .parse::<f64>()
@@ -418,7 +432,16 @@ impl Interactive for PipeAddM {
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.ask {
             PipeAsk::Service => Prompt::new("Enter pipe service", super::curves::KW)
-                .kw(&["ChilledWater", "HotWater", "ChangeOver", "Condensate", "RefrigerantLiquid", "RefrigerantGas", "RefrigerantPair"])
+                .kw(&[
+                    "ChilledWater",
+                    "HotWater",
+                    "ChangeOver",
+                    "Condensate",
+                    "RefrigerantLiquid",
+                    "RefrigerantGas",
+                    "RefrigerantPair",
+                    "RefrigerantTriple",
+                ])
                 .default(self.last.service.name()),
             PipeAsk::Leg => Prompt::new("Enter pipe leg", super::curves::KW).kw(&["Supply", "Return"]).default(self.last.leg.name()),
             PipeAsk::Diameter => Prompt::new(
@@ -432,12 +455,14 @@ impl Interactive for PipeAddM {
             .default(self.last.dn_mm.map_or("Auto".to_string(), |d| self.size_text(d))),
             PipeAsk::Gas => Prompt::new("Enter gas tube diameter (inches, e.g. 5/8, or mm)", Accept::TEXT)
                 .default(self.size_text(self.last.gas_mm.unwrap_or(15.88))),
+            PipeAsk::HpGas => Prompt::new("Enter high/low-pressure gas tube diameter (inches, e.g. 3/4, or mm)", Accept::TEXT)
+                .default(self.size_text(self.last.gas2_mm.unwrap_or(19.05))),
             PipeAsk::Insulation => Prompt::new("Enter insulation thickness (mm)", Accept::NUMBER).default(format!("{}", self.last.insulation_mm)),
             PipeAsk::Point => match self.pts.last().copied() {
-                None => Prompt::new("Specify start point of pipe", Accept::POINT).kw(if self.last.service == PipeService::RefrigerantPair {
-                    &["Service", "Leg", "Diameter", "Gas", "Insulation"][..]
-                } else {
-                    &["Service", "Leg", "Diameter", "Insulation"][..]
+                None => Prompt::new("Specify start point of pipe", Accept::POINT).kw(match self.last.service {
+                    PipeService::RefrigerantPair => &["Service", "Leg", "Diameter", "Gas", "Insulation"][..],
+                    PipeService::RefrigerantTriple => &["Service", "Leg", "Diameter", "Gas", "HPgas", "Insulation"][..],
+                    _ => &["Service", "Leg", "Diameter", "Insulation"][..],
                 }),
                 last => Prompt::new("Specify next point", Accept::POINT).kw(&["Undo"]).base_opt(last),
             },

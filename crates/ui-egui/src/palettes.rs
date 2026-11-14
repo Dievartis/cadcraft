@@ -17,6 +17,7 @@ mod layer_menu_tests;
 mod objects;
 mod thumbs;
 pub(crate) use objects::is_parametric;
+pub(crate) use thumbs::{paint_part, part_color};
 pub mod patterns;
 /// The QuickCalc palette.
 pub mod quickcalc;

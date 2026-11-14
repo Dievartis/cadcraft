@@ -13,6 +13,8 @@ mod duct;
 mod equipment;
 mod library;
 mod network;
+mod part;
+mod part_library;
 mod pipe;
 mod pipe_network;
 mod riser;
@@ -31,6 +33,8 @@ pub use duct::*;
 pub use equipment::*;
 pub use library::standard_air_terminal_models;
 pub use network::{DEFAULT_MARGIN_MM, DuctNetwork, FLEX_ROUGHNESS_MM, MAX_DUCTS};
+pub use part::*;
+pub use part_library::{PartModel, standard_part_model_named, standard_part_models};
 pub use pipe::*;
 pub use pipe_network::{MAX_PIPES as MAX_PIPE_RUNS, PipeNetworkReport, PipeResult, PipeSizingParams};
 pub use riser::*;
@@ -69,7 +73,7 @@ fn hvac_layer_color(name: &str) -> Option<cadcraft_color::Color> {
         AIR_EXHAUST_LAYER | DUCT_EXHAUST_LAYER => Some(Color::True(Rgb(0xff, 0x9a, 0x1e))),
         ZONE_LAYER => Some(Color::True(Rgb(0x2e, 0xb8, 0xa6))),
         EQUIPMENT_ZONE_LAYER => Some(Color::True(Rgb(0x9a, 0x9a, 0x9a))),
-        _ => pipe::pipe_layer_color(name).or_else(|| slab::slab_layer_color(name)),
+        _ => pipe::pipe_layer_color(name).or_else(|| slab::slab_layer_color(name)).or_else(|| part::part_layer_color(name)),
     }
 }
 
@@ -263,6 +267,8 @@ mod accessory_tests;
 mod duct_tests;
 #[cfg(test)]
 mod equipment_tests;
+#[cfg(test)]
+mod part_tests;
 #[cfg(test)]
 mod pipe_tests;
 #[cfg(test)]

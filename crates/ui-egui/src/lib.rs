@@ -35,6 +35,7 @@ pub mod credits;
 pub mod dialogs;
 pub mod docking;
 pub mod fault;
+pub mod partlibdlg;
 pub mod takeoffdlg;
 pub mod wallstyledlg;
 // The Find and Replace window behind the FIND command.
@@ -387,6 +388,8 @@ pub struct CadApp {
     pub wall_style_dlg: Option<wallstyledlg::WallStyleDlgState>,
     /// The HVAC Quantities dialog while open ([`takeoffdlg`]).
     pub takeoff_dlg: Option<takeoffdlg::TakeoffDlgState>,
+    /// The Pipework Part Library window while open ([`partlibdlg`]).
+    pub part_lib: Option<partlibdlg::PartLibState>,
     /// The Hatch and Gradient dialog while open or picking ([`hatchdlg`]).
     pub hatch_dlg: Option<hatchdlg::HatchDlgState>,
     /// The Edit Attributes dialog ([`attedit`]).
@@ -504,6 +507,7 @@ impl CadApp {
             alias_dlg: None,
             wall_style_dlg: None,
             takeoff_dlg: None,
+            part_lib: None,
             hatch_dlg: None,
             attedit: attedit::State::default(),
             bedit: bedit::State::default(),

@@ -10,7 +10,7 @@ use cadcraft_hvac::Fitting;
 use serde::{Deserialize, Serialize};
 
 use super::xlsx::{SheetCell, Workbook};
-use super::{AirDirection, DuctShape, accessory_of, ahu_of, air_terminal_of, equipment_of, riser_of};
+use super::{AirDirection, DuctShape, accessory_of, ahu_of, air_terminal_of, equipment_of, part_of, riser_of};
 use crate::{EntityKind, Result};
 
 /// Most points sampled along one duct to find the length of it inside a space.
@@ -188,12 +188,26 @@ pub struct Takeoff {
     pub pipes: Vec<PipeQuantity>,
     pub fittings: Vec<CountQuantity>,
     pub accessories: Vec<CountQuantity>,
+    /// The parts of the pipework (valves, pumps, vessels, refrigerant branches and boxes), by model and size.
+    pub parts: Vec<CountQuantity>,
     pub terminals: Vec<TerminalQuantity>,
     pub units: Vec<UnitQuantity>,
     pub risers: Vec<RiserQuantity>,
     pub equipment: Vec<CountQuantity>,
     pub spaces: Vec<SpaceQuantity>,
     pub totals: Totals,
+}
+
+/// Counts a pipework part by its model and size.
+fn add_part(list: &mut Vec<CountQuantity>, pt: &super::PartParams) {
+    let name = if pt.model.is_empty() { pt.kind.name().to_string() } else { pt.model.clone() };
+    let size = match (pt.dn_mm, pt.volume_l, pt.outlets) {
+        (Some(d), _, _) => format!("DN{d:.0}"),
+        (None, Some(v), _) => format!("{v:.0} l"),
+        (None, None, n) if n > 0 => format!("{n} outlets"),
+        _ => String::new(),
+    };
+    add_count(list, &name, &size, pt.power_kw);
 }
 
 fn add_count(list: &mut Vec<CountQuantity>, name: &str, size: &str, power: Option<f64>) {
@@ -303,12 +317,15 @@ impl crate::Drawing {
                     incoming_m3h: r.incoming_flow_m3h,
                     length_m: r.height_mm.map(|h| h / 1000.0),
                 });
+            } else if let Some(pt) = part_of(e) {
+                add_part(&mut t.parts, &pt);
             } else if let Some(q) = equipment_of(e) {
                 let name = if q.model.is_empty() { q.name.clone() } else { q.model.clone() };
                 add_count(&mut t.equipment, &name, &format!("{:.0}x{:.0}x{:.0}", q.length_mm, q.width_mm, q.height_mm), q.capacity_kw);
             }
         }
         t.accessories.sort_by(|a, b| a.name.cmp(&b.name).then(a.size.cmp(&b.size)));
+        t.parts.sort_by(|a, b| a.name.cmp(&b.name).then(a.size.cmp(&b.size)));
         t.equipment.sort_by(|a, b| a.name.cmp(&b.name));
         t.terminals.sort_by(|a, b| air_rank(a.air).cmp(&air_rank(b.air)).then(a.model.cmp(&b.model)));
         // Spaces: the terminals each holds, and the length of duct inside it (sampled along each duct).
@@ -418,6 +435,7 @@ fn tr(lang: &str, key: &str) -> String {
         "Area (m²)" => "Surface (m²)",
         "Total" => "Total",
         "Fittings" => "Raccords",
+        "Pipework parts" => "Accessoires de tuyauterie",
         "Accessories" => "Accessoires",
         "Name" => "Désignation",
         "Size" => "Dimensions",
@@ -556,7 +574,7 @@ impl Takeoff {
         wb.sheet(&t("Pipes"), rows)?;
         // Fittings and accessories.
         let mut rows = Vec::new();
-        for (title, list) in [("Fittings", &self.fittings), ("Accessories", &self.accessories)] {
+        for (title, list) in [("Fittings", &self.fittings), ("Accessories", &self.accessories), ("Pipework parts", &self.parts)] {
             if !rows.is_empty() {
                 rows.push(vec![]);
             }
@@ -774,7 +792,9 @@ impl Takeoff {
             ]);
         }
         row(&["Total".into(), String::new(), String::new(), String::new(), self.totals.pipe_count.to_string(), num(self.totals.pipe_length_m)]);
-        for (title, list) in [("Fittings", &self.fittings), ("Accessories", &self.accessories), ("Equipment", &self.equipment)] {
+        for (title, list) in
+            [("Fittings", &self.fittings), ("Accessories", &self.accessories), ("Pipework parts", &self.parts), ("Equipment", &self.equipment)]
+        {
             row(&[]);
             row(&[title.into()]);
             row(&["Name".into(), "Size".into(), "Count".into(), "Power".into()]);
