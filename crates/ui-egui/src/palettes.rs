@@ -9,6 +9,8 @@ use crate::CadApp;
 use crate::icons::{self, Icon};
 use crate::theme::Tokens;
 
+/// Rows the engine describes (text, mtext, dimensions).
+mod described;
 #[cfg(test)]
 mod layer_menu_tests;
 /// The hatch pattern picker.
@@ -1091,7 +1093,11 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
             }
         });
     };
-    if sel.len() == 1 {
+    // Text, mtext and dimensions: the rows the engine describes, for one or many of them.
+    let desc = described::described(ui, app, &sel);
+    let mut edit: Option<described::Edit> = None;
+    let drawn = desc.as_ref().is_some_and(|desc| described::groups(ui, d, desc, ids, &mut edit, &mut bad));
+    if !drawn && sel.len() == 1 {
         group(ui, "Geometry");
         match &e.kind {
             EntityKind::Line(l) => {
@@ -1258,7 +1264,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
             }
             _ => {}
         }
-    } else if let Some(dims) = sel
+    } else if !drawn && let Some(dims) = sel
         .iter()
         .map(|h| match d.entity(*h).map(|e| &e.kind) {
             Some(EntityKind::Dimension(dm)) => Some(dm),
@@ -1314,7 +1320,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
                 set = Some(json!({ "handles": ids, "precision": n }));
             }
         });
-    } else if sel.iter().filter_map(|h| d.entity(*h)).all(|x| std::mem::discriminant(&x.kind) == std::mem::discriminant(&e.kind)) {
+    } else if !drawn && sel.iter().filter_map(|h| d.entity(*h)).all(|x| std::mem::discriminant(&x.kind) == std::mem::discriminant(&e.kind)) {
         // Several objects of one type: the properties of one object, `*VARIES*` where they differ.
         // Edits apply to all of them; positions are shown but stay read-only, since typing one
         // would move every object to the same place.
@@ -1493,6 +1499,13 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
         }
         let _ = app.run("properties.set", p);
     }
+    // A described row the engine couldn't take (a value out of range…) says so.
+    if let Some(e) = edit
+        && let Ok(r) = app.run("properties.set", e.params)
+        && r["ignored"].as_array().is_some_and(|a| !a.is_empty())
+    {
+        app.session.echo(crate::tf!("{property}: that value can't be used here.", property = crate::i18n::t(e.label)));
+    }
     report_bad(app, bad);
     if let Some(p) = custom_set {
         let _ = app.run("blocks.reference.set", p);
@@ -1587,9 +1600,8 @@ mod tests {
         assert!(texts.iter().any(|t| t == "7.0000" || t == "7"), "the common text height is shown; painted: {texts:?}");
     }
 
-    /// Values the display rounds alike still count as different: two dimensions whose text heights
-    /// differ by a millionth show `*VARIES*`, as do two circles whose radii do. Float noise (a
-    /// ten-trillionth) is not a difference.
+    /// The engine compares dimension property values exactly. Check the Text height row
+    /// specifically: other dimension properties (measurement and text position) legitimately vary.
     #[test]
     fn round_off_next_to_zero_is_no_difference() {
         let tag = |v: f64| super::exact("0.0000".into(), v);
@@ -1608,10 +1620,12 @@ mod tests {
         app.run("properties.set", json!({ "handles": [dims[0].clone()], "textHeight": 7.0 })).unwrap();
         app.run("properties.set", json!({ "handles": [dims[1].clone()], "textHeight": 7.0 + 1e-13 })).unwrap();
         let texts = painted_texts(&mut app, properties_section);
-        assert!(!texts.iter().any(|t| t == VARIES), "noise below 12 digits is not a difference; painted: {texts:?}");
+        assert!(texts.windows(2).any(|w| w[0] == "Text height" && w[1] == VARIES),
+            "the engine compares dimension text heights exactly; painted: {texts:?}");
         app.run("properties.set", json!({ "handles": [dims[1].clone()], "textHeight": 7.000001 })).unwrap();
         let texts = painted_texts(&mut app, properties_section);
-        assert!(texts.iter().any(|t| t == VARIES), "7 and 7.000001 differ although both show as 7.0000; painted: {texts:?}");
+        assert!(texts.windows(2).any(|w| w[0] == "Text height" && w[1] == VARIES),
+            "different text heights must vary even when rounded alike; painted: {texts:?}");
 
         let mut app = CadApp::new(Session::default(), Services::default());
         let circles = circles(&mut app, &[2, 2], json!({}));
