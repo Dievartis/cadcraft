@@ -96,7 +96,27 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
 }
 
 /// The line tags a pipe riser can be given.
-const RISER_TAGS: [&str; 11] = ["CHW-S", "CHW-R", "HW-S", "HW-R", "CO-S", "CO-R", "COND", "REF-L", "REF-G", "REF", "REF-HR"];
+const RISER_TAGS: [(&str, &str); 11] = [
+    ("CHW-S", "Chilled water supply"),
+    ("CHW-R", "Chilled water return"),
+    ("HW-S", "Hot water supply"),
+    ("HW-R", "Hot water return"),
+    ("CO-S", "Change-over supply"),
+    ("CO-R", "Change-over return"),
+    ("COND", "Condensate drain"),
+    ("REF-L", "Refrigerant liquid line"),
+    ("REF-G", "Refrigerant gas line"),
+    ("REF", "Refrigerant link (liquid + gas)"),
+    ("REF-HR", "Refrigerant link, heat recovery (3 tubes)"),
+];
+
+/// A line tag with what it stands for, as the menus of the riser show it ("CHW-S  Chilled water supply").
+fn line_label(tag: &str) -> String {
+    match RISER_TAGS.iter().find(|(t, _)| t.eq_ignore_ascii_case(tag)) {
+        Some((t, name)) => format!("{t}  {}", crate::i18n::t(name)),
+        None => tag.to_string(),
+    }
+}
 
 /// The rows of the network a pipe is on: its name (typed, it is the name of the whole network), and the colour and the line type of the
 /// network's style. The colour is chosen from the palette, and shown as a swatch.
@@ -222,10 +242,10 @@ fn pipe_riser_section(ui: &mut egui::Ui, sel: &[Handle], rs: &[PipeRiserParams],
         }
     }
     prop_row(ui, "Lines", |ui| {
-        if let Some(tag) = pick_menu(ui, crate::i18n::t("Add a line"), RISER_TAGS.iter().map(|t| (*t).to_string())) {
-            action = edit("addLines", json!([tag]));
+        if let Some(tag) = pick_menu(ui, crate::i18n::t("Add a line"), RISER_TAGS.iter().map(|(t, _)| line_label(t))) {
+            action = edit("addLines", json!([tag.split_whitespace().next().unwrap_or_default()]));
         }
-        let names: Vec<String> = r.lines.iter().enumerate().map(|(i, l)| format!("{} {}", i + 1, l.pipe(r.units).tag())).collect();
+        let names: Vec<String> = r.lines.iter().enumerate().map(|(i, l)| format!("{} {}", i + 1, line_label(l.pipe(r.units).tag()))).collect();
         let removed =
             pick_menu(ui, crate::i18n::t("Remove a line"), names).and_then(|c| c.split_whitespace().next().and_then(|n| n.parse::<u64>().ok()));
         if let Some(n) = removed {

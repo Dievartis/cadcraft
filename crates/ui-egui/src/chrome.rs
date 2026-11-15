@@ -689,7 +689,7 @@ mod tests {
         app.run("layout.new", json!({})).unwrap();
         app.run("layout.set", json!({"name": "Model"})).unwrap();
         app.start("pipeadd");
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(1400.0, 800.0)).build_ui_state(|ui, app: &mut CadApp| app.ui(ui), app);
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1266.0, 1310.0)).build_ui_state(|ui, app: &mut CadApp| app.ui(ui), app);
         h.run_steps(3);
         let name = h.state().session.state().unwrap().doc.layouts.first().unwrap().name.clone();
         h.get_by_label(&name).click();
