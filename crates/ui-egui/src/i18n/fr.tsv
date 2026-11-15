@@ -1783,3 +1783,68 @@
 	No space: draw spaces to check their emergency lighting.	Aucun local : trace des locaux pour contrôler leur éclairage de sécurité.
 	Emergency lighting: {p} space(s) to correct	Éclairage de sécurité : {p} local(aux) à corriger
 	Presence only: the levels and the autonomy are those of the arrêté du 14 décembre 2011 and of NF EN 1838.	Présence seulement : les niveaux et l'autonomie sont ceux de l'arrêté du 14 décembre 2011 et de la NF EN 1838.
+	Regulation	Régulation
+	Sensors	Capteurs
+	Room controls	Commandes d'ambiance
+	Actuators	Organes de régulation
+	Automation	Automatisme
+	Points	Points
+	Bus cable	Câble de bus
+	Check Controls	Contrôler la régulation
+	Points List	Liste de points
+	Control Device	Appareil de régulation
+	Edit Control Device	Modifier l'appareil de régulation
+	Control Points	Points de régulation
+	Controls	Régulation
+	Room temperature sensor	Sonde de température d'ambiance
+	Duct temperature sensor	Sonde de température de gaine
+	Water temperature sensor	Sonde de température d'eau
+	Outdoor temperature sensor	Sonde de température extérieure
+	Humidity sensor	Sonde d'hygrométrie
+	CO₂ sensor	Sonde de CO₂
+	Air quality (VOC) sensor	Sonde de qualité d'air (COV)
+	Differential pressure sensor	Capteur de pression différentielle
+	Flow sensor	Capteur de débit
+	Occupancy sensor	Détecteur de présence (régulation)
+	Room thermostat	Thermostat d'ambiance
+	VRV remote controller	Télécommande VRV
+	Valve actuator	Servomoteur de vanne
+	Damper actuator	Servomoteur de clapet
+	Frequency drive	Variateur de fréquence
+	Energy meter	Compteur d'énergie
+	Controller	Automate
+	Input/output module	Module d'entrées/sorties
+	Gateway	Passerelle
+	Control cabinet	Coffret de régulation
+	Supervision station	Poste de supervision
+	Occupancy	Présence
+	Energy pulses	Impulsions d'énergie
+	Room temperature	Température ambiante
+	Setpoint	Consigne
+	Position command	Commande de position
+	Speed command	Commande de vitesse
+	Fault	Défaut
+	Run command	Commande de marche
+	The points each device asks of its controller, the load of each controller and module, and a workbook for the controls package.	Les points que chaque appareil demande à son automate, la charge de chaque automate et module, et un classeur pour le dossier de régulation.
+	No control device: draw sensors, controllers and actuators first.	Aucun appareil de régulation : trace d'abord des sondes, des automates et des organes.
+	Controls: {n} device(s), {p} point(s), to correct: {w}	Régulation : {n} appareil(s), {p} point(s), à corriger : {w}
+	Devices: {n}, points: {p}, controllers and modules: {c}	Appareils : {n}, points : {p}, automates et modules : {c}
+	Controllers and modules	Automates et modules
+	Extends	Étend
+	Bus	Bus
+	AI used/offered	EA utilisées/offertes
+	AO used/offered	SA utilisées/offertes
+	DI used/offered	ET utilisées/offertes
+	DO used/offered	ST utilisées/offertes
+	Point type	Type de point
+	Serves	Dessert
+	Wired to controller	Câblé à l'automate
+	Analogue inputs offered	Entrées analogiques offertes
+	Analogue outputs offered	Sorties analogiques offertes
+	Digital inputs offered	Entrées TOR offertes
+	Digital outputs offered	Sorties TOR offertes
+	Setpoint 	Consigne
+	Place the controllers and the modules and give each a name: the devices are wired to them by that name.	Place les automates et les modules et donne un nom à chacun : les appareils y sont câblés par ce nom.
+	Place the sensors, the thermostats and the actuators; in Properties type the controller each is wired to and the equipment it serves.	Place les sondes, les thermostats et les organes ; dans les Propriétés, tape l'automate où chacun est câblé et l'équipement qu'il dessert.
+	Check Controls tells what is wrong: a device wired to nothing, a controller with more points than it offers, no circuit that feeds it, a bus with no cable.	Contrôler la régulation dit ce qui ne va pas : un appareil câblé à rien, un automate avec plus de points qu'il n'en offre, aucun circuit qui l'alimente, un bus sans câble.
+	The Points List shows the load and the reserve of each controller and writes the workbook: one line for each point, with the room it is in.	La liste de points montre la charge et la réserve de chaque automate et écrit le classeur : une ligne par point, avec le local où il se trouve.

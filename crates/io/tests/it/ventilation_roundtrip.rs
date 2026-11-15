@@ -287,3 +287,27 @@ fn cables_devices_and_equipment_circuits_survive_dxf_and_dwg_and_their_applicati
         assert!(text.contains(&format!("AcDbRegAppTableRecord\r\n  2\r\n{app}")), "APPID record {app}");
     }
 }
+
+#[test]
+fn control_devices_survive_dxf_and_dwg_and_their_application_is_registered() {
+    use cadcraft_doc::{CONTROL_APP, ControlKind, ControlParams, control_of};
+    let mut d = Drawing::new_metric();
+    let mut p = ControlParams::new(ControlKind::Controller, "AU1", HvacUnits::default());
+    p.circuit = "TD1-R1".into();
+    p.bus = "BUS1".into();
+    p.capacity.ai = 12;
+    d.add_control(&Space::Model, Common::default(), &p, Vec2::new(500.0, 800.0), 0.0).unwrap();
+    let mut q = ControlParams::new(ControlKind::Thermostat, "TH1", HvacUnits::default());
+    q.controller = "AU1".into();
+    q.setpoint = Some(21.0);
+    d.add_control(&Space::Model, Common::default(), &q, Vec2::new(900.0, 800.0), 0.0).unwrap();
+    for name in ["ctrl.dxf", "ctrl.dwg"] {
+        let back = cadcraft_io::read(&cadcraft_io::write(&d, name).unwrap_or_else(|e| panic!("{name}: {e}")), name)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let mut found: Vec<ControlParams> = back.model.iter().filter_map(|e| control_of(e)).collect();
+        found.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(found, vec![p.clone(), q.clone()], "{name}");
+    }
+    let text = String::from_utf8(cadcraft_io::write(&d, "ctrl.dxf").expect("dxf")).expect("utf-8");
+    assert!(text.contains(&format!("AcDbRegAppTableRecord\r\n  2\r\n{CONTROL_APP}")), "APPID record");
+}

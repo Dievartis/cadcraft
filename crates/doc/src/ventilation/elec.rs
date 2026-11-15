@@ -24,6 +24,7 @@ pub const CABLE_POWER_LAYER: &str = "E-CABLE-POWER";
 pub const CABLE_LIGHT_LAYER: &str = "E-CABLE-LIGHT";
 pub const CABLE_DATA_LAYER: &str = "E-CABLE-DATA";
 pub const CABLE_SAFETY_LAYER: &str = "E-CABLE-SAFETY";
+pub const CABLE_BUS_LAYER: &str = "E-CABLE-BUS";
 pub const DEVICE_LAYER: &str = "E-DEVICE";
 pub const LIGHT_LAYER: &str = "E-LIGHT";
 pub const PANEL_LAYER: &str = "E-PANEL";
@@ -56,10 +57,12 @@ pub enum CableUsage {
     Lighting,
     Data,
     Safety,
+    /// A communication bus of the building controls (BACnet, Modbus, KNX).
+    Bus,
 }
 
 impl CableUsage {
-    pub const ALL: [CableUsage; 4] = [CableUsage::Power, CableUsage::Lighting, CableUsage::Data, CableUsage::Safety];
+    pub const ALL: [CableUsage; 5] = [CableUsage::Power, CableUsage::Lighting, CableUsage::Data, CableUsage::Safety, CableUsage::Bus];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -67,7 +70,13 @@ impl CableUsage {
             CableUsage::Lighting => "lighting",
             CableUsage::Data => "data",
             CableUsage::Safety => "safety",
+            CableUsage::Bus => "bus",
         }
+    }
+
+    /// Whether the cables of this use carry no power worth a calculation: data and bus.
+    pub fn is_signal(self) -> bool {
+        matches!(self, CableUsage::Data | CableUsage::Bus)
     }
 
     pub fn parse(text: &str) -> Option<CableUsage> {
@@ -77,6 +86,7 @@ impl CableUsage {
             "eclairage" | "éclairage" | "lumiere" | "lumière" => Some(CableUsage::Lighting),
             "vdi" | "courants faibles" | "faibles" => Some(CableUsage::Data),
             "securite" | "sécurité" | "ssi" | "baes" => Some(CableUsage::Safety),
+            "gtb" | "bacnet" | "modbus" | "knx" => Some(CableUsage::Bus),
             _ => None,
         })
     }
@@ -87,6 +97,7 @@ impl CableUsage {
             CableUsage::Lighting => CABLE_LIGHT_LAYER,
             CableUsage::Data => CABLE_DATA_LAYER,
             CableUsage::Safety => CABLE_SAFETY_LAYER,
+            CableUsage::Bus => CABLE_BUS_LAYER,
         }
     }
 
@@ -627,6 +638,7 @@ pub fn elec_layer_color(name: &str) -> Option<cadcraft_color::Color> {
         CABLE_LIGHT_LAYER => Some(Color::True(Rgb(0xe0, 0xb0, 0x20))),
         CABLE_DATA_LAYER => Some(Color::True(Rgb(0x30, 0x90, 0xd0))),
         CABLE_SAFETY_LAYER | SAFETY_LAYER => Some(Color::True(Rgb(0x20, 0xb0, 0x50))),
+        CABLE_BUS_LAYER => Some(Color::True(Rgb(0x90, 0x60, 0xd0))),
         DEVICE_LAYER => Some(Color::True(Rgb(0xc0, 0x60, 0x60))),
         LIGHT_LAYER => Some(Color::True(Rgb(0xf0, 0xd0, 0x40))),
         PANEL_LAYER => Some(Color::True(Rgb(0xe0, 0x80, 0x20))),

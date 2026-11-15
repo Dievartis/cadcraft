@@ -43,6 +43,8 @@ pub struct LastUsed {
     /// CABLEADD's circuit, use, section and protection; ELECDEVICEADD's type and circuit.
     pub cable: cmd::CableLastUsed,
     pub device: cmd::DeviceLastUsed,
+    /// CONTROLADD's type and controller.
+    pub control: cmd::ControlLastUsed,
     pub slab: cmd::SlabLastUsed,
     /// DUCTACCESSORYADD's type.
     pub accessory: cmd::AccessoryLastUsed,
@@ -79,6 +81,7 @@ impl Default for LastUsed {
             part: cmd::PartLastUsed::default(),
             cable: cmd::CableLastUsed::default(),
             device: cmd::DeviceLastUsed::default(),
+            control: cmd::ControlLastUsed::default(),
             slab: cmd::SlabLastUsed::default(),
             accessory: cmd::AccessoryLastUsed::default(),
             zone: cmd::ZoneLastUsed::default(),

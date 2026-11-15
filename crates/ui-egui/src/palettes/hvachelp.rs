@@ -16,6 +16,16 @@ const OPEN: &str = "hvac_help_open";
 
 const HELPS: &[Help] = &[
     Help {
+        id: "Points List",
+        steps: &[
+            "Place the controllers and the modules and give each a name: the devices are wired to them by that name.",
+            "Place the sensors, the thermostats and the actuators; in Properties type the controller each is wired to and the equipment it serves.",
+            "Check Controls tells what is wrong: a device wired to nothing, a controller with more points than it offers, no circuit that feeds it, a bus with no cable.",
+            "The Points List shows the load and the reserve of each controller and writes the workbook: one line for each point, with the room it is in.",
+        ],
+        figure: points_list,
+    },
+    Help {
         id: "Distribute in a Space",
         steps: &[
             "Start the tool (air terminals) or Distribute Units in a Space (indoor units), then select the space.",
@@ -362,6 +372,29 @@ fn distribute(p: &Painter, r: Rect) {
     text(p, pos2(room.left() + 6.0, room.bottom() + 1.0), "2x3, 6, 3x4…", Color32::from_gray(190));
 }
 
+fn points_list(p: &Painter, r: Rect) {
+    // A controller in the middle, the sensors and the actuators wired to it, and the bus that goes on.
+    let c = r.center();
+    let ctrl = Rect::from_center_size(c, vec2(70.0, 40.0));
+    let white = Color32::from_gray(200);
+    p.rect_stroke(ctrl, 0.0, Stroke::new(1.4, white), egui::StrokeKind::Inside);
+    text(p, c + vec2(-14.0, 0.0), "AU1", white);
+    for (dx, dy, circle_shape) in [(-100.0, -30.0, true), (-100.0, 30.0, true), (100.0, -30.0, false), (100.0, 30.0, false)] {
+        let d = c + vec2(dx, dy);
+        p.line_segment(
+            [ctrl.center() + vec2(dx.signum() * 35.0, dy / 3.0), d + vec2(-dx.signum() * 12.0, 0.0)],
+            Stroke::new(1.0, Color32::from_gray(120)),
+        );
+        if circle_shape {
+            p.circle_stroke(d, 9.0, Stroke::new(1.2, white));
+        } else {
+            p.rect_stroke(Rect::from_center_size(d, vec2(18.0, 14.0)), 3.0, Stroke::new(1.2, white), egui::StrokeKind::Inside);
+        }
+    }
+    text(p, pos2(r.left() + 6.0, r.bottom() - 8.0), "AI  AI              AO  AO", Color32::from_gray(150));
+    p.line_segment([pos2(c.x - 10.0, ctrl.top()), pos2(c.x - 10.0, r.top() + 4.0)], Stroke::new(1.6, Color32::from_rgb(0x90, 0x60, 0xd0)));
+}
+
 fn size(p: &Painter, r: Rect) {
     let y = r.center().y;
     hduct(p, r.left(), r.center().x + 20.0, y, 26.0);
@@ -419,7 +452,7 @@ mod tests {
 
     #[test]
     fn every_tool_has_a_help_window_that_draws_and_closes() {
-        assert_eq!(HELPS.len(), 19);
+        assert_eq!(HELPS.len(), 20);
         for help in HELPS {
             let mut h = Harness::builder().with_size(vec2(700.0, 500.0)).build_ui(|ui| {
                 show(ui.ctx());
@@ -698,6 +731,7 @@ mod coverage_tests {
             "Wall Junctions",
             "Corner Window",
             "Distribute in a Space",
+            "Points List",
         ] {
             assert!(have(id), "{id}");
         }

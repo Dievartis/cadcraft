@@ -103,6 +103,7 @@ fn paint_cable(p: &egui::Painter, r: Rect, usage: CableUsage) {
         CableUsage::Lighting => egui::Color32::from_rgb(0xe0, 0xb0, 0x20),
         CableUsage::Data => egui::Color32::from_rgb(0x30, 0x90, 0xd0),
         CableUsage::Safety => egui::Color32::from_rgb(0x20, 0xb0, 0x50),
+        CableUsage::Bus => egui::Color32::from_rgb(0x90, 0x60, 0xd0),
     };
     let s = Stroke::new(1.8, colour);
     let (a, b, c) = (pos2(r.left() + 2.0, r.bottom() - 3.0), pos2(r.center().x, r.bottom() - 3.0), pos2(r.right() - 2.0, r.top() + 3.0));

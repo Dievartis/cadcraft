@@ -8,6 +8,8 @@
 
 mod accessory;
 mod circuit_legend;
+mod control;
+mod control_report;
 mod crossing;
 mod distribute;
 mod duct;
@@ -39,6 +41,8 @@ mod zone;
 
 pub use accessory::*;
 pub use circuit_legend::*;
+pub use control::*;
+pub use control_report::*;
 pub use crossing::DuctCrossing;
 pub use distribute::{Distribution, MAX_DISTRIBUTED, distribute_in_polygon};
 pub use duct::*;
@@ -103,6 +107,7 @@ fn hvac_layer_color(name: &str) -> Option<cadcraft_color::Color> {
             .or_else(|| slab::slab_layer_color(name))
             .or_else(|| part::part_layer_color(name))
             .or_else(|| elec::elec_layer_color(name))
+            .or_else(|| control::control_layer_color(name))
             .or_else(|| pipe_networks::network_base(name).and_then(hvac_layer_color)),
     }
 }

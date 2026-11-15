@@ -1776,3 +1776,15 @@ menu	View	视图
 	Terminals share the space's flow; units get their model's power. Edit one afterwards, or move it by its grip.	风口分摊房间的风量；机组取其型号的功率。之后可逐个编辑，或用夹点移动。
 	Check Emergency Lighting	检查应急照明
 	Circuit Legend	回路图例
+	Regulation	调控
+	Bus cable	总线电缆
+	Check Controls	检查控制
+	Points List	点位表
+	Control Device	控制设备
+	Edit Control Device	编辑控制设备
+	Control Points	控制点位
+	Controls	控制
+	Place the controllers and the modules and give each a name: the devices are wired to them by that name.	放置控制器和模块并为每个命名：设备按该名称接线到它们。
+	Place the sensors, the thermostats and the actuators; in Properties type the controller each is wired to and the equipment it serves.	放置传感器、温控器和执行器；在属性中输入各自接线的控制器和所服务的设备。
+	Check Controls tells what is wrong: a device wired to nothing, a controller with more points than it offers, no circuit that feeds it, a bus with no cable.	“检查控制”会指出问题：设备未接线、控制器点位超出容量、没有回路供电、总线无电缆。
+	The Points List shows the load and the reserve of each controller and writes the workbook: one line for each point, with the room it is in.	点位表显示每个控制器的负载和余量，并写出工作簿：每个点位一行，注明所在房间。

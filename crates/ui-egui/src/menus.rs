@@ -601,6 +601,11 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             crate::takeoffdlg::open(app);
             Ok(Value::Null)
         }
+        // Typed or from the Regulation tab (no parameters): the Points List window. JSON calls keep the JSON form.
+        "controltakeoff" if params.is_null() => {
+            crate::ctrldlg::open(app);
+            Ok(Value::Null)
+        }
         // Typed or from the Electricity tab (no parameters): the Electrical Quantities window. JSON calls keep the JSON form.
         "electakeoff" if params.is_null() => {
             crate::elecdlg::open(app);

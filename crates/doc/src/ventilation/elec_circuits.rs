@@ -212,7 +212,10 @@ fn circuit_report(a: Acc, panels: &[String], diversity: f64, opts: &CircuitOptio
         r.warnings.push("no cable is drawn for this circuit".into());
     }
     if r.power_w <= 0.0 {
-        r.warnings.push("the circuit carries no power: type the power of its devices or equipment".into());
+        // A data or bus circuit carries no power: nothing to say.
+        if !usage.is_signal() {
+            r.warnings.push("the circuit carries no power: type the power of its devices or equipment".into());
+        }
         return r;
     }
     let Ok(ib) = calc::design_current(r.power_w, phases.calc(), cos_phi) else { return r };
