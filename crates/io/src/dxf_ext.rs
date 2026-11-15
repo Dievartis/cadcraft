@@ -45,6 +45,10 @@ pub(crate) const MAX_WALL_STYLES: usize = 10_000;
 pub(crate) const AIR_TERMINAL_MODELS_KEY: &str = "CADCRAFT_AIRTERMINALMODELS";
 /// Most air terminal models read from a file.
 pub(crate) const MAX_AIR_TERMINAL_MODELS: usize = 10_000;
+/// Named-object-dictionary key of the drawing's pipework part models XRECORD.
+pub(crate) const PART_MODELS_KEY: &str = "CADCRAFT_PARTMODELS";
+/// Most pipework part models read from a file.
+pub(crate) const MAX_PART_MODELS: usize = cadcraft_doc::MAX_USER_PART_MODELS;
 /// Most plot style tables and plot style names read from a file.
 pub(crate) const MAX_PLOT_STYLE_TABLES: usize = 1000;
 pub(crate) const MAX_PLOT_STYLE_NAMES: usize = 100_000;
@@ -857,6 +861,44 @@ pub(crate) fn parse_air_terminal_models(text: &str) -> Option<Vec<TerminalModel>
     for mut m in p.models {
         m.name = m.name.trim().to_string();
         if m.validate().is_ok() && seen.insert(m.name.to_lowercase()) {
+            out.push(m);
+        }
+    }
+    Some(out)
+}
+
+/// The drawing's pipework part models stored in the `CADCRAFT_PARTMODELS` XRECORD.
+#[derive(Serialize, Deserialize)]
+struct PartModelsPayload {
+    version: u32,
+    #[serde(default)]
+    models: Vec<cadcraft_doc::PartTemplate>,
+}
+
+/// JSON chunks for the part models XRECORD, or `None` when the drawing defines none.
+pub(crate) fn part_model_chunks(models: &[cadcraft_doc::PartTemplate]) -> Option<Vec<String>> {
+    if models.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&PartModelsPayload { version: 1, models: models.to_vec() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// Parse the part models XRECORD text: the valid models, names trimmed, the first of each name (case-insensitive); `None`
+/// when it is not a payload we understand.
+pub(crate) fn parse_part_models(text: &str) -> Option<Vec<cadcraft_doc::PartTemplate>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: PartModelsPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 || p.models.len() > MAX_PART_MODELS {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(p.models.len());
+    for mut m in p.models {
+        m.name = m.name.trim().to_string();
+        if !m.name.is_empty() && m.params.validate().is_ok() && seen.insert(m.name.to_lowercase()) {
             out.push(m);
         }
     }

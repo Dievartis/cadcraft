@@ -5,7 +5,10 @@
 //! VRV 5 branch selectors, 4P797566-1A); the symbols and the plan sizes are ours. Plan sizes are indicative: the unit's size
 //! on the data sheet is typed over them.
 
-use super::{HvacUnits, PartCategory, PartKind, PartParams};
+use serde::{Deserialize, Serialize};
+
+use super::{HvacUnits, PartCategory, PartKind, PartParams, invalid};
+use crate::Result;
 
 /// A model of the library: the values a part takes when it is chosen.
 #[derive(Clone, Debug, PartialEq)]
@@ -115,17 +118,132 @@ impl PartModel {
 
     /// The tag a part of the model starts with ("V" for a valve, "P" for a pump).
     pub fn tag_prefix(&self) -> &'static str {
-        match self.category {
-            PartCategory::Valves => "V",
-            PartCategory::Fittings => "F",
-            PartCategory::AirAndDirt => "A",
-            PartCategory::Instruments => "I",
-            PartCategory::Pumps => "P",
-            PartCategory::VesselsAndTanks => "R",
-            PartCategory::HeatSources => "H",
-            PartCategory::RefrigerantBranches => "PF",
-            PartCategory::BranchBoxes => "BD",
+        tag_prefix(self.category)
+    }
+}
+
+/// The tag a part of `category` starts with.
+pub fn tag_prefix(category: PartCategory) -> &'static str {
+    match category {
+        PartCategory::Valves => "V",
+        PartCategory::Fittings => "F",
+        PartCategory::AirAndDirt => "A",
+        PartCategory::Instruments => "I",
+        PartCategory::Pumps => "P",
+        PartCategory::VesselsAndTanks => "R",
+        PartCategory::HeatSources => "H",
+        PartCategory::RefrigerantBranches => "PF",
+        PartCategory::BranchBoxes => "BD",
+    }
+}
+
+/// A model the user made from a part of the drawing: it is kept in the drawing, with the models of the library.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartTemplate {
+    pub name: String,
+    pub category: PartCategory,
+    /// What a part of the model starts as (its tag and its units are those of the part it is put as).
+    pub params: PartParams,
+}
+
+/// Most models of their own a drawing keeps.
+pub const MAX_USER_PART_MODELS: usize = 2_000;
+
+/// A model of the library as the drawing offers it: one of the standard ones, or one of the drawing's own.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PartEntry {
+    pub name: String,
+    pub name_fr: String,
+    pub category: PartCategory,
+    /// Whether the user made it (it can be deleted).
+    pub user: bool,
+    pub template: PartParams,
+}
+
+impl PartEntry {
+    pub fn kind(&self) -> PartKind {
+        self.template.kind
+    }
+
+    pub fn outlets(&self) -> u32 {
+        self.template.outlets
+    }
+
+    pub fn connections(&self) -> &str {
+        &self.template.connections
+    }
+
+    /// The part a new object of the entry starts as, named `name`.
+    pub fn params(&self, name: &str, units: HvacUnits) -> PartParams {
+        PartParams { name: name.to_string(), units, model: self.name.clone(), ..self.template.clone() }
+    }
+
+    /// The tag a part of the entry starts with.
+    pub fn tag_prefix(&self) -> &'static str {
+        tag_prefix(self.category)
+    }
+
+    fn standard(m: &PartModel) -> PartEntry {
+        PartEntry {
+            name: m.name.to_string(),
+            name_fr: m.name_fr.to_string(),
+            category: m.category,
+            user: false,
+            template: m.params("", HvacUnits::default()),
         }
+    }
+}
+
+impl crate::Drawing {
+    /// Every model a new part can use: the drawing's own, then the standard ones (a model of the drawing of the same name wins).
+    pub fn part_library(&self) -> Vec<PartEntry> {
+        let mut v: Vec<PartEntry> = self
+            .part_models
+            .iter()
+            .map(|t| PartEntry { name: t.name.clone(), name_fr: t.name.clone(), category: t.category, user: true, template: t.params.clone() })
+            .collect();
+        for m in standard_part_models() {
+            if !v.iter().any(|e| e.name.eq_ignore_ascii_case(m.name)) {
+                v.push(PartEntry::standard(&m));
+            }
+        }
+        v
+    }
+
+    /// The model called `name` (in either language), the drawing's own first.
+    pub fn part_entry_named(&self, name: &str) -> Option<PartEntry> {
+        let n = name.trim();
+        if let Some(t) = self.part_models.iter().find(|t| t.name.eq_ignore_ascii_case(n)) {
+            return Some(PartEntry { name: t.name.clone(), name_fr: t.name.clone(), category: t.category, user: true, template: t.params.clone() });
+        }
+        standard_part_model_named(n).map(|m| PartEntry::standard(&m))
+    }
+
+    /// Keeps part `p` as a model called `name` of `category` in the drawing (a model of the same name is replaced).
+    pub fn save_part_model(&mut self, name: &str, category: PartCategory, p: &PartParams) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > super::MAX_HVAC_NAME_CHARS || name.chars().any(char::is_control) {
+            return Err(invalid(format!("A model's name has 1 to {} characters, without control characters.", super::MAX_HVAC_NAME_CHARS)));
+        }
+        let params = PartParams { name: name.to_string(), model: name.to_string(), ..p.clone() };
+        params.validate()?;
+        let template = PartTemplate { name: name.to_string(), category, params };
+        if let Some(slot) = self.part_models.iter_mut().find(|t| t.name.eq_ignore_ascii_case(name)) {
+            *slot = template;
+        } else if self.part_models.len() >= MAX_USER_PART_MODELS {
+            return Err(invalid(format!("A drawing keeps at most {MAX_USER_PART_MODELS} models of its own.")));
+        } else {
+            self.part_models.push(template);
+        }
+        Ok(())
+    }
+
+    /// Removes the drawing's own model called `name`; false when it has none of that name.
+    pub fn delete_part_model(&mut self, name: &str) -> bool {
+        let before = self.part_models.len();
+        self.part_models.retain(|t| !t.name.eq_ignore_ascii_case(name.trim()));
+        self.part_models.len() != before
     }
 }
 

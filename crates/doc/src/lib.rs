@@ -122,6 +122,8 @@ pub struct Drawing {
     /// Air terminal models the drawing defines (new terminals can also use
     /// [`standard_air_terminal_models`]).
     pub air_terminal_models: Vec<TerminalModel>,
+    /// The pipework part models the drawing defines (a library entry, or a part kept as a model); see [`Drawing::part_library`].
+    pub part_models: Vec<PartTemplate>,
     pub blocks: BTreeMap<String, std::sync::Arc<Block>>,
     pub model: EntityStore,
     pub layouts: Vec<Layout>,
@@ -209,6 +211,7 @@ impl Drawing {
             mline_styles: vec![MLineStyle::default()],
             wall_styles: Vec::new(),
             air_terminal_models: Vec::new(),
+            part_models: Vec::new(),
             blocks: BTreeMap::new(),
             model: EntityStore::new(),
             layouts: vec![Layout::new("Layout1", 1), Layout::new("Layout2", 2)],

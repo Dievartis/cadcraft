@@ -204,3 +204,25 @@ fn an_equipment_survives_dxf_and_dwg_and_its_application_is_registered() {
     let text = String::from_utf8(cadcraft_io::write(&d, "equip.dxf").expect("dxf")).expect("utf-8");
     assert!(text.contains(&format!("AcDbRegAppTableRecord\r\n  2\r\n{EQUIPMENT_APP}")), "APPID record");
 }
+
+#[test]
+fn a_pipework_part_and_the_models_of_the_drawing_survive_dxf_and_dwg_and_its_application_is_registered() {
+    let mut d = Drawing::new_metric();
+    let lib = d.part_entry_named("Balancing valve (TA)").unwrap();
+    let mut p = lib.params("V1", HvacUnits::default());
+    p.kvs = Some(6.3);
+    p.height_mm = Some(210.0);
+    d.add_part(&Space::Model, Common::default(), &p, Vec2::new(1000.0, 2000.0), 0.3).unwrap();
+    // A model of the drawing's own, made from that part.
+    d.save_part_model("Vanne TA maison", cadcraft_doc::PartCategory::Valves, &p).unwrap();
+    for name in ["part.dxf", "part.dwg"] {
+        let back = cadcraft_io::read(&cadcraft_io::write(&d, name).unwrap_or_else(|e| panic!("{name}: {e}")), name)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let found: Vec<cadcraft_doc::PartParams> = back.model.iter().filter_map(|e| cadcraft_doc::part_of(e)).collect();
+        assert_eq!(found, std::slice::from_ref(&p), "{name}: the part");
+        assert_eq!(back.part_models, d.part_models, "{name}: the drawing's models");
+        assert!(back.part_entry_named("vanne ta maison").is_some_and(|e| e.user && e.template.kvs == Some(6.3)), "{name}");
+    }
+    let text = String::from_utf8(cadcraft_io::write(&d, "part.dxf").expect("dxf")).expect("utf-8");
+    assert!(text.contains(&format!("AcDbRegAppTableRecord\r\n  2\r\n{}", cadcraft_doc::PART_APP)), "APPID record");
+}

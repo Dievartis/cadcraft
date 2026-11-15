@@ -34,7 +34,9 @@ pub use equipment::*;
 pub use library::standard_air_terminal_models;
 pub use network::{DEFAULT_MARGIN_MM, DuctNetwork, FLEX_ROUGHNESS_MM, MAX_DUCTS};
 pub use part::*;
-pub use part_library::{PartModel, standard_part_model_named, standard_part_models};
+pub use part_library::{
+    MAX_USER_PART_MODELS, PartEntry, PartModel, PartTemplate, standard_part_model_named, standard_part_models, tag_prefix as part_tag_prefix,
+};
 pub use pipe::*;
 pub use pipe_network::{MAX_PIPES as MAX_PIPE_RUNS, PipeNetworkReport, PipeResult, PipeSizingParams};
 pub use riser::*;

@@ -81,7 +81,7 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     }
     let parts: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| part_of(e))).collect();
     if !parts.is_empty() && parts.len() == sel.len() {
-        return part_section(ui, sel, &parts, bad);
+        return part_section(ui, sel, &parts, &d.part_library(), bad);
     }
     let slabs: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| slab_of(e))).collect();
     if !slabs.is_empty() && slabs.len() == sel.len() {
@@ -91,7 +91,7 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
 }
 
 /// The Properties group of pipework parts: their tag, size, volume, power, flow and head, their outlets and their connections.
-fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], bad: &mut Option<String>) -> Action {
+fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], library: &[cadcraft_doc::PartEntry], bad: &mut Option<String>) -> Action {
     let ids = handles(sel);
     let mut action: Action = None;
     let edit = |key: &str, value: Value| Some(("pipepartedit", json!({ "handles": ids, key: value })));
@@ -107,15 +107,16 @@ fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], bad: &mut 
     let model = shared(&ps.iter().map(|p| p.model.to_string()).collect::<Vec<String>>());
     prop_row(ui, "Model", |ui| {
         let fr = crate::i18n::current_language().starts_with("fr");
-        let same: Vec<_> = kind.map(|k| cadcraft_doc::standard_part_models().into_iter().filter(|m| m.kind == k).collect()).unwrap_or_default();
+        let name_of = |m: &cadcraft_doc::PartEntry| if fr { m.name_fr.clone() } else { m.name.clone() };
+        let same: Vec<_> = kind.map(|k| library.iter().filter(|m| m.kind() == k).cloned().collect()).unwrap_or_else(Vec::new);
         let shown = match &model {
-            Some(m) if !m.is_empty() => same.iter().find(|x| x.name == m.as_str()).map_or(m.as_str(), |x| if fr { x.name_fr } else { x.name }),
-            Some(_) => "—",
-            None => VARIES,
+            Some(m) if !m.is_empty() => same.iter().find(|x| x.name == *m).map_or_else(|| m.clone(), name_of),
+            Some(_) => "—".to_string(),
+            None => VARIES.to_string(),
         };
-        let items: Vec<(&str, &str)> = same.iter().map(|m| (m.name, if fr { m.name_fr } else { m.name })).collect();
-        if let Some(k) = choice(ui, shown, &items) {
-            action = edit("model", json!(k));
+        // The model is told by its name: either language is understood.
+        if let Some(chosen) = pick_menu(ui, &shown, same.iter().map(name_of)) {
+            action = edit("model", json!(chosen));
         }
     });
     // Numbers that may be left empty (not known): a number sets, empty clears.

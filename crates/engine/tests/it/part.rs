@@ -161,3 +161,47 @@ fn a_valve_put_on_a_pipe_cuts_it_but_a_vessel_or_a_sensor_does_not() {
     s.execute("pipepartadd", &json!({"at": [20, 0], "model": "Isolation valve (ball)"})).unwrap();
     assert_eq!(pipes(&s), 2, "too near the end of the pipe for its gap");
 }
+
+#[test]
+fn a_part_kept_as_a_model_is_offered_again_and_can_be_deleted() {
+    let mut s = metric();
+    let r = s.execute("pipepartadd", &json!({"at": [0, 0], "model": "Balancing valve (TA)", "dn": 65})).unwrap();
+    let h = hd(&r["handle"]);
+    s.execute("pipepartedit", &json!({"handle": h.hex(), "kvs": 38, "height": 190, "length": 180})).unwrap();
+    // Kept as a model of the drawing's own.
+    let saved = s.execute("pipepartmodels", &json!({"save": h.hex(), "name": "Vanne TA DN65 maison"})).unwrap();
+    assert_eq!(saved["saved"], "Vanne TA DN65 maison");
+    let listed = s.execute("pipepartmodels", &json!({"q": "maison"})).unwrap();
+    let models = listed["models"].as_array().unwrap();
+    assert_eq!(models.len(), 1);
+    assert_eq!(
+        (models[0]["user"].as_bool(), models[0]["category"].as_str(), models[0]["height"].as_f64()),
+        (Some(true), Some("valves"), Some(190.0))
+    );
+    // Offered first, and a part made from it has its values and its tag.
+    let again = s.execute("pipepartadd", &json!({"at": [1000, 0], "model": "vanne ta dn65 MAISON"})).unwrap();
+    let p = part(&s, hd(&again["handle"]));
+    assert_eq!((p.model.as_str(), p.kvs, p.dn_mm, p.length_mm), ("Vanne TA DN65 maison", Some(38.0), Some(65.0), 180.0));
+    assert_eq!(again["name"], "V2");
+    // Another part can take it as its model (its tag stays).
+    let other = s.execute("pipepartadd", &json!({"at": [2000, 0], "model": "Check valve", "name": "CV9"})).unwrap();
+    s.execute("pipepartedit", &json!({"handle": other["handle"], "model": "Vanne TA DN65 maison"})).unwrap();
+    let q = part(&s, hd(&other["handle"]));
+    assert_eq!((q.name.as_str(), q.kvs), ("CV9", Some(38.0)));
+    // Kept again under the same name: replaced, not doubled. Another category when asked.
+    s.execute("pipepartmodels", &json!({"save": h.hex(), "name": "vanne ta dn65 maison", "category": "fittings"})).unwrap();
+    let listed = s.execute("pipepartmodels", &json!({"category": "fittings", "q": "maison"})).unwrap();
+    assert_eq!(listed["models"].as_array().unwrap().len(), 1);
+    // The model of the drawing's own can be deleted; a standard one cannot; what is wrong is refused.
+    assert!(s.execute("pipepartmodels", &json!({"delete": "Check valve"})).is_err());
+    assert_eq!(s.execute("pipepartmodels", &json!({"delete": "Vanne TA DN65 maison"})).unwrap()["deleted"], "Vanne TA DN65 maison");
+    assert!(s.execute("pipepartadd", &json!({"at": [0, 0], "model": "Vanne TA DN65 maison"})).is_err());
+    for bad in [
+        json!({"save": h.hex()}),
+        json!({"save": h.hex(), "name": ""}),
+        json!({"save": "0", "name": "x"}),
+        json!({"save": h.hex(), "name": "x", "category": "gizmos"}),
+    ] {
+        assert!(s.execute("pipepartmodels", &bad).is_err(), "{bad}");
+    }
+}

@@ -1,9 +1,7 @@
 //! Pipework parts: PIPEPARTADD puts a valve, a pump, a vessel, a refrigerant branch or a branch-selector box on the
 //! drawing (turned along the pipe it is put on), PIPEPARTEDIT changes parts already drawn, PIPEPARTMODELS lists the library.
 
-use cadcraft_doc::{
-    Drawing, EntityKind, Handle, HvacUnits, PartCategory, PartModel, PartParams, part_of, standard_part_model_named, standard_part_models,
-};
+use cadcraft_doc::{Drawing, EntityKind, Handle, HvacUnits, PartCategory, PartEntry, PartParams, part_of};
 use cadcraft_geom::Vec2;
 use serde_json::{Value, json};
 
@@ -32,7 +30,8 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         CommandSpec::new("pipepartmodels", "Pipework Part Library", run_models).params(
             "{category? (valves|fittings|airAndDirt|instruments|pumps|vesselsAndTanks|heatSources|refrigerantBranches|branchBoxes), q? (words found in the name)} → \
-             {categories: [{name, title}], models: [{name, nameFr, category, kind, brand, outlets, connections, dn, volume, power}]}",
+             {categories: [{name, title}], models: [{name, nameFr, category, kind, user, outlets, connections, dn, volume, power, height, length, width}]} | \
+             {save: handle (a part kept as a model of the drawing), name, category?} → {saved} | {delete: name (a model of the drawing's own)} → {deleted}",
         ),
     ]
 }
@@ -87,7 +86,7 @@ fn whole(cmd: &str, p: &Value, key: &str) -> Result<Option<u32>> {
 }
 
 /// The tag a new part of `model` takes: its prefix and the number after the parts of that prefix already drawn.
-fn next_tag(d: &Drawing, model: &PartModel) -> String {
+fn next_tag(d: &Drawing, model: &PartEntry) -> String {
     let prefix = model.tag_prefix();
     let n = d.model.iter().filter_map(|e| part_of(e)).filter(|p| p.name.starts_with(prefix)).count() + 1;
     format!("{prefix}{n}")
@@ -117,7 +116,7 @@ fn pipe_under(d: &Drawing, at: Vec2) -> Option<(Handle, Vec2, f64, f64)> {
 /// Puts a part made from `model` at `at` (on the pipe under it, turned along it, unless `rotation` is given).
 fn place(
     s: &mut Session,
-    model: &PartModel,
+    model: &PartEntry,
     name: Option<String>,
     at: Vec2,
     rotation: Option<f64>,
@@ -144,13 +143,13 @@ fn place(
     Ok(h)
 }
 
-fn model_param(cmd: &str, p: &Value) -> Result<PartModel> {
+fn model_param(d: &Drawing, cmd: &str, p: &Value) -> Result<PartEntry> {
     if let Some(n) = str_param(p, "model") {
-        return standard_part_model_named(n).ok_or_else(|| bad(cmd, format!("no model `{n}` in the library (see pipepartmodels)")));
+        return d.part_entry_named(n).ok_or_else(|| bad(cmd, format!("no model `{n}` in the library (see pipepartmodels)")));
     }
     if let Some(k) = str_param(p, "kind") {
         let kind = cadcraft_doc::PartKind::parse(k).ok_or_else(|| bad(cmd, "unknown `kind`"))?;
-        return standard_part_models().into_iter().find(|m| m.kind == kind).ok_or_else(|| bad(cmd, "no model of that kind"));
+        return d.part_library().into_iter().find(|m| m.kind() == kind).ok_or_else(|| bad(cmd, "no model of that kind"));
     }
     Err(bad(cmd, "`model` (a name of the library) or `kind` is required"))
 }
@@ -158,7 +157,7 @@ fn model_param(cmd: &str, p: &Value) -> Result<PartModel> {
 fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "pipepartadd";
     let at = super::point_param(p, "at").ok_or_else(|| bad(CMD, "`at` ([x, y]) is required"))?;
-    let model = model_param(CMD, p)?;
+    let model = model_param(s.doc()?, CMD, p)?;
     let rotation = p
         .get("rotation")
         .filter(|v| !v.is_null())
@@ -219,7 +218,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if let Some(m) = str_param(p, "model") {
             // A model of the library gives its values (the tag and the pipe's size stay); another text is only a name.
-            match standard_part_model_named(m) {
+            match d.part_entry_named(m) {
                 Some(lib) => take_model(&mut pp, &lib),
                 None => pp.model = m.to_string(),
             }
@@ -263,10 +262,10 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// Gives `pp` the values of library model `m`: its kind, sizes, outlets and connections (its tag and its pipe's size stay).
-fn take_model(pp: &mut PartParams, m: &PartModel) {
-    let (kind, dn) = (m.kind, pp.dn_mm);
+fn take_model(pp: &mut PartParams, m: &PartEntry) {
+    let dn = pp.dn_mm;
     let fresh = m.params(&pp.name, pp.units);
-    *pp = PartParams { kind, dn_mm: dn.or(fresh.dn_mm), label_height_mm: pp.label_height_mm, ..fresh };
+    *pp = PartParams { dn_mm: dn.or(fresh.dn_mm), label_height_mm: pp.label_height_mm, ..fresh };
 }
 
 fn category_name(c: PartCategory) -> &'static str {
@@ -283,31 +282,54 @@ fn category_name(c: PartCategory) -> &'static str {
     }
 }
 
-fn run_models(_s: &mut Session, p: &Value) -> Result<Value> {
+fn run_models(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "pipepartmodels";
+    // A part kept as a model of the drawing, or a model of the drawing's own removed.
+    if let Some(h) = super::curves::handle_param(p, "save") {
+        let name = str_param(p, "name").ok_or_else(|| bad(CMD, "`name` is required to save a model"))?;
+        let part = s.doc()?.entity(h).and_then(|e| part_of(e)).ok_or_else(|| other("Select a pipework part to keep as a model."))?;
+        let category = match str_param(p, "category") {
+            Some(c) => category_named(c).ok_or_else(|| bad(CMD, "unknown `category`"))?,
+            None => part.kind.category(),
+        };
+        s.doc_mut()?.save_part_model(name, category, &part).map_err(doc_err)?;
+        return Ok(json!({ "saved": name.trim() }));
+    }
+    if let Some(name) = str_param(p, "delete") {
+        return if s.doc_mut()?.delete_part_model(name) {
+            Ok(json!({ "deleted": name.trim() }))
+        } else {
+            Err(other("The drawing has no model of that name of its own."))
+        };
+    }
     let wanted = match str_param(p, "category") {
-        Some(c) => {
-            Some(PartCategory::ALL.into_iter().find(|x| category_name(*x).eq_ignore_ascii_case(c)).ok_or_else(|| bad(CMD, "unknown `category`"))?)
-        }
+        Some(c) => Some(category_named(c).ok_or_else(|| bad(CMD, "unknown `category`"))?),
         None => None,
     };
     let words: Vec<String> = str_param(p, "q").map(|q| q.to_lowercase().split_whitespace().map(str::to_string).collect()).unwrap_or_default();
-    let models: Vec<Value> = standard_part_models()
+    let models: Vec<Value> = s
+        .doc()?
+        .part_library()
         .into_iter()
         .filter(|m| wanted.is_none_or(|c| m.category == c))
         .filter(|m| {
-            let hay = format!("{} {} {} {}", m.name, m.name_fr, m.brand, m.connections).to_lowercase();
+            let hay = format!("{} {} {}", m.name, m.name_fr, m.connections()).to_lowercase();
             words.iter().all(|w| hay.contains(w))
         })
         .map(|m| {
             json!({
-                "name": m.name, "nameFr": m.name_fr, "category": category_name(m.category), "kind": m.kind.name(), "brand": m.brand,
-                "outlets": m.outlets, "connections": m.connections, "dn": m.dn_mm, "volume": m.volume_l, "power": m.power_kw,
+                "name": m.name, "nameFr": m.name_fr, "category": category_name(m.category), "kind": m.kind().name(), "user": m.user,
+                "outlets": m.outlets(), "connections": m.connections(), "dn": m.template.dn_mm, "volume": m.template.volume_l, "power": m.template.power_kw,
+                "height": m.template.height_mm, "length": m.template.length_mm, "width": m.template.width_mm,
             })
         })
         .collect();
     let categories: Vec<Value> = PartCategory::ALL.into_iter().map(|c| json!({ "name": category_name(c), "title": c.title() })).collect();
     Ok(json!({ "categories": categories, "models": models }))
+}
+
+fn category_named(name: &str) -> Option<PartCategory> {
+    PartCategory::ALL.into_iter().find(|x| category_name(*x).eq_ignore_ascii_case(name))
 }
 
 /// PIPEPARTADD at the command line: pick the model (or use the last), then click where each part goes.
@@ -339,9 +361,9 @@ impl Interactive for PartAddM {
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         if self.ask_model {
             if let Input::Text(t) | Input::Keyword(t) = &i {
-                match standard_part_model_named(t) {
+                match s.doc().ok().and_then(|d| d.part_entry_named(t)) {
                     Some(m) => {
-                        self.model = m.name.to_string();
+                        self.model = m.name.clone();
                         s.echo(format!("Current settings: Model = {}", self.model));
                     }
                     None => s.echo("Not a model of the library: see PIPEPARTMODELS."),
@@ -356,7 +378,7 @@ impl Interactive for PartAddM {
                 Ok(Step::Continue)
             }
             Input::Point(at) => {
-                let Some(model) = standard_part_model_named(&self.model) else { return Ok(Step::Done) };
+                let Some(model) = s.doc().ok().and_then(|d| d.part_entry_named(&self.model)) else { return Ok(Step::Done) };
                 match place(s, &model, None, at, None, |_| {}) {
                     Ok(_) => s.last_used.part.model = self.model.clone(),
                     Err(e) => s.echo(e.to_string()),
@@ -372,7 +394,8 @@ impl Interactive for PartAddM {
     }
     fn preview_objects(&self, s: &Session, c: Vec2) -> Vec<cadcraft_doc::Entity> {
         // The part under the cursor, as it will be drawn, turned along the pipe it would sit on.
-        let (Some(model), Ok(d)) = (standard_part_model_named(&self.model), s.doc()) else { return Vec::new() };
+        let Ok(d) = s.doc() else { return Vec::new() };
+        let Some(model) = d.part_entry_named(&self.model) else { return Vec::new() };
         let (at, angle) = pipe_under(d, c).map_or((c, 0.0), |(_, foot, a, _)| (foot, a));
         let p = model.params(&next_tag(d, &model), HvacUnits::of(d));
         p.generate().map(|pieces| cadcraft_doc::preview_entities(pieces, at, angle)).unwrap_or_default()

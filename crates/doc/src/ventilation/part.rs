@@ -184,6 +184,37 @@ impl PartKind {
         }
     }
 
+    /// The family the kind is listed under.
+    pub fn category(self) -> PartCategory {
+        match self {
+            PartKind::IsolationValve
+            | PartKind::ButterflyValve
+            | PartKind::CheckValve
+            | PartKind::BalancingValve
+            | PartKind::ControlValve
+            | PartKind::ThreeWayValve
+            | PartKind::PicValve
+            | PartKind::SafetyValve
+            | PartKind::PressureReducingValve
+            | PartKind::DrainValve => PartCategory::Valves,
+            PartKind::Strainer
+            | PartKind::FlexConnector
+            | PartKind::Reducer
+            | PartKind::Disconnector
+            | PartKind::FillingGroup
+            | PartKind::Manifold => PartCategory::Fittings,
+            PartKind::AirVent | PartKind::Deaerator | PartKind::DirtSeparator => PartCategory::AirAndDirt,
+            PartKind::Thermometer | PartKind::PressureGauge | PartKind::FlowMeter | PartKind::EnergyMeter | PartKind::Sensor => {
+                PartCategory::Instruments
+            }
+            PartKind::Pump | PartKind::DoublePump => PartCategory::Pumps,
+            PartKind::ExpansionVessel | PartKind::Tank | PartKind::DecouplingBottle => PartCategory::VesselsAndTanks,
+            PartKind::Boiler | PartKind::HeatExchanger => PartCategory::HeatSources,
+            PartKind::RefnetJoint | PartKind::RefnetHeader => PartCategory::RefrigerantBranches,
+            PartKind::BranchBox => PartCategory::BranchBoxes,
+        }
+    }
+
     /// Whether the part belongs to a refrigerant network.
     pub fn is_refrigerant(self) -> bool {
         self.layer() == PART_REFRIGERANT_LAYER

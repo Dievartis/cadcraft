@@ -1,9 +1,11 @@
 //! The Pipework Part Library window (PIPEPARTMODELS typed, or the "Library…" row of the HVAC tab): the valves, pumps,
-//! vessels, boilers, instruments and refrigerant branches and boxes, by family, with a search. A click chooses a part and starts
-//! PIPEPARTADD with it; dragging one onto the drawing puts it where it is dropped.
+//! vessels, boilers, instruments and refrigerant branches and boxes, by family, with a search, and the drawing's own models. A
+//! click chooses a part and starts PIPEPARTADD with it; dragging one onto the drawing puts it where it is dropped; a part of the
+//! drawing can be kept as a model of its own.
 
-use cadcraft_doc::{PartCategory, PartModel, standard_part_models};
-use egui::{Color32, RichText, Sense, Stroke, pos2, vec2};
+use cadcraft_doc::{PartCategory, PartEntry};
+use egui::{RichText, Sense, Stroke, pos2, vec2};
+use serde_json::json;
 
 use crate::CadApp;
 use crate::theme::Tokens;
@@ -17,8 +19,13 @@ pub struct PartDrag(pub String);
 pub struct PartLibState {
     /// The family shown; none: all.
     pub category: Option<PartCategory>,
-    /// The words searched for in a name, a brand and the connections.
+    /// Only the models the drawing keeps of its own.
+    pub mine: bool,
+    /// The words searched for in a name and the connections.
     pub query: String,
+    /// The name a part of the drawing is kept under.
+    pub save_name: String,
+    pub message: Option<String>,
     pub raise: bool,
 }
 
@@ -30,27 +37,27 @@ pub fn open(app: &mut CadApp) {
     app.ui.dialog = Some("partlib".into());
 }
 
-/// The models of `category` (all when none) whose name, brand or connections hold every word of `query`.
-pub fn filtered(models: Vec<PartModel>, category: Option<PartCategory>, query: &str) -> Vec<PartModel> {
+/// The models of `category` (all when none; only the drawing's own when `mine`) whose name or connections hold every word of `query`.
+pub fn filtered(models: Vec<PartEntry>, category: Option<PartCategory>, mine: bool, query: &str) -> Vec<PartEntry> {
     let words: Vec<String> = query.to_lowercase().split_whitespace().map(str::to_string).collect();
     models
         .into_iter()
-        .filter(|m| category.is_none_or(|c| m.category == c))
+        .filter(|m| (!mine || m.user) && category.is_none_or(|c| m.category == c))
         .filter(|m| {
-            let hay = format!("{} {} {} {}", m.name, m.name_fr, m.brand, m.connections).to_lowercase();
+            let hay = format!("{} {} {}", m.name, m.name_fr, m.connections()).to_lowercase();
             words.iter().all(|w| hay.contains(w))
         })
         .collect()
 }
 
 /// The name of a model in the language of the interface.
-pub fn display_name(m: &PartModel) -> &'static str {
-    if crate::i18n::current_language().starts_with("fr") { m.name_fr } else { m.name }
+pub fn display_name(m: &PartEntry) -> &str {
+    if crate::i18n::current_language().starts_with("fr") { &m.name_fr } else { &m.name }
 }
 
 /// Put a model of the library where it was dropped, at `at` in drawing coordinates; what went wrong is said on the command line.
 pub fn drop_part(app: &mut CadApp, model: &str, at: cadcraft_geom::Vec2) {
-    let r = app.run("pipepartadd", serde_json::json!({ "at": [at.x, at.y], "model": model }));
+    let r = app.run("pipepartadd", json!({ "at": [at.x, at.y], "model": model }));
     match r {
         Ok(_) => app.session.last_used.part.model = model.to_string(),
         Err(e) => app.session.echo(e),
@@ -59,19 +66,33 @@ pub fn drop_part(app: &mut CadApp, model: &str, at: cadcraft_geom::Vec2) {
 
 const CARD: egui::Vec2 = vec2(150.0, 120.0);
 
+/// What a click in the window asks for, done once the window is drawn.
+#[derive(Default)]
+struct Asked {
+    choose: Option<String>,
+    delete: Option<String>,
+    save: bool,
+}
+
 pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
     if app.part_lib.is_none() {
         open(app);
     }
     let t = Tokens::get();
     let current = app.session.last_used.part.model.clone();
+    let models = app.session.doc().map(|d| d.part_library()).unwrap_or_default();
+    let selected_part = app
+        .session
+        .selection()
+        .into_iter()
+        .find(|h| app.session.doc().ok().and_then(|d| d.entity(*h)).and_then(|e| cadcraft_doc::part_of(e)).is_some());
     let Some(st) = app.part_lib.as_mut() else { return };
     let id = egui::Id::unique("part_library_window");
     if std::mem::take(&mut st.raise) {
         ctx.move_to_top(egui::LayerId::new(egui::Order::Middle, id));
     }
-    let mut chosen: Option<String> = None;
-    egui::Window::new(crate::tl!("Pipework Part Library")).id(id).open(open_flag).collapsible(false).default_size(vec2(780.0, 560.0)).show(
+    let mut asked = Asked::default();
+    egui::Window::new(crate::tl!("Pipework Part Library")).id(id).open(open_flag).collapsible(false).default_size(vec2(780.0, 580.0)).show(
         ctx,
         |ui| {
             ui.horizontal(|ui| {
@@ -89,26 +110,50 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(170.0);
-                    if ui.selectable_label(st.category.is_none(), crate::tl!("All")).clicked() {
-                        st.category = None;
+                    if ui.selectable_label(st.category.is_none() && !st.mine, crate::tl!("All")).clicked() {
+                        (st.category, st.mine) = (None, false);
                     }
+                    if ui.selectable_label(st.mine, crate::tl!("My models")).clicked() {
+                        (st.category, st.mine) = (None, true);
+                    }
+                    ui.separator();
                     for c in PartCategory::ALL {
-                        if ui.selectable_label(st.category == Some(c), crate::i18n::t(c.title())).clicked() {
-                            st.category = Some(c);
+                        if ui.selectable_label(st.category == Some(c) && !st.mine, crate::i18n::t(c.title())).clicked() {
+                            (st.category, st.mine) = (Some(c), false);
                         }
                     }
                 });
                 ui.separator();
-                let models = filtered(standard_part_models(), st.category, &st.query);
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-                        for m in &models {
-                            card(ui, m, m.name == current, &t, &mut chosen);
+                ui.vertical(|ui| {
+                    let shown = filtered(models.clone(), st.category, st.mine, &st.query);
+                    let height = ui.available_height() - 52.0;
+                    egui::ScrollArea::vertical().max_height(height.max(120.0)).auto_shrink([false, false]).show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                            for m in &shown {
+                                card(ui, m, m.name == current, &t, &mut asked);
+                            }
+                        });
+                        if shown.is_empty() {
+                            ui.label(if st.mine {
+                                crate::tl!("No model of your own yet: select a part of the drawing and keep it as a model.")
+                            } else {
+                                crate::tl!("No part matches.")
+                            });
                         }
                     });
-                    if models.is_empty() {
-                        ui.label(crate::tl!("No part matches."));
+                    ui.separator();
+                    // A part of the drawing kept as a model of its own.
+                    ui.horizontal(|ui| {
+                        let label = ui.label(crate::tl!("Name of the model"));
+                        ui.add(egui::TextEdit::singleline(&mut st.save_name).desired_width(220.0)).labelled_by(label.id);
+                        let can = selected_part.is_some() && !st.save_name.trim().is_empty();
+                        if ui.add_enabled(can, egui::Button::new(crate::tl!("Keep the selected part as a model"))).clicked() {
+                            asked.save = true;
+                        }
+                    });
+                    if let Some(m) = &st.message {
+                        ui.label(RichText::new(m).small());
                     }
                 });
             });
@@ -122,25 +167,39 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
             ctx,
             |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.label(
-                        RichText::new(
-                            standard_part_models().into_iter().find(|m| m.name == drag.0).map_or(drag.0.clone(), |m| display_name(&m).to_string()),
-                        )
-                        .small(),
-                    );
+                    ui.label(RichText::new(models.iter().find(|m| m.name == drag.0).map_or(drag.0.clone(), |m| display_name(m).to_string())).small());
                 });
             },
         );
     }
-    if let Some(name) = chosen {
+    if asked.save
+        && let Some(h) = selected_part
+    {
+        let name = app.part_lib.as_ref().map(|s| s.save_name.clone()).unwrap_or_default();
+        let r = app.run("pipepartmodels", json!({ "save": h.hex(), "name": name }));
+        if let Some(st) = app.part_lib.as_mut() {
+            st.message = Some(match r {
+                Ok(_) => crate::tf!("Model kept: {name}", name = name.trim()),
+                Err(e) => e,
+            });
+        }
+    }
+    if let Some(name) = asked.delete {
+        let r = app.run("pipepartmodels", json!({ "delete": name }));
+        if let (Err(e), Some(st)) = (r, app.part_lib.as_mut()) {
+            st.message = Some(e);
+        }
+    }
+    if let Some(name) = asked.choose {
         app.session.last_used.part.model = name;
         app.cmd.buffer.clear();
         app.start("pipepartadd");
     }
 }
 
-/// One model as a card: its symbol, its name and brand; clicked, it is chosen; dragged, it carries its name.
-fn card(ui: &mut egui::Ui, m: &PartModel, selected: bool, t: &Tokens, chosen: &mut Option<String>) {
+/// One model as a card: its symbol, its name; clicked, it is chosen; dragged, it carries its name; a model of the drawing's own
+/// can be deleted from its menu.
+fn card(ui: &mut egui::Ui, m: &PartEntry, selected: bool, t: &Tokens, asked: &mut Asked) {
     let (rect, resp) = ui.allocate_exact_size(CARD, Sense::click_and_drag());
     let p = ui.painter();
     p.rect_filled(
@@ -151,31 +210,44 @@ fn card(ui: &mut egui::Ui, m: &PartModel, selected: bool, t: &Tokens, chosen: &m
         } else if resp.hovered() {
             t.chrome_dark
         } else {
-            Color32::TRANSPARENT
+            egui::Color32::TRANSPARENT
         },
     );
     p.rect_stroke(rect, 6.0, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
     let part = m.params("T", cadcraft_doc::HvacUnits::default());
-    let art = egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 38.0), vec2(30.0, 30.0));
+    let art = egui::Rect::from_center_size(pos2(rect.center().x, rect.top() + 38.0), vec2(30.0, 30.0));
     crate::palettes::paint_part(p, art, &part);
     let name = p.layout(display_name(m).to_string(), egui::FontId::proportional(11.5), t.text, CARD.x - 14.0);
     p.galley(pos2(rect.left() + 7.0, rect.top() + 72.0), name, t.text);
-    let extra = if m.outlets > 0 { format!("{}x", m.outlets) } else { String::new() };
+    let extra = match (m.user, m.outlets()) {
+        (true, 0) => crate::i18n::t("My models").to_string(),
+        (true, n) => format!("{} · {n}x", crate::i18n::t("My models")),
+        (false, n) if n > 0 => format!("{n}x"),
+        _ => String::new(),
+    };
     p.text(pos2(rect.left() + 7.0, rect.bottom() - 6.0), egui::Align2::LEFT_BOTTOM, extra, egui::FontId::proportional(10.0), t.text_dim);
     if resp.drag_started() {
-        resp.dnd_set_drag_payload(PartDrag(m.name.to_string()));
+        resp.dnd_set_drag_payload(PartDrag(m.name.clone()));
     }
-    let resp = if m.connections.is_empty() {
+    let resp = if m.connections().is_empty() {
         resp
     } else {
         resp.on_hover_ui(|ui| {
             ui.set_max_width(360.0);
             ui.label(RichText::new(display_name(m)).strong());
-            ui.label(&m.connections);
+            ui.label(m.connections());
         })
     };
+    if m.user {
+        resp.context_menu(|ui| {
+            if ui.button(crate::tl!("Delete this model")).clicked() {
+                asked.delete = Some(m.name.clone());
+                ui.close();
+            }
+        });
+    }
     if resp.clicked() {
-        *chosen = Some(m.name.to_string());
+        asked.choose = Some(m.name.clone());
     }
 }
 
@@ -185,26 +257,53 @@ mod tests {
     use crate::{CadApp, Services};
     use cadcraft_engine::Session;
 
+    fn library(app: &CadApp) -> Vec<PartEntry> {
+        app.session.doc().unwrap().part_library()
+    }
+
+    fn app() -> CadApp {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        *app.session.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+        app
+    }
+
     #[test]
     fn the_library_is_searched_by_family_and_by_words() {
-        let all = standard_part_models();
+        let all = library(&app());
         let n = all.len();
-        assert_eq!(filtered(all.clone(), None, "").len(), n);
-        let valves = filtered(all.clone(), Some(PartCategory::Valves), "");
+        assert_eq!(filtered(all.clone(), None, false, "").len(), n);
+        let valves = filtered(all.clone(), Some(PartCategory::Valves), false, "");
         assert!(!valves.is_empty() && valves.iter().all(|m| m.category == PartCategory::Valves));
-        // Words from the name, in either language, the brand or the connections; all of them must be found.
-        assert!(filtered(all.clone(), None, "balancing").iter().any(|m| m.name == "Balancing valve (TA)"));
-        assert!(filtered(all.clone(), None, "papillon").iter().any(|m| m.name == "Butterfly valve"));
-        let bs = filtered(all.clone(), None, "box 12 outlets");
-        assert!(bs.len() >= 2 && bs.iter().all(|m| m.kind == cadcraft_doc::PartKind::BranchBox && m.outlets == 12));
-        assert!(filtered(all.clone(), None, "zzzz").is_empty());
-        assert!(filtered(all, Some(PartCategory::Pumps), "box").is_empty());
+        // Words from the name, in either language, or the connections; all of them must be found.
+        assert!(filtered(all.clone(), None, false, "balancing").iter().any(|m| m.name == "Balancing valve (TA)"));
+        assert!(filtered(all.clone(), None, false, "papillon").iter().any(|m| m.name == "Butterfly valve"));
+        let bs = filtered(all.clone(), None, false, "box 12 outlets");
+        assert!(bs.len() >= 2 && bs.iter().all(|m| m.kind() == cadcraft_doc::PartKind::BranchBox && m.outlets() == 12));
+        assert!(filtered(all.clone(), None, false, "zzzz").is_empty());
+        assert!(filtered(all.clone(), Some(PartCategory::Pumps), false, "box").is_empty());
+        assert!(filtered(all, None, true, "").is_empty(), "no model of its own yet");
+    }
+
+    #[test]
+    fn a_part_kept_as_a_model_is_listed_under_my_models_and_can_be_deleted() {
+        let mut app = app();
+        let r = app.run("pipepartadd", json!({ "at": [0, 0], "model": "Check valve" })).unwrap();
+        let h = cadcraft_doc::Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+        app.session.set_selection(vec![h]);
+        open(&mut app);
+        app.part_lib.as_mut().unwrap().save_name = "Clapet maison".into();
+        let r = app.run("pipepartmodels", json!({ "save": h.hex(), "name": "Clapet maison" }));
+        assert!(r.is_ok());
+        let mine = filtered(library(&app), None, true, "");
+        assert_eq!(mine.len(), 1);
+        assert!(mine[0].user && mine[0].name == "Clapet maison");
+        assert!(app.run("pipepartmodels", json!({ "delete": "Clapet maison" })).is_ok());
+        assert!(filtered(library(&app), None, true, "").is_empty());
     }
 
     #[test]
     fn dropping_a_part_on_the_drawing_puts_it_there_and_remembers_the_model() {
-        let mut app = CadApp::new(Session::new(), Services::default());
-        *app.session.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+        let mut app = app();
         drop_part(&mut app, "Circulator (single)", cadcraft_geom::Vec2::new(1500.0, 800.0));
         let parts: Vec<_> = app.session.doc().unwrap().model.iter().filter_map(|e| cadcraft_doc::part_of(e)).collect();
         assert_eq!(parts.len(), 1);

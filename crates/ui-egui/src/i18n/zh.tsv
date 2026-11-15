@@ -1637,3 +1637,9 @@ menu	View	视图
 	Kvs (m³/h)	Kvs (m³/h)
 	Equivalent length (m)	当量长度 (m)
 	Loss coefficient ζ	阻力系数 ζ
+	My models	我的模型
+	No model of your own yet: select a part of the drawing and keep it as a model.	还没有自己的模型：选择图纸中的附件并保存为模型。
+	Name of the model	模型名称
+	Keep the selected part as a model	将所选附件保存为模型
+	Delete this model	删除此模型
+	Model kept: {name}	已保存模型：{name}

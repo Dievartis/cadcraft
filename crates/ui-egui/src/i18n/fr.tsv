@@ -1491,3 +1491,9 @@
 	Kvs (m³/h)	Kvs (m³/h)
 	Equivalent length (m)	Longueur équivalente (m)
 	Loss coefficient ζ	Coefficient de perte ζ
+	My models	Mes modèles
+	No model of your own yet: select a part of the drawing and keep it as a model.	Aucun modèle à vous pour l'instant : sélectionnez un accessoire du dessin et gardez-le comme modèle.
+	Name of the model	Nom du modèle
+	Keep the selected part as a model	Garder l'accessoire sélectionné comme modèle
+	Delete this model	Supprimer ce modèle
+	Model kept: {name}	Modèle gardé : {name}
