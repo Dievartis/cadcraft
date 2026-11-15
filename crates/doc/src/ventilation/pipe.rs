@@ -587,6 +587,25 @@ impl crate::Drawing {
         Ok(())
     }
 
+    /// Cuts pipe `h` for a part in its line: a gap of `gap` (drawing units) centred `t` along the pipe from its start. The pipe keeps
+    /// what comes before the gap, and a new pipe, a copy of it, takes what comes after: its far end, so the load typed there.
+    /// Returns the new pipe, or `None` when the gap does not fit inside the pipe (nothing changes).
+    pub fn split_pipe(&mut self, h: crate::Handle, t: f64, gap: f64) -> Result<Option<crate::Handle>> {
+        let Some((p, a, b)) = self.pipe_ends(h) else { return Err(invalid("The object is not a pipe.")) };
+        let len = a.dist(b);
+        let (t0, t1) = (t - gap / 2.0, t + gap / 2.0);
+        if !(t.is_finite() && gap.is_finite() && gap >= 0.0 && len > 1e-9 && t0 > 1e-6 && t1 < len - 1e-6) {
+            return Ok(None);
+        }
+        let dir = (b - a) / len;
+        let common = self.entity(h).ok_or(crate::DocError::NoEntity(h))?.common.clone();
+        let space = crate::Space::Model;
+        let second = PipeParams { source: false, ..p.clone() };
+        let new = self.add_pipe(&space, common, second, a + dir * t1, b)?;
+        self.regenerate_pipe(h, &PipeParams { length: t0, load_kw: None, ..p })?;
+        Ok(Some(new))
+    }
+
     /// Pipe `h` with its data and its two ends in drawing coordinates.
     pub fn pipe_ends(&self, h: crate::Handle) -> Option<(PipeParams, Vec2, Vec2)> {
         let e = self.entity(h)?;

@@ -1438,7 +1438,7 @@
 	Pressure loss	Perte de charge
 	Pipes	Tuyauteries
 	Size Pipes	Dimensionner les tuyauteries
-	Pipes sized: {n} run(s), {load}	Tuyauteries dimensionnées : {n} tronçon(s), {load}
+	Pipes sized: {n} run(s), load {load}, pressure loss {loss} kPa	Tuyauteries dimensionnées : {n} tronçon(s), charge {load}, perte de charge {loss} kPa
 	Mark the run that starts at the source of each network, type the load (kW; l/h for a drain) at the free ends, then size: the flow comes from the load, the size from the flow.	Marquez le tronçon qui part de la source de chaque réseau, saisissez la charge (kW ; l/h pour un drain) aux bouts libres, puis dimensionnez : le débit vient de la charge, la taille du débit.
 	Slabs	Dalles
 	Floor slab	Dalle de plancher
@@ -1487,3 +1487,7 @@
 	Height H (mm)	Hauteur H (mm)
 	Width W (mm)	Largeur L (mm)
 	Depth D (mm)	Profondeur P (mm)
+	Pressure loss (kPa)	Perte de charge (kPa)
+	Kvs (m³/h)	Kvs (m³/h)
+	Equivalent length (m)	Longueur équivalente (m)
+	Loss coefficient ζ	Coefficient de perte ζ

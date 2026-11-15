@@ -113,6 +113,30 @@ fn a_header_and_a_box_draw_one_stub_per_outlet() {
     assert_eq!(lines(&many) - lines(&few), 4);
     let b = PartParams { outlets: 4, ..PartParams::new(PartKind::BranchBox, "B1", units()) };
     let b2 = PartParams { outlets: 6, ..b.clone() };
-    assert_eq!(lines(&b2) - lines(&b), 4, "a pair of lines for each port");
+    assert_eq!(lines(&b2) - lines(&b), 2, "one line for each outlet: the link is drawn as one line, a pipe snaps to its end");
     assert_eq!(b.label_text(), "B1 4x");
+}
+
+#[test]
+fn a_part_loses_pressure_as_its_data_sheet_says_or_as_its_kind_does() {
+    let mut p = PartParams::new(PartKind::BalancingValve, "V1", units());
+    // 12 m³/h at 1.1 m/s in a pipe losing 200 Pa/m.
+    let loss = |p: &PartParams| p.pressure_loss_kpa(12.0, 1.1, 200.0);
+    // The kind's own: ζ 4 at 1.1 m/s, 0.5 · 4 · 1.21 kPa.
+    assert!((loss(&p) - 2.42).abs() < 1e-9, "{}", loss(&p));
+    p.zeta = Some(10.0);
+    assert!((loss(&p) - 6.05).abs() < 1e-9);
+    // 3 m of pipe at 200 Pa/m.
+    p.equivalent_length_m = Some(3.0);
+    assert!((loss(&p) - 0.6).abs() < 1e-9);
+    // Kvs 6: (12 / 6)² bar = 400 kPa.
+    p.kvs = Some(6.0);
+    assert!((loss(&p) - 400.0).abs() < 1e-9);
+    // A loss given at the design flow wins.
+    p.loss_kpa = Some(15.0);
+    assert_eq!(loss(&p), 15.0);
+    // A kind that adds nothing, and one given in kPa.
+    assert_eq!(loss(&PartParams::new(PartKind::Sensor, "S", units())), 0.0);
+    assert_eq!(loss(&PartParams::new(PartKind::PicValve, "P", units())), 25.0);
+    assert!(PartParams { kvs: Some(-1.0), ..p }.validate().is_err());
 }

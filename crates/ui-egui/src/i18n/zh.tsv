@@ -1633,3 +1633,7 @@ menu	View	视图
 	Height H (mm)	高度 H (mm)
 	Width W (mm)	宽度 W (mm)
 	Depth D (mm)	深度 D (mm)
+	Pressure loss (kPa)	压力损失 (kPa)
+	Kvs (m³/h)	Kvs (m³/h)
+	Equivalent length (m)	当量长度 (m)
+	Loss coefficient ζ	阻力系数 ζ

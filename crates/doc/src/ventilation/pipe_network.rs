@@ -5,7 +5,7 @@
 use cadcraft_geom::Vec2;
 use cadcraft_hvac::{PipeCriteria, PipeGoverning, WaterTemperature, check_water_pipe, size_condensate_drain, size_water_pipe, water_flow_m3h};
 
-use super::{EquipmentKind, PipeLeg, PipeParams, PipeService, ahu_of, equipment_of, invalid};
+use super::{EquipmentKind, PipeLeg, PipeParams, PipeService, ahu_of, equipment_of, invalid, part_of};
 use crate::{EntityKind, Handle, Result};
 
 /// How close two ends are to be one point, mm; and, as a share of the wider pipe, how close to its axis.
@@ -50,6 +50,11 @@ pub struct PipeResult {
     pub gradient_pa_m: f64,
     pub imposed: bool,
     pub governing: PipeGoverning,
+    /// The pressure lost in the run itself, kPa, and in the parts in the line of the pipe that the run is reached through
+    /// (the ones before it, towards the source), each with its loss.
+    pub run_loss_kpa: f64,
+    pub part_loss_kpa: f64,
+    pub parts: Vec<(Handle, f64)>,
 }
 
 /// A sized network: its service and leg, its source run, its total load and its runs.
@@ -59,6 +64,9 @@ pub struct PipeNetworkReport {
     pub leg: PipeLeg,
     pub source: Handle,
     pub total_load: f64,
+    /// The pressure lost from the source to the far end of the most unfavourable run (pipes and parts), kPa, and that run.
+    pub total_loss_kpa: f64,
+    pub critical: Handle,
     pub runs: Vec<PipeResult>,
     pub warnings: Vec<String>,
 }
@@ -73,6 +81,8 @@ struct Equip {
     /// A chiller: the water networks start from it.
     chiller: bool,
     loads: Vec<(PipeService, f64)>,
+    /// The part, for the ones in the line of a pipe.
+    part: Option<(crate::Handle, super::PartParams)>,
 }
 
 impl Equip {
@@ -103,6 +113,8 @@ struct Node {
     parent: Option<usize>,
     /// Whether the run is entered by its start (the block's origin).
     at_start: bool,
+    /// The parts in the line of the pipe that the run is reached through (indices in the bridges).
+    via: Vec<usize>,
 }
 
 fn group(p: &PipeParams) -> (PipeService, PipeLeg) {
@@ -124,6 +136,7 @@ impl crate::Drawing {
             return Err(invalid(format!("Pipes are sized {MAX_PIPES} at a time at most.")));
         }
         let equipment = self.equipment_footprints();
+        let bridges = self.part_bridges();
         let mut taken = vec![false; runs.len()];
         let mut reports = Vec::new();
         let mut writes: Vec<(Handle, PipeParams)> = Vec::new();
@@ -133,8 +146,8 @@ impl crate::Drawing {
             if !(root.params.source || from_chiller) || taken.get(i).copied().unwrap_or(true) {
                 continue;
             }
-            let nodes = read_tree(&runs, &mut taken, i);
-            let (report, changed) = size_tree(&runs, &nodes, &equipment, sizing)?;
+            let nodes = read_tree(&runs, &mut taken, i, &bridges);
+            let (report, changed) = size_tree(&runs, &nodes, &equipment, &bridges, sizing)?;
             writes.extend(changed);
             reports.push(report);
         }
@@ -158,8 +171,8 @@ impl crate::Drawing {
 
 /// The tree of runs from source run `root`, entered at its start: a run is the child of the run whose far end it
 /// starts on, of the same service and leg.
-fn read_tree(runs: &[Run], taken: &mut [bool], root: usize) -> Vec<Node> {
-    let mut nodes = vec![Node { run: root, parent: None, at_start: true }];
+fn read_tree(runs: &[Run], taken: &mut [bool], root: usize, bridges: &[Equip]) -> Vec<Node> {
+    let mut nodes = vec![Node { run: root, parent: None, at_start: true, via: Vec::new() }];
     if let Some(t) = taken.get_mut(root) {
         *t = true;
     }
@@ -179,17 +192,26 @@ fn read_tree(runs: &[Run], taken: &mut [bool], root: usize) -> Vec<Node> {
                 .units
                 .to_units(MEET_MM)
                 .max(0.75 * other.params.units.to_units(other.params.plan_width_mm().max(cur.params.plan_width_mm())));
-            if other.a.near(to, tol) {
-                found.push((j, true));
-            } else if other.b.near(to, tol) {
-                found.push((j, false));
+            // An end meets the point directly, or through a part in the line of the pipe (a valve, a pump) that holds both.
+            let meets = |end: Vec2| -> Option<Vec<usize>> {
+                if end.near(to, tol) {
+                    return Some(Vec::new());
+                }
+                let through: Vec<usize> =
+                    (0..bridges.len()).filter(|&k| bridges.get(k).is_some_and(|b| b.holds(to, tol) && b.holds(end, tol))).collect();
+                (!through.is_empty()).then_some(through)
+            };
+            if let Some(via) = meets(other.a) {
+                found.push((j, true, via));
+            } else if let Some(via) = meets(other.b) {
+                found.push((j, false, via));
             }
         }
-        for (j, at_start) in found {
+        for (j, at_start, via) in found {
             if let Some(t) = taken.get_mut(j) {
                 *t = true;
             }
-            nodes.push(Node { run: j, parent: Some(next), at_start });
+            nodes.push(Node { run: j, parent: Some(next), at_start, via });
         }
         next += 1;
         if nodes.len() > MAX_PIPES {
@@ -199,7 +221,13 @@ fn read_tree(runs: &[Run], taken: &mut [bool], root: usize) -> Vec<Node> {
     nodes
 }
 
-fn size_tree(runs: &[Run], nodes: &[Node], equipment: &[Equip], sizing: &PipeSizingParams) -> Result<(PipeNetworkReport, Vec<(Handle, PipeParams)>)> {
+fn size_tree(
+    runs: &[Run],
+    nodes: &[Node],
+    equipment: &[Equip],
+    bridges: &[Equip],
+    sizing: &PipeSizingParams,
+) -> Result<(PipeNetworkReport, Vec<(Handle, PipeParams)>)> {
     let mut warnings: Vec<String> = Vec::new();
     let Some(root_run) = nodes.first().and_then(|n| runs.get(n.run)) else { return Err(invalid("A network has a source.")) };
     let (service, leg) = group(&root_run.params);
@@ -246,6 +274,8 @@ fn size_tree(runs: &[Run], nodes: &[Node], equipment: &[Equip], sizing: &PipeSiz
     };
     let mut results = Vec::new();
     let mut changed = Vec::new();
+    // The pressure lost from the source to the far end of each run.
+    let mut path: Vec<f64> = Vec::with_capacity(nodes.len());
     for (i, n) in nodes.iter().enumerate() {
         let Some(r) = runs.get(n.run) else { continue };
         let load = total.get(i).copied().unwrap_or(0.0);
@@ -272,6 +302,18 @@ fn size_tree(runs: &[Run], nodes: &[Node], equipment: &[Equip], sizing: &PipeSiz
         // Which way the fluid runs along the block's x axis: away from the source for a supply, towards it for a return and a drain.
         let away = service.has_legs() && leg == PipeLeg::Supply;
         p.flow_forward = Some(away == n.at_start);
+        // What the run and the parts before it lose (a drain runs by gravity: nothing).
+        let run_loss = if water.is_some() { size.gradient_pa_m * r.params.length_m() / 1000.0 } else { 0.0 };
+        let mut parts: Vec<(Handle, f64)> = Vec::new();
+        if water.is_some() {
+            for k in &n.via {
+                if let Some((h, part)) = bridges.get(*k).and_then(|b| b.part.as_ref()) {
+                    parts.push((*h, part.pressure_loss_kpa(flow, size.velocity_ms, size.gradient_pa_m)));
+                }
+            }
+        }
+        let part_loss: f64 = parts.iter().map(|x| x.1).sum();
+        path.push(n.parent.and_then(|pi| path.get(pi)).copied().unwrap_or(0.0) + run_loss + part_loss);
         results.push(PipeResult {
             handle: r.handle,
             dn_mm: p.dn_mm,
@@ -281,14 +323,39 @@ fn size_tree(runs: &[Run], nodes: &[Node], equipment: &[Equip], sizing: &PipeSiz
             gradient_pa_m: size.gradient_pa_m,
             imposed: p.imposed,
             governing: size.governing,
+            run_loss_kpa: run_loss,
+            part_loss_kpa: part_loss,
+            parts,
         });
         changed.push((r.handle, p));
     }
     let total_load = total.first().copied().unwrap_or(0.0);
-    Ok((PipeNetworkReport { service, leg, source: root_run.handle, total_load, runs: results, warnings }, changed))
+    let (worst, total_loss_kpa) = path.iter().enumerate().fold((0, 0.0), |m, (i, v)| if *v > m.1 { (i, *v) } else { m });
+    let critical = results.get(worst).map_or(root_run.handle, |x| x.handle);
+    Ok((PipeNetworkReport { service, leg, source: root_run.handle, total_load, total_loss_kpa, critical, runs: results, warnings }, changed))
 }
 
 impl crate::Drawing {
+    /// The parts in the line of a pipe, as footprints the network is read through.
+    fn part_bridges(&self) -> Vec<Equip> {
+        self.model
+            .iter()
+            .filter_map(|e| {
+                let p = part_of(e).filter(|p| p.kind.is_inline())?;
+                let EntityKind::Insert(i) = &e.kind else { return None };
+                Some(Equip {
+                    centre: Vec2::new(i.insert.x, i.insert.y),
+                    rotation: i.rotation,
+                    half_length: p.units.to_units(p.length_mm) * i.scale.x.abs() / 2.0,
+                    half_width: p.units.to_units(p.width_mm) * i.scale.y.abs() / 2.0,
+                    chiller: false,
+                    loads: Vec::new(),
+                    part: Some((e.handle, p)),
+                })
+            })
+            .collect()
+    }
+
     /// The equipment and air handling units of model space with their footprints and powers.
     fn equipment_footprints(&self) -> Vec<Equip> {
         let mut out = Vec::new();
@@ -310,6 +377,7 @@ impl crate::Drawing {
                     half_width: p.units.to_units(p.width_mm) * i.scale.y.abs() / 2.0,
                     chiller: p.kind == EquipmentKind::Chiller,
                     loads,
+                    part: None,
                 });
             } else if let Some(a) = ahu_of(e) {
                 let loads = [PipeService::ChilledWater, PipeService::HotWater, PipeService::ChangeOver]
@@ -323,6 +391,7 @@ impl crate::Drawing {
                     half_width: a.units.to_units(a.depth_mm) * i.scale.y.abs() / 2.0,
                     chiller: false,
                     loads,
+                    part: None,
                 });
             }
         }

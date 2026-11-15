@@ -189,6 +189,31 @@ impl PartKind {
         self.layer() == PART_REFRIGERANT_LAYER
     }
 
+    /// Whether the part sits in the line of a pipe (the pipe is cut where it is put and the network reads through it).
+    pub fn is_inline(self) -> bool {
+        matches!(
+            self,
+            PartKind::IsolationValve
+                | PartKind::ButterflyValve
+                | PartKind::CheckValve
+                | PartKind::BalancingValve
+                | PartKind::ControlValve
+                | PartKind::ThreeWayValve
+                | PartKind::PicValve
+                | PartKind::PressureReducingValve
+                | PartKind::Strainer
+                | PartKind::FlexConnector
+                | PartKind::Reducer
+                | PartKind::Deaerator
+                | PartKind::DirtSeparator
+                | PartKind::Disconnector
+                | PartKind::FlowMeter
+                | PartKind::EnergyMeter
+                | PartKind::Pump
+                | PartKind::DoublePump
+        )
+    }
+
     /// The height a new part of the kind starts with, mm (indicative: the data sheet's is typed over it).
     pub fn default_height_mm(self) -> f64 {
         match self {
@@ -288,6 +313,38 @@ pub const ALL_KINDS: [PartKind; 34] = [
     PartKind::BranchBox,
 ];
 
+/// The pressure loss of a kind of part when none is given: a loss coefficient ζ, or a loss in kPa at the design flow.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PartLoss {
+    Zeta(f64),
+    Kpa(f64),
+}
+
+impl PartKind {
+    /// The loss a part of the kind is given until the data sheet's is typed (indicative values, fully open for a valve); none for
+    /// the parts that add no loss to a run (a sensor, a vessel on a branch).
+    pub fn default_loss(self) -> Option<PartLoss> {
+        Some(match self {
+            PartKind::IsolationValve => PartLoss::Zeta(0.3),
+            PartKind::ButterflyValve => PartLoss::Zeta(0.8),
+            PartKind::CheckValve => PartLoss::Zeta(2.5),
+            PartKind::BalancingValve => PartLoss::Zeta(4.0),
+            PartKind::ControlValve => PartLoss::Zeta(6.0),
+            PartKind::ThreeWayValve => PartLoss::Zeta(5.0),
+            PartKind::PicValve => PartLoss::Kpa(25.0),
+            PartKind::PressureReducingValve => PartLoss::Kpa(30.0),
+            PartKind::Strainer => PartLoss::Zeta(3.0),
+            PartKind::FlexConnector => PartLoss::Zeta(0.3),
+            PartKind::Reducer => PartLoss::Zeta(0.5),
+            PartKind::Deaerator | PartKind::DirtSeparator => PartLoss::Zeta(1.5),
+            PartKind::Disconnector => PartLoss::Kpa(60.0),
+            PartKind::FlowMeter => PartLoss::Kpa(5.0),
+            PartKind::EnergyMeter => PartLoss::Kpa(10.0),
+            _ => return None,
+        })
+    }
+}
+
 /// A part: what its block reference keeps to regenerate it. It is centred on the block's origin, its length along the
 /// block's x axis (the pipe's direction).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -330,6 +387,17 @@ pub struct PartParams {
     pub head_kpa: Option<f64>,
     #[serde(default)]
     pub weight_kg: Option<f64>,
+    /// The pressure loss of the part, from the data sheet: a loss in kPa at the design flow, or a kvs (m³/h for 1 bar), or an
+    /// equivalent length of pipe (m), or a loss coefficient ζ; the first given counts, in that order, and a kind has an
+    /// indicative one of its own ([`PartKind::default_loss`]) when none is.
+    #[serde(default)]
+    pub loss_kpa: Option<f64>,
+    #[serde(default)]
+    pub kvs: Option<f64>,
+    #[serde(default)]
+    pub equivalent_length_m: Option<f64>,
+    #[serde(default)]
+    pub zeta: Option<f64>,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     #[serde(default)]
@@ -365,6 +433,10 @@ impl PartParams {
             flow_m3h: None,
             head_kpa: None,
             weight_kg: None,
+            loss_kpa: None,
+            kvs: None,
+            equivalent_length_m: None,
+            zeta: None,
             label_height_mm: default_label_mm(),
             units,
         }
@@ -391,11 +463,35 @@ impl PartParams {
             && positive(self.power_kw)
             && positive(self.flow_m3h)
             && positive(self.head_kpa)
-            && positive(self.weight_kg))
+            && positive(self.weight_kg)
+            && positive(self.loss_kpa)
+            && positive(self.kvs)
+            && positive(self.equivalent_length_m)
+            && positive(self.zeta))
         {
-            return Err(invalid("A part's size, volume, power, flow, head and weight are more than 0."));
+            return Err(invalid("A part's size, volume, power, flow, head, weight and losses are more than 0."));
         }
         Ok(())
+    }
+
+    /// The pressure loss of the part, kPa, for water of `flow_m3h` running at `velocity_ms` in a pipe losing `gradient_pa_m`.
+    pub fn pressure_loss_kpa(&self, flow_m3h: f64, velocity_ms: f64, gradient_pa_m: f64) -> f64 {
+        let zeta = |z: f64| 0.5 * z * velocity_ms * velocity_ms;
+        if let Some(k) = self.loss_kpa {
+            return k;
+        }
+        if let Some(kv) = self.kvs {
+            // Δp = (Q / kvs)² bar.
+            return 100.0 * (flow_m3h / kv).powi(2);
+        }
+        if let Some(l) = self.equivalent_length_m {
+            return gradient_pa_m * l / 1000.0;
+        }
+        match (self.zeta, self.kind.default_loss()) {
+            (Some(z), _) | (None, Some(PartLoss::Zeta(z))) => zeta(z),
+            (None, Some(PartLoss::Kpa(k))) => k,
+            (None, None) => 0.0,
+        }
     }
 
     /// The text written beside the symbol: the tag, then what is known of its size.
@@ -748,15 +844,14 @@ fn refrigerant_symbol(kind: PartKind, l: f64, w: f64, outlets: u32) -> Vec<Entit
             }
             v
         }
-        // A branch-selector box: a casing, its outlets (a pair of lines each) on one side and the three header pipes on the other.
+        // A branch box: a casing, one line for each outlet on one side (the links are drawn as one line, so a pipe snaps to the
+        // middle of the outlet, as it does on a header) and the three header pipes on the other.
         _ => {
             let n = outlets.max(1);
             let mut v = vec![rect(0.0, 0.0, l / 2.0, w / 2.0)];
-            let gap = (l / f64::from(n)).min(w) * 0.12;
             for i in 0..n {
                 let x = -l / 2.0 + l * (f64::from(i) + 0.5) / f64::from(n);
-                v.push(line((x - gap, w / 2.0), (x - gap, w / 2.0 + w * 0.8)));
-                v.push(line((x + gap, w / 2.0), (x + gap, w / 2.0 + w * 0.8)));
+                v.push(line((x, w / 2.0), (x, w / 2.0 + w * 0.8)));
             }
             for dy in [-0.3, 0.0, 0.3] {
                 v.push(line((-l / 2.0, w * dy), (-l / 2.0 - l * 0.1, w * dy)));

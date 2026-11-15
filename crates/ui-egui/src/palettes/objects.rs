@@ -126,6 +126,10 @@ fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], bad: &mut 
         ("Flow (m³/h)", "flow", |p| p.flow_m3h),
         ("Head (kPa)", "head", |p| p.head_kpa),
         ("Weight (kg)", "weight", |p| p.weight_kg),
+        ("Pressure loss (kPa)", "loss", |p| p.loss_kpa),
+        ("Kvs (m³/h)", "kvs", |p| p.kvs),
+        ("Equivalent length (m)", "equivalentLength", |p| p.equivalent_length_m),
+        ("Loss coefficient ζ", "zeta", |p| p.zeta),
     ] {
         let v = shared(&ps.iter().map(|p| get(p).map_or(String::new(), |f| format!("{f}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
         prop_row(ui, label, |ui| {

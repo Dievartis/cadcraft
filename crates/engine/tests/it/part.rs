@@ -132,3 +132,32 @@ fn the_outlets_of_a_box_change_it_on_the_drawing_and_another_model_can_be_taken(
     let v = s.execute("pipepartadd", &json!({"at": [0, 3000], "model": "Safety valve"})).unwrap();
     assert_eq!(s.doc().unwrap().entity(hd(&v["handle"])).unwrap().common.layer, "M-PIPE-SAFETY");
 }
+
+#[test]
+fn a_valve_put_on_a_pipe_cuts_it_but_a_vessel_or_a_sensor_does_not() {
+    let mut s = metric();
+    let r = s.execute("pipeadd", &json!({"points": [[0, 0], [6000, 0]], "service": "hotWater", "load": 25, "source": true})).unwrap();
+    let first = hd(&r["handles"][0]);
+    let pipes = |s: &Session| s.doc().unwrap().model.iter().filter(|e| cadcraft_doc::pipe_of(e).is_some()).count();
+    assert_eq!(pipes(&s), 1);
+    s.execute("pipepartadd", &json!({"at": [3000, 30], "model": "Balancing valve (TA)"})).unwrap();
+    assert_eq!(pipes(&s), 2, "the pipe is cut for the valve");
+    let (a, b): (Vec<_>, Vec<_>) = {
+        let d = s.doc().unwrap();
+        let ends: Vec<_> = d.model.iter().filter_map(|e| d.pipe_ends(e.handle)).collect();
+        (ends.iter().map(|x| x.1.x).collect(), ends.iter().map(|x| x.2.x).collect())
+    };
+    assert!(b.iter().any(|x| (x - 2925.0).abs() < 1e-6) && a.iter().any(|x| (x - 3075.0).abs() < 1e-6), "{a:?} {b:?}");
+    assert!(cadcraft_doc::pipe_of(s.doc().unwrap().entity(first).unwrap()).unwrap().source, "the source stays on the first run");
+    // The network reads through the valve.
+    let sized = s.execute("pipesize", &json!({})).unwrap();
+    assert_eq!(sized["networks"].as_array().unwrap().len(), 1);
+    assert_eq!(sized["networks"][0]["runs"].as_array().unwrap().len(), 2);
+    // A sensor, a vessel and an air vent hang on the pipe: it is not cut. Nor is a valve put where it does not fit.
+    for model in ["Temperature sensor", "Expansion vessel 24 l", "Automatic air vent"] {
+        s.execute("pipepartadd", &json!({"at": [1000, 0], "model": model})).unwrap();
+    }
+    assert_eq!(pipes(&s), 2);
+    s.execute("pipepartadd", &json!({"at": [20, 0], "model": "Isolation valve (ball)"})).unwrap();
+    assert_eq!(pipes(&s), 2, "too near the end of the pipe for its gap");
+}

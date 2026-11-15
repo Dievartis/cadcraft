@@ -104,6 +104,10 @@ impl PartModel {
             flow_m3h: None,
             head_kpa: None,
             weight_kg: None,
+            loss_kpa: None,
+            kvs: None,
+            equivalent_length_m: None,
+            zeta: None,
             label_height_mm: 100.0,
             units,
         }

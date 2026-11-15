@@ -27,7 +27,8 @@ pub fn specs() -> Vec<CommandSpec> {
             .interactive(|s| Ok(Box::new(PartAddM::new(s)))),
         CommandSpec::new("pipepartedit", "Edit Pipework Part", run_edit).params(
             "{handle | handles, name?, model?, brand?, dn? (mm or null), outlets?, volume? (l or null), power? (kW or null), flow? (m³/h or null), head? (kPa or null), \
-             weight? (kg or null), connections?, height? (mm or null), length? | width? (mm: L along the pipe, P across); model? a model of the library: the part takes its size, outlets and connections (its tag and its pipe size stay)} → {changed}",
+             weight? (kg or null), loss? (kPa at the design flow, or null) | kvs? (m³/h for 1 bar) | equivalentLength? (m of pipe) | zeta? (loss coefficient): the pressure the part \
+             loses in a network, the first given in that order, else the kind's indicative one; connections?, height? (mm or null), length? | width? (mm: L along the pipe, P across); model? a model of the library: the part takes its size, outlets and connections (its tag and its pipe size stay)} → {changed}",
         ),
         CommandSpec::new("pipepartmodels", "Pipework Part Library", run_models).params(
             "{category? (valves|fittings|airAndDirt|instruments|pumps|vesselsAndTanks|heatSources|refrigerantBranches|branchBoxes), q? (words found in the name)} → \
@@ -92,9 +93,9 @@ fn next_tag(d: &Drawing, model: &PartModel) -> String {
     format!("{prefix}{n}")
 }
 
-/// The axis of the pipe nearest `at` within reach, as the point on it and its direction (radians), for a part put on a pipe.
-fn pipe_under(d: &Drawing, at: Vec2) -> Option<(Vec2, f64)> {
-    let mut best: Option<(f64, Vec2, f64)> = None;
+/// The pipe nearest `at` within reach: its handle, the point on its axis, its direction (radians) and how far along it the point is.
+fn pipe_under(d: &Drawing, at: Vec2) -> Option<(Handle, Vec2, f64, f64)> {
+    let mut best: Option<(f64, Handle, Vec2, f64, f64)> = None;
     for e in d.model.iter() {
         let Some((p, a, b)) = d.pipe_ends(e.handle) else { continue };
         let reach = p.units.to_units(REACH_MM.max(p.plan_width_mm() / 2.0));
@@ -107,10 +108,10 @@ fn pipe_under(d: &Drawing, at: Vec2) -> Option<(Vec2, f64)> {
         let foot = a + dir * t;
         let off = foot.dist(at);
         if off <= reach && best.as_ref().is_none_or(|x| off < x.0) {
-            best = Some((off, foot, dir.angle()));
+            best = Some((off, e.handle, foot, dir.angle(), t));
         }
     }
-    best.map(|(_, foot, angle)| (foot, angle))
+    best.map(|(_, h, foot, angle, t)| (h, foot, angle, t))
 }
 
 /// Puts a part made from `model` at `at` (on the pipe under it, turned along it, unless `rotation` is given).
@@ -126,15 +127,21 @@ fn place(
     let name = name.unwrap_or_else(|| next_tag(d, model));
     let mut p = model.params(&name, HvacUnits::of(d));
     tweak(&mut p);
-    let (at, angle) = match (rotation, pipe_under(d, at)) {
-        (Some(r), _) => (at, r),
-        (None, Some((foot, a))) => (foot, a),
-        (None, None) => (at, 0.0),
+    let (at, angle, on) = match (rotation, pipe_under(d, at)) {
+        (Some(r), _) => (at, r, None),
+        (None, Some((pipe, foot, a, t))) => (foot, a, Some((pipe, t))),
+        (None, None) => (at, 0.0, None),
     };
     p.validate().map_err(doc_err)?;
+    let (inline, gap) = (p.kind.is_inline(), p.units.to_units(p.length_mm));
     let space = s.space();
     let common = s.current_common();
-    s.doc_mut()?.add_part(&space, common, &p, at, angle).map_err(doc_err)
+    let h = s.doc_mut()?.add_part(&space, common, &p, at, angle).map_err(doc_err)?;
+    // A part in the line of a pipe cuts it: the pipe goes up to the part and on from it (when the part fits inside the pipe).
+    if let (true, Some((pipe, t))) = (inline, on) {
+        s.doc_mut()?.split_pipe(pipe, t, gap).map_err(doc_err)?;
+    }
+    Ok(h)
 }
 
 fn model_param(cmd: &str, p: &Value) -> Result<PartModel> {
@@ -163,6 +170,7 @@ fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
     let outlets = whole(CMD, p, "outlets")?;
     let height = number(CMD, p, "height")?;
     let connections = str_param(p, "connections").map(str::to_string);
+    let (loss, kvs) = (number(CMD, p, "loss")?, number(CMD, p, "kvs")?);
     let h = place(s, &model, str_param(p, "name").map(str::to_string), at, rotation, |part| {
         part.dn_mm = dn.or(part.dn_mm);
         part.volume_l = volume.or(part.volume_l);
@@ -171,6 +179,7 @@ fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
         part.width_mm = width.unwrap_or(part.width_mm);
         part.label_height_mm = label.unwrap_or(part.label_height_mm);
         part.height_mm = height.or(part.height_mm);
+        (part.loss_kpa, part.kvs) = (loss.or(part.loss_kpa), kvs.or(part.kvs));
         if let Some(n) = outlets {
             part.outlets = n;
             // A header or a box as long as its outlets need, unless a length was given.
@@ -196,6 +205,8 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let (dn, volume, power) = (clearable(CMD, p, "dn")?, clearable(CMD, p, "volume")?, clearable(CMD, p, "power")?);
     let (flow, head, weight) = (clearable(CMD, p, "flow")?, clearable(CMD, p, "head")?, clearable(CMD, p, "weight")?);
+    let (loss, kvs) = (clearable(CMD, p, "loss")?, clearable(CMD, p, "kvs")?);
+    let (eq_length, zeta) = (clearable(CMD, p, "equivalentLength")?, clearable(CMD, p, "zeta")?);
     let (length, width) = (number(CMD, p, "length")?, number(CMD, p, "width")?);
     let height = clearable(CMD, p, "height")?;
     let outlets = whole(CMD, p, "outlets")?;
@@ -225,6 +236,10 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         pp.flow_m3h = flow.unwrap_or(pp.flow_m3h);
         pp.head_kpa = head.unwrap_or(pp.head_kpa);
         pp.weight_kg = weight.unwrap_or(pp.weight_kg);
+        pp.loss_kpa = loss.unwrap_or(pp.loss_kpa);
+        pp.kvs = kvs.unwrap_or(pp.kvs);
+        pp.equivalent_length_m = eq_length.unwrap_or(pp.equivalent_length_m);
+        pp.zeta = zeta.unwrap_or(pp.zeta);
         pp.length_mm = length.unwrap_or(pp.length_mm);
         pp.width_mm = width.unwrap_or(pp.width_mm);
         pp.height_mm = height.unwrap_or(pp.height_mm);
@@ -358,7 +373,7 @@ impl Interactive for PartAddM {
     fn preview_objects(&self, s: &Session, c: Vec2) -> Vec<cadcraft_doc::Entity> {
         // The part under the cursor, as it will be drawn, turned along the pipe it would sit on.
         let (Some(model), Ok(d)) = (standard_part_model_named(&self.model), s.doc()) else { return Vec::new() };
-        let (at, angle) = pipe_under(d, c).unwrap_or((c, 0.0));
+        let (at, angle) = pipe_under(d, c).map_or((c, 0.0), |(_, foot, a, _)| (foot, a));
         let p = model.params(&next_tag(d, &model), HvacUnits::of(d));
         p.generate().map(|pieces| cadcraft_doc::preview_entities(pieces, at, angle)).unwrap_or_default()
     }

@@ -361,3 +361,46 @@ fn a_heat_recovery_link_shows_three_tube_sizes_on_its_label() {
     assert_eq!(d.entity(h).unwrap().common.layer, PIPE_REFRIGERANT_TRIPLE_LAYER);
     assert_eq!(pipe_of(d.entity(h).unwrap()).unwrap().gas2_dn_mm, 19.05);
 }
+
+#[test]
+fn a_part_in_the_line_of_a_pipe_cuts_it_and_the_network_is_read_through_the_part() {
+    let mut d = Drawing::new_metric();
+    let units = HvacUnits { mm_per_unit: 1.0 };
+    // One run from the source to a unit of 40 kW, a valve in the middle.
+    let h = add(&mut d, PipeService::ChilledWater, PipeLeg::Supply, (0.0, 0.0), (5000.0, 0.0), Some(40.0), true);
+    let valve = standard_part_model_named("Isolation valve (ball)").unwrap().params("V1", units);
+    assert_eq!(valve.length_mm, 150.0);
+    d.add_part(&Space::Model, Common::default(), &valve, cadcraft_geom::Vec2::new(2500.0, 0.0), 0.0).unwrap();
+    let new = d.split_pipe(h, 2500.0, 150.0).unwrap().expect("the gap fits");
+    let (first, a1, b1) = d.pipe_ends(h).unwrap();
+    let (second, a2, b2) = d.pipe_ends(new).unwrap();
+    assert_eq!((a1.x, b1.x, a2.x, b2.x), (0.0, 2425.0, 2575.0, 5000.0), "a gap of the valve's length");
+    assert!((first.length - 2425.0).abs() < 1e-9 && (second.length - 2425.0).abs() < 1e-9);
+    // The source stays on the first, the load typed at the far end goes with the second.
+    assert!(first.source && !second.source);
+    assert_eq!((first.load_kw, second.load_kw), (None, Some(40.0)));
+    // The two runs are one network: the 40 kW reaches the source through the valve.
+    let (reports, warnings) = d.size_pipes(&PipeSizingParams::default()).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!((reports.len(), reports[0].runs.len(), reports[0].total_load), (1, 2, 40.0));
+    // What the pipes and the valve lose from the source to the far end is told: the valve's own loss is in it.
+    let r = &reports[0];
+    assert!(r.runs.iter().all(|x| x.run_loss_kpa > 0.0));
+    let through: Vec<_> = r.runs.iter().filter(|x| !x.parts.is_empty()).collect();
+    assert_eq!(through.len(), 1, "the valve is on the way to the second run");
+    assert!(through[0].part_loss_kpa > 0.0 && through[0].parts[0].1 == through[0].part_loss_kpa);
+    let runs_sum: f64 = r.runs.iter().map(|x| x.run_loss_kpa + x.part_loss_kpa).sum();
+    assert!((r.total_loss_kpa - runs_sum).abs() < 1e-9, "one path: {} {}", r.total_loss_kpa, runs_sum);
+    assert_eq!(r.critical, new);
+    // Without the part between them, the two runs would not meet.
+    let mut bare = Drawing::new_metric();
+    add(&mut bare, PipeService::ChilledWater, PipeLeg::Supply, (0.0, 0.0), (2425.0, 0.0), None, true);
+    add(&mut bare, PipeService::ChilledWater, PipeLeg::Supply, (2575.0, 0.0), (5000.0, 0.0), Some(40.0), false);
+    let (_, warnings) = bare.size_pipes(&PipeSizingParams::default()).unwrap();
+    assert!(!warnings.is_empty(), "a gap with nothing in it is two networks");
+    // A gap that does not fit inside the pipe changes nothing.
+    let short = add(&mut d, PipeService::HotWater, PipeLeg::Supply, (0.0, 1000.0), (100.0, 1000.0), None, false);
+    assert_eq!(d.split_pipe(short, 50.0, 150.0).unwrap(), None);
+    assert_eq!(d.pipe_ends(short).unwrap().0.length, 100.0);
+    assert!(d.split_pipe(short, f64::NAN, 10.0).unwrap().is_none());
+}

@@ -375,7 +375,13 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
                 for net in r["networks"].as_array().into_iter().flatten() {
                     let load = net["totalLoad"].as_f64().unwrap_or(0.0);
                     let n = net["runs"].as_array().map_or(0, Vec::len);
-                    app.session.echo(crate::tf!("Pipes sized: {n} run(s), {load}", n = n, load = format!("{load:.1}")));
+                    let loss = net["totalLoss"].as_f64().unwrap_or(0.0);
+                    app.session.echo(crate::tf!(
+                        "Pipes sized: {n} run(s), load {load}, pressure loss {loss} kPa",
+                        n = n,
+                        load = format!("{load:.1}"),
+                        loss = format!("{loss:.1}")
+                    ));
                     for w in net["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()) {
                         app.session.echo(w.to_string());
                     }
