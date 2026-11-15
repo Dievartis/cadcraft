@@ -221,3 +221,21 @@ fn the_takeoff_counts_the_lines_of_a_riser_by_the_height_of_the_floor() {
     assert!((find(PipeService::RefrigerantPair, PipeLeg::Supply).unwrap().length_m - 3.2).abs() < 1e-9);
     assert!(t.pipes.iter().any(|q| q.size == "DN25" && (q.length_m - 5.0).abs() < 1e-9), "the pipe of the floor is counted as before");
 }
+
+#[test]
+fn two_refrigerant_links_in_a_shaft_do_not_overlap() {
+    let lines = vec![
+        RiserLine::new(PipeService::RefrigerantPair, PipeLeg::Supply, 6.35),
+        RiserLine::new(PipeService::RefrigerantPair, PipeLeg::Supply, 9.52),
+        RiserLine::new(PipeService::RefrigerantTriple, PipeLeg::Supply, 9.52),
+    ];
+    let r = riser(lines);
+    let centres = r.symbol_centres();
+    // Each link is drawn as its tubes side by side: no two links come closer than the half-widths of both.
+    for (i, a) in centres.iter().enumerate() {
+        for (j, b) in centres.iter().enumerate().skip(i + 1) {
+            let half = (r.symbol_width_units(&r.lines[i]) + r.symbol_width_units(&r.lines[j])) / 2.0;
+            assert!(a.dist(*b) >= half - 1e-6, "links {i} and {j} overlap: {} < {half}", a.dist(*b));
+        }
+    }
+}

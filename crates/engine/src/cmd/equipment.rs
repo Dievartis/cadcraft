@@ -24,7 +24,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
             .interactive(|s| Ok(Box::new(EquipAddM::new(s)))),
         CommandSpec::new("equipmentedit", "Edit Equipment", run_edit).params(
-            "{handle | handles, model? (take that library model's values), kind?, name?, reference?, capacityKw? or null, heatingKw? or null, length? width? height? (mm), \\
+            "{handle | handles, model? (take that library model's values), kind?, name?, reference?, capacityKw? or null, heatingKw? or null, electricKw? (the electrical power it draws, or null), circuit? (the circuit that feeds it), length? width? height? (mm), \\
              weight? or null, fans?, clearance? (mm), connections?} → {changed}",
         ),
     ]
@@ -185,6 +185,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         str_param(p, "model").map(|n| equipment_model_named(&models, n).ok_or_else(|| bad(CMD, format!("unknown model \"{n}\"")))).transpose()?;
     let kind = kind_param(CMD, p)?;
     let (cap, heat, weight) = (clearable(CMD, p, "capacityKw")?, clearable(CMD, p, "heatingKw")?, clearable(CMD, p, "weight")?);
+    let electric = clearable(CMD, p, "electricKw")?;
     let sizes = [number(CMD, p, "length")?, number(CMD, p, "width")?, number(CMD, p, "height")?];
     let (fans, clearance) = (number(CMD, p, "fans")?, number(CMD, p, "clearance")?);
     let d = s.doc()?;
@@ -213,6 +214,12 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if let Some(v) = weight {
             e.weight_kg = v;
+        }
+        if let Some(v) = electric {
+            e.electric_kw = v;
+        }
+        if let Some(c) = str_param(p, "circuit") {
+            e.circuit = c.trim().to_string();
         }
         for (v, slot) in sizes.iter().zip([&mut e.length_mm, &mut e.width_mm, &mut e.height_mm]) {
             if let Some(v) = v {

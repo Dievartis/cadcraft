@@ -168,12 +168,109 @@ fn air_page() -> Page {
     }
 }
 
+fn electrical_pages() -> Vec<Page> {
+    use cadcraft_hvac::{
+        Conductor, Grouping, Insulation, Laying, RoomLighting, Usage, current_capacity, k2, k3, max_voltage_drop_percent, minimum_illuminance,
+        resistivity,
+    };
+    let cell = |v: Option<f64>| v.map_or("—".to_string(), |x| format!("{x}"));
+    let capacity = |conductor| -> Vec<Vec<String>> {
+        cadcraft_hvac::sections(conductor)
+            .into_iter()
+            .filter(|s| *s <= 300.0)
+            .map(|s| {
+                let mut row = vec![mm(s)];
+                for laying in [Laying::B, Laying::C, Laying::E, Laying::F] {
+                    for ins in [Insulation::Pvc, Insulation::Pr] {
+                        row.push(cell(current_capacity(conductor, s, laying, ins, 3)));
+                    }
+                }
+                row
+            })
+            .collect()
+    };
+    let heads = ["Section (mm²)", "B PVC", "B PR", "C PVC", "C PR", "E PVC", "E PR", "F PVC", "F PR"];
+    let k2_rows = (1..=9)
+        .map(|n| {
+            vec![
+                n.to_string(),
+                format!("{:.2}", k2(Grouping::Embedded, n)),
+                format!("{:.2}", k2(Grouping::WallsAndFloors, n)),
+                format!("{:.2}", k2(Grouping::PerforatedTray, n)),
+            ]
+        })
+        .collect();
+    let k3_rows = (2..=12)
+        .map(|i| {
+            let t = f64::from(i) * 5.0;
+            vec![format!("{t}"), cell(k3(Insulation::Pvc, t)), cell(k3(Insulation::Pr, t))]
+        })
+        .collect();
+    let limits = vec![
+        vec![
+            "Lighting".into(),
+            format!("{}", max_voltage_drop_percent(Usage::Lighting, false)),
+            format!("{}", max_voltage_drop_percent(Usage::Lighting, true)),
+        ],
+        vec![
+            "Other uses".into(),
+            format!("{}", max_voltage_drop_percent(Usage::Other, false)),
+            format!("{}", max_voltage_drop_percent(Usage::Other, true)),
+        ],
+    ];
+    let lux = [
+        ("Circulation", RoomLighting::Circulation),
+        ("Stairs and stores", RoomLighting::StairsWarehouse),
+        ("Workrooms, cloakrooms, toilets", RoomLighting::WorkRoom),
+    ]
+    .into_iter()
+    .map(|(name, c)| vec![name.to_string(), format!("{}", minimum_illuminance(c))])
+    .collect();
+    vec![
+        Page {
+            name: "Electrical cables",
+            intro: &[
+                "The current a cable carries is read in the table of its laying letter (B in conduit on a wall, C clipped direct, E multi-core on a tray, F single-core on a tray) and insulation (PVC 70 °C, PR 90 °C), for three loaded conductors, in free conditions at 30 °C.",
+                "It is multiplied by K = K1 × K2 × K3: K1 the way of laying, K2 the circuits laid together, K3 the ambient temperature. The smallest section whose corrected current is at least the rating of the breaker is chosen.",
+                "Source: Schneider Electric, technical supplement of the electrical distribution catalogue 2016/2017, pages A46 to A49. The standard (NF C 15-100, UTE C 15-105) decides; check the values there.",
+            ],
+            tables: vec![
+                table("Copper, three loaded conductors (A)", &heads, capacity(Conductor::Copper)),
+                table("Aluminium, three loaded conductors (A)", &heads, capacity(Conductor::Aluminium)),
+                table("K2: circuits laid together", &["Circuits", "Embedded", "On walls and floors", "On a perforated tray"], k2_rows),
+                table("K3: ambient temperature", &["°C", "PVC", "PR"], k3_rows),
+            ],
+        },
+        Page {
+            name: "Voltage drop and lighting",
+            intro: &[
+                "ΔU = b × I × L × (R cos φ + X sin φ): b = 2 for a single-phase circuit and √3 for a three-phase one, R = ρ ÷ S (ρ = 22.5 Ω·mm²/km for copper and 36 for aluminium), X = 0.08 Ω/km counted from 50 mm². The drop is compared with 230 V (single-phase) or 400 V (three-phase).",
+                "The length of a circuit is the length of all its cables: for a branched circuit this is on the safe side.",
+                "Illuminance of a room = total flux of its luminaires × utilisation factor × maintenance factor ÷ area. The minimums are those of the Code du travail, article R4223-4.",
+            ],
+            tables: vec![
+                table("Voltage drop allowed (%)", &["Use", "Public supply", "Own HV/LV substation"], limits),
+                table("Minimum illuminance (lux)", &["Room", "Lux"], lux),
+                table(
+                    "Resistivity (Ω·mm²/km)",
+                    &["Metal", "ρ"],
+                    vec![
+                        vec!["Copper".into(), format!("{}", resistivity(Conductor::Copper))],
+                        vec!["Aluminium".into(), format!("{}", resistivity(Conductor::Aluminium))],
+                    ],
+                ),
+            ],
+        },
+    ]
+}
+
 /// Every chart of the window, in order.
 pub fn pages() -> Vec<Page> {
     let mut v = refrigerant_pages();
     v.push(water_page());
     v.push(condensate_page());
     v.push(air_page());
+    v.extend(electrical_pages());
     v
 }
 

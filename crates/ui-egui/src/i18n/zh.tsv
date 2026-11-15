@@ -1758,3 +1758,14 @@ menu	View	视图
 	Pipe junction, 5 or more	五通及以上
 	Pipe reducer	管道异径接头
 	Pipe crossover	管道交叉
+	Electricity	电气
+	Electrical Device	电气设备
+	Device	设备
+	Cable	电缆
+	Check Circuits	检查回路
+	Size Circuits	回路选型
+	Check Lighting	检查照度
+	Assign to Circuit	分配到回路
+	Edit Circuit	编辑回路
+	Edit Electrical Object	编辑电气对象
+	Electrical Quantities	电气工程量

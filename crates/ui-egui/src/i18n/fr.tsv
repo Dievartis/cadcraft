@@ -1675,3 +1675,97 @@
 	Pipe junction, 5 or more	Piquage de 5 tuyaux ou plus
 	Pipe reducer	Réduction de tuyau
 	Pipe crossover	Croisement de tuyaux
+	Electricity	Électricité
+	Electrical Device	Appareil électrique
+	Device	Appareil
+	Cable	Câble
+	Check Circuits	Contrôler les circuits
+	Size Circuits	Dimensionner les circuits
+	Check Lighting	Contrôler l'éclairement
+	Assign to Circuit	Affecter à un circuit
+	Edit Circuit	Modifier le circuit
+	Edit Electrical Object	Modifier l'objet électrique
+	Electrical Quantities	Métré électrique
+	Sockets and controls	Prises et commandes
+	Luminaires	Luminaires
+	Safety	Sécurité
+	Distribution	Distribution
+	Cables	Câbles
+	Circuits	Circuits
+	Power cable	Câble de puissance
+	Lighting cable	Câble d'éclairage
+	Data cable	Câble courants faibles
+	Safety cable	Câble de sécurité
+	Socket	Prise
+	Dedicated socket	Prise spécialisée
+	Switch	Interrupteur
+	Double switch	Interrupteur double
+	Two-way switch	Va-et-vient
+	Push button	Bouton poussoir
+	Dimmer	Variateur
+	Presence detector	Détecteur de présence
+	Data outlet	Prise RJ45
+	Ceiling light	Plafonnier
+	Downlight	Spot encastré
+	Wall light	Applique
+	Strip light	Réglette
+	Emergency light	Bloc de secours
+	Exit sign	Bloc d'évacuation
+	Distribution board	Tableau électrique
+	No circuit: draw cables and devices on a named circuit first.	Aucun circuit : trace d'abord des câbles et des appareils sur un circuit nommé.
+	Circuits: {n}, to correct: {p}	Circuits : {n}, à corriger : {p}
+	No space: draw spaces to check their lighting.	Aucun local : trace des locaux pour contrôler leur éclairement.
+	{space}: {lux} lux (minimum {min})	{space} : {lux} lux (minimum {min})
+	Cables: {m} m, installed power: {kw} kW, circuits: {n}	Câbles : {m} m, puissance installée : {kw} kW, circuits : {n}
+	Circuits sized, to correct: {n}	Circuits dimensionnés, à corriger : {n}
+	Circuit	Circuit
+	Board	Tableau
+	Power (W)	Puissance (W)
+	Current (A)	Courant (A)
+	Breaker (A)	Disjoncteur (A)
+	Section drawn (mm²)	Section tracée (mm²)
+	Section required (mm²)	Section requise (mm²)
+	Voltage drop (%)	Chute de tension (%)
+	Flux (lm)	Flux (lm)
+	Electrical power (kW)	Puissance électrique (kW)
+	HVAC loads	Charges CVC
+	Main breaker (A)	Disjoncteur général (A)
+	Phases	Phases
+	Laying (B, C, E, F)	Pose (B, C, E, F)
+	Section (mm²)	Section (mm²)
+	Power factor	Facteur de puissance
+	Ambient (°C)	Ambiance (°C)
+	Circuits laid together	Circuits regroupés
+	Extra length (m)	Longueur en plus (m)
+	Electrical cables	Câbles électriques
+	Voltage drop and lighting	Chute de tension et éclairement
+	The current a cable carries is read in the table of its laying letter (B in conduit on a wall, C clipped direct, E multi-core on a tray, F single-core on a tray) and insulation (PVC 70 °C, PR 90 °C), for three loaded conductors, in free conditions at 30 °C.	Le courant d'un câble se lit dans le tableau de sa lettre de pose (B sous conduit sur un mur, C fixé directement, E multiconducteur sur chemin de câbles, F unipolaires sur chemin de câbles) et de son isolant (PVC 70 °C, PR 90 °C), pour trois conducteurs chargés, en conditions libres à 30 °C.
+	It is multiplied by K = K1 × K2 × K3: K1 the way of laying, K2 the circuits laid together, K3 the ambient temperature. The smallest section whose corrected current is at least the rating of the breaker is chosen.	Il est multiplié par K = K1 × K2 × K3 : K1 le mode de pose, K2 les circuits regroupés, K3 la température ambiante. On choisit la plus petite section dont le courant corrigé atteint au moins le calibre du disjoncteur.
+	Source: Schneider Electric, technical supplement of the electrical distribution catalogue 2016/2017, pages A46 to A49. The standard (NF C 15-100, UTE C 15-105) decides; check the values there.	Source : Schneider Electric, compléments techniques du catalogue distribution électrique 2016/2017, pages A46 à A49. La norme (NF C 15-100, UTE C 15-105) fait foi : vérifie les valeurs dedans.
+	ΔU = b × I × L × (R cos φ + X sin φ): b = 2 for a single-phase circuit and √3 for a three-phase one, R = ρ ÷ S (ρ = 22.5 Ω·mm²/km for copper and 36 for aluminium), X = 0.08 Ω/km counted from 50 mm². The drop is compared with 230 V (single-phase) or 400 V (three-phase).	ΔU = b × I × L × (R cos φ + X sin φ) : b = 2 en monophasé et √3 en triphasé, R = ρ ÷ S (ρ = 22,5 Ω·mm²/km pour le cuivre et 36 pour l'aluminium), X = 0,08 Ω/km compté à partir de 50 mm². La chute est comparée à 230 V (monophasé) ou 400 V (triphasé).
+	The length of a circuit is the length of all its cables: for a branched circuit this is on the safe side.	La longueur d'un circuit est la longueur de tous ses câbles : pour un circuit ramifié, c'est du côté sûr.
+	Illuminance of a room = total flux of its luminaires × utilisation factor × maintenance factor ÷ area. The minimums are those of the Code du travail, article R4223-4.	Éclairement d'un local = flux total de ses luminaires × facteur d'utilisation × facteur de maintenance ÷ surface. Les minimums sont ceux du Code du travail, article R4223-4.
+	Copper, three loaded conductors (A)	Cuivre, trois conducteurs chargés (A)
+	Aluminium, three loaded conductors (A)	Aluminium, trois conducteurs chargés (A)
+	K2: circuits laid together	K2 : circuits regroupés
+	K3: ambient temperature	K3 : température ambiante
+	Embedded	Encastrés
+	On walls and floors	Sur murs et planchers
+	On a perforated tray	Sur chemin de câbles perforé
+	PVC	PVC
+	PR	PR
+	Voltage drop allowed (%)	Chute de tension admise (%)
+	Minimum illuminance (lux)	Éclairement minimal (lux)
+	Resistivity (Ω·mm²/km)	Résistivité (Ω·mm²/km)
+	Public supply	Alimentation publique
+	Own HV/LV substation	Poste HTA/BT propre
+	Lighting	Éclairage
+	Other uses	Autres usages
+	Room	Local
+	Lux	Lux
+	Circulation	Circulation
+	Stairs and stores	Escaliers et entrepôts
+	Workrooms, cloakrooms, toilets	Locaux de travail, vestiaires, sanitaires
+	Metal	Métal
+	Copper	Cuivre
+	Aluminium	Aluminium

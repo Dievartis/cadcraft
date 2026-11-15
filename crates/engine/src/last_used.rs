@@ -40,6 +40,9 @@ pub struct LastUsed {
     /// PIPEADD's service, leg, diameter and insulation.
     pub pipe: cmd::PipeLastUsed,
     pub part: cmd::PartLastUsed,
+    /// CABLEADD's circuit, use, section and protection; ELECDEVICEADD's type and circuit.
+    pub cable: cmd::CableLastUsed,
+    pub device: cmd::DeviceLastUsed,
     pub slab: cmd::SlabLastUsed,
     /// DUCTACCESSORYADD's type.
     pub accessory: cmd::AccessoryLastUsed,
@@ -74,6 +77,8 @@ impl Default for LastUsed {
             duct: cmd::DuctLastUsed::default(),
             pipe: cmd::PipeLastUsed::default(),
             part: cmd::PartLastUsed::default(),
+            cable: cmd::CableLastUsed::default(),
+            device: cmd::DeviceLastUsed::default(),
             slab: cmd::SlabLastUsed::default(),
             accessory: cmd::AccessoryLastUsed::default(),
             zone: cmd::ZoneLastUsed::default(),

@@ -250,6 +250,7 @@ pub(super) fn stretched(s: &Session, hot: &[(Handle, usize)], others: &[Handle],
 enum RunKind {
     Duct,
     Pipe,
+    Cable,
 }
 
 fn run_kind(e: &Entity) -> Option<RunKind> {
@@ -257,6 +258,8 @@ fn run_kind(e: &Entity) -> Option<RunKind> {
         Some(RunKind::Duct)
     } else if cadcraft_doc::pipe_of(e).is_some() {
         Some(RunKind::Pipe)
+    } else if cadcraft_doc::cable_of(e).is_some() {
+        Some(RunKind::Cable)
     } else {
         None
     }
@@ -266,6 +269,7 @@ fn stretch_run_grip(d: &mut cadcraft_doc::Drawing, kind: RunKind, h: Handle, ind
     Ok(match kind {
         RunKind::Duct => d.stretch_duct_grip(h, index, to)?,
         RunKind::Pipe => d.stretch_pipe_grip(h, index, to)?,
+        RunKind::Cable => d.stretch_cable_grip(h, index, to)?,
     })
 }
 

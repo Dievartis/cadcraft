@@ -195,6 +195,18 @@ impl PipeRiserParams {
         self.lines.iter().find(|l| l.is(service, leg))
     }
 
+    /// How wide a line's symbol is drawn, drawing units: its circles side by side, each no smaller than the least the plan shows.
+    pub(super) fn symbol_width_units(&self, line: &RiserLine) -> f64 {
+        let u = self.units;
+        let h = u.to_units(self.label_height_mm);
+        let pipe = line.pipe(u);
+        let tubes = pipe.tubes();
+        if tubes.is_empty() {
+            return 2.0 * (u.to_units(pipe.plan_width_mm()) / 2.0).max(0.3 * h);
+        }
+        tubes.iter().map(|(_, w)| 2.0 * (u.to_units(*w) / 2.0).max(0.2 * h)).sum::<f64>() + u.to_units(20.0) * (tubes.len() as f64 - 1.0)
+    }
+
     /// Where each line's symbol is, relative to the block's origin: rows along the longer side of the shaft, centred.
     pub(super) fn symbol_centres(&self) -> Vec<Vec2> {
         let n = self.lines.len();
@@ -202,8 +214,9 @@ impl PipeRiserParams {
             return Vec::new();
         }
         let m = self.units.mm_per_unit;
-        let widest = self.lines.iter().map(|l| l.pipe(self.units).plan_width_mm()).fold(1.0, f64::max);
-        let pitch = (widest + SYMBOL_GAP_MM) / m;
+        // The widest symbol as it is drawn (a tube is drawn no smaller than a fraction of the label), so two links never overlap.
+        let widest = self.lines.iter().map(|l| self.symbol_width_units(l)).fold(self.units.to_units(1.0), f64::max);
+        let pitch = widest + SYMBOL_GAP_MM / m;
         let (w, d) = self.shaft_mm();
         let along_x = w >= d;
         let side = (if along_x { w } else { d }) / m;

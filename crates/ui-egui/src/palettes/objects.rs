@@ -88,6 +88,14 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     if !parts.is_empty() && parts.len() == sel.len() {
         return part_section(ui, sel, &parts, &d.part_library(), bad);
     }
+    let devices: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::device_of(e))).collect();
+    if !devices.is_empty() && devices.len() == sel.len() {
+        return device_section(ui, sel, &devices, bad);
+    }
+    let cables: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::cable_of(e))).collect();
+    if !cables.is_empty() && cables.len() == sel.len() {
+        return cable_section(ui, sel, &cables, bad);
+    }
     let slabs: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| slab_of(e))).collect();
     if !slabs.is_empty() && slabs.len() == sel.len() {
         return slab_section(ui, sel, &slabs, bad);
@@ -252,6 +260,96 @@ fn pipe_riser_section(ui: &mut egui::Ui, sel: &[Handle], rs: &[PipeRiserParams],
             action = edit("removeLine", json!(n));
         }
     });
+    action
+}
+
+/// A text field of the electrical groups: what the objects share (or varies), and the command a change asks for.
+fn elec_text(ui: &mut egui::Ui, label: &str, key: &str, ids: &[String], values: Vec<String>, action: &mut Action) {
+    let v = shared(&values).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, label, |ui| {
+        if let Some(t) = edit_field(ui, ui.scope_id().with(("elec_text", key, ids)), v).filter(|t| t != VARIES) {
+            *action = Some(("elecedit", json!({ "handles": ids, key: t.trim() })));
+        }
+    });
+}
+
+/// A number field of the electrical groups; empty clears it when `clearable`.
+fn elec_number(
+    ui: &mut egui::Ui,
+    (label, key, clearable): (&str, &str, bool),
+    ids: &[String],
+    values: Vec<Option<f64>>,
+    bad: &mut Option<String>,
+    action: &mut Action,
+) {
+    let texts: Vec<String> = values.iter().map(|v| v.map_or(String::new(), |f| format!("{f}"))).collect();
+    let v = shared(&texts).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, label, |ui| {
+        if let Some(t) = edit_field(ui, ui.scope_id().with(("elec_number", key, ids)), v).filter(|t| t != VARIES) {
+            if t.trim().is_empty() {
+                if clearable {
+                    *action = Some(("elecedit", json!({ "handles": ids, key: Value::Null })));
+                }
+            } else if let Some(n) = number(Some(t), bad) {
+                *action = Some(("elecedit", json!({ "handles": ids, key: n })));
+            }
+        }
+    });
+}
+
+/// The Properties group of electrical devices: tag, circuit, power, flux, height and, for a board, its main breaker.
+fn device_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[cadcraft_doc::DeviceParams], bad: &mut Option<String>) -> Action {
+    let ids = handles(sel);
+    let mut action: Action = None;
+    group(ui, "Electrical Device");
+    if let Some(k) = shared(&ds.iter().map(|d| d.kind).collect::<Vec<_>>()) {
+        prop_row(ui, "Type", |ui| read_only(ui, k.name()));
+    }
+    elec_text(ui, "Tag", "name", &ids, ds.iter().map(|d| d.name.clone()).collect(), &mut action);
+    elec_text(ui, "Circuit", "circuit", &ids, ds.iter().map(|d| d.circuit.clone()).collect(), &mut action);
+    elec_number(ui, ("Power (W)", "power", false), &ids, ds.iter().map(|d| Some(d.power_w)).collect(), bad, &mut action);
+    if ds.iter().all(|d| d.kind.is_light()) {
+        elec_number(ui, ("Flux (lm)", "flux", true), &ids, ds.iter().map(|d| d.flux_lm).collect(), bad, &mut action);
+    }
+    elec_number(ui, ("Height (mm)", "height", false), &ids, ds.iter().map(|d| Some(d.height_mm)).collect(), bad, &mut action);
+    if ds.iter().all(|d| d.kind == cadcraft_doc::DeviceKind::Panel) {
+        elec_number(ui, ("Main breaker (A)", "supply", true), &ids, ds.iter().map(|d| d.supply_a).collect(), bad, &mut action);
+    }
+    action
+}
+
+/// The Properties group of cables: circuit, use, section, protection and the conditions of the laying.
+fn cable_section(ui: &mut egui::Ui, sel: &[Handle], cs: &[cadcraft_doc::CableParams], bad: &mut Option<String>) -> Action {
+    let ids = handles(sel);
+    let mut action: Action = None;
+    group(ui, "Cable");
+    elec_text(ui, "Circuit", "circuit", &ids, cs.iter().map(|c| c.circuit.clone()).collect(), &mut action);
+    let usage = shared(&cs.iter().map(|c| c.usage.name().to_string()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Use", |ui| {
+        if let Some(u) = pick_menu(ui, crate::i18n::t(&usage), cadcraft_doc::CableUsage::ALL.iter().map(|u| u.name().to_string())) {
+            action = Some(("elecedit", json!({ "handles": ids, "usage": u })));
+        }
+    });
+    let phases = shared(&cs.iter().map(|c| c.phases.name().to_string()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Phases", |ui| {
+        if let Some(u) = pick_menu(ui, crate::i18n::t(&phases), cadcraft_doc::ElecPhases::ALL.iter().map(|u| u.name().to_string())) {
+            action = Some(("elecedit", json!({ "handles": ids, "phases": u })));
+        }
+    });
+    let laying = shared(&cs.iter().map(|c| c.laying.name().to_string()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Laying (B, C, E, F)", |ui| {
+        if let Some(u) = pick_menu(ui, &laying, cadcraft_doc::ElecLaying::ALL.iter().map(|u| u.name().to_string())) {
+            action = Some(("elecedit", json!({ "handles": ids, "laying": u })));
+        }
+    });
+    elec_number(ui, ("Section (mm²)", "section", true), &ids, cs.iter().map(|c| c.section_mm2).collect(), bad, &mut action);
+    elec_number(ui, ("Breaker (A)", "protection", true), &ids, cs.iter().map(|c| c.protection_a).collect(), bad, &mut action);
+    elec_number(ui, ("Power factor", "cosPhi", false), &ids, cs.iter().map(|c| Some(c.cos_phi)).collect(), bad, &mut action);
+    elec_number(ui, ("Ambient (°C)", "ambient", false), &ids, cs.iter().map(|c| Some(c.ambient_c)).collect(), bad, &mut action);
+    elec_number(ui, ("Circuits laid together", "grouped", false), &ids, cs.iter().map(|c| Some(f64::from(c.grouped))).collect(), bad, &mut action);
+    elec_number(ui, ("Extra length (m)", "extra", false), &ids, cs.iter().map(|c| Some(c.extra_m)).collect(), bad, &mut action);
+    let len: f64 = cs.iter().map(|c| c.length_m()).sum();
+    prop_row(ui, "Length (m)", |ui| read_only(ui, &format!("{len:.2}")));
     action
 }
 
@@ -1034,6 +1132,24 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
             action = edit("reference", json!(r));
         }
     });
+    // The electrical power it draws and the circuit that feeds it.
+    let electric =
+        shared(&items.iter().map(|e| e.electric_kw.map_or(String::new(), |f| format!("{f}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Electrical power (kW)", |ui| {
+        if let Some(t) = edit_field(ui, ui.scope_id().with(("equip_elec", &ids)), electric).filter(|t| t != VARIES) {
+            if t.trim().is_empty() {
+                action = edit("electricKw", Value::Null);
+            } else if let Some(n) = number(Some(t), bad) {
+                action = edit("electricKw", json!(n));
+            }
+        }
+    });
+    let on = shared(&items.iter().map(|e| e.circuit.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Circuit", |ui| {
+        if let Some(c) = edit_field(ui, ui.scope_id().with(("equip_circuit", &ids)), on).filter(|c| c != VARIES) {
+            action = edit("circuit", json!(c.trim()));
+        }
+    });
     // Numbers: empty clears a power or the weight. A VRV outdoor unit's power is in CV.
     let all_vrv = items.iter().all(|e| e.kind == EquipmentKind::VrfOutdoor);
     type Get = fn(&cadcraft_doc::EquipmentParams) -> Option<f64>;
@@ -1173,6 +1289,23 @@ fn ahu_section(ui: &mut egui::Ui, sel: &[Handle], units: &[AhuParams], bad: &mut
             }
         });
     }
+    let electric =
+        shared(&units.iter().map(|e| e.electric_kw.map_or(String::new(), |f| format!("{f}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Electrical power (kW)", |ui| {
+        if let Some(t) = edit_field(ui, ui.scope_id().with(("ahu_elec", &ids)), electric).filter(|t| t != VARIES) {
+            if t.trim().is_empty() {
+                action = edit("electricKw", Value::Null);
+            } else if let Some(n) = number(Some(t), bad) {
+                action = edit("electricKw", json!(n));
+            }
+        }
+    });
+    let on = shared(&units.iter().map(|e| e.circuit.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Circuit", |ui| {
+        if let Some(c) = edit_field(ui, ui.scope_id().with(("ahu_circuit", &ids)), on).filter(|c| c != VARIES) {
+            action = edit("circuit", json!(c.trim()));
+        }
+    });
     let name = shared(&units.iter().map(|p| p.name.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
     prop_row(ui, "Name", |ui| {
         if let Some(n) = edit_field(ui, ui.scope_id().with(("ahu_name", &ids)), name).filter(|n| !n.trim().is_empty() && n != VARIES) {

@@ -276,6 +276,7 @@ fn run_ahuedit(s: &mut Session, p: &Value) -> Result<Value> {
         }
     };
     let (height, weight) = (clearable("height")?, clearable("weight")?);
+    let electric = clearable("electricKw")?;
     // The size of each connection's orifice, one per collar: a diameter, "800x400", or null for none.
     let port_sizes: Option<Vec<Option<cadcraft_doc::RiserSize>>> = match p.get("portSizes") {
         None | Some(Value::Null) => None,
@@ -307,6 +308,12 @@ fn run_ahuedit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if let Some(m) = str_param(p, "model") {
             a.model = m.trim().to_string();
+        }
+        if let Some(v) = electric {
+            a.electric_kw = v;
+        }
+        if let Some(c) = str_param(p, "circuit") {
+            a.circuit = c.trim().to_string();
         }
         a.coils = coils_param(CMD, p, a.coils)?;
         if let Some(sizes) = &port_sizes {

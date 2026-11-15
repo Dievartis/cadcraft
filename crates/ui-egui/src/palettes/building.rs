@@ -11,20 +11,20 @@ use crate::CadApp;
 use crate::theme::Tokens;
 
 /// The building tabs, after Drafting and Modeling.
-pub(super) const TABS: &[&str] = &["Architecture", "HVAC"];
+pub(super) const TABS: &[&str] = &["Architecture", "HVAC", "Electricity"];
 
 /// Where the state of the sections travels while a tab is drawn, and whether the section being drawn is open.
-fn sections_id() -> egui::Id {
+pub(super) fn sections_id() -> egui::Id {
     egui::Id::NULL.with("palette_sections")
 }
 
-fn open_id() -> egui::Id {
+pub(super) fn open_id() -> egui::Id {
     egui::Id::NULL.with("palette_section_open")
 }
 
 /// The header of a section of the HVAC tab: a triangle and its title; clicked, it folds or opens the rows under it (the rows of a
 /// closed section are not drawn: see [`row_tip`]). The state is kept as the Options say ([`crate::sections`]).
-fn header(ui: &mut egui::Ui, title: &str) {
+pub(super) fn header(ui: &mut egui::Ui, title: &str) {
     header_with(ui, title, None);
 }
 
@@ -68,19 +68,26 @@ fn header_with(ui: &mut egui::Ui, title: &str, help: Option<&'static str>) {
     }
 }
 
-fn separator(ui: &mut egui::Ui) {
+pub(super) fn separator(ui: &mut egui::Ui) {
     let t = Tokens::get();
     let (sr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
     ui.painter().hline(sr.x_range().shrink(6.0), sr.center().y, Stroke::new(1.0, t.border));
 }
 
 /// A full-width button with a small picture drawn by `paint` on its left; true when clicked.
-fn row_button(ui: &mut egui::Ui, label: &str, selected: bool, paint: impl FnOnce(&egui::Painter, Rect)) -> bool {
+pub(super) fn row_button(ui: &mut egui::Ui, label: &str, selected: bool, paint: impl FnOnce(&egui::Painter, Rect)) -> bool {
     row_tip(ui, label, "", None, selected, paint)
 }
 
 /// [`row_button`] with a how-to shown when the pointer rests on it (empty: none).
-fn row_tip(ui: &mut egui::Ui, label: &str, tip: &str, help: Option<&'static str>, selected: bool, paint: impl FnOnce(&egui::Painter, Rect)) -> bool {
+pub(super) fn row_tip(
+    ui: &mut egui::Ui,
+    label: &str,
+    tip: &str,
+    help: Option<&'static str>,
+    selected: bool,
+    paint: impl FnOnce(&egui::Painter, Rect),
+) -> bool {
     // The rows of a section that is folded are not drawn.
     if ui.data(|d| d.get_temp::<bool>(open_id())) == Some(false) {
         return false;
@@ -144,6 +151,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui, tab: &str) {
     match tab {
         "Architecture" => architecture(app, ui),
         "HVAC" => hvac(app, ui),
+        "Electricity" => super::electricity::body(app, ui),
         _ => {}
     }
 }
@@ -218,7 +226,7 @@ fn air_label(name: &str) -> &'static str {
 const CHARTS_TIP: &str = "The tables and rules the sizing tools apply: refrigerant links, water pipes, drains, ducts.";
 
 /// The first row of the HVAC and Architecture tabs: the design charts window.
-fn charts_row(ui: &mut egui::Ui, start: &mut Option<&'static str>) {
+pub(super) fn charts_row(ui: &mut egui::Ui, start: &mut Option<&'static str>) {
     if row_tip(ui, crate::i18n::t("Design Charts"), crate::i18n::t(CHARTS_TIP), None, false, thumbs::paint_quantities) {
         *start = Some("ui.charts");
     }

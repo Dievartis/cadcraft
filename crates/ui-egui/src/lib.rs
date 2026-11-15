@@ -36,6 +36,7 @@ pub mod control;
 pub mod credits;
 pub mod dialogs;
 pub mod docking;
+pub mod elecdlg;
 pub mod fault;
 pub mod partlibdlg;
 pub mod takeoffdlg;
@@ -400,6 +401,8 @@ pub struct CadApp {
     pub takeoff_store: takeoffdlg::Store,
     /// The design charts window while open ([`chartsdlg`]).
     pub charts_dlg: Option<chartsdlg::ChartsState>,
+    /// The Electrical Quantities window while open ([`elecdlg`]).
+    pub elec_dlg: Option<elecdlg::ElecDlgState>,
     /// The Pipework Part Library window while open ([`partlibdlg`]).
     pub part_lib: Option<partlibdlg::PartLibState>,
     /// The Hatch and Gradient dialog while open or picking ([`hatchdlg`]).
@@ -522,6 +525,7 @@ impl CadApp {
             takeoff_dlg: None,
             takeoff_store: Default::default(),
             charts_dlg: None,
+            elec_dlg: None,
             part_lib: None,
             hatch_dlg: None,
             attedit: attedit::State::default(),
