@@ -22,6 +22,7 @@ pub mod file;
 mod gripcmds;
 mod griphot;
 pub(crate) mod groups;
+mod network;
 mod opening;
 mod part;
 mod pipe;
@@ -223,6 +224,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(duct::specs());
         v.extend(pipe::specs());
         v.extend(part::specs());
+        v.extend(network::specs());
         v.extend(pipe_riser::specs());
         v.extend(slab::specs());
         v.extend(duct_acc::specs());

@@ -1662,3 +1662,29 @@ menu	View	视图
 	gas	气管
 	suction gas	吸气管
 	HP/LP gas	高/低压气管
+	Pipe Networks	管道系统
+	Name Networks	命名管网
+	Network Legend	管网图例
+	Names every pipe network that has no name (CHW1, HW1, COND1…) and gives each its own colour, so that two networks of the same service can be told apart on the plan. A name typed on a pipe in Properties is the name of its whole network.	为每个未命名的管网命名（CHW1、HW1、COND1…）并赋予各自的颜色，使同一系统的两个管网在图上可区分。在特性中为某根管道输入的名称即其整个管网的名称。
+	Puts a legend on the plan: a row for each network, in its colour and line type, with its name, its pipes and their length. It is redrawn when a network is named, renamed or restyled.	在图上放置图例：每个管网一行，以其颜色和线型显示名称、管道及长度。管网命名、重命名或改变样式时图例会重绘。
+	Network	管网
+	Network colour	管网颜色
+	Network line type	管网线型
+	No pipe network: draw pipes first.	没有管网：请先绘制管道。
+	Network {name}: {tags}, {pipes} pipe(s), {length} m, colour {color}	管网 {name}：{tags}，{pipes} 根管道，{length} m，颜色 {color}
+	Orange	橙色
+	Vermillion	朱红
+	Pink	粉色
+	Sky blue	天蓝
+	Purple	紫色
+	Brown	棕色
+	Teal	青绿
+	Maroon	栗色
+	Olive	橄榄绿
+	Gold	金色
+	Continuous	连续线
+	Dashed	虚线
+	Dash-dot	点划线
+	Dotted	点线
+	Long dash	长划线
+	Networks	管网

@@ -429,6 +429,9 @@ pub struct PartParams {
     pub equivalent_length_m: Option<f64>,
     #[serde(default)]
     pub zeta: Option<f64>,
+    /// The name of the network the part is on: it is drawn on the network's layer (but for a safety device, which stays red).
+    #[serde(default)]
+    pub network: String,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     #[serde(default)]
@@ -468,6 +471,7 @@ impl PartParams {
             kvs: None,
             equivalent_length_m: None,
             zeta: None,
+            network: String::new(),
             label_height_mm: default_label_mm(),
             units,
         }
@@ -484,7 +488,7 @@ impl PartParams {
         if self.outlets > MAX_PART_OUTLETS {
             return Err(invalid(format!("A part has at most {MAX_PART_OUTLETS} outlets.")));
         }
-        if !(text_ok(&self.model) && text_ok(&self.brand) && text_ok(&self.connections)) {
+        if !(text_ok(&self.model) && text_ok(&self.brand) && text_ok(&self.connections) && text_ok(&self.network)) {
             return Err(invalid(format!("A part's texts have at most {MAX_TEXT_CHARS} characters, without control characters.")));
         }
         let positive = |v: Option<f64>| v.is_none_or(|v| v.is_finite() && v > 0.0 && v <= 1.0e7);
@@ -548,9 +552,14 @@ impl PartParams {
     }
 
     /// The symbol and the label.
+    /// The layer the part is drawn on: its kind's, or its network's copy of it (a safety device keeps its red one).
+    pub fn layer(&self) -> &'static str {
+        if self.kind.is_safety() { self.kind.layer() } else { super::network_layer(self.kind.layer(), &self.network) }
+    }
+
     pub fn generate(&self) -> Result<Vec<HvacPiece>> {
         self.validate()?;
-        let layer = self.kind.layer();
+        let layer = self.layer();
         let u = self.units;
         let (l, w) = (u.to_units(self.length_mm), u.to_units(self.width_mm));
         let mut pieces: Vec<HvacPiece> = symbol(self.kind, l, w, self.outlets).into_iter().map(|kind| HvacPiece { layer, kind }).collect();
@@ -636,7 +645,7 @@ impl crate::Drawing {
         }
         let pieces = p.generate()?;
         common.xdata = xdata::replace(PART_APP, &common.xdata, p.to_xdata()?);
-        let layer = p.kind.layer();
+        let layer = p.layer();
         common.layer = layer.into();
         let block = self.hvac_block(pieces);
         self.ensure_layer(layer);
@@ -650,7 +659,7 @@ impl crate::Drawing {
         let e = self.entity(h).ok_or(crate::DocError::NoEntity(h))?;
         let tags = xdata::replace(PART_APP, &e.common.xdata, p.to_xdata()?);
         self.regenerate_hvac(h, pieces, tags)?;
-        let layer = p.kind.layer();
+        let layer = p.layer();
         self.ensure_layer(layer);
         self.modify_entity(h, |e| e.common.layer = layer.into())?;
         Ok(())

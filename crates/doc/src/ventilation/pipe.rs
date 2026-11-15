@@ -14,6 +14,7 @@
 use cadcraft_geom::Vec2;
 use serde::{Deserialize, Serialize};
 
+use super::pipe_networks::{intern, network_layer};
 use super::{HvacPiece, HvacUnits, check_label_height, invalid, label, v3, xdata};
 use crate::{EntityKind, Line, RawTag, Result};
 
@@ -298,6 +299,9 @@ pub struct PipeParams {
     /// The altitude of the run's underside, mm above the drawing's zero, when the user gave it.
     #[serde(default)]
     pub level_mm: Option<f64>,
+    /// The name of the network the run belongs to (see [`super::pipe_networks`]): its layers, colour and line type, and its text.
+    #[serde(default)]
+    pub network: String,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     #[serde(default)]
@@ -323,6 +327,7 @@ impl PipeParams {
             loss_pa_m: None,
             flow_forward: None,
             level_mm: None,
+            network: String::new(),
             label_height_mm: default_label_mm(),
             units,
         }
@@ -347,6 +352,9 @@ impl PipeParams {
         }
         if self.level_mm.is_some_and(|l| !(l.is_finite() && l.abs() <= 1e6)) {
             return Err(invalid("The altitude of a pipe is not usable."));
+        }
+        if self.network.chars().count() > super::MAX_NETWORK_NAME_CHARS || self.network.chars().any(char::is_control) {
+            return Err(invalid(format!("A network's name has at most {} characters, without control characters.", super::MAX_NETWORK_NAME_CHARS)));
         }
         self.units.validate()?;
         check_label_height(self.label_height_mm)
@@ -374,6 +382,11 @@ impl PipeParams {
     /// Empty for a pipe that is a single run.
     pub(super) fn tubes(&self) -> Vec<(&'static str, f64)> {
         let w = |dn: f64| dn + 2.0 * self.insulation_mm;
+        let tubes = self.raw_tubes(w);
+        tubes.into_iter().map(|(layer, width)| (network_layer(layer, &self.network), width)).collect()
+    }
+
+    fn raw_tubes(&self, w: impl Fn(f64) -> f64) -> Vec<(&'static str, f64)> {
         match self.service {
             PipeService::RefrigerantPair => vec![(PIPE_REFRIGERANT_LIQUID_LAYER, w(self.dn_mm)), (PIPE_REFRIGERANT_GAS_LAYER, w(self.gas_dn_mm))],
             PipeService::RefrigerantTriple => vec![
@@ -397,9 +410,9 @@ impl PipeParams {
         }
     }
 
-    /// The layer of the run.
+    /// The layer of the run: its service's, or the network's copy of it.
     pub fn layer(&self) -> &'static str {
-        layer_of(self.service, self.leg)
+        network_layer(layer_of(self.service, self.leg), &self.network)
     }
 
     /// Length in metres.
@@ -427,6 +440,9 @@ impl PipeParams {
     /// The text written on the run: its size, its service and what sizing found.
     pub fn label_text(&self) -> String {
         let mut text = format!("{} {}", self.size_text(), self.tag());
+        if !self.network.trim().is_empty() {
+            text = format!("{} {text}", self.network.trim());
+        }
         if let Some(f) = self.flow_m3h {
             if self.service == PipeService::Condensate {
                 text.push_str(&format!(" {:.1} l/h", f * 1000.0));
@@ -463,7 +479,9 @@ impl PipeParams {
             }
             v
         };
-        if let Some(band) = band_layer(self.service, self.leg) {
+        if let Some(colour) = band_colour(self.service) {
+            // The line along the axis is on the pipe's layer, drawn in the colour of the identification band.
+            let band = intern(format!("{layer}|ByLayer|{colour}")).unwrap_or(layer);
             pieces.push(line(band, Vec2::ZERO, Vec2::new(self.length, 0.0)));
         }
         if let Some(forward) = self.flow_forward {
@@ -534,13 +552,11 @@ fn layer_of(service: PipeService, leg: PipeLeg) -> &'static str {
     }
 }
 
-/// The layer string of the line along the axis of a pipe that has an identification band, coded
-/// `layer|linetype|colour layer`: the pipe's layer, drawn in the colour of the band.
-fn band_layer(service: PipeService, leg: PipeLeg) -> Option<&'static str> {
-    match (service, leg) {
-        (PipeService::ChilledWater, PipeLeg::Supply) => Some("M-PIPE-CHWS|ByLayer|M-PIPE-BAND-WHITE"),
-        (PipeService::ChilledWater, PipeLeg::Return) => Some("M-PIPE-CHWR|ByLayer|M-PIPE-BAND-WHITE"),
-        (PipeService::Condensate, _) => Some("M-PIPE-COND|ByLayer|M-PIPE-BAND-YELLOW"),
+/// The colour layer of the identification band of a service that has one (ISO 14726).
+fn band_colour(service: PipeService) -> Option<&'static str> {
+    match service {
+        PipeService::ChilledWater => Some("M-PIPE-BAND-WHITE"),
+        PipeService::Condensate => Some("M-PIPE-BAND-YELLOW"),
         _ => None,
     }
 }

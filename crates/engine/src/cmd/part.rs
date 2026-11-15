@@ -146,6 +146,8 @@ fn place(
     if let (true, Some((pipe, t))) = (inline, on) {
         s.doc_mut()?.split_pipe(pipe, t, gap).map_err(doc_err)?;
     }
+    // A part put on a named network is on it.
+    super::network::propagate(s);
     Ok(h)
 }
 

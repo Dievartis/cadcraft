@@ -132,7 +132,10 @@ fn add_riser(s: &mut Session, p: PipeRiserParams) -> Result<Handle> {
     p.validate().map_err(doc_err)?;
     let space = s.space();
     let common = s.current_common();
-    s.doc_mut()?.add_pipe_riser(&space, common, p).map_err(doc_err)
+    let h = s.doc_mut()?.add_pipe_riser(&space, common, p).map_err(doc_err)?;
+    // The lines of a riser are on the network whose pipes end in the shaft.
+    super::network::propagate(s);
+    Ok(h)
 }
 
 fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
@@ -223,6 +226,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     for (h, r) in &next {
         d.regenerate_pipe_riser(*h, r).map_err(doc_err)?;
     }
+    super::network::propagate(s);
     Ok(json!({ "changed": next.len() }))
 }
 

@@ -111,6 +111,7 @@ impl PartModel {
             kvs: None,
             equivalent_length_m: None,
             zeta: None,
+            network: String::new(),
             label_height_mm: 100.0,
             units,
         }
@@ -176,7 +177,7 @@ impl PartEntry {
 
     /// The part a new object of the entry starts as, named `name`.
     pub fn params(&self, name: &str, units: HvacUnits) -> PartParams {
-        PartParams { name: name.to_string(), units, model: self.name.clone(), ..self.template.clone() }
+        PartParams { name: name.to_string(), units, model: self.name.clone(), network: String::new(), ..self.template.clone() }
     }
 
     /// The tag a part of the entry starts with.

@@ -996,6 +996,9 @@ pub(super) fn tags_for(d: &Drawing, version: Version, target: Version, frozen_34
     if let Some(chunks) = dxf_ext::part_model_chunks(&d.part_models) {
         xrecords.push((dxf_ext::PART_MODELS_KEY, w.h(), chunks));
     }
+    if let Some(chunks) = dxf_ext::network_style_chunks(&d.network_styles) {
+        xrecords.push((dxf_ext::NETWORK_STYLES_KEY, w.h(), chunks));
+    }
     if let Some(chunks) = dxf_ext::plot_style_chunks(&d.plot_style_tables) {
         xrecords.push((dxf_ext::PLOT_STYLES_KEY, w.h(), chunks));
     }

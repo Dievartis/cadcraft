@@ -280,6 +280,10 @@ impl Objects {
         if let Some(models) = self.xrecord_text(crate::dxf_ext::PART_MODELS_KEY).and_then(|t| crate::dxf_ext::parse_part_models(&t)) {
             d.part_models = models;
         }
+        // The drawing's pipe network styles.
+        if let Some(styles) = self.xrecord_text(crate::dxf_ext::NETWORK_STYLES_KEY).and_then(|t| crate::dxf_ext::parse_network_styles(&t)) {
+            d.network_styles = styles;
+        }
         // The drawing's plot style tables.
         if let Some(tables) = self.xrecord_text(crate::dxf_ext::PLOT_STYLES_KEY).and_then(|t| crate::dxf_ext::parse_plot_styles(&t)) {
             d.plot_style_tables = tables;

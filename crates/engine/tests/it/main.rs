@@ -114,6 +114,7 @@ mod mtext_options;
 mod multiline_attributes;
 mod named_viewports;
 mod named_views;
+mod network;
 mod non_finite_edits;
 mod offset_closed_spline;
 mod offset_ellipse_side;

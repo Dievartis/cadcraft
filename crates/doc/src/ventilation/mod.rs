@@ -13,10 +13,13 @@ mod duct;
 mod equipment;
 mod library;
 mod network;
+mod network_legend;
 mod part;
 mod part_library;
 mod pipe;
 mod pipe_network;
+mod pipe_network_names;
+mod pipe_networks;
 mod pipe_riser;
 mod refrigerant;
 mod riser;
@@ -35,12 +38,15 @@ pub use duct::*;
 pub use equipment::*;
 pub use library::standard_air_terminal_models;
 pub use network::{DEFAULT_MARGIN_MM, DuctNetwork, FLEX_ROUGHNESS_MM, MAX_DUCTS};
+pub use network_legend::*;
 pub use part::*;
 pub use part_library::{
     MAX_USER_PART_MODELS, PartEntry, PartModel, PartTemplate, standard_part_model_named, standard_part_models, tag_prefix as part_tag_prefix,
 };
 pub use pipe::*;
 pub use pipe_network::{MAX_PIPES as MAX_PIPE_RUNS, PipeNetworkReport, PipeResult, PipeSizingParams};
+pub use pipe_network_names::NetworkSummary;
+pub use pipe_networks::*;
 pub use pipe_riser::*;
 pub use refrigerant::{OutletReport, PartReport, RefrigerantNetwork, RefrigerantReport};
 pub use riser::*;
@@ -81,7 +87,10 @@ fn hvac_layer_color(name: &str) -> Option<cadcraft_color::Color> {
         // The safety devices are red.
         ACCESSORY_FIRE_LAYER => Some(Color::True(Rgb(0xe0, 0x24, 0x24))),
         EQUIPMENT_ZONE_LAYER => Some(Color::True(Rgb(0x9a, 0x9a, 0x9a))),
-        _ => pipe::pipe_layer_color(name).or_else(|| slab::slab_layer_color(name)).or_else(|| part::part_layer_color(name)),
+        _ => pipe::pipe_layer_color(name)
+            .or_else(|| slab::slab_layer_color(name))
+            .or_else(|| part::part_layer_color(name))
+            .or_else(|| pipe_networks::network_base(name).and_then(hvac_layer_color)),
     }
 }
 
@@ -252,11 +261,22 @@ impl crate::Drawing {
             // `layer|linetype|colour layer`.
             let (layer, rest) = piece.layer.split_once('|').unwrap_or((piece.layer, "ByLayer"));
             let (linetype, colour_of) = rest.split_once('|').map_or((rest, None), |(l, c)| (l, Some(c)));
-            if self.ensure_layer(layer)
-                && let Some(c) = hvac_layer_color(layer)
-                && let Some(l) = self.layers.iter_mut().find(|l| l.name == layer)
-            {
-                l.color = c;
+            if self.ensure_layer(layer) {
+                // A new layer takes its own colour; one made for a network, the colour and the line type of its style.
+                let look = self.network_look(layer);
+                if let Some(ref lt) = look.as_ref().map(|(_, lt)| lt.clone()) {
+                    self.ensure_network_linetype(lt);
+                }
+                if let Some(l) = self.layers.iter_mut().find(|l| l.name == layer) {
+                    match look {
+                        Some((c, lt)) => (l.color, l.linetype) = (c, lt),
+                        None => {
+                            if let Some(c) = hvac_layer_color(layer) {
+                                l.color = c;
+                            }
+                        }
+                    }
+                }
             }
             let mut common = crate::Common { layer: layer.into(), linetype: linetype.into(), ..Default::default() };
             if let Some(c) = colour_of.and_then(hvac_layer_color) {
@@ -277,6 +297,8 @@ mod duct_tests;
 mod equipment_tests;
 #[cfg(test)]
 mod part_tests;
+#[cfg(test)]
+mod pipe_networks_tests;
 #[cfg(test)]
 mod pipe_riser_tests;
 #[cfg(test)]

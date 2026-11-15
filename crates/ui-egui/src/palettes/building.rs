@@ -187,6 +187,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
     let part_now = app.session.last_used.part.model.clone();
     let mut chosen_part: Option<&'static str> = None;
     let mut size_pipes = false;
+    let mut name_networks = false;
     let mut check_refrigerant = false;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -315,6 +316,29 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         }
         ui.add_space(6.0);
         separator(ui);
+        header(ui, "Pipe Networks");
+        if row_tip(
+            ui,
+            crate::i18n::t("Name Networks"),
+            crate::i18n::t("Names every pipe network that has no name (CHW1, HW1, COND1…) and gives each its own colour, so that two networks of the same service can be told apart on the plan. A name typed on a pipe in Properties is the name of its whole network."),
+            None,
+            false,
+            thumbs::paint_name_networks,
+        ) {
+            name_networks = true;
+        }
+        if row_tip(
+            ui,
+            crate::i18n::t("Network Legend"),
+            crate::i18n::t("Puts a legend on the plan: a row for each network, in its colour and line type, with its name, its pipes and their length. It is redrawn when a network is named, renamed or restyled."),
+            None,
+            false,
+            thumbs::paint_network_legend,
+        ) {
+            start = Some("networklegend");
+        }
+        ui.add_space(6.0);
+        separator(ui);
         parts_section(ui, &part_now, &mut chosen_part, &mut start, &mut check_refrigerant);
         ui.add_space(6.0);
         separator(ui);
@@ -386,6 +410,12 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         // REFRIGERANTCHECK asks nothing: it runs at once and says what it found.
         match app.run("refrigerantcheck", serde_json::json!({})) {
             Ok(r) => echo_refrigerant(app, &r),
+            Err(e) => app.session.echo(e.to_string()),
+        }
+    } else if name_networks {
+        // PIPENETWORK asks nothing: it runs at once and says the networks it found.
+        match app.run("pipenetwork", serde_json::json!({})) {
+            Ok(r) => echo_networks(app, &r),
             Err(e) => app.session.echo(e.to_string()),
         }
     } else if size_pipes {
@@ -706,5 +736,24 @@ fn echo_refrigerant(app: &mut CadApp, r: &serde_json::Value) {
     }
     for w in r["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()) {
         app.session.echo(w.to_string());
+    }
+}
+
+/// Says the networks of the drawing, one line each: name, colour, tags and length.
+fn echo_networks(app: &mut CadApp, r: &serde_json::Value) {
+    let networks = r["networks"].as_array().cloned().unwrap_or_default();
+    if networks.is_empty() {
+        app.session.echo(crate::tl!("No pipe network: draw pipes first.").to_string());
+    }
+    for n in &networks {
+        let tags: Vec<&str> = n["services"].as_array().into_iter().flatten().filter_map(|t| t.as_str()).collect();
+        app.session.echo(crate::tf!(
+            "Network {name}: {tags}, {pipes} pipe(s), {length} m, colour {color}",
+            name = n["name"].as_str().unwrap_or(""),
+            tags = tags.join("/"),
+            pipes = n["pipes"].as_u64().unwrap_or(0),
+            length = format!("{:.0}", n["length"].as_f64().unwrap_or(0.0)),
+            color = n["color"].as_str().unwrap_or("")
+        ));
     }
 }

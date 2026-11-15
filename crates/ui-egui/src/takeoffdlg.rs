@@ -206,10 +206,18 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
                     } else {
                         String::new()
                     };
-                    vec![crate::i18n::t(service).to_string(), leg, q.size.clone(), num(q.insulation_mm), q.count.to_string(), num(q.length_m)]
+                    vec![
+                        q.network.clone(),
+                        crate::i18n::t(service).to_string(),
+                        leg,
+                        q.size.clone(),
+                        num(q.insulation_mm),
+                        q.count.to_string(),
+                        num(q.length_m),
+                    ]
                 })
                 .collect();
-            table(ui, "pipes", "Pipes", &["Service", "Leg", "Size", "Insulation (mm)", "Count", "Length (m)"], pipes);
+            table(ui, "pipes", "Pipes", &["Network", "Service", "Leg", "Size", "Insulation (mm)", "Count", "Length (m)"], pipes);
             let mut ducts: Vec<Vec<String>> = t
                 .ducts
                 .iter()

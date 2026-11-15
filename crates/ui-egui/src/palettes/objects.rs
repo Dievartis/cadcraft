@@ -78,7 +78,7 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     }
     let pipes: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| pipe_of(e))).collect();
     if !pipes.is_empty() && pipes.len() == sel.len() {
-        return pipe_section(ui, sel, &pipes, len, bad);
+        return pipe_section(ui, sel, &pipes, &d.network_styles, len, bad);
     }
     let pipe_risers: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| pipe_riser_of(e))).collect();
     if !pipe_risers.is_empty() && pipe_risers.len() == sel.len() {
@@ -97,6 +97,35 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
 
 /// The line tags a pipe riser can be given.
 const RISER_TAGS: [&str; 11] = ["CHW-S", "CHW-R", "HW-S", "HW-R", "CO-S", "CO-R", "COND", "REF-L", "REF-G", "REF", "REF-HR"];
+
+/// The rows of the network a pipe is on: its name (typed, it is the name of the whole network), and the colour and the line type of the
+/// network's style. The colour is chosen from the palette, and shown as a swatch.
+fn network_rows(ui: &mut egui::Ui, ids: &[String], networks: Vec<String>, styles: &[cadcraft_doc::NetworkStyle], action: &mut Action) {
+    let name = shared(&networks).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Network", |ui| {
+        if let Some(n) = edit_field(ui, ui.scope_id().with(("network_name", ids)), name.clone()).filter(|n| n != VARIES && n.trim() != name.trim()) {
+            *action = Some(("pipeedit", json!({ "handles": ids, "network": n })));
+        }
+    });
+    let Some(style) = styles.iter().find(|st| cadcraft_doc::same_network(&st.name, &name)) else { return };
+    let style_edit = |key: &str, value: Value| Some(("pipenetwork", json!({ "style": { "name": style.name, key: value } })));
+    prop_row(ui, "Network colour", |ui| {
+        // A swatch of the colour, then the menu of the palette.
+        let (r, _) = ui.allocate_exact_size(vec2(18.0, 14.0), Sense::hover());
+        ui.painter().rect_filled(r, 2.0, egui::Color32::from_rgb(style.color[0], style.color[1], style.color[2]));
+        let shown = cadcraft_doc::NETWORK_PALETTE.iter().find(|(_, c)| *c == style.color).map_or("Custom", |(n, _)| n);
+        if let Some(chosen) = pick_menu(ui, crate::i18n::t(shown), cadcraft_doc::NETWORK_PALETTE.iter().map(|(n, _)| (*n).to_string())) {
+            *action = style_edit("color", json!(chosen));
+        }
+    });
+    prop_row(ui, "Network line type", |ui| {
+        let shown = cadcraft_doc::NETWORK_LINETYPES.iter().find(|(n, _)| *n == style.linetype).map_or(style.linetype.as_str(), |(_, w)| w);
+        let items: Vec<(&'static str, &'static str)> = cadcraft_doc::NETWORK_LINETYPES.iter().map(|(n, w)| (*n, *w)).collect();
+        if let Some(lt) = choice(ui, shown, &items) {
+            *action = style_edit("linetype", json!(lt));
+        }
+    });
+}
 
 /// The Properties group of pipe risers: their name, direction and height, and the lines each holds (its size, and what it carries to
 /// the other floors), with what sizing found; lines are added and removed.
@@ -221,6 +250,8 @@ fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], library: &
     // The model: the others of the same kind are one click away, as the type of an air handling unit is.
     let kind = shared(&ps.iter().map(|p| p.kind).collect::<Vec<_>>());
     let model = shared(&ps.iter().map(|p| p.model.to_string()).collect::<Vec<String>>());
+    let on = shared(&ps.iter().map(|p| p.network.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Network", |ui| read_only(ui, if on.is_empty() { "—" } else { &on }));
     prop_row(ui, "Model", |ui| {
         let fr = crate::i18n::current_language().starts_with("fr");
         let name_of = |m: &cadcraft_doc::PartEntry| if fr { m.name_fr.clone() } else { m.name.clone() };
@@ -363,7 +394,14 @@ pub(super) fn pipe_service_label(s: PipeService) -> &'static str {
 }
 
 /// The Properties group of pipes: their service, size, insulation, altitude and load, and what sizing found.
-fn pipe_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PipeParams], len: &dyn Fn(f64) -> String, bad: &mut Option<String>) -> Action {
+fn pipe_section(
+    ui: &mut egui::Ui,
+    sel: &[Handle],
+    ps: &[PipeParams],
+    styles: &[cadcraft_doc::NetworkStyle],
+    len: &dyn Fn(f64) -> String,
+    bad: &mut Option<String>,
+) -> Action {
     let ids = handles(sel);
     let mut action: Action = None;
     let edit = |key: &str, value: Value| Some(("pipeedit", json!({ "handles": ids, key: value })));
@@ -465,6 +503,7 @@ fn pipe_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PipeParams], len: &dyn 
             }
         }
     });
+    network_rows(ui, &ids, ps.iter().map(|p| p.network.clone()).collect(), styles, &mut action);
     let source = shared(&ps.iter().map(|p| p.source).collect::<Vec<_>>());
     prop_row(ui, "Starts at the source", |ui| {
         let mut on = source == Some(true);
@@ -1686,6 +1725,27 @@ mod hvac_tests {
         type_into(&mut hn, "3/8", "1/2");
         let p = cadcraft_doc::pipe_riser_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
         assert_eq!(p.lines[1].dn_mm, 12.7);
+    }
+
+    #[test]
+    fn a_name_typed_on_a_pipe_in_the_palette_is_the_name_of_its_whole_network_and_its_colour_is_chosen_there() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        *app.session.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+        app.run("equipmentadd", json!({ "at": [0, 0], "kind": "chiller", "capacityKw": 50 })).unwrap();
+        app.run("equipmentadd", json!({ "at": [6000, 0], "kind": "cassette", "capacityKw": 5, "length": 800, "width": 600, "height": 300 })).unwrap();
+        let a = app.run("pipeadd", json!({ "points": [[0, 0], [5800, 0]], "service": "chilledWater" })).unwrap();
+        let b = app.run("pipeadd", json!({ "points": [[5800, 200], [0, 200]], "service": "chilledWater", "leg": "return" })).unwrap();
+        let (ha, hb) = (a["handles"][0].as_str().unwrap().to_string(), b["handles"][0].as_str().unwrap().to_string());
+        let handle = |t: &str| cadcraft_doc::Handle::parse_hex(t).unwrap();
+        app.run("pipenetwork", json!({})).unwrap();
+        app.session.set_selection(vec![handle(&ha)]);
+        let mut hn = palette(app);
+        assert!(hn.query_by_label("Network colour").is_some() && hn.query_by_label("Network line type").is_some(), "a named network shows its style");
+        type_into(&mut hn, "CHW1", "Toiture");
+        let d = hn.state().session.doc().unwrap();
+        let net = |h: &str| cadcraft_doc::pipe_of(d.entity(handle(h)).unwrap()).unwrap().network;
+        assert_eq!((net(&ha), net(&hb)), ("Toiture".to_string(), "Toiture".to_string()), "the return is on the network too");
+        assert!(d.network_style("toiture").is_some());
     }
 
     #[test]

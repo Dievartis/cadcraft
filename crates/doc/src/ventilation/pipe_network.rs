@@ -74,21 +74,21 @@ pub struct PipeNetworkReport {
 
 /// What a pipe can end in: an equipment or an air handling unit, a rectangle turned about its centre (drawing units),
 /// with the power it asks of each water service, kW.
-struct Equip {
-    centre: Vec2,
-    rotation: f64,
-    half_length: f64,
-    half_width: f64,
+pub(super) struct Equip {
+    pub(super) centre: Vec2,
+    pub(super) rotation: f64,
+    pub(super) half_length: f64,
+    pub(super) half_width: f64,
     /// A chiller: the water networks start from it.
-    chiller: bool,
-    loads: Vec<(PipeService, f64)>,
+    pub(super) chiller: bool,
+    pub(super) loads: Vec<(PipeService, f64)>,
     /// The part, for the ones in the line of a pipe.
-    part: Option<(crate::Handle, super::PartParams)>,
+    pub(super) part: Option<(crate::Handle, super::PartParams)>,
 }
 
 impl Equip {
     /// Whether `p` is within the footprint, `margin` drawing units out.
-    fn holds(&self, p: Vec2, margin: f64) -> bool {
+    pub(super) fn holds(&self, p: Vec2, margin: f64) -> bool {
         let (s, c) = self.rotation.sin_cos();
         let (dx, dy) = (p.x - self.centre.x, p.y - self.centre.y);
         let (x, y) = (dx * c + dy * s, -dx * s + dy * c);
@@ -365,7 +365,7 @@ fn size_tree(
 
 impl crate::Drawing {
     /// The parts in the line of a pipe, as footprints the network is read through.
-    fn part_bridges(&self) -> Vec<Equip> {
+    pub(super) fn part_bridges(&self) -> Vec<Equip> {
         self.model
             .iter()
             .filter_map(|e| {
@@ -385,7 +385,7 @@ impl crate::Drawing {
     }
 
     /// The equipment and air handling units of model space with their footprints and powers.
-    fn equipment_footprints(&self) -> Vec<Equip> {
+    pub(super) fn equipment_footprints(&self) -> Vec<Equip> {
         let mut out = Vec::new();
         for e in self.model.iter() {
             let EntityKind::Insert(i) = &e.kind else { continue };

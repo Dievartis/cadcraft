@@ -1514,3 +1514,30 @@
 	gas	gaz
 	suction gas	gaz d'aspiration
 	HP/LP gas	gaz HP/BP
+	Pipe Networks	Réseaux de tuyauterie
+	Name Networks	Nommer les réseaux
+	Network Legend	Légende des réseaux
+	Names every pipe network that has no name (CHW1, HW1, COND1…) and gives each its own colour, so that two networks of the same service can be told apart on the plan. A name typed on a pipe in Properties is the name of its whole network.	Nomme chaque réseau de tuyauterie qui n'a pas de nom (CHW1, HW1, COND1…) et lui donne sa propre couleur, pour distinguer sur le plan deux réseaux d'un même service. Un nom tapé sur un tuyau dans Propriétés est le nom de tout son réseau.
+	Puts a legend on the plan: a row for each network, in its colour and line type, with its name, its pipes and their length. It is redrawn when a network is named, renamed or restyled.	Pose une légende sur le plan : une ligne par réseau, dans sa couleur et son type de trait, avec son nom, ses tuyaux et leur longueur. Elle se redessine quand un réseau est nommé, renommé ou change de style.
+	Network	Réseau
+	Network colour	Couleur du réseau
+	Network line type	Type de trait du réseau
+	Custom	Personnalisée
+	No pipe network: draw pipes first.	Aucun réseau de tuyauterie : dessinez d'abord des tuyaux.
+	Network {name}: {tags}, {pipes} pipe(s), {length} m, colour {color}	Réseau {name} : {tags}, {pipes} tuyau(x), {length} m, couleur {color}
+	Orange	Orange
+	Vermillion	Vermillon
+	Pink	Rose
+	Sky blue	Bleu ciel
+	Purple	Violet
+	Brown	Marron
+	Teal	Bleu-vert
+	Maroon	Bordeaux
+	Olive	Olive
+	Gold	Or
+	Continuous	Continu
+	Dashed	Tirets
+	Dash-dot	Tiret-point
+	Dotted	Pointillé
+	Long dash	Tirets longs
+	Networks	Réseaux

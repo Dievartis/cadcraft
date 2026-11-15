@@ -615,3 +615,24 @@ pub(super) fn paint_edit_pipe_riser(p: &Painter, r: Rect) {
     t.circle(11.0, 11.5, 2.0, t.acc);
     t.pencil();
 }
+
+/// Three pipes of one service in three colours: Name Networks.
+pub(super) fn paint_name_networks(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    for (y, (_, rgb)) in [6.0, 12.0, 18.0].into_iter().zip(cadcraft_doc::NETWORK_PALETTE.iter()) {
+        let c = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+        t.l((3.0, y), (21.0, y), c);
+        t.l((3.0, y + 2.0), (21.0, y + 2.0), c);
+    }
+}
+
+/// A frame with a row for each network, a sample line and a name: Network Legend.
+pub(super) fn paint_network_legend(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.rect(2.0, 3.0, 20.0, 18.0, t.base);
+    for (y, (_, rgb)) in [8.0, 12.0, 16.0].into_iter().zip(cadcraft_doc::NETWORK_PALETTE.iter().skip(1)) {
+        let c = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+        t.l((4.0, y), (11.0, y), c);
+        t.l((13.0, y), (19.0, y), t.acc);
+    }
+}

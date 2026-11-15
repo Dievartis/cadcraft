@@ -226,3 +226,34 @@ fn a_pipework_part_and_the_models_of_the_drawing_survive_dxf_and_dwg_and_its_app
     let text = String::from_utf8(cadcraft_io::write(&d, "part.dxf").expect("dxf")).expect("utf-8");
     assert!(text.contains(&format!("AcDbRegAppTableRecord\r\n  2\r\n{}", cadcraft_doc::PART_APP)), "APPID record");
 }
+
+#[test]
+fn named_networks_with_their_styles_and_a_legend_survive_dxf_and_dwg() {
+    use cadcraft_doc::{PipeLeg, PipeParams, PipeService, network_legend_of, pipe_of};
+    let mut d = Drawing::new_metric();
+    d.set_network_style("Réseau toiture", Some([1, 2, 3]), Some("NET_DASH")).unwrap();
+    d.set_network_style("CTA 2", None, None).unwrap();
+    let p = PipeParams {
+        leg: PipeLeg::Supply,
+        network: "Réseau toiture".into(),
+        ..PipeParams::new(PipeService::ChilledWater, 65.0, HvacUnits::default())
+    };
+    d.add_pipe(&Space::Model, Common::default(), p, Vec2::new(0.0, 0.0), Vec2::new(5000.0, 0.0)).unwrap();
+    d.add_network_legend(&Space::Model, Common::default(), &cadcraft_doc::NetworkLegendParams::new(HvacUnits::default()), Vec2::new(0.0, 3000.0))
+        .unwrap();
+    for name in ["net.dxf", "net.dwg"] {
+        let back = cadcraft_io::read(&cadcraft_io::write(&d, name).unwrap_or_else(|e| panic!("{name}: {e}")), name)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(back.network_styles, d.network_styles, "{name}: the styles");
+        let pipes: Vec<PipeParams> = back.model.iter().filter_map(|e| pipe_of(e)).collect();
+        assert_eq!(pipes.len(), 1, "{name}");
+        assert_eq!(pipes[0].network, "Réseau toiture", "{name}");
+        assert_eq!(back.model.iter().filter(|e| network_legend_of(e).is_some()).count(), 1, "{name}: the legend");
+        // The layers kept their colour and line type as they were saved.
+        let l = back.layer("M-PIPE-CHWS-RESEAU_TOITURE").unwrap_or_else(|| panic!("{name}: the network's layer"));
+        assert_eq!(l.color, cadcraft_color::Color::True(cadcraft_color::Rgb(1, 2, 3)), "{name}");
+        assert_eq!(l.linetype, "NET_DASH", "{name}");
+    }
+    let text = String::from_utf8(cadcraft_io::write(&d, "net.dxf").expect("dxf")).expect("utf-8");
+    assert!(text.contains(&format!("AcDbRegAppTableRecord\r\n  2\r\n{}", cadcraft_doc::NETWORK_LEGEND_APP)), "APPID record");
+}

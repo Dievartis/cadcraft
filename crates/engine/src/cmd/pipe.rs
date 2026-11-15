@@ -23,7 +23,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 "{points (2 or more; one pipe per segment), service?: chilledWater|hotWater|changeOver|condensate|refrigerantLiquid|refrigerantGas|refrigerantPair (the liquid and the gas lines drawn as one run)|refrigerantTriple (heat recovery: liquid, suction gas and high/low-pressure gas drawn as one run), \
                  leg?: supply|return (the water networks), dn? (mm: the nominal diameter of a steel pipe; a refrigerant tube takes its outer diameter in mm or in inches, \"3/8\", \"1 1/8\"; for a pair, the liquid tube), gas? (the gas tube of a link, as dn; for a heat-recovery link, the suction gas), hpGas? (the high/low-pressure gas tube of a heat-recovery link), \
                  insulation? (mm), altitude? (m, the underside), load? (kW at the free end; l/h for a condensate drain), source? (true: the run starts at the source of its network), \
-                 labelHeight? (mm)} → {handles}",
+                 labelHeight? (mm), network? (a name: the pipes are on that network; one connected to a named network takes its name by itself)} → {handles}",
             )
             .interactive(|s| Ok(Box::new(PipeAddM::new(s)))),
         CommandSpec::new("pipesize", "Size Pipes", run_pipesize).menu(&["Draw", "HVAC", "Size Pipes"]).params(
@@ -33,7 +33,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         CommandSpec::new("pipeedit", "Edit Pipe", run_pipeedit).params(
             "{handle | handles, service?, leg?, dn? (mm, inches for a refrigerant tube, or auto: sizing chooses the size), gas? (mm or inches: the gas tube of a link), hpGas? (the high/low-pressure gas tube of a heat-recovery link), insulation? (mm), altitude? (m or null), load? (kW, l/h for a condensate drain, or null), \
-             source? (true or false)} → {changed}",
+             source? (true or false), network? (a name: it is the name of the whole network of each pipe)} → {changed}",
         ),
     ]
 }
@@ -157,7 +157,10 @@ fn add_run(s: &mut Session, params: &PipeParams, a: Vec2, b: Vec2) -> Result<Han
     PipeParams { length: a.dist(b), ..params.clone() }.validate().map_err(doc_err)?;
     let space = s.space();
     let common = s.current_common();
-    s.doc_mut()?.add_pipe(&space, common, params.clone(), a, b).map_err(doc_err)
+    let h = s.doc_mut()?.add_pipe(&space, common, params.clone(), a, b).map_err(doc_err)?;
+    // A pipe drawn on a named network takes its name.
+    super::network::propagate(s);
+    Ok(h)
 }
 
 fn run_pipeadd(s: &mut Session, p: &Value) -> Result<Value> {
@@ -180,6 +183,9 @@ fn run_pipeadd(s: &mut Session, p: &Value) -> Result<Value> {
     }
     params.load_kw = number(CMD, p, "load", 0.0)?;
     params.source = flag(CMD, p, "source")?.unwrap_or(false);
+    if let Some(n) = str_param(p, "network") {
+        params.network = n.trim().to_string();
+    }
     let mut handles = Vec::new();
     for w in pts.windows(2) {
         if let [a, b] = w {
@@ -261,6 +267,11 @@ fn run_pipeedit(s: &mut Session, p: &Value) -> Result<Value> {
     for (h, pp) in &next {
         d.regenerate_pipe(*h, pp).map_err(doc_err)?;
     }
+    // A name typed is the name of the whole network of each pipe.
+    if let Some(n) = str_param(p, "network") {
+        s.doc_mut()?.set_pipe_network_name(&hs, n).map_err(doc_err)?;
+    }
+    super::network::propagate(s);
     Ok(json!({ "changed": next.len() }))
 }
 

@@ -124,6 +124,8 @@ pub struct Drawing {
     pub air_terminal_models: Vec<TerminalModel>,
     /// The pipework part models the drawing defines (a library entry, or a part kept as a model); see [`Drawing::part_library`].
     pub part_models: Vec<PartTemplate>,
+    /// The style (colour and line type) of each pipe network the drawing has named; see [`Drawing::set_network_style`].
+    pub network_styles: Vec<NetworkStyle>,
     pub blocks: BTreeMap<String, std::sync::Arc<Block>>,
     pub model: EntityStore,
     pub layouts: Vec<Layout>,
@@ -212,6 +214,7 @@ impl Drawing {
             wall_styles: Vec::new(),
             air_terminal_models: Vec::new(),
             part_models: Vec::new(),
+            network_styles: Vec::new(),
             blocks: BTreeMap::new(),
             model: EntityStore::new(),
             layouts: vec![Layout::new("Layout1", 1), Layout::new("Layout2", 2)],

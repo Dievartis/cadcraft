@@ -8,7 +8,7 @@
 use cadcraft_geom::{PolyVertex, Vec2, point_in_polygon, polygon_centroid, shoelace};
 use serde::{Deserialize, Serialize};
 
-use super::{HvacPiece, HvacUnits, PipeLeg, PipeParams, PipeService, check_label_height, check_name, invalid, label_left, pipe_layer_of, v3, xdata};
+use super::{HvacPiece, HvacUnits, PipeLeg, PipeParams, PipeService, check_label_height, check_name, invalid, label_left, v3, xdata};
 use crate::{Circle, EntityKind, Line, LwPolyline, RawTag, Result};
 
 /// The registered application name of a pipe riser's extended data.
@@ -59,6 +59,9 @@ pub struct RiserLine {
     pub flow_m3h: Option<f64>,
     #[serde(default)]
     pub velocity: Option<f64>,
+    /// The name of the network the line is on: its symbol and its text are on the network's layer.
+    #[serde(default)]
+    pub network: String,
 }
 
 impl RiserLine {
@@ -76,6 +79,7 @@ impl RiserLine {
             load: None,
             flow_m3h: None,
             velocity: None,
+            network: String::new(),
         };
         if service.has_gas_tube() {
             l.gas_dn_mm = 15.88;
@@ -94,6 +98,7 @@ impl RiserLine {
             gas2_dn_mm: self.gas2_dn_mm,
             imposed: self.imposed,
             insulation_mm: self.insulation_mm,
+            network: self.network.clone(),
             ..PipeParams::new(self.service, self.dn_mm, units)
         }
     }
@@ -107,6 +112,9 @@ impl RiserLine {
     pub fn text(&self, units: HvacUnits) -> String {
         let p = self.pipe(units);
         let mut t = format!("{} {}", p.tag(), p.size_text());
+        if !self.network.trim().is_empty() {
+            t = format!("{} {t}", self.network.trim());
+        }
         if let Some(l) = self.load.or(self.incoming) {
             t.push_str(&match self.service {
                 PipeService::Condensate => format!(" {l:.0} l/h"),
@@ -227,7 +235,7 @@ impl PipeRiserParams {
         for (line, c) in self.lines.iter().zip(self.symbol_centres()) {
             let pipe = line.pipe(u);
             let tubes = pipe.tubes();
-            let layer = pipe_layer_of(line.service, line.leg);
+            let layer = pipe.layer();
             if tubes.is_empty() {
                 let r = (u.to_units(pipe.plan_width_mm()) / 2.0).max(0.3 * h);
                 pieces.push(HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: r }) });
@@ -253,7 +261,7 @@ impl PipeRiserParams {
         pieces.push(HvacPiece { layer: PIPE_RISER_LAYER, kind: label_left(Vec2::new(left, y), h, head) });
         for line in &self.lines {
             y -= 1.4 * h;
-            pieces.push(HvacPiece { layer: pipe_layer_of(line.service, line.leg), kind: label_left(Vec2::new(left, y), h, line.text(u)) });
+            pieces.push(HvacPiece { layer: line.pipe(u).layer(), kind: label_left(Vec2::new(left, y), h, line.text(u)) });
         }
         Ok(pieces)
     }

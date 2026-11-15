@@ -49,6 +49,10 @@ pub(crate) const MAX_AIR_TERMINAL_MODELS: usize = 10_000;
 pub(crate) const PART_MODELS_KEY: &str = "CADCRAFT_PARTMODELS";
 /// Most pipework part models read from a file.
 pub(crate) const MAX_PART_MODELS: usize = cadcraft_doc::MAX_USER_PART_MODELS;
+/// Named-object-dictionary key of the drawing's pipe network styles XRECORD.
+pub(crate) const NETWORK_STYLES_KEY: &str = "CADCRAFT_NETWORKSTYLES";
+/// Most pipe network styles read from a file.
+pub(crate) const MAX_NETWORK_STYLES: usize = cadcraft_doc::MAX_NETWORKS;
 /// Most plot style tables and plot style names read from a file.
 pub(crate) const MAX_PLOT_STYLE_TABLES: usize = 1000;
 pub(crate) const MAX_PLOT_STYLE_NAMES: usize = 100_000;
@@ -900,6 +904,46 @@ pub(crate) fn parse_part_models(text: &str) -> Option<Vec<cadcraft_doc::PartTemp
         m.name = m.name.trim().to_string();
         if !m.name.is_empty() && m.params.validate().is_ok() && seen.insert(m.name.to_lowercase()) {
             out.push(m);
+        }
+    }
+    Some(out)
+}
+
+/// The drawing's pipe network styles stored in the `CADCRAFT_NETWORKSTYLES` XRECORD.
+#[derive(Serialize, Deserialize)]
+struct NetworkStylesPayload {
+    version: u32,
+    #[serde(default)]
+    styles: Vec<cadcraft_doc::NetworkStyle>,
+}
+
+/// JSON chunks for the network styles XRECORD, or `None` when the drawing has none.
+pub(crate) fn network_style_chunks(styles: &[cadcraft_doc::NetworkStyle]) -> Option<Vec<String>> {
+    if styles.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&NetworkStylesPayload { version: 1, styles: styles.to_vec() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// Parse the network styles XRECORD text: the styles with a usable name, the first of each name (case-insensitive); `None` when it is not
+/// a payload we understand.
+pub(crate) fn parse_network_styles(text: &str) -> Option<Vec<cadcraft_doc::NetworkStyle>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: NetworkStylesPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 || p.styles.len() > MAX_NETWORK_STYLES {
+        return None;
+    }
+    let mut out: Vec<cadcraft_doc::NetworkStyle> = Vec::with_capacity(p.styles.len());
+    for mut st in p.styles {
+        st.name = st.name.trim().to_string();
+        if !st.name.is_empty()
+            && st.name.chars().count() <= cadcraft_doc::MAX_NETWORK_NAME_CHARS
+            && !out.iter().any(|o| cadcraft_doc::same_network(&o.name, &st.name))
+        {
+            out.push(st);
         }
     }
     Some(out)
