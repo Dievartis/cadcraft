@@ -425,3 +425,15 @@ Reste aussi, sans ordre : une seule cote imposée avec l'autre calculée ; crois
 - Clean room : aucun code, aucun asset, aucun texte d'Autodesk, ni de code GPL/LGPL/AGPL (LibreDWG, LibreCAD, QCAD, FreeCAD…).
 - Aucun secret, aucune adresse e-mail et aucune donnée personnelle dans le dépôt, les commits ou les logs.
 - Crédit : par nom d'utilisateur GitHub uniquement, pas d'entrée dans `contributors/people.toml`.
+
+   - **Onglet Électricité (proposition, à valider avec Guillaume avant de coder)** :
+     1. *Appareillage et luminaires* : prises (2P+T, spécialisées, 32 A), interrupteurs (simple, double, va-et-vient, poussoir, variateur), détecteurs, luminaires (plafonnier, applique, spot, réglette, hublot, projecteur), éclairage de sécurité (BAES), RJ45/TV, avec hauteur de pose.
+     2. *Tableaux et protections* : TGBT, tableaux divisionnaires, coffret de communication, avec leurs départs (disjoncteur, différentiel, calibre, courbe).
+     3. *Cheminements* : chemins de câbles, goulottes, tubes, colonnes montantes par trémie (comme les colonnes de tuyauterie), avec altitude et croisements.
+     4. *Circuits comme les réseaux de tuyaux* : un circuit nommé par départ (TD1-C3), une couleur et un type de ligne par circuit, légende, repérage sur le plan.
+     5. *Courants faibles* : VDI, contrôle d'accès, interphone, alarme, vidéosurveillance, détection incendie (SSI), sonorisation.
+     6. *Lien avec le CVC* : départs des CTA, groupes VRV, pompes, avec puissance et intensité lues sur les équipements, sectionneurs de proximité, sondes et régulation (GTB).
+     7. *Calculs* : bilan de puissance avec foisonnement, section des câbles (courant admissible, chute de tension), calibre des protections, selon la NF C 15-100.
+     8. *Métré* : câbles par section et type, appareillage, cheminements, avec prix et total par niveau, comme le métré CVC.
+     9. *Contrôles* : nombre de prises par pièce, volumes de salle d'eau, hauteurs d'accessibilité.
+     Symboles dessinés dans le code, jamais copiés (règle des ressources).
