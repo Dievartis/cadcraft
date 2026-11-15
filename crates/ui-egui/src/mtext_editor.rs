@@ -18,7 +18,7 @@ use crate::theme::Tokens;
 const MIN_PX: f32 = 13.0;
 const MAX_PX: f32 = 36.0;
 /// Families the font list offers besides the one set in the text.
-const FAMILIES: [&str; 6] = ["Arial", "Times New Roman", "Courier New", "Verdana", "Georgia", "Calibri"];
+const FAMILIES: [&str; 7] = ["Arial", "Times New Roman", "Courier New", "Verdana", "Georgia", "Calibri", "Cheboygan"];
 /// The standard colours (ACI 1..=7) of the colour menu.
 const SWATCHES: [u16; 7] = [1, 2, 3, 4, 5, 6, 7];
 /// Ruler snap, in text heights.
