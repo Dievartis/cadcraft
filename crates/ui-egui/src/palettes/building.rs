@@ -187,6 +187,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
     let part_now = app.session.last_used.part.model.clone();
     let mut chosen_part: Option<&'static str> = None;
     let mut size_pipes = false;
+    let mut check_refrigerant = false;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         header(ui, "Spaces");
@@ -301,7 +302,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         }
         ui.add_space(6.0);
         separator(ui);
-        parts_section(ui, &part_now, &mut chosen_part, &mut start);
+        parts_section(ui, &part_now, &mut chosen_part, &mut start, &mut check_refrigerant);
         ui.add_space(6.0);
         separator(ui);
         header(ui, "Quantities");
@@ -366,6 +367,12 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
                     app.session.echo(format!("{}: {}", k["terminal"].as_str().unwrap_or(""), k["reason"].as_str().unwrap_or("")));
                 }
             }
+            Err(e) => app.session.echo(e.to_string()),
+        }
+    } else if check_refrigerant {
+        // REFRIGERANTCHECK asks nothing: it runs at once and says what it found.
+        match app.run("refrigerantcheck", serde_json::json!({})) {
+            Ok(r) => echo_refrigerant(app, &r),
             Err(e) => app.session.echo(e.to_string()),
         }
     } else if size_pipes {
@@ -580,7 +587,7 @@ const SLABS: &[(&str, cadcraft_doc::SlabKind)] = &[
 ];
 
 /// The Pipework Parts group: the parts used most, the library, and Edit.
-fn parts_section(ui: &mut egui::Ui, part_now: &str, chosen_part: &mut Option<&'static str>, start: &mut Option<&'static str>) {
+fn parts_section(ui: &mut egui::Ui, part_now: &str, chosen_part: &mut Option<&'static str>, start: &mut Option<&'static str>, check: &mut bool) {
     header(ui, "Pipework Parts");
     let fr = crate::i18n::current_language().starts_with("fr");
     for name in COMMON_PARTS {
@@ -605,6 +612,18 @@ fn parts_section(ui: &mut egui::Ui, part_now: &str, chosen_part: &mut Option<&'s
     }
     if row_button(ui, crate::i18n::t("Edit Pipework Part"), false, thumbs::paint_edit_part) {
         *start = Some("pipepartedit");
+    }
+    if row_tip(
+        ui,
+        crate::i18n::t("Check Refrigerant"),
+        crate::i18n::t(
+            "Follows the refrigerant pipes from each outdoor unit through the joints, headers and branch boxes to the indoor units, counts the units and the capacity index at each outlet, and tells what is over the limits.",
+        ),
+        None,
+        false,
+        thumbs::paint_check_refrigerant,
+    ) {
+        *check = true;
     }
 }
 
@@ -652,5 +671,27 @@ pub(super) fn equipment_kind_label(k: cadcraft_doc::EquipmentKind) -> &'static s
         WallUnit => "Wall unit",
         cadcraft_doc::EquipmentKind::CeilingUnit => "Ceiling unit",
         FloorUnit => "Floor unit",
+    }
+}
+
+/// Says what the refrigerant check found, one line a network and one a warning.
+fn echo_refrigerant(app: &mut CadApp, r: &serde_json::Value) {
+    let networks = r["networks"].as_array().cloned().unwrap_or_default();
+    if networks.is_empty() {
+        app.session.echo(crate::tl!("No refrigerant network: draw an outdoor unit, its pipes and its indoor units.").to_string());
+    }
+    for n in &networks {
+        let (units, index) = (n["units"].as_u64().unwrap_or(0), n["index"].as_f64().unwrap_or(0.0));
+        app.session.echo(crate::tf!(
+            "Refrigerant network: {units} indoor unit(s), capacity index {index}",
+            units = units,
+            index = format!("{index:.0}")
+        ));
+        for w in n["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()) {
+            app.session.echo(w.to_string());
+        }
+    }
+    for w in r["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()) {
+        app.session.echo(w.to_string());
     }
 }

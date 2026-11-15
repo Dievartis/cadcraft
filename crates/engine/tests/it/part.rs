@@ -205,3 +205,34 @@ fn a_part_kept_as_a_model_is_offered_again_and_can_be_deleted() {
         assert!(s.execute("pipepartmodels", &bad).is_err(), "{bad}");
     }
 }
+
+#[test]
+fn refrigerantcheck_counts_the_units_at_each_outlet_of_a_box() {
+    let mut s = metric();
+    s.execute("equipmentadd", &json!({"at": [0, 0], "kind": "vrfOutdoor", "capacityKw": 8})).unwrap();
+    let b = s.execute("pipepartadd", &json!({"at": [5000, 0], "model": "Branch box, 4 outlets (R32 heat recovery)", "rotation": 0})).unwrap();
+    let bx = part(&s, hd(&b["handle"]));
+    let port = |outlet: Option<usize>, nth: usize| {
+        let q: Vec<_> = bx.ports().into_iter().filter(|x| x.outlet == outlet).collect();
+        (5000.0 + q[nth].at.x, q[nth].at.y)
+    };
+    let inlet = port(None, 1);
+    s.execute("pipeadd", &json!({"points": [[500, 0], [inlet.0, inlet.1]], "service": "refrigerantPair"})).unwrap();
+    for i in [0, 3] {
+        let o = port(Some(i), 0);
+        s.execute("pipeadd", &json!({"points": [[o.0, o.1], [o.0, 3000]], "service": "refrigerantPair"})).unwrap();
+        s.execute("equipmentadd", &json!({"at": [o.0, 3100], "kind": "cassette", "capacityKw": 2.5, "length": 200, "width": 200, "height": 200}))
+            .unwrap();
+    }
+    let r = s.execute("refrigerantcheck", &json!({})).unwrap();
+    let n = &r["networks"][0];
+    assert_eq!(n["units"], 2, "{r}");
+    let parts = n["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 1);
+    assert_eq!((parts[0]["kind"].as_str(), parts[0]["outlets"].as_array().unwrap().len()), (Some("branchBox"), 2));
+    assert_eq!((parts[0]["outlets"][0]["outlet"].as_u64(), parts[0]["outlets"][1]["outlet"].as_u64()), (Some(1), Some(4)));
+    assert!(r["unconnected"].as_array().unwrap().is_empty());
+    // Nothing to check without an outdoor unit.
+    let empty = metric().execute("refrigerantcheck", &json!({})).unwrap();
+    assert!(empty["networks"].as_array().unwrap().is_empty());
+}

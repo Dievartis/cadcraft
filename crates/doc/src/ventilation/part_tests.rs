@@ -140,3 +140,26 @@ fn a_part_loses_pressure_as_its_data_sheet_says_or_as_its_kind_does() {
     assert_eq!(loss(&PartParams::new(PartKind::PicValve, "P", units())), 25.0);
     assert!(PartParams { kvs: Some(-1.0), ..p }.validate().is_err());
 }
+
+#[test]
+fn the_ports_of_a_refrigerant_part_are_the_ends_of_the_lines_its_symbol_draws() {
+    for (kind, outlets) in [(PartKind::RefnetJoint, 2), (PartKind::RefnetHeader, 6), (PartKind::BranchBox, 5)] {
+        let p = PartParams { outlets, ..PartParams::new(kind, "X", units()) };
+        let pieces = p.generate().unwrap();
+        let ends: Vec<(f64, f64)> = pieces
+            .iter()
+            .filter_map(|x| if let EntityKind::Line(l) = &x.kind { Some([(l.a.x, l.a.y), (l.b.x, l.b.y)]) } else { None })
+            .flatten()
+            .collect();
+        let ports = p.ports();
+        assert!(!ports.is_empty(), "{kind:?}");
+        for port in &ports {
+            assert!(
+                ends.iter().any(|e| (e.0 - port.at.x).abs() < 1e-6 && (e.1 - port.at.y).abs() < 1e-6),
+                "{kind:?}: {port:?} is not the end of a line"
+            );
+        }
+        assert_eq!(ports.iter().filter(|x| x.outlet.is_some()).count(), outlets as usize, "{kind:?}");
+    }
+    assert!(PartParams::new(PartKind::Pump, "P", units()).ports().is_empty());
+}

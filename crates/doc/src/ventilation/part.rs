@@ -572,6 +572,42 @@ impl PartParams {
     }
 }
 
+/// A connection point of a refrigerant part, in the part's own coordinates (drawing units): where the end of a pipe is put.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PartPort {
+    pub at: Vec2,
+    /// The number of the outlet; none for the inlet side (the one towards the outdoor unit).
+    pub outlet: Option<usize>,
+}
+
+impl PartParams {
+    /// The connection points of a Y joint, a header or a branch box (the ends of the lines its symbol draws); none for the others.
+    pub fn ports(&self) -> Vec<PartPort> {
+        let (l, w) = (self.units.to_units(self.length_mm), self.units.to_units(self.width_mm));
+        let n = self.outlets.max(1);
+        let along = |i: u32| -l / 2.0 + l * (f64::from(i) + 0.5) / f64::from(n);
+        let inlet = |x: f64, y: f64| PartPort { at: Vec2::new(x, y), outlet: None };
+        match self.kind {
+            PartKind::RefnetJoint => vec![
+                inlet(-l / 2.0, 0.0),
+                PartPort { at: Vec2::new(l / 2.0, w / 2.0), outlet: Some(0) },
+                PartPort { at: Vec2::new(l / 2.0, -w / 2.0), outlet: Some(1) },
+            ],
+            PartKind::RefnetHeader => {
+                let mut v = vec![inlet(-l / 2.0 - l * 0.15, 0.0)];
+                v.extend((0..n).map(|i| PartPort { at: Vec2::new(along(i), w / 2.0 + w * 1.5), outlet: Some(i as usize) }));
+                v
+            }
+            PartKind::BranchBox => {
+                let mut v: Vec<PartPort> = [-0.3, 0.0, 0.3].into_iter().map(|dy| inlet(-l / 2.0 - l * 0.1, w * dy)).collect();
+                v.extend((0..n).map(|i| PartPort { at: Vec2::new(along(i), w / 2.0 + w * 0.8), outlet: Some(i as usize) }));
+                v
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
 /// The part an object is, when it is a block reference carrying usable part data.
 pub fn part_of(e: &crate::Entity) -> Option<PartParams> {
     match &e.kind {

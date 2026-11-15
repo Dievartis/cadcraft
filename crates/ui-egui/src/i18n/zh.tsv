@@ -1643,3 +1643,7 @@ menu	View	视图
 	Keep the selected part as a model	将所选附件保存为模型
 	Delete this model	删除此模型
 	Model kept: {name}	已保存模型：{name}
+	Check Refrigerant	检查制冷剂系统
+	Follows the refrigerant pipes from each outdoor unit through the joints, headers and branch boxes to the indoor units, counts the units and the capacity index at each outlet, and tells what is over the limits.	从每台室外机沿制冷剂管路经分支、集管和分支箱追踪到室内机，统计每个出口的机组数和能力指数，并指出超限之处。
+	No refrigerant network: draw an outdoor unit, its pipes and its indoor units.	没有制冷剂系统：请绘制室外机、管路和室内机。
+	Refrigerant network: {units} indoor unit(s), capacity index {index}	制冷剂系统：{units} 台室内机，能力指数 {index}

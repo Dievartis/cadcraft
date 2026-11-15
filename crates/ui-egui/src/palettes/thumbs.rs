@@ -585,3 +585,12 @@ pub(super) fn paint_edit_part(p: &Painter, r: Rect) {
     t.poly(&[(2.0, 8.0), (9.0, 14.0), (9.0, 8.0), (2.0, 14.0)], true, t.base);
     t.pencil();
 }
+
+/// A refrigerant branch with a tick: Check Refrigerant.
+pub(super) fn paint_check_refrigerant(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.l((2.0, 12.0), (9.0, 12.0), t.base);
+    t.l((9.0, 12.0), (15.0, 6.0), t.base);
+    t.l((9.0, 12.0), (15.0, 18.0), t.base);
+    t.poly(&[(14.0, 13.0), (17.0, 16.0), (22.0, 9.0)], false, t.acc);
+}

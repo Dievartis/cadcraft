@@ -28,6 +28,12 @@ pub fn specs() -> Vec<CommandSpec> {
              weight? (kg or null), loss? (kPa at the design flow, or null) | kvs? (m³/h for 1 bar) | equivalentLength? (m of pipe) | zeta? (loss coefficient): the pressure the part \
              loses in a network, the first given in that order, else the kind's indicative one; connections?, height? (mm or null), length? | width? (mm: L along the pipe, P across); model? a model of the library: the part takes its size, outlets and connections (its tag and its pipe size stay)} → {changed}",
         ),
+        CommandSpec::new("refrigerantcheck", "Check Refrigerant", run_check).menu(&["Draw", "HVAC", "Check Refrigerant"]).params(
+            "{} → {networks: [{outdoor, units, index, parts: [{handle, kind, model, units, index, outlets: [{outlet, units, index}], recommended?}], warnings}], unconnected, warnings}: \
+             from each outdoor unit the refrigerant pipes, joints, headers and branch boxes are followed to the indoor units (and the air handling units with a \
+             direct-expansion coil); the units and the capacity index (cooling kW × 10) are counted at each outlet and below each joint or header, and what is over the \
+             limits is told (5 units and index 140 per outlet of a box, 250 joining two; the joint or header suited to the index below it)",
+        ),
         CommandSpec::new("pipepartmodels", "Pipework Part Library", run_models).params(
             "{category? (valves|fittings|airAndDirt|instruments|pumps|vesselsAndTanks|heatSources|refrigerantBranches|branchBoxes), q? (words found in the name)} → \
              {categories: [{name, title}], models: [{name, nameFr, category, kind, user, outlets, connections, dn, volume, power, height, length, width}]} | \
@@ -326,6 +332,24 @@ fn run_models(s: &mut Session, p: &Value) -> Result<Value> {
         .collect();
     let categories: Vec<Value> = PartCategory::ALL.into_iter().map(|c| json!({ "name": category_name(c), "title": c.title() })).collect();
     Ok(json!({ "categories": categories, "models": models }))
+}
+
+fn run_check(s: &mut Session, _p: &Value) -> Result<Value> {
+    let r = s.doc()?.check_refrigerant().map_err(doc_err)?;
+    let networks: Vec<Value> = r
+        .networks
+        .iter()
+        .map(|n| {
+            json!({
+                "outdoor": n.outdoor.hex(), "units": n.units, "index": n.index, "warnings": n.warnings,
+                "parts": n.parts.iter().map(|x| json!({
+                    "handle": x.handle.hex(), "kind": x.kind.name(), "model": x.model, "units": x.units, "index": x.index, "recommended": x.recommended,
+                    "outlets": x.outlets.iter().map(|o| json!({ "outlet": o.outlet + 1, "units": o.units, "index": o.index })).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(json!({ "networks": networks, "unconnected": r.unconnected.iter().map(|h| h.hex()).collect::<Vec<_>>(), "warnings": r.warnings }))
 }
 
 fn category_named(name: &str) -> Option<PartCategory> {

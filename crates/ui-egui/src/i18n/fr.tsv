@@ -1497,3 +1497,7 @@
 	Keep the selected part as a model	Garder l'accessoire sélectionné comme modèle
 	Delete this model	Supprimer ce modèle
 	Model kept: {name}	Modèle gardé : {name}
+	Check Refrigerant	Contrôler le frigo
+	Follows the refrigerant pipes from each outdoor unit through the joints, headers and branch boxes to the indoor units, counts the units and the capacity index at each outlet, and tells what is over the limits.	Suit les liaisons frigorifiques depuis chaque groupe extérieur à travers les piquages, nourrices et boîtes de détente jusqu'aux unités intérieures, compte les unités et l'indice de capacité à chaque sortie, et signale ce qui dépasse les limites.
+	No refrigerant network: draw an outdoor unit, its pipes and its indoor units.	Aucun réseau frigorifique : dessinez un groupe extérieur, ses liaisons et ses unités intérieures.
+	Refrigerant network: {units} indoor unit(s), capacity index {index}	Réseau frigorifique : {units} unité(s) intérieure(s), indice de capacité {index}
