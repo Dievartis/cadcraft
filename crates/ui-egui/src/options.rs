@@ -244,6 +244,8 @@ struct UiChanges {
     right_click_command: Option<CommandClick>,
     interface_scale: Option<f32>,
     locked_unselectable: Option<bool>,
+    /// The refrigerant tube sizes a new link starts with, mm (`Some(None)`: the built-in size): liquid, gas, high/low-pressure gas.
+    refrigerant: [Option<Option<f64>>; 3],
 }
 
 fn color_param(key: &str, v: &Value) -> Result<Option<Color32>, String> {
@@ -266,6 +268,17 @@ fn parse_ui(key: &str, v: &Value, c: &mut UiChanges) -> Result<bool, String> {
             c.language = Some(
                 crate::i18n::Preference::parse(text()?).ok_or_else(|| format!("interfaceLanguage must be {}", crate::i18n::Preference::codes()))?,
             )
+        }
+        "refrigerantLiquid" | "refrigerantGas" | "refrigerantHpGas" => {
+            let i = REFRIGERANT_KEYS.iter().position(|k| *k == key).unwrap_or(0);
+            let bad = || format!("{key} must be a tube size in inches (3/8, 1 1/8), in millimetres, or null");
+            c.refrigerant[i] = Some(match v {
+                Value::Null => None,
+                Value::String(t) if t.trim().is_empty() => None,
+                Value::Number(n) => Some(n.as_f64().filter(|x| x.is_finite() && *x > 0.0).ok_or_else(bad)?),
+                Value::String(t) => Some(cadcraft_doc::parse_refrigerant_size(t).ok_or_else(bad)?),
+                _ => return Err(bad()),
+            });
         }
         "saveFormat" => c.save_format = Some(crate::SaveFormat::parse(text()?).ok_or("saveFormat must be dxf or dwg")?),
         "systemCursor" => c.system_cursor = Some(v.as_bool().ok_or("systemCursor must be true or false")?),
@@ -338,6 +351,9 @@ fn ui_json(app: &CadApp) -> Map<String, Value> {
     m.insert("selectionColor".into(), color_json(o.selection_color));
     m.insert("snapMarkerSize".into(), json!(o.snap_marker_size));
     m.insert("interfaceScale".into(), json!(o.interface_scale));
+    for (key, mm) in REFRIGERANT_KEYS.iter().zip(refrigerant_defaults(app)) {
+        m.insert((*key).into(), json!(mm));
+    }
     m.insert("saveVersion".into(), json!(app.ui.save_version));
     m.insert("SAVETIME".into(), json!(cadcraft_engine::autosave::savetime()));
     m.insert("SAVEFILEPATH".into(), json!(cadcraft_engine::autosave::savefilepath()));
@@ -412,6 +428,12 @@ fn run_json(app: &mut CadApp, params: &Value) -> Result<Value, String> {
     if let Some(n) = ui.interface_scale {
         app.options.interface_scale = n;
     }
+    let pipe = &mut app.session.last_used.pipe;
+    for (i, c) in ui.refrigerant.iter().enumerate() {
+        if let Some(mm) = *c {
+            *[&mut pipe.liquid_mm, &mut pipe.gas_mm, &mut pipe.gas2_mm][i] = mm;
+        }
+    }
     if let Some(v) = ui.save_version {
         app.ui.save_version = v.year().to_string();
     }
@@ -432,6 +454,15 @@ fn run_json(app: &mut CadApp, params: &Value) -> Result<Value, String> {
     }
     apply_right_click(&mut app.options, &ui);
     Ok(report(app))
+}
+
+/// The option keys of the refrigerant tube sizes a new link starts with: liquid, gas, high/low-pressure gas.
+pub(crate) const REFRIGERANT_KEYS: [&str; 3] = ["refrigerantLiquid", "refrigerantGas", "refrigerantHpGas"];
+
+/// The sizes a new refrigerant link starts with, mm (`None`: the built-in one).
+pub(crate) fn refrigerant_defaults(app: &CadApp) -> [Option<f64>; 3] {
+    let p = &app.session.last_used.pipe;
+    [p.liquid_mm, p.gas_mm, p.gas2_mm]
 }
 
 /// Right-Click Customization's settings (the time-sensitive switch aside) from `c`.

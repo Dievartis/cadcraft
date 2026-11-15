@@ -681,4 +681,19 @@ mod tests {
         assert_eq!(visible_tabs(&w, Some(9), f32::NAN), 0..0);
         assert_eq!(visible_tabs(&[], Some(0), 100.0), 0..0);
     }
+
+    #[test]
+    fn a_click_on_a_layout_tab_switches_to_it() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = CadApp::new(cadcraft_engine::Session::new(), crate::Services::default());
+        app.run("layout.new", json!({})).unwrap();
+        app.run("layout.set", json!({"name": "Model"})).unwrap();
+        app.start("pipeadd");
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1400.0, 800.0)).build_ui_state(|ui, app: &mut CadApp| app.ui(ui), app);
+        h.run_steps(3);
+        let name = h.state().session.state().unwrap().doc.layouts.first().unwrap().name.clone();
+        h.get_by_label(&name).click();
+        h.run_steps(3);
+        assert!(matches!(&h.state().session.state().unwrap().space, cadcraft_doc::Space::Paper(n) if *n == name));
+    }
 }

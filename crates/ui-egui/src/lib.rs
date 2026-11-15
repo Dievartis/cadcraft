@@ -769,6 +769,7 @@ impl CadApp {
             "saveVersion": self.ui.save_version,
             "quickcalc": self.quickcalc.prefs(),
             "paletteSections": self.ui.sections.prefs(),
+            "refrigerantSizes": options::refrigerant_defaults(self),
         });
         if self.spacemouse.settings != spacemouse::Settings::default() {
             prefs["spacemouse"] = json!(self.spacemouse.settings);
@@ -793,6 +794,11 @@ impl CadApp {
         let Ok(v) = serde_json::from_str::<Value>(json) else { return };
         if let Some(calculator) = v.get("quickcalc") {
             self.quickcalc.load_prefs(calculator);
+        }
+        if let Some(sizes) = v.get("refrigerantSizes").and_then(Value::as_array) {
+            let size = |i: usize| sizes.get(i).and_then(Value::as_f64).filter(|x| x.is_finite() && *x > 0.0 && *x < 500.0);
+            let pipe = &mut self.session.last_used.pipe;
+            (pipe.liquid_mm, pipe.gas_mm, pipe.gas2_mm) = (size(0), size(1), size(2));
         }
         if let Some(sections) = v.get("paletteSections") {
             self.ui.sections.load_prefs(sections);

@@ -49,12 +49,29 @@ pub struct PipeLastUsed {
     pub gas_mm: Option<f64>,
     /// The high/low-pressure gas tube of a heat-recovery link, mm; `None`: the default.
     pub gas2_mm: Option<f64>,
+    /// The liquid tube of a refrigerant link when none was typed, mm; `None`: the default. Set in the Options.
+    pub liquid_mm: Option<f64>,
     pub insulation_mm: f64,
 }
 
 impl Default for PipeLastUsed {
     fn default() -> Self {
-        PipeLastUsed { service: PipeService::ChilledWater, leg: PipeLeg::Supply, dn_mm: None, gas_mm: None, gas2_mm: None, insulation_mm: 0.0 }
+        PipeLastUsed {
+            service: PipeService::ChilledWater,
+            leg: PipeLeg::Supply,
+            dn_mm: None,
+            gas_mm: None,
+            gas2_mm: None,
+            liquid_mm: None,
+            insulation_mm: 0.0,
+        }
+    }
+}
+
+impl PipeLastUsed {
+    /// The size a new pipe starts with, mm: the one typed, else the liquid tube chosen in the Options for a refrigerant link, else the service's own.
+    pub fn start_dn_mm(&self) -> f64 {
+        self.dn_mm.or(self.liquid_mm.filter(|_| self.service.is_refrigerant())).unwrap_or_else(|| default_dn_mm(self.service))
     }
 }
 
@@ -136,7 +153,7 @@ fn altitude_param(cmd: &str, p: &Value) -> Result<Option<Option<f64>>> {
 
 fn pipe_params(s: &Session, last: &PipeLastUsed, label_mm: f64) -> Result<PipeParams> {
     let units = HvacUnits::of(s.doc()?);
-    let mut p = PipeParams::new(last.service, last.dn_mm.unwrap_or_else(|| default_dn_mm(last.service)), units);
+    let mut p = PipeParams::new(last.service, last.start_dn_mm(), units);
     p.leg = if last.service.has_legs() { last.leg } else { PipeLeg::Supply };
     p.imposed = last.dn_mm.is_some();
     if last.service.has_gas_tube() {
@@ -354,8 +371,16 @@ impl PipeAddM {
     fn new(s: &Session) -> Self {
         PipeAddM { last: s.last_used.pipe.clone(), pts: Vec::new(), handles: Vec::new(), ask: PipeAsk::Point }
     }
+    /// The diameter as the prompt shows it: the one typed, the refrigerant default of the Options, or Auto.
+    fn shown_dn(&self) -> String {
+        match (self.last.dn_mm, self.last.liquid_mm) {
+            (Some(d), _) => self.size_text(d),
+            (None, Some(l)) if self.last.service.is_refrigerant() => self.size_text(l),
+            _ => "Auto".to_string(),
+        }
+    }
     fn settings(&self, s: &mut Session) {
-        let dn = self.last.dn_mm.map_or("Auto".to_string(), |d| self.size_text(d));
+        let dn = self.shown_dn();
         let mut gas = String::new();
         if self.last.service.has_gas_tube() {
             gas = format!(", Gas = {}", self.size_text(self.last.gas_mm.unwrap_or(15.88)));
@@ -484,7 +509,7 @@ impl Interactive for PipeAddM {
                 },
                 Accept::TEXT,
             )
-            .default(self.last.dn_mm.map_or("Auto".to_string(), |d| self.size_text(d))),
+            .default(self.shown_dn()),
             PipeAsk::Gas => Prompt::new("Enter gas tube diameter (inches, e.g. 5/8, or mm)", Accept::TEXT)
                 .default(self.size_text(self.last.gas_mm.unwrap_or(15.88))),
             PipeAsk::HpGas => Prompt::new("Enter high/low-pressure gas tube diameter (inches, e.g. 3/4, or mm)", Accept::TEXT)

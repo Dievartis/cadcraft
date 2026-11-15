@@ -200,6 +200,15 @@ fn display(app: &CadApp, ui: &mut egui::Ui, changes: &mut Map<String, Value>) {
         scale_combo.response.labelled_by(scale_caption.id);
         ui.end_row();
 
+        for (i, (key, label)) in super::REFRIGERANT_KEYS
+            .iter()
+            .zip(["Refrigerant liquid tube", "Refrigerant gas tube", "Refrigerant high/low-pressure gas tube"])
+            .enumerate()
+        {
+            refrigerant_row(ui, label, key, super::refrigerant_defaults(app)[i], changes);
+            ui.end_row();
+        }
+
         let background_caption = ui.label(crate::tl!("Model background"));
         color_row(ui, app.options.model_background, Tokens::DARK.canvas, "modelBackground", changes, background_caption.id);
         ui.end_row();
@@ -236,6 +245,30 @@ fn display(app: &CadApp, ui: &mut egui::Ui, changes: &mut Map<String, Value>) {
 }
 
 /// Files tab: save format and default version, new-drawing units, autosave interval and autosave file location; edits accumulate in `changes`.
+/// The inch sizes of the refrigerant tubes the Options offer.
+const TUBE_SIZES: [&str; 9] = ["1/4", "3/8", "1/2", "5/8", "3/4", "7/8", "1 1/8", "1 3/8", "1 5/8"];
+
+/// A row choosing the tube size a new refrigerant link starts with, or the built-in one.
+fn refrigerant_row(ui: &mut egui::Ui, label: &str, key: &str, current: Option<f64>, changes: &mut Map<String, Value>) {
+    let caption = ui.label(crate::i18n::t(label));
+    let same = |inches: &str| current.zip(cadcraft_doc::parse_refrigerant_size(inches)).is_some_and(|(a, b)| (a - b).abs() < 0.01);
+    let shown = match current {
+        None => crate::i18n::t("Built-in").to_string(),
+        Some(mm) => TUBE_SIZES.iter().find(|s| same(s)).map_or_else(|| format!("{mm} mm"), |s| format!("{s}\"")),
+    };
+    let combo = craft_ui::ComboBox::from_id_salt(("options_refrigerant", key)).selected_text(shown).show_ui(ui, |ui| {
+        if ui.selectable_label(current.is_none(), crate::i18n::t("Built-in")).clicked() && current.is_some() {
+            changes.insert(key.into(), Value::Null);
+        }
+        for s in TUBE_SIZES {
+            if ui.selectable_label(same(s), format!("{s}\"")).clicked() && !same(s) {
+                changes.insert(key.into(), json!(s));
+            }
+        }
+    });
+    combo.response.labelled_by(caption.id);
+}
+
 fn files(app: &CadApp, ui: &mut egui::Ui, changes: &mut Map<String, Value>) {
     grid(ui, "options_files", |ui| {
         save_format_row(ui, app, changes);

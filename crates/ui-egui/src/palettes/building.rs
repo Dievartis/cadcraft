@@ -913,4 +913,24 @@ mod tests {
         assert_eq!(app.ui.sections.mode, SectionsMode::Closed);
         assert!(app.run("options", serde_json::json!({"paletteSections": "sometimes"})).is_err());
     }
+
+    #[test]
+    fn the_refrigerant_sizes_of_a_new_link_are_set_kept_and_used() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        let r = app.run("options", serde_json::json!({"refrigerantLiquid": "1/4", "refrigerantGas": "1/2", "refrigerantHpGas": 22.2})).unwrap();
+        assert_eq!(
+            (r["refrigerantLiquid"].as_f64(), r["refrigerantGas"].as_f64(), r["refrigerantHpGas"].as_f64()),
+            (Some(6.35), Some(12.7), Some(22.2))
+        );
+        assert!(app.run("options", serde_json::json!({"refrigerantGas": "big"})).is_err());
+        // Kept across restarts.
+        let prefs = app.prefs_json();
+        let mut again = CadApp::new(Session::new(), Services::default());
+        again.load_prefs(&prefs);
+        assert_eq!(again.session.last_used.pipe.liquid_mm, Some(6.35));
+        // A new link starts with them.
+        again.run("pipeadd", serde_json::json!({"points": [[0, 0], [3000, 0]], "service": "refrigerantPair"})).unwrap();
+        let d = again.run("options", serde_json::json!({"refrigerantLiquid": null})).unwrap();
+        assert!(d["refrigerantLiquid"].is_null());
+    }
 }
