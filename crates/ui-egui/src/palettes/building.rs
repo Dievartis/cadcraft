@@ -226,6 +226,42 @@ fn air_label(name: &str) -> &'static str {
 const CHARTS_TIP: &str = "The tables and rules the sizing tools apply: refrigerant links, water pipes, drains, ducts.";
 
 /// The first row of the HVAC and Architecture tabs: the design charts window.
+/// The rows of the Equipment group: a row for each kind, then the distribution of indoor units.
+fn equipment_rows(
+    ui: &mut egui::Ui,
+    current: cadcraft_doc::EquipmentKind,
+    chosen: &mut Option<cadcraft_doc::EquipmentKind>,
+    distribute: &mut Option<bool>,
+) {
+    for kind in cadcraft_doc::EquipmentKind::ALL {
+        if row_button(ui, crate::i18n::t(equipment_kind_label(kind)), kind == current, |p, r| thumbs::paint_equipment(p, r, kind)) {
+            *chosen = Some(kind);
+        }
+    }
+    if distribute_row(ui, "Distribute Units in a Space", "Spreads indoor units (cassettes, ducted, wall, ceiling or floor units) evenly in a space.")
+    {
+        *distribute = Some(true);
+    }
+}
+
+/// A row of the distribution tools: its tip, and the help window ("How the distribution works") that its "i" opens.
+fn distribute_row(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
+    row_tip(ui, crate::i18n::t(label), crate::i18n::t(tip), Some("Distribute in a Space"), false, thumbs::paint_distribute)
+}
+
+/// The Distribute option of AIRTERMINALADD (air terminals) or of EQUIPMENTADD (`units`: an indoor unit, the kind in use or else a cassette), then the
+/// space and the count.
+fn start_distribution(app: &mut CadApp, units: bool) {
+    use cadcraft_doc::EquipmentKind::{Chiller, SplitOutdoor, VrfOutdoor};
+    let last = &mut app.session.last_used.equipment;
+    if units && matches!(last.kind, Chiller | VrfOutdoor | SplitOutdoor) {
+        *last = cadcraft_engine::cmd::EquipmentLastUsed { kind: cadcraft_doc::EquipmentKind::Cassette, model: String::new() };
+    }
+    app.cmd.buffer.clear();
+    app.start(if units { "equipmentadd" } else { "airterminaladd" });
+    app.cmdline("Distribute");
+}
+
 pub(super) fn charts_row(ui: &mut egui::Ui, start: &mut Option<&'static str>) {
     if row_tip(ui, crate::i18n::t("Design Charts"), crate::i18n::t(CHARTS_TIP), None, false, thumbs::paint_quantities) {
         *start = Some("ui.charts");
@@ -238,7 +274,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut outdoor: Option<AirDirection> = None;
     let mut start: Option<&'static str> = None;
     let mut terminal: Option<TerminalKind> = None;
-    let mut distribute = false;
+    let mut distribute: Option<bool> = None;
     let mut size = false;
     let mut connect = false;
     let unit = app.session.last_used.ahu.kind;
@@ -290,8 +326,8 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
                 outdoor = Some(air);
             }
         }
-        if row_button(ui, crate::i18n::t("Distribute in a Space"), false, thumbs::paint_distribute) {
-            distribute = true;
+        if distribute_row(ui, "Distribute in a Space", "Spreads air terminals evenly in a space, each with its share of the space's flow.") {
+            distribute = Some(false);
         }
         if row_button(ui, crate::i18n::t("Edit Air Terminal"), false, thumbs::paint_edit_terminal) {
             start = Some("airterminaledit");
@@ -345,11 +381,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         ui.add_space(6.0);
         separator(ui);
         header(ui, "Equipment");
-        for kind in cadcraft_doc::EquipmentKind::ALL {
-            if row_button(ui, crate::i18n::t(equipment_kind_label(kind)), kind == equipment, |p, r| thumbs::paint_equipment(p, r, kind)) {
-                chosen_equipment = Some(kind);
-            }
-        }
+        equipment_rows(ui, equipment, &mut chosen_equipment, &mut distribute);
         ui.add_space(6.0);
         separator(ui);
         header_with(ui, "Piping", Some("Piping"));
@@ -441,10 +473,8 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         last.model.clear();
         app.cmd.buffer.clear();
         app.start("airterminaladd");
-    } else if distribute {
-        app.cmd.buffer.clear();
-        app.start("airterminaladd");
-        app.cmdline("Distribute");
+    } else if let Some(units) = distribute {
+        start_distribution(app, units);
     } else if let Some(kind) = chosen_unit {
         // The type clicked becomes AHUADD's, then it starts with it.
         app.session.last_used.ahu.kind = kind;
@@ -940,5 +970,18 @@ mod tests {
         again.run("pipeadd", serde_json::json!({"points": [[0, 0], [3000, 0]], "service": "refrigerantPair"})).unwrap();
         let d = again.run("options", serde_json::json!({"refrigerantLiquid": null})).unwrap();
         assert!(d["refrigerantLiquid"].is_null());
+    }
+
+    #[test]
+    fn distributing_units_in_a_space_starts_the_equipment_command_at_the_space_with_an_indoor_unit() {
+        let mut app = app(SectionsMode::Open);
+        // An outdoor unit in use becomes a cassette: only indoor units are spread.
+        app.session.last_used.equipment.kind = cadcraft_doc::EquipmentKind::VrfOutdoor;
+        let mut h = tab(app, "HVAC");
+        h.get_by_label("Distribute Units in a Space").click();
+        h.run_steps(3);
+        let st = h.state();
+        assert_eq!(st.session.last_used.equipment.kind, cadcraft_doc::EquipmentKind::Cassette);
+        assert!(st.session.prompt_text().contains("Select space"), "{}", st.session.prompt_text());
     }
 }

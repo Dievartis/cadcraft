@@ -16,6 +16,16 @@ const OPEN: &str = "hvac_help_open";
 
 const HELPS: &[Help] = &[
     Help {
+        id: "Distribute in a Space",
+        steps: &[
+            "Start the tool (air terminals) or Distribute Units in a Space (indoor units), then select the space.",
+            "Type how many: 6 spreads six in the most even grid the room's shape allows; 2x3 makes 2 rows by 3 columns.",
+            "A grid cell whose centre is outside the space gets nothing, so an L-shaped room is filled by its two arms.",
+            "Terminals share the space's flow; units get their model's power. Edit one afterwards, or move it by its grip.",
+        ],
+        figure: distribute,
+    },
+    Help {
         id: "Riser",
         steps: &[
             "Start the tool and click the corners of the shaft, then press Enter.",
@@ -322,6 +332,36 @@ fn connect(p: &Painter, r: Rect) {
     text(p, t + vec2(16.0, 6.0), "flexible", DUCT);
 }
 
+fn distribute(p: &Painter, r: Rect) {
+    // An L-shaped room seen from above with a grid of units: the cells whose centre is outside it stay empty.
+    let room = Rect::from_min_max(pos2(r.left() + 20.0, r.top() + 8.0), pos2(r.right() - 20.0, r.bottom() - 8.0));
+    let s = Stroke::new(1.4, Color32::from_gray(190));
+    let notch = Rect::from_min_max(pos2(room.center().x + 24.0, room.top()), pos2(room.right(), room.center().y - 6.0));
+    let outline = [
+        room.left_top(),
+        notch.left_top(),
+        notch.left_bottom(),
+        pos2(room.right(), notch.bottom()),
+        room.right_bottom(),
+        room.left_bottom(),
+        room.left_top(),
+    ];
+    p.add(egui::Shape::line(outline.to_vec(), s));
+    let (rows, cols) = (3, 4);
+    for row in 0..rows {
+        for col in 0..cols {
+            let c =
+                pos2(room.left() + room.width() * (col as f32 + 0.5) / cols as f32, room.top() + room.height() * (row as f32 + 0.5) / rows as f32);
+            if notch.contains(c) {
+                p.circle_stroke(c, 4.0, Stroke::new(1.0, Color32::from_gray(90)));
+            } else {
+                terminal(p, c);
+            }
+        }
+    }
+    text(p, pos2(room.left() + 6.0, room.bottom() + 1.0), "2x3, 6, 3x4…", Color32::from_gray(190));
+}
+
 fn size(p: &Painter, r: Rect) {
     let y = r.center().y;
     hduct(p, r.left(), r.center().x + 20.0, y, 26.0);
@@ -379,7 +419,7 @@ mod tests {
 
     #[test]
     fn every_tool_has_a_help_window_that_draws_and_closes() {
-        assert_eq!(HELPS.len(), 18);
+        assert_eq!(HELPS.len(), 19);
         for help in HELPS {
             let mut h = Harness::builder().with_size(vec2(700.0, 500.0)).build_ui(|ui| {
                 show(ui.ctx());
@@ -657,6 +697,7 @@ mod coverage_tests {
             "Wall Elevation",
             "Wall Junctions",
             "Corner Window",
+            "Distribute in a Space",
         ] {
             assert!(have(id), "{id}");
         }

@@ -182,3 +182,33 @@ fn hvactakeoff_writes_an_excel_workbook_with_the_spaces_and_the_calculation_note
     assert!(en.get("note").is_none());
     assert!(s.execute("hvactakeoff", &json!({"lang": "fr\u{1}"})).is_err());
 }
+
+#[test]
+fn indoor_units_are_spread_in_a_space_by_count_or_by_grid_and_outdoor_units_are_refused() {
+    use cadcraft_doc::equipment_of;
+    let mut s = Session::new();
+    *s.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+    let sp = s.execute("spaceadd", &json!({"points": [[0, 0], [8000, 0], [8000, 6000], [0, 6000]], "name": "Open space", "flow": 900})).unwrap();
+    let space = sp["handle"].as_str().unwrap().to_string();
+    let r = s.execute("equipmentadd", &json!({"space": space, "kind": "cassette", "count": 6})).unwrap();
+    assert_eq!(r["handles"].as_array().unwrap().len(), 6, "{r}");
+    let places: Vec<(f64, f64)> = s
+        .doc()
+        .unwrap()
+        .model
+        .iter()
+        .filter(|e| equipment_of(e).is_some())
+        .filter_map(|e| if let cadcraft_doc::EntityKind::Insert(i) = &e.kind { Some((i.insert.x, i.insert.y)) } else { None })
+        .collect();
+    assert!(places.iter().all(|(x, y)| *x > 0.0 && *x < 8000.0 && *y > 0.0 && *y < 6000.0), "inside the space: {places:?}");
+    let names: std::collections::BTreeSet<String> = s.doc().unwrap().model.iter().filter_map(|e| equipment_of(e)).map(|e| e.name).collect();
+    assert_eq!(names.len(), 6, "each unit has its own name: {names:?}");
+    // A grid of 2 rows and 3 columns, under a name that gets a number each.
+    let g = s.execute("equipmentadd", &json!({"space": space, "kind": "wallUnit", "rows": 2, "cols": 3, "name": "UIM"})).unwrap();
+    assert_eq!(g["handles"].as_array().unwrap().len(), 6);
+    assert!(s.doc().unwrap().model.iter().filter_map(|e| equipment_of(e)).any(|e| e.name == "UIM6"));
+    // Outdoor units are not spread, a count that is too big or a handle that is no space is refused.
+    assert!(s.execute("equipmentadd", &json!({"space": space, "kind": "vrfOutdoor", "count": 2})).is_err());
+    assert!(s.execute("equipmentadd", &json!({"space": space, "kind": "cassette", "count": 100000})).is_err());
+    assert!(s.execute("equipmentadd", &json!({"space": "ZZZZ", "kind": "cassette", "count": 2})).is_err());
+}

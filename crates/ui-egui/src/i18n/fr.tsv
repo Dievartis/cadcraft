@@ -1770,3 +1770,11 @@
 	Copper	Cuivre
 	Aluminium	Aluminium
 	Size to other floor (mm)	Section vers l'autre étage (mm)
+	Distribute Units in a Space	Répartir les unités dans un local
+	Spreads air terminals evenly in a space, each with its share of the space's flow.	Répartit des bouches régulièrement dans un local, chacune avec sa part du débit du local.
+	Spreads indoor units (cassettes, ducted, wall, ceiling or floor units) evenly in a space.	Répartit des unités intérieures (cassettes, gainables, murales, plafonniers, consoles) régulièrement dans un local.
+	Start the tool (air terminals) or Distribute Units in a Space (indoor units), then select the space.	Lance l'outil (bouches) ou Répartir les unités dans un local (unités intérieures), puis sélectionne le local.
+	Type how many: 6 spreads six in the most even grid the room's shape allows; 2x3 makes 2 rows by 3 columns.	Tape combien : 6 en répartit six sur la grille la plus régulière que la forme du local permet ; 2x3 fait 2 rangées de 3 colonnes.
+	A grid cell whose centre is outside the space gets nothing, so an L-shaped room is filled by its two arms.	Une case de la grille dont le centre est hors du local ne reçoit rien : un local en L est rempli par ses deux bras.
+	Terminals share the space's flow; units get their model's power. Edit one afterwards, or move it by its grip.	Les bouches se partagent le débit du local ; les unités prennent la puissance de leur modèle. Modifie-en une ensuite, ou déplace-la par sa poignée.
+	Enter number of units or rows x columns	Nombre d'unités, ou rangées x colonnes
