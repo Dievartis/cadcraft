@@ -1208,6 +1208,7 @@ fn riser_at(d: &mut Drawing, at: (f64, f64), air: AirDirection, incoming: Option
         incoming_flow_m3h: incoming,
         flow_m3h: None,
         size: None,
+        incoming_size: None,
         size_set: false,
         height_mm: None,
         label_height_mm: 100.0,

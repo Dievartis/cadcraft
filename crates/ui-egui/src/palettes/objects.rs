@@ -1237,6 +1237,15 @@ fn riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams], bad:
             action = edit("size", json!(if t.trim().is_empty() { "auto" } else { t.trim() }));
         }
     });
+    // The section of the part that goes to or comes from the other floors (the lower end of the leader): empty, it is sized for that flow.
+    let lower =
+        shared(&risers.iter().map(|r| r.incoming_size.map_or(String::new(), |s| s.label().replace('Ø', "").replace('×', "x"))).collect::<Vec<_>>())
+            .unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Size to other floor (mm)", |ui| {
+        if let Some(t) = edit_field(ui, ui.scope_id().with(("riser_incoming_size", &ids)), lower).filter(|t| t != VARIES) {
+            action = edit("incomingSize", json!(if t.trim().is_empty() { Value::Null } else { json!(t.trim()) }));
+        }
+    });
     // The flows, empty for none: the one from the other floors, and the one carried here.
     for (label, key) in [("Flow from other floors (m³/h)", "incomingFlow"), ("Flow (m³/h)", "flow")] {
         let pick = |r: &RiserParams| if key == "flow" { r.flow_m3h } else { r.incoming_flow_m3h };

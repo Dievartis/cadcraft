@@ -16,11 +16,11 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["Draw", "HVAC", "Riser"])
             .params(
                 "{points | handle (closed polyline) | at + width + depth (mm), name?, air? (supply|extract|fresh|exhaust), direction? (up|down), \\
-                 incomingFlow? (m³/h from the other floors), flow? (m³/h), size? (diameter, \"400x250\" or \"auto\"), height? (mm, floor to floor), labelHeight? (mm)} → {handle, name}",
+                 incomingFlow? (m³/h that comes from, or goes on to, the other floors: written at the lower end of the leader), incomingSize? (its section; default: sized for that flow), flow? (m³/h), size? (diameter, \"400x250\" or \"auto\"), height? (mm, floor to floor), labelHeight? (mm)} → {handle, name}",
             )
             .interactive(|s| Ok(Box::new(RiserAddM::new(s)))),
         CommandSpec::new("riseredit", "Edit Riser", run_edit).params(
-            "{handle | handles, name?, air?, direction?, width? + depth? (the shaft, mm), incomingFlow? (or null), flow? (or null), size? (or \"auto\"), height? (mm, or null)} → {changed}",
+            "{handle | handles, name?, air?, direction?, width? + depth? (the shaft, mm), incomingFlow? (or null), incomingSize? (or null), flow? (or null), size? (or \"auto\"), height? (mm, or null)} → {changed}",
         ),
     ]
 }
@@ -110,6 +110,11 @@ fn size_param(cmd: &str, p: &Value) -> Result<Option<Option<RiserSize>>> {
     p.get("size").map(|v| size_value(cmd, v)).transpose()
 }
 
+/// The `incomingSize` of a command: the section of the part that goes to or comes from the other floors (a size, or null for "sized by the flow").
+fn incoming_size_param(cmd: &str, p: &Value) -> Result<Option<Option<RiserSize>>> {
+    p.get("incomingSize").map(|v| size_value(cmd, v)).transpose()
+}
+
 fn risers_count(d: &Drawing) -> usize {
     d.model.iter().filter(|e| riser_of(e).is_some()).count()
 }
@@ -138,6 +143,7 @@ fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
                 incoming_flow_m3h: None,
                 flow_m3h: None,
                 size: None,
+                incoming_size: None,
                 size_set: false,
                 height_mm: None,
                 label_height_mm: 100.0,
@@ -158,6 +164,7 @@ fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
         incoming_flow_m3h: number(CMD, p, "incomingFlow")?,
         flow_m3h: number(CMD, p, "flow")?,
         size: size_param(CMD, p)?.flatten(),
+        incoming_size: incoming_size_param(CMD, p)?.flatten(),
         size_set: size_param(CMD, p)?.flatten().is_some(),
         height_mm: number(CMD, p, "height")?,
         label_height_mm: number(CMD, p, "labelHeight")?.unwrap_or(100.0),
@@ -175,6 +182,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad(CMD, format!("select 1 to {MAX_EDITED} risers")));
     }
     let (air, up, size) = (air_param(CMD, p)?, direction_param(CMD, p)?, size_param(CMD, p)?);
+    let incoming_size = incoming_size_param(CMD, p)?;
     let (incoming, flow) = (clearable(CMD, p, "incomingFlow")?, clearable(CMD, p, "flow")?);
     let height = clearable(CMD, p, "height")?;
     let shaft = (number(CMD, p, "width")?, number(CMD, p, "depth")?);
@@ -192,6 +200,9 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if let Some(v) = flow {
             r.flow_m3h = v;
+        }
+        if let Some(v) = incoming_size {
+            r.incoming_size = v;
         }
         if let Some(v) = height {
             r.height_mm = v;
@@ -249,6 +260,7 @@ impl RiserAddM {
             incoming_flow_m3h: None,
             flow_m3h: None,
             size: None,
+            incoming_size: None,
             size_set: false,
             height_mm: None,
             label_height_mm: 100.0,

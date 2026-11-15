@@ -1202,3 +1202,33 @@ fn a_step_is_drawn_on_the_straight_part_of_its_run_and_not_over_the_bend_at_its_
         length_mm - p.trim_end_mm
     );
 }
+
+#[test]
+fn a_riser_with_a_part_for_another_floor_says_it_at_the_lower_end_and_its_section_can_be_typed() {
+    use cadcraft_doc::riser_of;
+    let mut s = metric();
+    let r = s
+        .execute(
+            "riseradd",
+            &json!({"at": [0, 0], "width": 800, "depth": 600, "air": "extract", "direction": "up", "incomingFlow": 660, "flow": 2620, "size": 400}),
+        )
+        .unwrap();
+    let h = hd(&r["handle"]);
+    let texts = |s: &Session| -> Vec<String> {
+        let d = s.doc().unwrap();
+        let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!("a block reference") };
+        d.block(&i.block)
+            .unwrap()
+            .entities
+            .iter()
+            .filter_map(|e| if let EntityKind::Text(t) = &e.kind { Some(t.value.clone()) } else { None })
+            .collect()
+    };
+    assert_eq!(texts(&s).len(), 2, "{:?}", texts(&s));
+    s.execute("riseredit", &json!({"handle": h.hex(), "incomingSize": "250"})).unwrap();
+    assert!(texts(&s).iter().any(|t| t.ends_with("Ø250-660 m³/h")), "{:?}", texts(&s));
+    assert_eq!(riser_of(s.doc().unwrap().entity(h).unwrap()).unwrap().incoming_size.map(|x| x.width_mm()), Some(250.0));
+    s.execute("riseredit", &json!({"handle": h.hex(), "incomingSize": null})).unwrap();
+    assert!(riser_of(s.doc().unwrap().entity(h).unwrap()).unwrap().incoming_size.is_none());
+    assert!(s.execute("riseredit", &json!({"handle": h.hex(), "incomingSize": "huge"})).is_err());
+}

@@ -89,6 +89,10 @@ pub struct RiserParams {
     pub flow_m3h: Option<f64>,
     #[serde(default)]
     pub size: Option<RiserSize>,
+    /// The section of the part that comes from, or goes to, the other floors (the flow typed as `incoming_flow_m3h`), when it is typed; else it is
+    /// sized for that flow in the shaft. Shown at the lower end of the leader.
+    #[serde(default)]
+    pub incoming_size: Option<RiserSize>,
     /// Whether the size was typed: sizing leaves it as it is.
     #[serde(default)]
     pub size_set: bool,
@@ -121,7 +125,7 @@ impl RiserParams {
                 return Err(invalid(format!("A riser's flow is more than 0 and at most {MAX_RISER_FLOW_M3H} m³/h.")));
             }
         }
-        if let Some(s) = self.size {
+        for s in [self.size, self.incoming_size].into_iter().flatten() {
             s.validate()?;
         }
         Ok(())
@@ -167,7 +171,30 @@ impl RiserParams {
         t
     }
 
-    /// The shaft outline, the symbol with its leader arrow, and the text.
+    /// The text of an end of the leader: "VMC 3 Ø200-240 m³/h".
+    fn end_text(&self, size: Option<RiserSize>, flow: Option<f64>) -> String {
+        let mut t = self.name.clone();
+        match (size.map(RiserSize::label), flow.map(|f| format!("{f:.0}"))) {
+            (Some(s), Some(f)) => t.push_str(&format!(" {s}-{f} m³/h")),
+            (Some(s), None) => t.push_str(&format!(" {s}")),
+            (None, Some(f)) => t.push_str(&format!(" {f} m³/h")),
+            (None, None) => {}
+        }
+        t
+    }
+
+    /// What the lower end of the leader says, when the riser goes on to (or comes from) the floor below: the part of the flow that is not this floor's,
+    /// with its section. `None` when the riser has no such part, or when all of its flow is the one it carries here.
+    pub fn lower_text(&self) -> Option<String> {
+        let (total, part) = (self.flow_m3h?, self.incoming_flow_m3h?);
+        if part >= total - 0.5 {
+            return None;
+        }
+        let size = self.incoming_size.or_else(|| super::network::size_riser(self, part));
+        Some(self.end_text(size, Some(part)))
+    }
+
+    /// The shaft outline, the symbol with its leader arrows (the upper end for the floor above, the lower for the floor below), and the texts.
     pub fn generate(&self) -> Result<Vec<HvacPiece>> {
         self.validate()?;
         let h = self.units.to_units(self.label_height_mm);
@@ -223,6 +250,29 @@ impl RiserParams {
         pieces.push(line(start, end));
         pieces.push(line(end, end + back * head + side * (0.4 * head)));
         pieces.push(line(end, end + back * head - side * (0.4 * head)));
+        // The lower end: the part of the flow that comes from (extract) or goes on to (supply) the other floor, drawn the other way.
+        if let Some(lower) = self.lower_text() {
+            let (start, end) = (c - dir * edge, c - dir * (edge + len));
+            pieces.push(line(start, end));
+            pieces.push(line(end, end - back * head + side * (0.4 * head)));
+            pieces.push(line(end, end - back * head - side * (0.4 * head)));
+            let at = end - dir * (0.6 * h);
+            pieces.push(HvacPiece {
+                layer,
+                kind: EntityKind::Text(Text {
+                    insert: v3(at),
+                    align_pt: Some(v3(at)),
+                    height: h,
+                    value: lower,
+                    rotation: FRAC_PI_4,
+                    width_factor: 1.0,
+                    oblique: 0.0,
+                    style: "Standard".into(),
+                    halign: HAlign::Right,
+                    valign: VAlign::Middle,
+                }),
+            });
+        }
         let at = end + dir * (0.6 * h);
         let text = Text {
             insert: v3(at),

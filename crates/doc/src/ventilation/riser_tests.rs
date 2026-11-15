@@ -12,6 +12,7 @@ fn riser() -> RiserParams {
         incoming_flow_m3h: None,
         flow_m3h: None,
         size: None,
+        incoming_size: None,
         size_set: false,
         height_mm: None,
         label_height_mm: 100.0,
@@ -70,4 +71,32 @@ fn a_riser_keeps_its_data_through_the_block_and_is_edited_in_place() {
     assert!(RiserParams { flow_m3h: Some(0.0), ..riser() }.validate().is_err());
     assert!(RiserParams { outline: vec![Vec2::ZERO; 4], ..riser() }.validate().is_err(), "no area");
     assert!(RiserParams { size: Some(RiserSize::Round { diameter_mm: 5.0 }), ..riser() }.validate().is_err());
+}
+
+#[test]
+fn a_riser_that_goes_on_to_another_floor_has_an_arrow_and_a_text_at_each_end_of_its_leader() {
+    // The first floor, extract air: 660 m³/h comes from below, this floor adds its own and 2620 m³/h goes up.
+    let mut p = riser();
+    p.size = Some(RiserSize::Round { diameter_mm: 400.0 });
+    p.flow_m3h = Some(2620.0);
+    p.incoming_flow_m3h = Some(660.0);
+    p.size_set = true;
+    let texts = |p: &RiserParams| -> Vec<String> {
+        p.generate().unwrap().iter().filter_map(|x| if let EntityKind::Text(t) = &x.kind { Some(t.value.clone()) } else { None }).collect()
+    };
+    let t = texts(&p);
+    assert_eq!(t.len(), 2, "{t:?}");
+    assert!(t.iter().any(|x| x == "VMC 3 Ø400-2620 m³/h"), "{t:?}");
+    assert!(t.iter().any(|x| x.ends_with("-660 m³/h") && x.starts_with("VMC 3 Ø")), "the lower end is sized for 660 m³/h: {t:?}");
+    // A size typed for that part is the one written.
+    p.incoming_size = Some(RiserSize::Round { diameter_mm: 250.0 });
+    assert!(texts(&p).iter().any(|x| x == "VMC 3 Ø250-660 m³/h"));
+    // Arrow heads: two lines for each end.
+    let lines = p.generate().unwrap().iter().filter(|x| matches!(x.kind, EntityKind::Line(_))).count();
+    assert_eq!(lines, 6, "two leaders and four heads");
+    // The ground floor has nothing below: one end only. So has a riser whose flow is all its own, or one not sized yet.
+    for (flow, incoming) in [(Some(815.0), None), (Some(660.0), Some(660.0)), (None, Some(660.0))] {
+        let q = RiserParams { flow_m3h: flow, incoming_flow_m3h: incoming, ..p.clone() };
+        assert_eq!(texts(&q).len(), 1, "{flow:?} {incoming:?}");
+    }
 }

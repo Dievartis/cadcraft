@@ -432,7 +432,7 @@ impl crate::Drawing {
 
 /// The section a riser takes for `flow_m3h` in its shaft: round if it fits the shaft's short side
 /// less the margin, else rectangular as tall as the short side lets it be. None when nothing fits.
-fn size_riser(r: &RiserParams, flow_m3h: f64) -> Option<RiserSize> {
+pub(super) fn size_riser(r: &RiserParams, flow_m3h: f64) -> Option<RiserSize> {
     let (w, d) = r.shaft_mm();
     let (lo, hi) = (w.min(d) - DEFAULT_MARGIN_MM, w.max(d) - DEFAULT_MARGIN_MM);
     let criteria = DesignCriteria { max_side_mm: hi.min(10_000.0), ..DesignCriteria::default() };
