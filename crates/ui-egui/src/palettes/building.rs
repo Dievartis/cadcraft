@@ -13,16 +13,43 @@ use crate::theme::Tokens;
 /// The building tabs, after Drafting and Modeling.
 pub(super) const TABS: &[&str] = &["Architecture", "HVAC"];
 
+/// Where the state of the sections travels while a tab is drawn, and whether the section being drawn is open.
+fn sections_id() -> egui::Id {
+    egui::Id::NULL.with("palette_sections")
+}
+
+fn open_id() -> egui::Id {
+    egui::Id::NULL.with("palette_section_open")
+}
+
+/// The header of a section of the HVAC tab: a triangle and its title; clicked, it folds or opens the rows under it (the rows of a
+/// closed section are not drawn: see [`row_tip`]). The state is kept as the Options say ([`crate::sections`]).
 fn header(ui: &mut egui::Ui, title: &str) {
     let t = Tokens::get();
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::hover());
+    let key = format!("HVAC/{title}");
+    let mut open = ui.data(|d| d.get_temp::<crate::sections::Sections>(sections_id())).is_none_or(|s| s.is_open(&key));
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
+    if resp.clicked() {
+        open = !open;
+        ui.data_mut(|d| d.get_temp_mut_or_default::<crate::sections::Sections>(sections_id()).set(&key, open));
+    }
+    ui.data_mut(|d| d.insert_temp(open_id(), open));
+    let c = pos2(r.left() + 10.0, r.center().y);
+    let arrow = if open {
+        vec![c + vec2(-4.0, -2.0), c + vec2(4.0, -2.0), c + vec2(0.0, 3.0)]
+    } else {
+        vec![c + vec2(-2.0, -4.0), c + vec2(-2.0, 4.0), c + vec2(3.0, 0.0)]
+    };
+    let colour = if resp.hovered() { t.text } else { t.text_dim };
+    ui.painter().add(egui::Shape::convex_polygon(arrow, colour, Stroke::NONE));
     ui.painter().text(
-        pos2(r.left() + 10.0, r.center().y),
+        pos2(r.left() + 22.0, r.center().y),
         egui::Align2::LEFT_CENTER,
         crate::i18n::t(title),
         egui::FontId::proportional(12.5),
         t.text,
     );
+    crate::icons::describe_control(ui, &resp, title, Some(open), false);
 }
 
 fn separator(ui: &mut egui::Ui) {
@@ -38,6 +65,10 @@ fn row_button(ui: &mut egui::Ui, label: &str, selected: bool, paint: impl FnOnce
 
 /// [`row_button`] with a how-to shown when the pointer rests on it (empty: none).
 fn row_tip(ui: &mut egui::Ui, label: &str, tip: &str, help: Option<&'static str>, selected: bool, paint: impl FnOnce(&egui::Painter, Rect)) -> bool {
+    // The rows of a section that is folded are not drawn.
+    if ui.data(|d| d.get_temp::<bool>(open_id())) == Some(false) {
+        return false;
+    }
     let t = Tokens::get();
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
     let r = r.shrink2(vec2(6.0, 2.0));
@@ -189,8 +220,13 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut size_pipes = false;
     let mut name_networks = false;
     let mut check_refrigerant = false;
+    let sections = std::mem::take(&mut app.ui.sections);
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        ui.data_mut(|d| {
+            d.insert_temp(sections_id(), sections);
+            d.insert_temp(open_id(), true);
+        });
         header(ui, "Spaces");
         if row_button(ui, crate::i18n::t("Space"), false, paint_space) {
             start = Some("spaceadd");
@@ -347,6 +383,13 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
             start = Some("hvactakeoff");
         }
     });
+    // The state of the sections goes back to the preferences, and the rows of the next tab are drawn.
+    app.ui.sections = ui
+        .data_mut(|d| {
+            d.insert_temp(open_id(), true);
+            d.remove_temp::<crate::sections::Sections>(sections_id())
+        })
+        .unwrap_or_default();
     hvachelp::show(ui.ctx());
     if let Some(kind) = terminal {
         // The type clicked becomes AIRTERMINALADD's, at the smallest size for the flow.
@@ -530,15 +573,22 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut cleanup = false;
     let last = app.session.last_used.opening.clone();
     let mut chosen: Option<Preset> = None;
+    let mut sections = std::mem::take(&mut app.ui.sections);
     let app_slab_kind = app.session.last_used.slab.kind;
     let mut slab_chosen: Option<cadcraft_doc::SlabKind> = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        let section = |ui: &mut egui::Ui, title: &str, open: bool, body: &mut dyn FnMut(&mut egui::Ui)| {
-            egui::CollapsingHeader::new(crate::i18n::t(title)).id_salt(title).default_open(open).show(ui, |ui| {
+        // A section opens or folds as the Options say and the user left it ([`crate::sections`]); a click on its header changes it.
+        let mut section = |ui: &mut egui::Ui, title: &str, _open: bool, body: &mut dyn FnMut(&mut egui::Ui)| {
+            let key = format!("Architecture/{title}");
+            let open = sections.is_open(&key);
+            let shown = egui::CollapsingHeader::new(crate::i18n::t(title)).id_salt(title).open(Some(open)).show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 body(ui);
             });
+            if shown.header_response.clicked() {
+                sections.set(&key, !open);
+            }
         };
         section(ui, "Walls", true, &mut |ui| {
             for (i, st) in styles.iter().enumerate() {
@@ -590,6 +640,7 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
             }
         });
     });
+    app.ui.sections = sections;
     if let Some(name) = draw {
         // The style clicked becomes WALLADD's style, then WALLADD starts with it.
         app.session.last_used.wall_style = name;
@@ -755,5 +806,82 @@ fn echo_networks(app: &mut CadApp, r: &serde_json::Value) {
             length = format!("{:.0}", n["length"].as_f64().unwrap_or(0.0)),
             color = n["color"].as_str().unwrap_or("")
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sections::SectionsMode;
+    use crate::{CadApp, Services};
+    use cadcraft_engine::Session;
+    use egui_kittest::kittest::Queryable;
+
+    fn tab(app: CadApp, name: &'static str) -> egui_kittest::Harness<'static, CadApp> {
+        let mut h =
+            egui_kittest::Harness::builder().with_size(vec2(400.0, 2400.0)).build_ui_state(move |ui, app: &mut CadApp| body(app, ui, name), app);
+        h.run_steps(3);
+        h
+    }
+
+    fn app(mode: SectionsMode) -> CadApp {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        app.ui.sections.set_mode(mode);
+        app
+    }
+
+    #[test]
+    fn the_sections_of_the_hvac_tab_are_all_open_or_all_closed_as_the_options_say() {
+        let open = tab(app(SectionsMode::Open), "HVAC");
+        assert!(open.query_by_label("Edit Space").is_some() && open.query_by_label("Edit Pipe Riser").is_some(), "every row is drawn");
+        let closed = tab(app(SectionsMode::Closed), "HVAC");
+        assert!(closed.query_by_label("Edit Space").is_none() && closed.query_by_label("Edit Pipe Riser").is_none(), "no row is drawn");
+        assert!(closed.query_by_label("Spaces").is_some(), "the headers are");
+    }
+
+    #[test]
+    fn a_click_on_a_header_folds_its_rows_and_the_last_use_is_remembered_between_runs() {
+        let mut hn = tab(app(SectionsMode::Remember), "HVAC");
+        assert!(hn.query_by_label("Edit Space").is_some(), "open at first");
+        hn.get_by_label("Spaces").click();
+        hn.run_steps(3);
+        assert!(hn.query_by_label("Edit Space").is_none(), "folded");
+        assert!(hn.query_by_label("Edit Air Terminal").is_some(), "the others are not");
+        // Kept with the preferences, and back in the next run.
+        let prefs = hn.state().prefs_json();
+        let mut next = CadApp::new(Session::new(), Services::default());
+        next.load_prefs(&prefs);
+        assert_eq!(next.ui.sections.mode, SectionsMode::Remember);
+        let hn2 = tab(next, "HVAC");
+        assert!(hn2.query_by_label("Edit Space").is_none() && hn2.query_by_label("Edit Air Terminal").is_some());
+        // Opened again.
+        let mut hn = hn2;
+        hn.get_by_label("Spaces").click();
+        hn.run_steps(3);
+        assert!(hn.query_by_label("Edit Space").is_some());
+    }
+
+    #[test]
+    fn the_architecture_sections_follow_the_same_choice_and_a_click_changes_them() {
+        let closed = tab(app(SectionsMode::Closed), "Architecture");
+        assert!(closed.query_by_label("Edit Wall").is_none(), "the tools are folded");
+        let mut hn = tab(app(SectionsMode::Open), "Architecture");
+        assert!(hn.query_by_label("Edit Wall").is_some());
+        hn.get_by_label("Tools").click();
+        hn.run_steps(3);
+        assert!(hn.query_by_label("Edit Wall").is_none(), "folded by a click");
+        // Changing the choice applies it at once.
+        hn.state_mut().ui.sections.set_mode(SectionsMode::Open);
+        hn.run_steps(3);
+        assert!(hn.query_by_label("Edit Wall").is_some());
+    }
+
+    #[test]
+    fn the_choice_is_set_and_read_through_the_options_command() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        assert_eq!(app.run("options", serde_json::json!({})).unwrap()["paletteSections"], "remember");
+        app.run("options", serde_json::json!({"paletteSections": "closed"})).unwrap();
+        assert_eq!(app.ui.sections.mode, SectionsMode::Closed);
+        assert!(app.run("options", serde_json::json!({"paletteSections": "sometimes"})).is_err());
     }
 }

@@ -224,6 +224,7 @@ pub fn route(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value,
 struct UiChanges {
     theme: Option<ThemePref>,
     animations: Option<AnimationPref>,
+    palette_sections: Option<crate::sections::SectionsMode>,
     language: Option<crate::i18n::Preference>,
     save_format: Option<crate::SaveFormat>,
     system_cursor: Option<bool>,
@@ -258,6 +259,9 @@ fn parse_ui(key: &str, v: &Value, c: &mut UiChanges) -> Result<bool, String> {
     match key {
         "theme" => c.theme = Some(ThemePref::parse(text()?).ok_or("theme must be system, light or dark")?),
         "animations" => c.animations = Some(AnimationPref::parse(text()?).ok_or("animations must be system, on or off")?),
+        "paletteSections" => {
+            c.palette_sections = Some(crate::sections::SectionsMode::parse(text()?).ok_or("paletteSections must be open, closed or remember")?)
+        }
         "interfaceLanguage" => {
             c.language = Some(
                 crate::i18n::Preference::parse(text()?).ok_or_else(|| format!("interfaceLanguage must be {}", crate::i18n::Preference::codes()))?,
@@ -324,6 +328,7 @@ fn ui_json(app: &CadApp) -> Map<String, Value> {
     let mut m = Map::new();
     m.insert("theme".into(), json!(app.ui.theme.as_str()));
     m.insert("animations".into(), json!(app.ui.animations.as_str()));
+    m.insert("paletteSections".into(), json!(app.ui.sections.mode.as_str()));
     m.insert("interfaceLanguage".into(), json!(app.ui.interface_language.code()));
     m.insert("saveFormat".into(), json!(app.ui.save_format.as_str()));
     m.insert("systemCursor".into(), json!(app.ui.system_cursor));
@@ -376,6 +381,9 @@ fn run_json(app: &mut CadApp, params: &Value) -> Result<Value, String> {
     }
     if let Some(a) = ui.animations {
         app.ui.animations = a;
+    }
+    if let Some(m) = ui.palette_sections {
+        app.ui.sections.set_mode(m);
     }
     if let Some(l) = ui.language {
         app.ui.interface_language = l;

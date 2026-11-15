@@ -71,6 +71,7 @@ pub mod parametric;
 pub mod plotstyles;
 pub mod quick;
 pub mod save_loss;
+pub mod sections;
 pub mod shortcut_menus;
 pub mod theme;
 pub mod touch;
@@ -136,6 +137,9 @@ pub struct UiState {
     /// Animation effects (dialog and menu fades, smoothed scrolling): "system" (follow the OS
     /// setting), "on" or "off".
     pub animations: animation::AnimationPref,
+    /// Which sections of the Architecture and HVAC tabs are open ([`sections`]).
+    #[serde(skip)]
+    pub sections: sections::Sections,
     /// The format Save As suggests: "dxf" or "dwg", for new drawings and opened files alike.
     pub save_format: SaveFormat,
     /// The version Save As writes for a drawing that has no file yet ("2000" … "2018"); a
@@ -222,6 +226,7 @@ impl Default for UiState {
             shortcuts: keys::UserKeys::new(),
             theme: theme::ThemePref::default(),
             animations: animation::AnimationPref::default(),
+            sections: sections::Sections::default(),
             save_format: SaveFormat::default(),
             save_version: SaveVersion::default().year().to_string(),
             recent_files: Vec::new(),
@@ -759,6 +764,7 @@ impl CadApp {
             "saveFormat": self.ui.save_format.as_str(),
             "saveVersion": self.ui.save_version,
             "quickcalc": self.quickcalc.prefs(),
+            "paletteSections": self.ui.sections.prefs(),
         });
         if self.spacemouse.settings != spacemouse::Settings::default() {
             prefs["spacemouse"] = json!(self.spacemouse.settings);
@@ -783,6 +789,9 @@ impl CadApp {
         let Ok(v) = serde_json::from_str::<Value>(json) else { return };
         if let Some(calculator) = v.get("quickcalc") {
             self.quickcalc.load_prefs(calculator);
+        }
+        if let Some(sections) = v.get("paletteSections") {
+            self.ui.sections.load_prefs(sections);
         }
         if let Some(prefs) = v.get("spacemouse") {
             let _ = self.spacemouse.load_settings(prefs);

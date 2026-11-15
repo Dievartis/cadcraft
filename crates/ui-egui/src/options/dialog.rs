@@ -101,6 +101,14 @@ fn theme_label(t: ThemePref) -> &'static str {
     }
 }
 
+fn sections_label(m: crate::sections::SectionsMode) -> &'static str {
+    match m {
+        crate::sections::SectionsMode::Open => crate::tl!("All open"),
+        crate::sections::SectionsMode::Closed => crate::tl!("All closed"),
+        crate::sections::SectionsMode::Remember => crate::tl!("Remember the last use"),
+    }
+}
+
 fn animations_label(a: AnimationPref) -> &'static str {
     match a {
         AnimationPref::System => crate::tl!("Use System Setting"),
@@ -162,6 +170,19 @@ fn display(app: &CadApp, ui: &mut egui::Ui, changes: &mut Map<String, Value>) {
         animations_combo.response.labelled_by(animations_caption.id);
         if animations != app.ui.animations {
             changes.insert("animations".into(), json!(animations.as_str()));
+        }
+        ui.end_row();
+
+        let sections_caption = ui.label(crate::tl!("Menu sections in the tabs"));
+        let mut sections = app.ui.sections.mode;
+        let sections_combo = craft_ui::ComboBox::from_id_salt("options_palette_sections").selected_text(sections_label(sections)).show_ui(ui, |ui| {
+            for m in crate::sections::SectionsMode::ALL {
+                ui.selectable_value(&mut sections, m, sections_label(m));
+            }
+        });
+        sections_combo.response.labelled_by(sections_caption.id);
+        if sections != app.ui.sections.mode {
+            changes.insert("paletteSections".into(), json!(sections.as_str()));
         }
         ui.end_row();
 

@@ -358,15 +358,26 @@ fn category_named(name: &str) -> Option<PartCategory> {
     PartCategory::ALL.into_iter().find(|x| category_name(*x).eq_ignore_ascii_case(name))
 }
 
-/// PIPEPARTADD at the command line: pick the model (or use the last), then click where each part goes.
+/// PIPEPARTADD at the command line: pick the model (or use the last), click where the part goes, then its orientation (a second click, an
+/// angle typed, or Enter): a part in the line of a pipe, clicked on the pipe, turns along it and cuts it at once.
 struct PartAddM {
     model: String,
     ask_model: bool,
+    /// The place clicked while the orientation is asked, and the angle along the pipe under it (radians), if there is one.
+    rotation_at: Option<(Vec2, Option<f64>)>,
 }
 
 impl PartAddM {
     fn new(s: &Session) -> Self {
-        PartAddM { model: s.last_used.part.model.clone(), ask_model: false }
+        PartAddM { model: s.last_used.part.model.clone(), ask_model: false, rotation_at: None }
+    }
+
+    /// Puts the part clicked at `at`, `rotation` radians (none: along the pipe under it, or not turned), and remembers the model.
+    fn put(&mut self, s: &mut Session, model: &PartEntry, at: Vec2, rotation: Option<f64>) {
+        match place(s, model, None, at, rotation, |_| {}) {
+            Ok(_) => s.last_used.part.model = self.model.clone(),
+            Err(e) => s.echo(e.to_string()),
+        }
     }
 }
 
@@ -382,7 +393,11 @@ impl Interactive for PartAddM {
         if self.ask_model {
             return Prompt::new("Enter the name of a model of the library", Accept::TEXT).default(self.model.clone());
         }
-        Prompt::new("Specify the place of the part (on a pipe it turns along it)", Accept::POINT).kw(&["Model"])
+        if let Some((at, along)) = self.rotation_at {
+            let default = along.map_or("0".to_string(), |a| format!("{:.0}", a.to_degrees()));
+            return Prompt::new("Specify rotation angle", Accept::POINT_OR_NUMBER).base(at).default(default);
+        }
+        Prompt::new("Specify the place of the part", Accept::POINT).kw(&["Model"])
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         if self.ask_model {
@@ -398,16 +413,40 @@ impl Interactive for PartAddM {
             self.ask_model = false;
             return Ok(Step::Continue);
         }
+        let Some(model) = s.doc().ok().and_then(|d| d.part_entry_named(&self.model)) else { return Ok(Step::Done) };
+        if let Some((at, _)) = self.rotation_at {
+            // The orientation: a click gives the direction from the first one, a number is degrees, Enter takes the default (along the pipe, or 0).
+            let rotation = match &i {
+                Input::Point(p) if !p.near(at, 1e-9) => Some((*p - at).angle()),
+                Input::Text(t) | Input::Keyword(t) => match t.trim().parse::<f64>().ok().filter(|a| a.is_finite()) {
+                    Some(deg) => Some(deg.to_radians()),
+                    None => {
+                        s.echo("Requires an angle in degrees.");
+                        return Ok(Step::Continue);
+                    }
+                },
+                Input::Cancel => {
+                    self.rotation_at = None;
+                    return Ok(Step::Continue);
+                }
+                _ => None,
+            };
+            self.rotation_at = None;
+            self.put(s, &model, at, rotation);
+            return Ok(Step::Continue);
+        }
         match i {
             Input::Keyword(k) if k == "Model" => {
                 self.ask_model = true;
                 Ok(Step::Continue)
             }
             Input::Point(at) => {
-                let Some(model) = s.doc().ok().and_then(|d| d.part_entry_named(&self.model)) else { return Ok(Step::Done) };
-                match place(s, &model, None, at, None, |_| {}) {
-                    Ok(_) => s.last_used.part.model = self.model.clone(),
-                    Err(e) => s.echo(e.to_string()),
+                let on_pipe = s.doc().ok().and_then(|d| pipe_under(d, at));
+                if model.kind().is_inline() && on_pipe.is_some() {
+                    // In the line of the pipe it was clicked on: along it, and the pipe is cut.
+                    self.put(s, &model, at, None);
+                } else {
+                    self.rotation_at = Some((at, on_pipe.map(|(_, _, angle, _)| angle)));
                 }
                 Ok(Step::Continue)
             }
@@ -419,11 +458,15 @@ impl Interactive for PartAddM {
         Vec::new()
     }
     fn preview_objects(&self, s: &Session, c: Vec2) -> Vec<cadcraft_doc::Entity> {
-        // The part under the cursor, as it will be drawn, turned along the pipe it would sit on.
         let Ok(d) = s.doc() else { return Vec::new() };
         let Some(model) = d.part_entry_named(&self.model) else { return Vec::new() };
-        let (at, angle) = pipe_under(d, c).map_or((c, 0.0), |(_, foot, a, _)| (foot, a));
         let p = model.params(&next_tag(d, &model), HvacUnits::of(d));
+        // While the orientation is asked: at the place clicked, turned towards the cursor (along the pipe until it moves).
+        let (at, angle) = match self.rotation_at {
+            Some((at, _)) if !c.near(at, 1e-9) => (at, (c - at).angle()),
+            Some((at, along)) => (at, along.unwrap_or(0.0)),
+            None => pipe_under(d, c).map_or((c, 0.0), |(_, foot, a, _)| if model.kind().is_inline() { (foot, a) } else { (c, 0.0) }),
+        };
         p.generate().map(|pieces| cadcraft_doc::preview_entities(pieces, at, angle)).unwrap_or_default()
     }
 }

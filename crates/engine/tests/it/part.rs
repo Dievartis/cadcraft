@@ -87,7 +87,8 @@ fn pipepartedit_changes_a_part_and_pipepartmodels_lists_the_library() {
 #[test]
 fn pipepartadd_at_the_command_line_places_parts_one_after_another() {
     let mut s = metric();
-    for t in ["pipepartadd", "m", "Pressure gauge", "1000,1000", "2000,1000", ""] {
+    // A click, then the orientation (Enter: not turned).
+    for t in ["pipepartadd", "m", "Pressure gauge", "1000,1000", "", "2000,1000", "", ""] {
         s.cmdline(t).unwrap();
     }
     assert!(s.running.is_none());
@@ -95,10 +96,57 @@ fn pipepartadd_at_the_command_line_places_parts_one_after_another() {
     assert_eq!(parts.len(), 2);
     assert!(parts.iter().all(|p| p.kind == PartKind::PressureGauge));
     // The next PIPEPARTADD starts with the model last used.
-    for t in ["pipepartadd", "3000,1000", ""] {
+    for t in ["pipepartadd", "3000,1000", "", ""] {
         s.cmdline(t).unwrap();
     }
     assert_eq!(s.doc().unwrap().model.iter().filter_map(|e| part_of(e)).filter(|p| p.kind == PartKind::PressureGauge).count(), 3);
+}
+
+#[test]
+fn the_orientation_of_a_part_is_asked_after_the_click_as_it_is_for_a_unit() {
+    let rot = |s: &Session| -> Vec<f64> {
+        let mut v: Vec<f64> = s
+            .doc()
+            .unwrap()
+            .model
+            .iter()
+            .filter(|e| part_of(e).is_some())
+            .filter_map(|e| if let EntityKind::Insert(i) = &e.kind { Some(i.rotation) } else { None })
+            .collect();
+        v.sort_by(f64::total_cmp);
+        v
+    };
+    let mut s = metric();
+    // A header: the click, then a second click gives the direction (a quarter turn up).
+    for t in ["pipepartadd", "m", "Refrigerant header, index below 290", "1000,1000", "1000,2000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    assert!((rot(&s)[0] - std::f64::consts::FRAC_PI_2).abs() < 1e-9, "{:?}", rot(&s));
+    // A branch box: an angle typed in degrees.
+    for t in ["pipepartadd", "m", "Branch box, 4 outlets (R32 heat recovery)", "5000,1000", "180", ""] {
+        s.cmdline(t).unwrap();
+    }
+    assert!(rot(&s).iter().any(|r| (r - std::f64::consts::PI).abs() < 1e-9), "{:?}", rot(&s));
+    // A Y joint on a pipe: Enter takes the direction of the pipe (here a quarter turn), clicked off a pipe it is not turned.
+    s.execute("pipeadd", &json!({"points": [[0, 5000], [0, 9000]], "service": "refrigerantPair"})).unwrap();
+    for t in ["pipepartadd", "m", "Refrigerant Y joint, index below 200", "20,7000", "", "9000,9000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    let r = rot(&s);
+    assert_eq!(r.len(), 4);
+    assert!(r.iter().filter(|x| (**x - std::f64::consts::FRAC_PI_2).abs() < 1e-9).count() >= 2, "{r:?}");
+    assert!(r.iter().any(|x| x.abs() < 1e-9), "{r:?}");
+    // A valve clicked on a pipe turns along it and cuts it without asking; a refused angle is asked again.
+    s.execute("pipeadd", &json!({"points": [[3000, 0], [3000, 3000]], "service": "chilledWater"})).unwrap();
+    let before = s.doc().unwrap().model.iter().filter(|e| cadcraft_doc::pipe_of(e).is_some()).count();
+    for t in ["pipepartadd", "m", "Isolation valve (ball)", "3000,1500", ""] {
+        s.cmdline(t).unwrap();
+    }
+    assert_eq!(s.doc().unwrap().model.iter().filter(|e| cadcraft_doc::pipe_of(e).is_some()).count(), before + 1, "the pipe is cut");
+    for t in ["pipepartadd", "m", "Pressure gauge", "8000,8000", "abc", "45", ""] {
+        s.cmdline(t).unwrap();
+    }
+    assert!(rot(&s).iter().any(|r| (r - std::f64::consts::FRAC_PI_4).abs() < 1e-9), "{:?}", rot(&s));
 }
 
 #[test]
