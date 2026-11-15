@@ -102,8 +102,22 @@ fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], bad: &mut 
             action = edit("name", json!(n));
         }
     });
-    let model = shared(&ps.iter().map(|p| p.model.to_string()).collect::<Vec<String>>()).unwrap_or_else(|| VARIES.into());
-    prop_row(ui, "Model", |ui| read_only(ui, &model));
+    // The model: the others of the same kind are one click away, as the type of an air handling unit is.
+    let kind = shared(&ps.iter().map(|p| p.kind).collect::<Vec<_>>());
+    let model = shared(&ps.iter().map(|p| p.model.to_string()).collect::<Vec<String>>());
+    prop_row(ui, "Model", |ui| {
+        let fr = crate::i18n::current_language().starts_with("fr");
+        let same: Vec<_> = kind.map(|k| cadcraft_doc::standard_part_models().into_iter().filter(|m| m.kind == k).collect()).unwrap_or_default();
+        let shown = match &model {
+            Some(m) if !m.is_empty() => same.iter().find(|x| x.name == m.as_str()).map_or(m.as_str(), |x| if fr { x.name_fr } else { x.name }),
+            Some(_) => "—",
+            None => VARIES,
+        };
+        let items: Vec<(&str, &str)> = same.iter().map(|m| (m.name, if fr { m.name_fr } else { m.name })).collect();
+        if let Some(k) = choice(ui, shown, &items) {
+            action = edit("model", json!(k));
+        }
+    });
     // Numbers that may be left empty (not known): a number sets, empty clears.
     for (label, key, get) in [
         ("Nominal diameter (mm)", "dn", (|p: &PartParams| p.dn_mm) as fn(&PartParams) -> Option<f64>),
@@ -117,6 +131,24 @@ fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], bad: &mut 
         prop_row(ui, label, |ui| {
             if let Some(t) = edit_field(ui, ui.scope_id().with(("part_value", key, &ids)), v).filter(|t| t != VARIES) {
                 if t.trim().is_empty() {
+                    action = edit(key, Value::Null);
+                } else if let Some(n) = number(Some(t), bad) {
+                    action = edit(key, json!(n));
+                }
+            }
+        });
+    }
+    // The dimensions, in the order the data sheets give them: height, width (along the pipe), depth.
+    group(ui, "Dimensions (H × W × D)");
+    for (label, key, get) in [
+        ("Height H (mm)", "height", (|p: &PartParams| p.height_mm) as fn(&PartParams) -> Option<f64>),
+        ("Width W (mm)", "length", |p| Some(p.length_mm)),
+        ("Depth D (mm)", "width", |p| Some(p.width_mm)),
+    ] {
+        let v = shared(&ps.iter().map(|p| get(p).map_or(String::new(), |f| format!("{f}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+        prop_row(ui, label, |ui| {
+            if let Some(t) = edit_field(ui, ui.scope_id().with(("part_dim", key, &ids)), v).filter(|t| t != VARIES) {
+                if t.trim().is_empty() && key == "height" {
                     action = edit(key, Value::Null);
                 } else if let Some(n) = number(Some(t), bad) {
                     action = edit(key, json!(n));
@@ -138,12 +170,6 @@ fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], bad: &mut 
             action = edit("connections", json!(c));
         }
     });
-    if let [p] = ps {
-        if !p.brand.is_empty() {
-            prop_row(ui, "Make", |ui| read_only(ui, &p.brand));
-        }
-        prop_row(ui, "Size in plan (mm)", |ui| read_only(ui, &format!("{:.0} × {:.0}", p.length_mm, p.width_mm)));
-    }
     action
 }
 
@@ -1493,6 +1519,32 @@ mod hvac_tests {
         type_into(&mut hn, "24", "35");
         let p = cadcraft_doc::part_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
         assert_eq!(p.volume_l, Some(35.0));
+    }
+
+    #[test]
+    fn a_selected_box_takes_its_outlets_and_dimensions_and_another_model_from_the_palette() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        *app.session.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+        let r = app.run("pipepartadd", json!({ "at": [0, 0], "model": "Branch box, 4 outlets (R32 heat recovery)" })).unwrap();
+        let h = cadcraft_doc::Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+        app.session.set_selection(vec![h]);
+        let before = cadcraft_doc::part_of(app.session.doc().unwrap().entity(h).unwrap()).unwrap();
+        let mut hn = palette(app);
+        // The outlets typed: the box is redrawn with them, and as long as they need.
+        type_into(&mut hn, "4", "6");
+        let p = cadcraft_doc::part_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
+        assert_eq!(p.outlets, 6);
+        assert!(p.length_mm > before.length_mm);
+        // The height, the width and the depth are fields to type in, in that order.
+        assert!(
+            hn.query_by_label("Height H (mm)").is_some()
+                && hn.query_by_label("Width W (mm)").is_some()
+                && hn.query_by_label("Depth D (mm)").is_some()
+        );
+        let height = before.height_mm.map(|v| format!("{v}")).unwrap_or_default();
+        type_into(&mut hn, &height, "420");
+        let p = cadcraft_doc::part_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
+        assert_eq!(p.height_mm, Some(420.0));
     }
 
     #[test]

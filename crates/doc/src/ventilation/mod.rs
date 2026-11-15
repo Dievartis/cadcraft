@@ -72,6 +72,8 @@ fn hvac_layer_color(name: &str) -> Option<cadcraft_color::Color> {
         AIR_FRESH_LAYER | DUCT_FRESH_LAYER => Some(Color::True(Rgb(0x3c, 0xc8, 0x64))),
         AIR_EXHAUST_LAYER | DUCT_EXHAUST_LAYER => Some(Color::True(Rgb(0xff, 0x9a, 0x1e))),
         ZONE_LAYER => Some(Color::True(Rgb(0x2e, 0xb8, 0xa6))),
+        // The safety devices are red.
+        ACCESSORY_FIRE_LAYER => Some(Color::True(Rgb(0xe0, 0x24, 0x24))),
         EQUIPMENT_ZONE_LAYER => Some(Color::True(Rgb(0x9a, 0x9a, 0x9a))),
         _ => pipe::pipe_layer_color(name).or_else(|| slab::slab_layer_color(name)).or_else(|| part::part_layer_color(name)),
     }

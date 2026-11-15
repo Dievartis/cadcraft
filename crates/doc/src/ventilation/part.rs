@@ -15,6 +15,8 @@ pub const PART_APP: &str = "CADCRAFT_PART";
 pub const PART_LAYER: &str = "M-PIPE-ACC";
 pub const PART_EQUIPMENT_LAYER: &str = "M-PIPE-EQP";
 pub const PART_REFRIGERANT_LAYER: &str = "M-PIPE-REFACC";
+/// The layer of the safety devices (safety valves, disconnectors): red.
+pub const PART_SAFETY_LAYER: &str = "M-PIPE-SAFETY";
 /// Largest side of a part in plan, mm.
 pub const MAX_PART_MM: f64 = 20_000.0;
 /// Most outlets of a header or a box.
@@ -158,8 +160,16 @@ impl PartKind {
         ALL_KINDS.into_iter().find(|k| k.name().to_ascii_lowercase() == t)
     }
 
+    /// Whether the part is a safety device: it is drawn in red.
+    pub fn is_safety(self) -> bool {
+        matches!(self, PartKind::SafetyValve | PartKind::Disconnector)
+    }
+
     /// The layer of the kind.
     pub fn layer(self) -> &'static str {
+        if self.is_safety() {
+            return PART_SAFETY_LAYER;
+        }
         match self {
             PartKind::Pump
             | PartKind::DoublePump
@@ -177,6 +187,37 @@ impl PartKind {
     /// Whether the part belongs to a refrigerant network.
     pub fn is_refrigerant(self) -> bool {
         self.layer() == PART_REFRIGERANT_LAYER
+    }
+
+    /// The height a new part of the kind starts with, mm (indicative: the data sheet's is typed over it).
+    pub fn default_height_mm(self) -> f64 {
+        match self {
+            PartKind::IsolationValve | PartKind::ButterflyValve | PartKind::CheckValve | PartKind::BalancingValve | PartKind::DrainValve => 150.0,
+            PartKind::ControlValve | PartKind::ThreeWayValve | PartKind::PicValve | PartKind::PressureReducingValve | PartKind::SafetyValve => 250.0,
+            PartKind::Strainer | PartKind::FlexConnector | PartKind::Reducer | PartKind::AirVent => 150.0,
+            PartKind::Deaerator | PartKind::DirtSeparator => 500.0,
+            PartKind::Disconnector | PartKind::FillingGroup => 250.0,
+            PartKind::Thermometer | PartKind::PressureGauge | PartKind::FlowMeter | PartKind::EnergyMeter | PartKind::Sensor => 120.0,
+            PartKind::Pump | PartKind::DoublePump => 250.0,
+            PartKind::ExpansionVessel => 450.0,
+            PartKind::Tank => 1500.0,
+            PartKind::DecouplingBottle => 1200.0,
+            PartKind::Boiler => 900.0,
+            PartKind::HeatExchanger => 800.0,
+            PartKind::Manifold | PartKind::RefnetJoint | PartKind::RefnetHeader => 100.0,
+            PartKind::BranchBox => 300.0,
+        }
+    }
+
+    /// For a header or a box: the length of the symbol for `outlets` outlets, mm (a base and a pitch).
+    pub fn length_for_outlets_mm(self, outlets: u32) -> Option<f64> {
+        let (base, pitch) = match self {
+            PartKind::BranchBox => (200.0, 90.0),
+            PartKind::RefnetHeader => (100.0, 75.0),
+            PartKind::Manifold => (100.0, 125.0),
+            _ => return None,
+        };
+        Some(base + pitch * f64::from(outlets.max(1)))
     }
 
     /// The length and the width a new part of the kind starts with in plan, mm.
@@ -261,9 +302,12 @@ pub struct PartParams {
     pub model: String,
     #[serde(default)]
     pub brand: String,
-    /// The size of the symbol in plan, mm.
+    /// The size of the part, mm: its width along the block's x axis (the pipe's direction, L), its depth across (P) and its
+    /// height (H, written on the data sheets before the other two).
     pub length_mm: f64,
     pub width_mm: f64,
+    #[serde(default)]
+    pub height_mm: Option<f64>,
     /// The number of outlets of a header or a box (the ports of a branch-selector box).
     #[serde(default)]
     pub outlets: u32,
@@ -307,6 +351,7 @@ impl PartParams {
             brand: String::new(),
             length_mm,
             width_mm,
+            height_mm: Some(kind.default_height_mm()),
             outlets: match kind {
                 PartKind::RefnetHeader => 8,
                 PartKind::Manifold => 6,
@@ -340,7 +385,8 @@ impl PartParams {
             return Err(invalid(format!("A part's texts have at most {MAX_TEXT_CHARS} characters, without control characters.")));
         }
         let positive = |v: Option<f64>| v.is_none_or(|v| v.is_finite() && v > 0.0 && v <= 1.0e7);
-        if !(positive(self.dn_mm)
+        if !(positive(self.height_mm)
+            && positive(self.dn_mm)
             && positive(self.volume_l)
             && positive(self.power_kw)
             && positive(self.flow_m3h)
@@ -414,6 +460,7 @@ pub fn part_layer_color(name: &str) -> Option<cadcraft_color::Color> {
         PART_LAYER => Some(Color::True(Rgb(0xe6, 0xb4, 0x3c))),
         PART_EQUIPMENT_LAYER => Some(Color::True(Rgb(0x3f, 0xb8, 0xa8))),
         PART_REFRIGERANT_LAYER => Some(Color::True(Rgb(0xe6, 0x7e, 0x22))),
+        PART_SAFETY_LAYER => Some(Color::True(Rgb(0xe0, 0x24, 0x24))),
         _ => None,
     }
 }

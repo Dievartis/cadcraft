@@ -579,10 +579,9 @@ fn parts_section(ui: &mut egui::Ui, part_now: &str, chosen_part: &mut Option<&'s
     let fr = crate::i18n::current_language().starts_with("fr");
     for name in COMMON_PARTS {
         let Some(m) = cadcraft_doc::standard_part_model_named(name) else { continue };
-        let params = m.params("", cadcraft_doc::HvacUnits::default());
-        let color = thumbs::part_color(m.kind, Tokens::get().text);
+        let params = m.params("T", cadcraft_doc::HvacUnits::default());
         let selected = part_now == m.name;
-        if row_button(ui, if fr { m.name_fr } else { m.name }, selected, |p, r| thumbs::paint_part(p, r, &params, color)) {
+        if row_button(ui, if fr { m.name_fr } else { m.name }, selected, |p, r| thumbs::paint_part(p, r, &params)) {
             *chosen_part = Some(m.name);
         }
     }
@@ -615,9 +614,9 @@ const COMMON_PARTS: &[&str] = &[
     "Circulator (single)",
     "Expansion vessel 24 l",
     "Buffer tank 500 l",
-    "Refnet joint KHRQ23M20T",
-    "Refnet header KHRQ23M29H",
-    "BS6A14AJV1B9",
+    "Refrigerant Y joint, index below 200",
+    "Refrigerant header, index below 290",
+    "Branch box, 6 outlets (R32 heat recovery)",
 ];
 
 /// The pipes of the Piping group: the label, the service and the leg.

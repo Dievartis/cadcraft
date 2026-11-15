@@ -155,13 +155,12 @@ fn card(ui: &mut egui::Ui, m: &PartModel, selected: bool, t: &Tokens, chosen: &m
         },
     );
     p.rect_stroke(rect, 6.0, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
-    let part = m.params("", cadcraft_doc::HvacUnits::default());
-    let art = egui::Rect::from_min_size(rect.min + vec2(8.0, 6.0), vec2(CARD.x - 16.0, 62.0));
-    crate::palettes::paint_part(p, art, &part, crate::palettes::part_color(m.kind, t.text));
+    let part = m.params("T", cadcraft_doc::HvacUnits::default());
+    let art = egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 38.0), vec2(30.0, 30.0));
+    crate::palettes::paint_part(p, art, &part);
     let name = p.layout(display_name(m).to_string(), egui::FontId::proportional(11.5), t.text, CARD.x - 14.0);
     p.galley(pos2(rect.left() + 7.0, rect.top() + 72.0), name, t.text);
-    let brand = if m.brand.is_empty() { String::new() } else { m.brand.to_string() };
-    let extra = if m.outlets > 0 { format!("{brand} · {}x", m.outlets) } else { brand };
+    let extra = if m.outlets > 0 { format!("{}x", m.outlets) } else { String::new() };
     p.text(pos2(rect.left() + 7.0, rect.bottom() - 6.0), egui::Align2::LEFT_BOTTOM, extra, egui::FontId::proportional(10.0), t.text_dim);
     if resp.drag_started() {
         resp.dnd_set_drag_payload(PartDrag(m.name.to_string()));
@@ -196,10 +195,10 @@ mod tests {
         // Words from the name, in either language, the brand or the connections; all of them must be found.
         assert!(filtered(all.clone(), None, "balancing").iter().any(|m| m.name == "Balancing valve (TA)"));
         assert!(filtered(all.clone(), None, "papillon").iter().any(|m| m.name == "Butterfly valve"));
-        let bs = filtered(all.clone(), None, "daikin bs 12");
-        assert!(!bs.is_empty() && bs.iter().all(|m| m.brand == "Daikin"));
+        let bs = filtered(all.clone(), None, "box 12 outlets");
+        assert!(bs.len() >= 2 && bs.iter().all(|m| m.kind == cadcraft_doc::PartKind::BranchBox && m.outlets == 12));
         assert!(filtered(all.clone(), None, "zzzz").is_empty());
-        assert!(filtered(all, Some(PartCategory::Pumps), "daikin").is_empty());
+        assert!(filtered(all, Some(PartCategory::Pumps), "box").is_empty());
     }
 
     #[test]

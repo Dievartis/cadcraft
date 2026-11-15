@@ -1483,3 +1483,7 @@
 	Outlets	Sorties
 	Make	Marque
 	Size in plan (mm)	Dimensions en plan (mm)
+	Dimensions (H × W × D)	Dimensions (H × L × P)
+	Height H (mm)	Hauteur H (mm)
+	Width W (mm)	Largeur L (mm)
+	Depth D (mm)	Profondeur P (mm)

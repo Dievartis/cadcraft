@@ -13,6 +13,8 @@ use crate::{EntityKind, Line, LwPolyline, RawTag, Result};
 pub const ACCESSORY_APP: &str = "CADCRAFT_DUCTACC";
 /// The layer of the accessories.
 pub const ACCESSORY_LAYER: &str = "M-HVAC-ACC";
+/// The layer of the fire dampers (clapets coupe-feu): a safety device, drawn in red.
+pub const ACCESSORY_FIRE_LAYER: &str = "M-HVAC-FIRE";
 /// Longest accessory along its duct, mm.
 pub const MAX_ACCESSORY_LENGTH_MM: f64 = 10_000.0;
 /// Largest loss coefficient or pressure drop a user may give.
@@ -160,13 +162,19 @@ impl AccessoryParams {
         Vec2::new(self.units.to_units(self.length_mm) / 2.0, width)
     }
 
+    /// The layer of the accessory: its own for a fire damper, the accessories' for the others.
+    pub fn layer(&self) -> &'static str {
+        if self.kind == AccessoryKind::FireDamper { ACCESSORY_FIRE_LAYER } else { ACCESSORY_LAYER }
+    }
+
     pub fn generate(&self) -> Result<Vec<HvacPiece>> {
         self.validate()?;
         let half = self.half();
         let r = self.units.to_units(self.diameter_mm) / 2.0;
-        let line = |a: Vec2, b: Vec2| HvacPiece { layer: ACCESSORY_LAYER, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
+        let layer = self.layer();
+        let line = |a: Vec2, b: Vec2| HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
         let poly = |pts: Vec<Vec2>, closed: bool| HvacPiece {
-            layer: ACCESSORY_LAYER,
+            layer,
             kind: EntityKind::LwPolyline(LwPolyline {
                 vertices: pts.into_iter().map(|p| PolyVertex { p, bulge: 0.0, start_width: 0.0, end_width: 0.0 }).collect(),
                 closed,
@@ -217,7 +225,7 @@ impl AccessoryParams {
             Loss::Pascals(p) if self.kind == AccessoryKind::Silencer => format!("{} {p:.0} Pa", self.kind.code()),
             _ => format!("{} Ø{:.0}", self.kind.code(), self.diameter_mm),
         };
-        v.push(HvacPiece { layer: ACCESSORY_LAYER, kind: label(Vec2::new(0.0, -half.y - 1.2 * h), h, text) });
+        v.push(HvacPiece { layer, kind: label(Vec2::new(0.0, -half.y - 1.2 * h), h, text) });
         Ok(v)
     }
 
@@ -279,9 +287,9 @@ impl crate::Drawing {
         }
         let pieces = p.generate()?;
         common.xdata = xdata::replace(ACCESSORY_APP, &common.xdata, p.to_xdata()?);
-        common.layer = ACCESSORY_LAYER.into();
+        common.layer = p.layer().into();
         let block = self.hvac_block(pieces);
-        self.ensure_layer(ACCESSORY_LAYER);
+        self.ensure_layer(p.layer());
         let insert = crate::Insert { block, insert: v3(at), rotation, ..Default::default() };
         self.add(space, common, EntityKind::Insert(insert))
     }
@@ -291,6 +299,10 @@ impl crate::Drawing {
         let pieces = p.generate()?;
         let old = self.entity(h).ok_or(crate::DocError::NoEntity(h))?.common.xdata.clone();
         let tags = xdata::replace(ACCESSORY_APP, &old, p.to_xdata()?);
-        self.regenerate_hvac(h, pieces, tags)
+        self.regenerate_hvac(h, pieces, tags)?;
+        let layer = p.layer();
+        self.ensure_layer(layer);
+        self.modify_entity(h, |e| e.common.layer = layer.into())?;
+        Ok(())
     }
 }

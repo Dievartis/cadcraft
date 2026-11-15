@@ -34,21 +34,45 @@ fn every_kind_has_a_symbol_and_every_model_of_the_library_can_be_drawn() {
 }
 
 #[test]
-fn the_daikin_parts_carry_their_outlets_and_connections() {
+fn the_refrigerant_parts_carry_their_outlets_and_connections_and_name_no_maker() {
     let get = |n: &str| standard_part_model_named(n).unwrap_or_else(|| panic!("{n}"));
-    let bs = get("BS6A14AJV1B9");
-    assert_eq!((bs.outlets, bs.brand, bs.kind), (6, "Daikin", PartKind::BranchBox));
+    let bs = get("Branch box, 6 outlets (R32 heat recovery)");
+    assert_eq!((bs.outlets, bs.kind, bs.brand), (6, PartKind::BranchBox, ""));
     assert!(
-        bs.connections.contains("Liq 5/8\"") && bs.connections.contains("HP/LP 7/8\"") && bs.connections.contains("Suc 7/8\""),
+        bs.connections.contains("liquid 5/8\"") && bs.connections.contains("HP/LP gas 7/8\"") && bs.connections.contains("suction gas 7/8\""),
         "{}",
         bs.connections
     );
-    assert_eq!(get("BS12A14AJV1B9").outlets, 12);
-    assert_eq!(get("BS16Q14AV1B").outlets, 16);
-    assert_eq!(get("Refnet header KHRQ22M64H").outlets, 8);
-    assert_eq!(get("Refnet joint KHRQ23M20T").kind, PartKind::RefnetJoint);
-    assert_eq!(get("Vanne papillon").kind, PartKind::ButterflyValve, "found by its French name");
+    assert_eq!(get("Branch box, 12 outlets (R32 heat recovery)").outlets, 12);
+    assert_eq!(get("Branch box, 16 outlets (R410A heat recovery)").outlets, 16);
+    assert_eq!(get("Refrigerant header, index 290 to 640").outlets, 8);
+    assert_eq!(get("Refrigerant Y joint, index below 200").kind, PartKind::RefnetJoint);
+    assert_eq!(get("Boîte de détente 4 sorties (R32, récupération d'énergie)").outlets, 4, "found by its French name");
+    assert_eq!(get("Connection box, 2 outlets (multi)").outlets, 2);
+    assert_eq!(get("Vanne papillon").kind, PartKind::ButterflyValve);
     assert!(standard_part_model_named("nothing").is_none());
+    // No maker or reference anywhere in what the library shows or a drawing keeps.
+    for m in standard_part_models() {
+        let text = format!("{} {} {} {}", m.name, m.name_fr, m.brand, m.connections).to_lowercase();
+        for word in ["daikin", "vrv", "khr", "bs4", "bs6", "bs8", "bs10", "bs12", "bs16", "bpmks", "refnet"] {
+            assert!(!text.contains(word), "{}: {word}", m.name);
+        }
+    }
+}
+
+#[test]
+fn the_safety_devices_are_red_and_every_part_has_a_height() {
+    for kind in ALL_KINDS {
+        assert_eq!(kind.layer() == PART_SAFETY_LAYER, kind.is_safety(), "{kind:?}");
+        assert!(PartParams::new(kind, "X", units()).height_mm.is_some_and(|h| h > 0.0), "{kind:?}");
+    }
+    assert!(PartKind::SafetyValve.is_safety() && PartKind::Disconnector.is_safety() && !PartKind::CheckValve.is_safety());
+    assert_eq!(part_layer_color(PART_SAFETY_LAYER), Some(cadcraft_color::Color::True(cadcraft_color::Rgb(0xe0, 0x24, 0x24))));
+    assert!(standard_part_models().iter().all(|m| m.height_mm > 0.0));
+    assert!(standard_part_model_named("Buffer tank 500 l").is_some_and(|m| m.height_mm == 1600.0));
+    // A header or a box is as long as its outlets need.
+    assert!(PartKind::BranchBox.length_for_outlets_mm(8) > PartKind::BranchBox.length_for_outlets_mm(4));
+    assert_eq!(PartKind::Pump.length_for_outlets_mm(4), None);
 }
 
 #[test]

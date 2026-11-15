@@ -46,9 +46,9 @@ fn pipepartadd_puts_a_part_on_a_pipe_turned_along_it_with_a_tag_of_its_own() {
     let r = s.execute("pipepartadd", &json!({"at": [0, 9000], "model": "Circulator (single)"})).unwrap();
     assert_eq!(r["name"], "P1", "a prefix of its own");
     // A box with its outlets.
-    let r = s.execute("pipepartadd", &json!({"at": [3000, 9000], "model": "BS8A14AJV1B9"})).unwrap();
+    let r = s.execute("pipepartadd", &json!({"at": [3000, 9000], "model": "Branch box, 8 outlets (R32 heat recovery)"})).unwrap();
     let b = part(&s, hd(&r["handle"]));
-    assert_eq!((b.outlets, b.kind, b.brand.as_str()), (8, PartKind::BranchBox, "Daikin"));
+    assert_eq!((b.outlets, b.kind, b.brand.as_str()), (8, PartKind::BranchBox, ""));
     for bad in [
         json!({"model": "Isolation valve (ball)"}),
         json!({"at": [0, 0]}),
@@ -75,9 +75,12 @@ fn pipepartedit_changes_a_part_and_pipepartmodels_lists_the_library() {
     let all = s.execute("pipepartmodels", &json!({})).unwrap();
     assert!(all["models"].as_array().unwrap().len() >= 80);
     assert_eq!(all["categories"].as_array().unwrap().len(), 9);
-    let bs = s.execute("pipepartmodels", &json!({"category": "branchBoxes", "q": "daikin 12"})).unwrap();
+    let bs = s.execute("pipepartmodels", &json!({"category": "branchBoxes", "q": "12 outlets"})).unwrap();
     let names: Vec<&str> = bs["models"].as_array().unwrap().iter().map(|m| m["name"].as_str().unwrap()).collect();
-    assert!(names.contains(&"BS12A14AJV1B9") && names.contains(&"BS12Q14AV1B"), "{names:?}");
+    assert!(
+        names.contains(&"Branch box, 12 outlets (R32 heat recovery)") && names.contains(&"Branch box, 12 outlets (R410A heat recovery)"),
+        "{names:?}"
+    );
     assert!(s.execute("pipepartmodels", &json!({"category": "gizmos"})).is_err());
 }
 
@@ -96,4 +99,36 @@ fn pipepartadd_at_the_command_line_places_parts_one_after_another() {
         s.cmdline(t).unwrap();
     }
     assert_eq!(s.doc().unwrap().model.iter().filter_map(|e| part_of(e)).filter(|p| p.kind == PartKind::PressureGauge).count(), 3);
+}
+
+#[test]
+fn the_outlets_of_a_box_change_it_on_the_drawing_and_another_model_can_be_taken() {
+    let mut s = metric();
+    let r = s.execute("pipepartadd", &json!({"at": [0, 0], "model": "Branch box, 4 outlets (R32 heat recovery)"})).unwrap();
+    let h = hd(&r["handle"]);
+    let before = part(&s, h);
+    assert_eq!(before.outlets, 4);
+    // A palette field sends 8.0: whole numbers are accepted, and the box grows with its outlets.
+    s.execute("pipepartedit", &json!({"handle": h.hex(), "outlets": 8.0})).unwrap();
+    let after = part(&s, h);
+    assert_eq!(after.outlets, 8);
+    assert!(after.length_mm > before.length_mm, "{} {}", after.length_mm, before.length_mm);
+    // A length given with it is kept.
+    s.execute("pipepartedit", &json!({"handle": h.hex(), "outlets": 6, "length": 1111})).unwrap();
+    assert_eq!(part(&s, h).length_mm, 1111.0);
+    assert!(s.execute("pipepartedit", &json!({"handle": h.hex(), "outlets": 2.5})).is_err());
+    // The height is typed like the other sizes, and cleared.
+    s.execute("pipepartedit", &json!({"handle": h.hex(), "height": 410, "width": 380})).unwrap();
+    assert_eq!((part(&s, h).height_mm, part(&s, h).width_mm), (Some(410.0), 380.0));
+    s.execute("pipepartedit", &json!({"handle": h.hex(), "height": null})).unwrap();
+    assert_eq!(part(&s, h).height_mm, None);
+    // Another tank of the library: its sizes and volume, the tag kept.
+    let t = s.execute("pipepartadd", &json!({"at": [5000, 0], "model": "Buffer tank 300 l", "name": "BT1"})).unwrap();
+    let th = hd(&t["handle"]);
+    s.execute("pipepartedit", &json!({"handle": th.hex(), "model": "Buffer tank 1000 l"})).unwrap();
+    let p = part(&s, th);
+    assert_eq!((p.name.as_str(), p.model.as_str(), p.volume_l, p.height_mm), ("BT1", "Buffer tank 1000 l", Some(1000.0), Some(1900.0)));
+    // The safety valve sits on the red layer.
+    let v = s.execute("pipepartadd", &json!({"at": [0, 3000], "model": "Safety valve"})).unwrap();
+    assert_eq!(s.doc().unwrap().entity(hd(&v["handle"])).unwrap().common.layer, "M-PIPE-SAFETY");
 }

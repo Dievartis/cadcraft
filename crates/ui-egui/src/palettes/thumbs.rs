@@ -312,10 +312,11 @@ pub(super) fn paint_accessory(p: &Painter, r: Rect, kind: AccessoryKind) {
             t.duct(1.0, 23.0, 12.0, t.base);
             t.l((9.0, 17.0), (15.0, 7.0), t.acc);
         }
+        // A safety device: all in red.
         AccessoryKind::FireDamper => {
-            t.duct(1.0, 23.0, 12.0, t.base);
-            t.l((9.0, 17.0), (15.0, 7.0), t.acc);
-            t.rect(10.5, 10.5, 3.0, 3.0, t.pt);
+            t.duct(1.0, 23.0, 12.0, SAFETY_RED);
+            t.l((9.0, 17.0), (15.0, 7.0), SAFETY_RED);
+            t.l((9.0, 7.0), (15.0, 17.0), SAFETY_RED);
         }
         AccessoryKind::Silencer => {
             t.l((1.0, 9.0), (6.0, 9.0), t.base);
@@ -508,14 +509,21 @@ pub(super) fn paint_corner_window(p: &Painter, r: Rect) {
     t.dot(8.0, 16.0);
 }
 
-/// A pipework part's own symbol, scaled into `r`: what the drawing will show, without its label.
-pub(crate) fn paint_part(p: &Painter, r: Rect, part: &cadcraft_doc::PartParams, color: Color32) {
-    let Ok(pieces) = part.generate() else { return };
-    // Every piece as polylines of points in the part's own coordinates.
-    let mut strokes: Vec<Vec<(f64, f64)>> = Vec::new();
+/// The red of the safety devices (safety valves, disconnectors, fire dampers).
+pub(crate) const SAFETY_RED: Color32 = Color32::from_rgb(0xe0, 0x24, 0x24);
+
+/// A pipework part's own symbol on the 24 x 24 grid of the other pictures: the body in the icon colour, the details (stem,
+/// actuator, outlets) in the accent; a safety device all in red. The symbol is the one the drawing will show, without its label.
+pub(crate) fn paint_part(p: &Painter, r: Rect, part: &cadcraft_doc::PartParams) {
+    // A name is needed to draw the part; the picture shows none.
+    let named = cadcraft_doc::PartParams { name: "T".into(), ..part.clone() };
+    let Ok(pieces) = named.generate() else { return };
+    let t = Th::new(p, r);
+    // Every piece as points in the part's own coordinates, with whether it is part of the body.
+    let mut strokes: Vec<(Vec<(f64, f64)>, bool)> = Vec::new();
     for piece in &pieces {
         match &piece.kind {
-            EntityKind::Line(l) => strokes.push(vec![(l.a.x, l.a.y), (l.b.x, l.b.y)]),
+            EntityKind::Line(l) => strokes.push((vec![(l.a.x, l.a.y), (l.b.x, l.b.y)], false)),
             EntityKind::LwPolyline(pl) => {
                 let mut v: Vec<(f64, f64)> = pl.vertices.iter().map(|x| (x.p.x, x.p.y)).collect();
                 if pl.closed
@@ -523,44 +531,42 @@ pub(crate) fn paint_part(p: &Painter, r: Rect, part: &cadcraft_doc::PartParams, 
                 {
                     v.push(first);
                 }
-                strokes.push(v);
+                strokes.push((v, pl.closed));
             }
-            EntityKind::Circle(c) => {
-                strokes.push((0..=24).map(|i| arc_point(c.center.x, c.center.y, c.radius, std::f64::consts::TAU * f64::from(i) / 24.0)).collect())
-            }
-            EntityKind::Arc(a) => strokes
-                .push((0..=12).map(|i| arc_point(a.center.x, a.center.y, a.radius, a.start + (a.end - a.start) * f64::from(i) / 12.0)).collect()),
+            EntityKind::Circle(c) => strokes
+                .push(((0..=24).map(|i| arc_point(c.center.x, c.center.y, c.radius, std::f64::consts::TAU * f64::from(i) / 24.0)).collect(), true)),
+            EntityKind::Arc(a) => strokes.push((
+                (0..=12).map(|i| arc_point(a.center.x, a.center.y, a.radius, a.start + (a.end - a.start) * f64::from(i) / 12.0)).collect(),
+                false,
+            )),
             _ => {}
         }
     }
-    let pts = strokes.iter().flatten();
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-    for &(x, y) in pts {
+    for &(x, y) in strokes.iter().flat_map(|(v, _)| v.iter()) {
         (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
     }
     if x0 > x1 || y0 > y1 {
         return;
     }
-    let (bw, bh) = ((x1 - x0).max(1e-9), (y1 - y0).max(1e-9));
-    let scale = (f64::from(r.width()) / bw).min(f64::from(r.height()) / bh) * 0.85;
+    let scale = (20.0 / (x1 - x0).max(1e-9)).min(20.0 / (y1 - y0).max(1e-9));
     let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
-    let to = |(x, y): (f64, f64)| pos2(r.center().x + ((x - cx) * scale) as f32, r.center().y - ((y - cy) * scale) as f32);
-    for s in strokes {
-        let line: Vec<Pos2> = s.into_iter().map(to).collect();
-        p.add(egui::Shape::line(line, Stroke::new(1.1, color)));
+    let grid = |(x, y): (f64, f64)| (12.0 + ((x - cx) * scale) as f32, 12.0 - ((y - cy) * scale) as f32);
+    for (pts, body) in strokes {
+        let color = if part.kind.is_safety() {
+            SAFETY_RED
+        } else if body {
+            t.base
+        } else {
+            t.acc
+        };
+        let line: Vec<(f32, f32)> = pts.into_iter().map(grid).collect();
+        t.poly(&line, false, color);
     }
 }
 
 fn arc_point(cx: f64, cy: f64, r: f64, a: f64) -> (f64, f64) {
     (cx + r * a.cos(), cy + r * a.sin())
-}
-
-/// The colour a part is drawn in on its layer.
-pub(crate) fn part_color(kind: cadcraft_doc::PartKind, fallback: Color32) -> Color32 {
-    match cadcraft_doc::part_layer_color(kind.layer()) {
-        Some(cadcraft_color::Color::True(rgb)) => Color32::from_rgb(rgb.0, rgb.1, rgb.2),
-        _ => fallback,
-    }
 }
 
 /// The library, as a shelf of symbols: Pipework Part Library.

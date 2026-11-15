@@ -1629,3 +1629,7 @@ menu	View	视图
 	Connections	连接
 	Make	品牌
 	Size in plan (mm)	平面尺寸 (mm)
+	Dimensions (H × W × D)	尺寸（高 × 宽 × 深）
+	Height H (mm)	高度 H (mm)
+	Width W (mm)	宽度 W (mm)
+	Depth D (mm)	深度 D (mm)

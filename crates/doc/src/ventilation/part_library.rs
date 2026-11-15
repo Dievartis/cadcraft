@@ -19,6 +19,7 @@ pub struct PartModel {
     /// The size of the symbol in plan, mm.
     pub length_mm: f64,
     pub width_mm: f64,
+    pub height_mm: f64,
     pub outlets: u32,
     /// The connections and the limits, as free text.
     pub connections: String,
@@ -38,6 +39,7 @@ impl PartModel {
             brand: "",
             length_mm,
             width_mm,
+            height_mm: kind.default_height_mm(),
             outlets: 0,
             connections: String::new(),
             dn_mm: None,
@@ -71,9 +73,14 @@ impl PartModel {
         self
     }
 
-    /// A Daikin part: the brand, the number of outlets and the connections.
-    fn daikin(mut self, outlets: u32, connections: &str) -> PartModel {
-        self.brand = "Daikin";
+    fn height(mut self, height_mm: f64) -> PartModel {
+        self.height_mm = height_mm;
+        self
+    }
+
+    /// A refrigerant part: the number of outlets and the connections (no maker is named: the sizes follow the makers' public
+    /// installation manuals, and the part is a generic one).
+    fn branch(mut self, outlets: u32, connections: &str) -> PartModel {
         self.outlets = outlets;
         self.connections = connections.to_string();
         self
@@ -88,6 +95,7 @@ impl PartModel {
             brand: self.brand.to_string(),
             length_mm: self.length_mm,
             width_mm: self.width_mm,
+            height_mm: Some(self.height_mm),
             outlets: self.outlets,
             connections: self.connections.clone(),
             dn_mm: self.dn_mm,
@@ -111,8 +119,8 @@ impl PartModel {
             PartCategory::Pumps => "P",
             PartCategory::VesselsAndTanks => "R",
             PartCategory::HeatSources => "H",
-            PartCategory::RefrigerantBranches => "RB",
-            PartCategory::BranchBoxes => "BS",
+            PartCategory::RefrigerantBranches => "PF",
+            PartCategory::BranchBoxes => "BD",
         }
     }
 }
@@ -182,113 +190,144 @@ pub fn standard_part_models() -> Vec<PartModel> {
         m("Expansion vessel 24 l", "Vase d'expansion 24 l", C::VesselsAndTanks, K::ExpansionVessel).volume(24.0).size(300.0, 300.0),
         m("Expansion vessel 80 l", "Vase d'expansion 80 l", C::VesselsAndTanks, K::ExpansionVessel).volume(80.0).size(450.0, 450.0),
         m("Expansion vessel 300 l", "Vase d'expansion 300 l", C::VesselsAndTanks, K::ExpansionVessel).volume(300.0).size(650.0, 650.0),
-        m("Buffer tank 300 l", "Ballon tampon 300 l", C::VesselsAndTanks, K::Tank).volume(300.0).size(600.0, 600.0),
-        m("Buffer tank 500 l", "Ballon tampon 500 l", C::VesselsAndTanks, K::Tank).volume(500.0).size(750.0, 750.0),
-        m("Buffer tank 1000 l", "Ballon tampon 1000 l", C::VesselsAndTanks, K::Tank).volume(1000.0).size(950.0, 950.0),
+        m("Buffer tank 300 l", "Ballon tampon 300 l", C::VesselsAndTanks, K::Tank).volume(300.0).size(600.0, 600.0).height(1300.0),
+        m("Buffer tank 500 l", "Ballon tampon 500 l", C::VesselsAndTanks, K::Tank).volume(500.0).size(750.0, 750.0).height(1600.0),
+        m("Buffer tank 1000 l", "Ballon tampon 1000 l", C::VesselsAndTanks, K::Tank).volume(1000.0).size(950.0, 950.0).height(1900.0),
         m("Decoupling bottle", "Bouteille de découplage", C::VesselsAndTanks, K::DecouplingBottle).dn(80.0),
-        m("Domestic hot water cylinder 300 l", "Ballon d'eau chaude sanitaire 300 l", C::VesselsAndTanks, K::Tank).volume(300.0).size(650.0, 650.0),
-        m("Water softener", "Adoucisseur", C::VesselsAndTanks, K::Tank).size(400.0, 400.0),
+        m("Domestic hot water cylinder 300 l", "Ballon d'eau chaude sanitaire 300 l", C::VesselsAndTanks, K::Tank)
+            .volume(300.0)
+            .size(650.0, 650.0)
+            .height(1300.0),
+        m("Water softener", "Adoucisseur", C::VesselsAndTanks, K::Tank).size(400.0, 400.0).height(1000.0),
         m("Glycol filling unit", "Station de remplissage glycol", C::VesselsAndTanks, K::Tank).size(500.0, 500.0),
         m("Pressurisation unit", "Groupe de maintien de pression", C::VesselsAndTanks, K::ExpansionVessel).size(500.0, 500.0),
         // Heat sources.
-        m("Wall-hung gas boiler", "Chaudière gaz murale", C::HeatSources, K::Boiler).power(24.0).size(450.0, 350.0),
-        m("Floor-standing condensing boiler", "Chaudière à condensation au sol", C::HeatSources, K::Boiler).power(100.0).size(900.0, 600.0),
-        m("Electric boiler", "Chaudière électrique", C::HeatSources, K::Boiler).power(18.0).size(450.0, 350.0),
+        m("Wall-hung gas boiler", "Chaudière gaz murale", C::HeatSources, K::Boiler).power(24.0).size(450.0, 350.0).height(750.0),
+        m("Floor-standing condensing boiler", "Chaudière à condensation au sol", C::HeatSources, K::Boiler)
+            .power(100.0)
+            .size(900.0, 600.0)
+            .height(1300.0),
+        m("Electric boiler", "Chaudière électrique", C::HeatSources, K::Boiler).power(18.0).size(450.0, 350.0).height(750.0),
         m("Plate heat exchanger", "Échangeur à plaques", C::HeatSources, K::HeatExchanger).power(100.0),
-        m("Wood pellet boiler", "Chaudière à granulés", C::HeatSources, K::Boiler).power(30.0).size(900.0, 700.0),
-        m("Dry cooler", "Aéroréfrigérant", C::HeatSources, K::HeatExchanger).power(150.0).size(2000.0, 1000.0),
+        m("Wood pellet boiler", "Chaudière à granulés", C::HeatSources, K::Boiler).power(30.0).size(900.0, 700.0).height(1400.0),
+        m("Dry cooler", "Aéroréfrigérant", C::HeatSources, K::HeatExchanger).power(150.0).size(2000.0, 1000.0).height(1100.0),
     ];
     v.extend(refrigerant_models());
     v
 }
 
-/// The refnet joints and headers and the branch-selector boxes of Daikin's VRV ranges.
+/// The refrigerant branches (Y joints and headers) and the branch boxes of a variable-refrigerant-flow system. No maker's name
+/// or reference is written: the plan says what the part is. The sizes and the number of outlets follow the makers' public
+/// installation manuals.
 fn refrigerant_models() -> Vec<PartModel> {
     use PartCategory as C;
     use PartKind as K;
     let m = PartModel::new;
-    let steps = "sizes by cutting the stepped sockets (Daikin refnet installation manual)";
+    let steps = "sockets stepped: cut to the pipe size";
     let mut v = Vec::new();
-    // Refnet joints (Y): the model follows the capacity index of the units downstream. Selection as in the VRV IV
-    // and VRV 5 selection guides.
+    // Y joints: the model follows the capacity index of the units downstream.
     for (name, name_fr, limit) in [
-        ("M20T", "M20T", "capacity index below 200"),
-        ("M29T", "M29T", "capacity index 200 to below 290"),
-        ("M64T", "M64T", "capacity index 290 to below 640"),
-        ("M75T", "M75T", "capacity index 640 or more"),
+        ("Refrigerant Y joint, index below 200", "Piquage frigorifique Y, indice inférieur à 200", "capacity index below 200"),
+        ("Refrigerant Y joint, index 200 to 290", "Piquage frigorifique Y, indice 200 à 290", "capacity index 200 to below 290"),
+        ("Refrigerant Y joint, index 290 to 640", "Piquage frigorifique Y, indice 290 à 640", "capacity index 290 to below 640"),
+        ("Refrigerant Y joint, index 640 or more", "Piquage frigorifique Y, indice 640 et plus", "capacity index 640 or more"),
     ] {
-        for (family, gas) in [("KHRQ22", "R410A"), ("KHRQ23", "R32")] {
-            let (n, f): (&'static str, &'static str) = match (family, name) {
-                ("KHRQ22", "M20T") => ("Refnet joint KHRQ22M20T", "Refnet Y KHRQ22M20T"),
-                ("KHRQ22", "M29T") => ("Refnet joint KHRQ22M29T", "Refnet Y KHRQ22M29T"),
-                ("KHRQ22", "M64T") => ("Refnet joint KHRQ22M64T", "Refnet Y KHRQ22M64T"),
-                ("KHRQ22", _) => ("Refnet joint KHRQ22M75T", "Refnet Y KHRQ22M75T"),
-                (_, "M20T") => ("Refnet joint KHRQ23M20T", "Refnet Y KHRQ23M20T"),
-                (_, "M29T") => ("Refnet joint KHRQ23M29T", "Refnet Y KHRQ23M29T"),
-                (_, "M64T") => ("Refnet joint KHRQ23M64T", "Refnet Y KHRQ23M64T"),
-                _ => ("Refnet joint KHRQ23M75T", "Refnet Y KHRQ23M75T"),
-            };
-            let _ = (name_fr, gas);
-            v.push(m(n, f, C::RefrigerantBranches, K::RefnetJoint).daikin(2, &format!("{gas}: {limit}; {steps}")));
-        }
+        v.push(m(name, name_fr, C::RefrigerantBranches, K::RefnetJoint).branch(2, &format!("{limit}; {steps}")));
     }
-    // Refnet headers: up to 8 branches, the model following the capacity index below.
-    for (n, f, gas, limit) in [
-        ("Refnet header KHRQ22M29H", "Nourrice Refnet KHRQ22M29H", "R410A", "capacity index below 290"),
-        ("Refnet header KHRQ22M64H", "Nourrice Refnet KHRQ22M64H", "R410A", "capacity index 290 to below 640"),
+    // Headers (clarinettes, nourrices): up to 8 outlets, the model following the capacity index below.
+    for (name, name_fr, limit) in [
+        ("Refrigerant header, index below 290", "Nourrice frigorifique (clarinette), indice inférieur à 290", "capacity index below 290"),
+        ("Refrigerant header, index 290 to 640", "Nourrice frigorifique (clarinette), indice 290 à 640", "capacity index 290 to below 640"),
         (
-            "Refnet header KHRQ22M75H",
-            "Nourrice Refnet KHRQ22M75H",
-            "R410A",
+            "Refrigerant header, index 640 or more",
+            "Nourrice frigorifique (clarinette), indice 640 et plus",
             "capacity index 640 or more (needed when the pipe above is 1 3/8\" or larger)",
         ),
-        ("Refnet header KHRQ23M29H", "Nourrice Refnet KHRQ23M29H", "R32", "capacity index below 290"),
-        ("Refnet header KHRQ23M64H", "Nourrice Refnet KHRQ23M64H", "R32", "capacity index 290 to below 640"),
-        ("Refnet header KHRQ23M75H", "Nourrice Refnet KHRQ23M75H", "R32", "capacity index 640 or more"),
     ] {
-        v.push(m(n, f, C::RefrigerantBranches, K::RefnetHeader).size(700.0, 100.0).daikin(8, &format!("{gas}: up to 8 branches, {limit}; {steps}")));
+        v.push(m(name, name_fr, C::RefrigerantBranches, K::RefnetHeader).size(700.0, 100.0).branch(8, &format!("up to 8 outlets; {limit}; {steps}")));
     }
-    // VRV 5 (R32) heat-recovery branch selectors: 4 to 12 ports; header pipes liquid 5/8", HP/LP gas 7/8", suction gas 7/8";
-    // branches liquid 3/8" or 1/4", gas 5/8", 1/2" or 3/8"; at most 5 indoor units and index 140 per port (250 with two ports joined).
-    let r32 = "Header: Liq 5/8\" · HP/LP 7/8\" · Suc 7/8\". Port: Liq 3/8\" or 1/4\", gas 5/8\", 1/2\" or 3/8\". 5 units / index 140 per port (250 joining 2)";
-    for (n, ports) in [("BS4A14AJV1B9", 4), ("BS6A14AJV1B9", 6), ("BS8A14AJV1B9", 8), ("BS10A14AJV1B9", 10), ("BS12A14AJV1B9", 12)] {
-        v.push(
-            m(n, n, C::BranchBoxes, K::BranchBox)
-                .size(300.0 + 100.0 * f64::from(ports), 350.0)
-                .daikin(ports, &format!("VRV 5 R32 heat recovery. {r32}")),
-        );
+    // Heat-recovery branch boxes for R32: 4 to 12 outlets; header pipes liquid 5/8", HP/LP gas 7/8", suction gas 7/8"; outlets
+    // liquid 3/8" or 1/4", gas 5/8", 1/2" or 3/8"; at most 5 indoor units and index 140 per outlet (250 with two outlets joined).
+    let r32 = "Header: liquid 5/8\" · HP/LP gas 7/8\" · suction gas 7/8\". Outlet: liquid 3/8\" or 1/4\", gas 5/8\", 1/2\" or 3/8\". 5 units / index 140 per outlet (250 joining 2)";
+    for (n, n_fr, ports) in [
+        ("Branch box, 4 outlets (R32 heat recovery)", "Boîte de détente 4 sorties (R32, récupération d'énergie)", 4),
+        ("Branch box, 6 outlets (R32 heat recovery)", "Boîte de détente 6 sorties (R32, récupération d'énergie)", 6),
+        ("Branch box, 8 outlets (R32 heat recovery)", "Boîte de détente 8 sorties (R32, récupération d'énergie)", 8),
+        ("Branch box, 10 outlets (R32 heat recovery)", "Boîte de détente 10 sorties (R32, récupération d'énergie)", 10),
+        ("Branch box, 12 outlets (R32 heat recovery)", "Boîte de détente 12 sorties (R32, récupération d'énergie)", 12),
+    ] {
+        let len = K::BranchBox.length_for_outlets_mm(ports).unwrap_or(700.0);
+        v.push(m(n, n_fr, C::BranchBoxes, K::BranchBox).size(len, 350.0).height(300.0).branch(ports, r32));
     }
-    // VRV IV (R410A) heat-recovery branch selectors; the outdoor-side sizes as the data book gives them (two values where
-    // the size depends on the capacity).
-    let q14 = "Port: Liq 3/8\" or 1/4\", gas 5/8\" or 1/2\"; 5 units / index 140 per port";
-    for (n, ports, sizes) in [
-        ("BS4Q14AV1B", 4, "Liq 3/8\" · HP/LP 3/4\" or 5/8\" · Suc 7/8\" or 3/4\""),
-        ("BS6Q14AV1B", 6, "Liq 1/2\" · HP/LP 3/4\" or 7/8\" · Suc 1 1/8\" or 7/8\""),
-        ("BS8Q14AV1B", 8, "Liq 1/2\" or 5/8\" · HP/LP 3/4\", 7/8\" or 1 1/8\" · Suc 1 1/8\""),
-        ("BS10Q14AV1B", 10, "Liq 5/8\" · HP/LP 1 1/8\" · Suc 1 1/8\""),
-        ("BS12Q14AV1B", 12, "Liq 5/8\" or 3/4\" · HP/LP 1 1/8\" · Suc 1 1/8\" or 1 3/8\""),
-        ("BS16Q14AV1B", 16, "Liq 3/4\" · HP/LP 1 1/8\" · Suc 1 3/8\""),
+    // The same for R410A; the header sizes as the data book gives them (two values where the size depends on the capacity).
+    let q14 = "Outlet: liquid 3/8\" or 1/4\", gas 5/8\" or 1/2\"; 5 units / index 140 per outlet";
+    for (n, n_fr, ports, sizes) in [
+        (
+            "Branch box, 4 outlets (R410A heat recovery)",
+            "Boîte de détente 4 sorties (R410A, récupération d'énergie)",
+            4,
+            "liquid 3/8\" · HP/LP gas 3/4\" or 5/8\" · suction gas 7/8\" or 3/4\"",
+        ),
+        (
+            "Branch box, 6 outlets (R410A heat recovery)",
+            "Boîte de détente 6 sorties (R410A, récupération d'énergie)",
+            6,
+            "liquid 1/2\" · HP/LP gas 3/4\" or 7/8\" · suction gas 1 1/8\" or 7/8\"",
+        ),
+        (
+            "Branch box, 8 outlets (R410A heat recovery)",
+            "Boîte de détente 8 sorties (R410A, récupération d'énergie)",
+            8,
+            "liquid 1/2\" or 5/8\" · HP/LP gas 3/4\", 7/8\" or 1 1/8\" · suction gas 1 1/8\"",
+        ),
+        (
+            "Branch box, 10 outlets (R410A heat recovery)",
+            "Boîte de détente 10 sorties (R410A, récupération d'énergie)",
+            10,
+            "liquid 5/8\" · HP/LP gas 1 1/8\" · suction gas 1 1/8\"",
+        ),
+        (
+            "Branch box, 12 outlets (R410A heat recovery)",
+            "Boîte de détente 12 sorties (R410A, récupération d'énergie)",
+            12,
+            "liquid 5/8\" or 3/4\" · HP/LP gas 1 1/8\" · suction gas 1 1/8\" or 1 3/8\"",
+        ),
+        (
+            "Branch box, 16 outlets (R410A heat recovery)",
+            "Boîte de détente 16 sorties (R410A, récupération d'énergie)",
+            16,
+            "liquid 3/4\" · HP/LP gas 1 1/8\" · suction gas 1 3/8\"",
+        ),
+    ] {
+        let len = K::BranchBox.length_for_outlets_mm(ports).unwrap_or(700.0);
+        v.push(m(n, n_fr, C::BranchBoxes, K::BranchBox).size(len, 350.0).height(300.0).branch(ports, &format!("Header: {sizes}. {q14}")));
+    }
+    for (n, n_fr, units) in [
+        (
+            "Branch box, 1 outlet (R410A heat recovery, up to 6 units)",
+            "Boîte de détente 1 sortie (R410A, récupération d'énergie, 6 unités au plus)",
+            "6",
+        ),
+        (
+            "Branch box, 1 outlet (R410A heat recovery, up to 8 units)",
+            "Boîte de détente 1 sortie (R410A, récupération d'énergie, 8 unités au plus)",
+            "8",
+        ),
     ] {
         v.push(
-            m(n, n, C::BranchBoxes, K::BranchBox)
-                .size(300.0 + 80.0 * f64::from(ports), 350.0)
-                .daikin(ports, &format!("VRV IV R410A heat recovery. Header: {sizes}. {q14}")),
-        );
-    }
-    for (n, units) in [("BS1Q10A", "6"), ("BS1Q16A", "8"), ("BS1Q25A", "8")] {
-        v.push(
-            m(n, n, C::BranchBoxes, K::BranchBox)
+            m(n, n_fr, C::BranchBoxes, K::BranchBox)
                 .size(400.0, 300.0)
-                .daikin(1, &format!("VRV IV R410A heat recovery, single port: liquid 3/8\"; up to {units} indoor units")),
+                .height(250.0)
+                .branch(1, &format!("Single outlet: liquid 3/8\"; up to {units} indoor units")),
         );
     }
-    // Branch providers of the multi systems: 2 or 3 rooms.
-    for (n, ports) in [("BPMKS967A2", 2), ("BPMKS967A3", 3)] {
-        v.push(
-            m(n, n, C::BranchBoxes, K::BranchBox)
-                .size(300.0 + 60.0 * f64::from(ports), 300.0)
-                .daikin(ports, "Multi branch provider: one outdoor unit to 2 or 3 rooms"),
-        );
+    // Connection boxes of the multi systems: 2 or 3 rooms.
+    for (n, n_fr, ports) in [
+        ("Connection box, 2 outlets (multi)", "Boîte de raccordement 2 sorties (multi-split)", 2),
+        ("Connection box, 3 outlets (multi)", "Boîte de raccordement 3 sorties (multi-split)", 3),
+    ] {
+        let len = K::BranchBox.length_for_outlets_mm(ports).unwrap_or(400.0);
+        v.push(m(n, n_fr, C::BranchBoxes, K::BranchBox).size(len, 300.0).height(250.0).branch(ports, "One outdoor unit to 2 or 3 rooms"));
     }
     v
 }

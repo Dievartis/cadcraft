@@ -22,12 +22,12 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["Draw", "HVAC", "Pipework Part"])
             .params(
                 "{at ([x, y]), model (a name of the library, in English or French; see pipepartmodels) | kind?, name? (the tag; default V1, P2…), rotation? (degrees; default along the pipe it is put on), \
-                 dn? (mm), outlets? (a header or a box), volume? (l), power? (kW), length? | width? (mm, the symbol in plan), connections?, labelHeight? (mm)} → {handle, name, model}",
+                 dn? (mm), outlets? (a header or a box: its length follows), volume? (l), power? (kW), height? | length? | width? (mm: the part's H, and L along the pipe and P across), connections?, labelHeight? (mm)} → {handle, name, model}",
             )
             .interactive(|s| Ok(Box::new(PartAddM::new(s)))),
         CommandSpec::new("pipepartedit", "Edit Pipework Part", run_edit).params(
             "{handle | handles, name?, model?, brand?, dn? (mm or null), outlets?, volume? (l or null), power? (kW or null), flow? (m³/h or null), head? (kPa or null), \
-             weight? (kg or null), connections?, length? | width? (mm)} → {changed}",
+             weight? (kg or null), connections?, height? (mm or null), length? | width? (mm: L along the pipe, P across); model? a model of the library: the part takes its size, outlets and connections (its tag and its pipe size stay)} → {changed}",
         ),
         CommandSpec::new("pipepartmodels", "Pipework Part Library", run_models).params(
             "{category? (valves|fittings|airAndDirt|instruments|pumps|vesselsAndTanks|heatSources|refrigerantBranches|branchBoxes), q? (words found in the name)} → \
@@ -69,6 +69,19 @@ fn clearable(cmd: &str, p: &Value, key: &str) -> Result<Option<Option<f64>>> {
         None => Ok(None),
         Some(Value::Null) => Ok(Some(None)),
         Some(_) => Ok(Some(number(cmd, p, key)?)),
+    }
+}
+
+/// A whole number from a command: `6` or `6.0` (a palette field sends the second).
+fn whole(cmd: &str, p: &Value, key: &str) -> Result<Option<u32>> {
+    match p.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v
+            .as_u64()
+            .or_else(|| v.as_f64().filter(|f| f.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(f)).map(|f| f as u64))
+            .and_then(|n| u32::try_from(n).ok())
+            .map(Some)
+            .ok_or_else(|| bad(cmd, format!("`{key}` must be a whole number"))),
     }
 }
 
@@ -147,10 +160,8 @@ fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
         .transpose()?;
     let (dn, volume, power) = (number(CMD, p, "dn")?, number(CMD, p, "volume")?, number(CMD, p, "power")?);
     let (length, width, label) = (number(CMD, p, "length")?, number(CMD, p, "width")?, number(CMD, p, "labelHeight")?);
-    let outlets = match p.get("outlets").filter(|v| !v.is_null()) {
-        Some(v) => Some(v.as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(|| bad(CMD, "`outlets` must be a whole number"))?),
-        None => None,
-    };
+    let outlets = whole(CMD, p, "outlets")?;
+    let height = number(CMD, p, "height")?;
     let connections = str_param(p, "connections").map(str::to_string);
     let h = place(s, &model, str_param(p, "name").map(str::to_string), at, rotation, |part| {
         part.dn_mm = dn.or(part.dn_mm);
@@ -159,7 +170,16 @@ fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
         part.length_mm = length.unwrap_or(part.length_mm);
         part.width_mm = width.unwrap_or(part.width_mm);
         part.label_height_mm = label.unwrap_or(part.label_height_mm);
-        part.outlets = outlets.unwrap_or(part.outlets);
+        part.height_mm = height.or(part.height_mm);
+        if let Some(n) = outlets {
+            part.outlets = n;
+            // A header or a box as long as its outlets need, unless a length was given.
+            if length.is_none()
+                && let Some(l) = part.kind.length_for_outlets_mm(n)
+            {
+                part.length_mm = l;
+            }
+        }
         if let Some(c) = connections {
             part.connections = c;
         }
@@ -177,10 +197,8 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     let (dn, volume, power) = (clearable(CMD, p, "dn")?, clearable(CMD, p, "volume")?, clearable(CMD, p, "power")?);
     let (flow, head, weight) = (clearable(CMD, p, "flow")?, clearable(CMD, p, "head")?, clearable(CMD, p, "weight")?);
     let (length, width) = (number(CMD, p, "length")?, number(CMD, p, "width")?);
-    let outlets = match p.get("outlets").filter(|v| !v.is_null()) {
-        Some(v) => Some(v.as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(|| bad(CMD, "`outlets` must be a whole number"))?),
-        None => None,
-    };
+    let height = clearable(CMD, p, "height")?;
+    let outlets = whole(CMD, p, "outlets")?;
     let d = s.doc()?;
     let mut next = Vec::with_capacity(hs.len());
     for h in &hs {
@@ -189,7 +207,11 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
             pp.name = n.to_string();
         }
         if let Some(m) = str_param(p, "model") {
-            pp.model = m.to_string();
+            // A model of the library gives its values (the tag and the pipe's size stay); another text is only a name.
+            match standard_part_model_named(m) {
+                Some(lib) => take_model(&mut pp, &lib),
+                None => pp.model = m.to_string(),
+            }
         }
         if let Some(b) = str_param(p, "brand") {
             pp.brand = b.to_string();
@@ -205,7 +227,16 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         pp.weight_kg = weight.unwrap_or(pp.weight_kg);
         pp.length_mm = length.unwrap_or(pp.length_mm);
         pp.width_mm = width.unwrap_or(pp.width_mm);
-        pp.outlets = outlets.unwrap_or(pp.outlets);
+        pp.height_mm = height.unwrap_or(pp.height_mm);
+        if let Some(n) = outlets {
+            pp.outlets = n;
+            // The part is as long as its outlets need, unless a length was given: it changes on the drawing as a unit does.
+            if length.is_none()
+                && let Some(l) = pp.kind.length_for_outlets_mm(n)
+            {
+                pp.length_mm = l;
+            }
+        }
         pp.validate().map_err(doc_err)?;
         next.push((*h, pp));
     }
@@ -214,6 +245,13 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         d.regenerate_part(*h, pp).map_err(doc_err)?;
     }
     Ok(json!({ "changed": next.len() }))
+}
+
+/// Gives `pp` the values of library model `m`: its kind, sizes, outlets and connections (its tag and its pipe's size stay).
+fn take_model(pp: &mut PartParams, m: &PartModel) {
+    let (kind, dn) = (m.kind, pp.dn_mm);
+    let fresh = m.params(&pp.name, pp.units);
+    *pp = PartParams { kind, dn_mm: dn.or(fresh.dn_mm), label_height_mm: pp.label_height_mm, ..fresh };
 }
 
 fn category_name(c: PartCategory) -> &'static str {
@@ -321,7 +359,7 @@ impl Interactive for PartAddM {
         // The part under the cursor, as it will be drawn, turned along the pipe it would sit on.
         let (Some(model), Ok(d)) = (standard_part_model_named(&self.model), s.doc()) else { return Vec::new() };
         let (at, angle) = pipe_under(d, c).unwrap_or((c, 0.0));
-        let p = model.params("", HvacUnits::of(d));
+        let p = model.params(&next_tag(d, &model), HvacUnits::of(d));
         p.generate().map(|pieces| cadcraft_doc::preview_entities(pieces, at, angle)).unwrap_or_default()
     }
 }
