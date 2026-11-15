@@ -55,13 +55,18 @@ pub fn display_name(m: &PartEntry) -> &str {
     if crate::i18n::current_language().starts_with("fr") { &m.name_fr } else { &m.name }
 }
 
-/// Put a model of the library where it was dropped, at `at` in drawing coordinates; what went wrong is said on the command line.
+/// Put a model of the library where it was dropped, at `at` in drawing coordinates, then ask its orientation as a click on the plan
+/// does (PIPEPARTADD's second prompt: a click, an angle, or Enter). What went wrong is said on the command line.
 pub fn drop_part(app: &mut CadApp, model: &str, at: cadcraft_geom::Vec2) {
-    let r = app.run("pipepartadd", json!({ "at": [at.x, at.y], "model": model }));
-    match r {
-        Ok(_) => app.session.last_used.part.model = model.to_string(),
-        Err(e) => app.session.echo(e),
-    }
+    let known = app.session.doc().map(|d| d.part_library()).unwrap_or_default();
+    let Some(entry) = known.iter().find(|m| m.name.eq_ignore_ascii_case(model) || m.name_fr.eq_ignore_ascii_case(model)) else {
+        app.session.echo(format!("PIPEPARTADD: no part model `{model}` in the library."));
+        return;
+    };
+    app.session.last_used.part.model = entry.name.clone();
+    app.cmd.buffer.clear();
+    app.start("pipepartadd");
+    app.cmdline(&format!("{},{}", at.x, at.y));
 }
 
 const CARD: egui::Vec2 = vec2(150.0, 120.0);
@@ -305,6 +310,10 @@ mod tests {
     fn dropping_a_part_on_the_drawing_puts_it_there_and_remembers_the_model() {
         let mut app = app();
         drop_part(&mut app, "Circulator (single)", cadcraft_geom::Vec2::new(1500.0, 800.0));
+        // The orientation is asked: nothing is put until it is given (Enter takes the default).
+        assert_eq!(app.session.doc().unwrap().model.iter().filter_map(|e| cadcraft_doc::part_of(e)).count(), 0);
+        assert!(app.session.prompting());
+        app.cmdline("");
         let parts: Vec<_> = app.session.doc().unwrap().model.iter().filter_map(|e| cadcraft_doc::part_of(e)).collect();
         assert_eq!(parts.len(), 1);
         assert_eq!(app.session.last_used.part.model, "Circulator (single)");
