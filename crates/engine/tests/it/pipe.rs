@@ -290,3 +290,22 @@ fn the_links_of_one_refrigerant_system_are_one_network_through_the_branch_parts(
     pipes.sort_unstable();
     assert_eq!(pipes, vec![1, 3], "the three links on the header are one network, the lone one another: {nets:?}");
 }
+
+#[test]
+fn links_named_one_by_one_become_one_network_when_a_branch_joins_them() {
+    let mut s = metric();
+    // Their ends are a little apart, inside the outline of the header that is drawn later.
+    for (a, b) in [([0, 0], [4880, 0]), ([5000, 4000], [5000, 120]), ([10000, 0], [5120, 0])] {
+        s.execute("pipeadd", &json!({"points": [a, b], "service": "refrigerantPair", "dn": "1/4", "gas": "1/2"})).unwrap();
+    }
+    // Named before the header is drawn: three networks, REF1 to REF3, each with its colour.
+    let first = s.execute("pipenetwork", &json!({})).unwrap();
+    assert_eq!(first["networks"].as_array().unwrap().len(), 3);
+    s.execute("pipepartadd", &json!({"at": [5000, 0], "model": "Refrigerant header, index below 290", "rotation": 0})).unwrap();
+    // Naming again joins them under the lowest of the names, and the others lose their layers' use.
+    let again = s.execute("pipenetwork", &json!({})).unwrap();
+    let nets = again["networks"].as_array().unwrap();
+    assert_eq!(nets.len(), 1, "{nets:?}");
+    assert_eq!(nets[0]["name"], "REF1");
+    assert_eq!(nets[0]["pipes"], 3);
+}

@@ -670,24 +670,24 @@ impl crate::Drawing {
 // Symbols, in the part's own coordinates: centred on the origin, `l` long along x, `w` wide along y.
 // ---------------------------------------------------------------------------------------------------------------
 
-fn line(a: (f64, f64), b: (f64, f64)) -> EntityKind {
+pub(super) fn line(a: (f64, f64), b: (f64, f64)) -> EntityKind {
     EntityKind::Line(Line { a: v3(Vec2::new(a.0, a.1)), b: v3(Vec2::new(b.0, b.1)) })
 }
 
-fn poly(points: &[(f64, f64)], closed: bool) -> EntityKind {
+pub(super) fn poly(points: &[(f64, f64)], closed: bool) -> EntityKind {
     let vertices = points.iter().map(|&(x, y)| PolyVertex { p: Vec2::new(x, y), bulge: 0.0, start_width: 0.0, end_width: 0.0 }).collect();
     EntityKind::LwPolyline(LwPolyline { vertices, closed, const_width: 0.0, elevation: 0.0, plinegen: false })
 }
 
-fn circle(c: (f64, f64), r: f64) -> EntityKind {
+pub(super) fn circle(c: (f64, f64), r: f64) -> EntityKind {
     EntityKind::Circle(Circle { center: v3(Vec2::new(c.0, c.1)), radius: r })
 }
 
-fn half_circle(c: (f64, f64), r: f64) -> EntityKind {
+pub(super) fn half_circle(c: (f64, f64), r: f64) -> EntityKind {
     EntityKind::Arc(Arc { center: v3(Vec2::new(c.0, c.1)), radius: r, start: 0.0, end: std::f64::consts::PI })
 }
 
-fn rect(cx: f64, cy: f64, hl: f64, hw: f64) -> EntityKind {
+pub(super) fn rect(cx: f64, cy: f64, hl: f64, hw: f64) -> EntityKind {
     poly(&[(cx - hl, cy - hw), (cx + hl, cy - hw), (cx + hl, cy + hw), (cx - hl, cy + hw)], true)
 }
 
@@ -696,7 +696,7 @@ fn bowtie(l: f64, w: f64) -> EntityKind {
     poly(&[(-l / 2.0, -w / 2.0), (l / 2.0, w / 2.0), (l / 2.0, -w / 2.0), (-l / 2.0, w / 2.0)], true)
 }
 
-fn text_in(c: (f64, f64), h: f64, text: &str) -> EntityKind {
+pub(super) fn text_in(c: (f64, f64), h: f64, text: &str) -> EntityKind {
     label(Vec2::new(c.0, c.1), h, text.to_string())
 }
 

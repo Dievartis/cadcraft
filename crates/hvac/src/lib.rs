@@ -12,6 +12,7 @@
 #![forbid(unsafe_code)]
 
 mod air;
+mod electrical;
 mod fittings;
 mod friction;
 mod network;
@@ -21,6 +22,11 @@ mod refrigerant;
 mod sizes;
 
 pub use air::Air;
+pub use electrical::{
+    CableChoice, Conductor, Grouping, Insulation, K_LOADED_NEUTRAL, Laying, PROTECTION_RATINGS, Phases, REACTANCE_OHM_KM, RoomLighting, Usage,
+    current_capacity, design_current, illuminance_lux, k1, k2, k3, max_voltage_drop_percent, minimum_illuminance, protection_rating, resistivity,
+    sections, size_cable, voltage_drop, voltage_drop_percent,
+};
 pub use fittings::{Fitting, FittingCoefficients};
 pub use friction::{friction_factor, pressure_gradient, reynolds, velocity};
 pub use network::{DesignCriteria, Governing, Network, NetworkReport, Section, Segment, SegmentKind, SegmentResult, Terminal, size_network};

@@ -80,6 +80,8 @@ fn ducted() -> Drawing {
         model: String::new(),
         weight_kg: None,
         coils: Default::default(),
+        electric_kw: None,
+        circuit: String::new(),
         label_height_mm: 100.0,
         units,
     };
@@ -256,4 +258,31 @@ fn named_networks_with_their_styles_and_a_legend_survive_dxf_and_dwg() {
     }
     let text = String::from_utf8(cadcraft_io::write(&d, "net.dxf").expect("dxf")).expect("utf-8");
     assert!(text.contains(&format!("AcDbRegAppTableRecord\r\n  2\r\n{}", cadcraft_doc::NETWORK_LEGEND_APP)), "APPID record");
+}
+
+#[test]
+fn cables_devices_and_equipment_circuits_survive_dxf_and_dwg_and_their_applications_are_registered() {
+    use cadcraft_doc::{CABLE_APP, CableParams, CableUsage, DEVICE_APP, DeviceKind, DeviceParams, cable_of, device_of};
+    let mut d = Drawing::new_metric();
+    let mut c = CableParams::new("TD1-C3", CableUsage::Lighting, HvacUnits::default());
+    c.section_mm2 = Some(2.5);
+    c.protection_a = Some(16.0);
+    d.add_cable(&Space::Model, Common::default(), c, Vec2::new(0.0, 0.0), Vec2::new(8000.0, 0.0)).unwrap();
+    let mut p = DeviceParams::new(DeviceKind::DownLight, "L1", HvacUnits::default());
+    p.circuit = "TD1-C3".into();
+    p.flux_lm = Some(2300.0);
+    d.add_device(&Space::Model, Common::default(), &p, Vec2::new(500.0, 1000.0), 0.0).unwrap();
+    for name in ["elec.dxf", "elec.dwg"] {
+        let back = cadcraft_io::read(&cadcraft_io::write(&d, name).unwrap_or_else(|e| panic!("{name}: {e}")), name)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let cables: Vec<CableParams> = back.model.iter().filter_map(|e| cable_of(e)).collect();
+        let devices: Vec<DeviceParams> = back.model.iter().filter_map(|e| device_of(e)).collect();
+        assert_eq!((cables.len(), cables[0].section_mm2, cables[0].protection_a), (1, Some(2.5), Some(16.0)), "{name}");
+        assert_eq!(devices, std::slice::from_ref(&p), "{name}: the device");
+        assert_eq!(back.network_styles, d.network_styles, "{name}: the style of the circuit");
+    }
+    let text = String::from_utf8(cadcraft_io::write(&d, "elec.dxf").expect("dxf")).expect("utf-8");
+    for app in [CABLE_APP, DEVICE_APP] {
+        assert!(text.contains(&format!("AcDbRegAppTableRecord\r\n  2\r\n{app}")), "APPID record {app}");
+    }
 }

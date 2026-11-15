@@ -83,6 +83,30 @@ fn push_name(names: &mut Vec<String>, name: &str) {
     }
 }
 
+/// Whether a name is one the program gave (CHW1, HW2, COND3, REF14): a service prefix and a number.
+fn is_auto_name(name: &str) -> bool {
+    let t = name.trim();
+    let digits = t.trim_start_matches(|c: char| c.is_ascii_alphabetic());
+    let prefix = &t[..t.len() - digits.len()];
+    !digits.is_empty()
+        && digits.chars().all(|c| c.is_ascii_digit())
+        && ["CHW", "HW", "CO", "COND", "REF"].iter().any(|p| p.eq_ignore_ascii_case(prefix))
+}
+
+/// The one name a network gets when it has several, because joined networks that were named one by one are one network now: the only name a
+/// person typed over the program's, else the lowest numbered of the program's own names. `None` when two typed names clash.
+fn merged_name(names: &[String]) -> Option<String> {
+    let typed: Vec<&String> = names.iter().filter(|n| !is_auto_name(n)).collect();
+    match typed.as_slice() {
+        [one] => Some((*one).clone()),
+        [] => {
+            let number = |n: &String| n.trim().trim_start_matches(|c: char| c.is_ascii_alphabetic()).parse::<u64>().unwrap_or(u64::MAX);
+            names.iter().min_by_key(|n| (number(n), n.to_lowercase())).cloned()
+        }
+        _ => None,
+    }
+}
+
 impl crate::Drawing {
     /// Reads the networks of model space: the pipes that are one circuit, with their parts and riser lines, and the names they have.
     pub(super) fn pipe_components(&self) -> Result<Vec<Component>> {
@@ -290,7 +314,10 @@ impl crate::Drawing {
             match c.names.as_slice() {
                 [name] => changed += self.write_network_name(c, name, false),
                 [] => {}
-                many => warnings.push(format!("a network is named {}: the names are kept", many.join(" and "))),
+                many => match merged_name(many) {
+                    Some(name) => changed += self.write_network_name(c, &name, true),
+                    None => warnings.push(format!("a network is named {}: the names are kept", many.join(" and "))),
+                },
             }
         }
         Ok((changed, warnings))

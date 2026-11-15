@@ -273,6 +273,8 @@ fn the_coils_of_an_air_handling_unit_are_the_loads_of_the_water_pipes_that_end_a
         exhaust_flow_m3h: None,
         exhaust_pressure_pa: None,
         coils: AhuCoils { chilled_kw: Some(45.0), hot_kw: Some(30.0), change_over_kw: None, direct_expansion_kw: Some(20.0) },
+        electric_kw: None,
+        circuit: String::new(),
         label_height_mm: 100.0,
         units: HvacUnits { mm_per_unit: 1.0 },
     };

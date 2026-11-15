@@ -155,6 +155,11 @@ pub struct EquipmentParams {
     pub clearance_mm: f64,
     #[serde(default)]
     pub connections: String,
+    /// The electrical power the equipment draws, kW, and the circuit that feeds it (see [`super::elec`]).
+    #[serde(default)]
+    pub electric_kw: Option<f64>,
+    #[serde(default)]
+    pub circuit: String,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     #[serde(default)]
@@ -182,6 +187,8 @@ impl EquipmentParams {
             fans: m.fans,
             clearance_mm: m.kind.default_clearance_mm(),
             connections: m.connections.clone(),
+            electric_kw: None,
+            circuit: String::new(),
             label_height_mm: 100.0,
             units,
         }
@@ -194,6 +201,10 @@ impl EquipmentParams {
         let side = |v: f64| v.is_finite() && (50.0..=MAX_EQUIPMENT_MM).contains(&v);
         if !(side(self.length_mm) && side(self.width_mm) && side(self.height_mm)) {
             return Err(invalid(format!("An equipment's sizes are 50 to {MAX_EQUIPMENT_MM} mm.")));
+        }
+        super::check_circuit_name(&self.circuit, true)?;
+        if self.electric_kw.is_some_and(|v| !(v.is_finite() && (0.0..=1.0e5).contains(&v))) {
+            return Err(invalid("An equipment's electrical power is 0 or more kW."));
         }
         let power = |v: Option<f64>| v.is_none_or(|v| v.is_finite() && v > 0.0 && v <= 1.0e5);
         if !(power(self.capacity_kw) && power(self.heating_kw)) {

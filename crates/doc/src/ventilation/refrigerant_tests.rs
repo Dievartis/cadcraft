@@ -113,6 +113,8 @@ fn an_indoor_unit_reached_from_no_outdoor_unit_is_told_and_a_coil_counts_as_a_un
         exhaust_flow_m3h: None,
         exhaust_pressure_pa: None,
         coils: AhuCoils::default(),
+        electric_kw: None,
+        circuit: String::new(),
         label_height_mm: 100.0,
         units: units(),
     };

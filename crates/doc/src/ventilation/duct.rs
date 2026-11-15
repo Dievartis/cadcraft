@@ -288,6 +288,11 @@ pub struct AhuParams {
     /// The coils the unit has, with their powers.
     #[serde(default)]
     pub coils: AhuCoils,
+    /// The electrical power the unit draws (fans, regulation), kW, and the circuit that feeds it (see [`super::elec`]).
+    #[serde(default)]
+    pub electric_kw: Option<f64>,
+    #[serde(default)]
+    pub circuit: String,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     #[serde(default)]
@@ -1389,6 +1394,9 @@ impl crate::Drawing {
             return vec![a, a.mid(b), b];
         }
         if let Some((_, a, b)) = self.pipe_ends(e.handle) {
+            return vec![a, a.mid(b), b];
+        }
+        if let Some((_, a, b)) = self.cable_ends(e.handle) {
             return vec![a, a.mid(b), b];
         }
         e.kind.grips()

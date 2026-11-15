@@ -10,6 +10,8 @@ mod accessory;
 mod crossing;
 mod distribute;
 mod duct;
+mod elec;
+mod elec_circuits;
 mod equipment;
 mod library;
 mod network;
@@ -37,6 +39,8 @@ pub use accessory::*;
 pub use crossing::DuctCrossing;
 pub use distribute::{Distribution, MAX_DISTRIBUTED, distribute_in_polygon};
 pub use duct::*;
+pub use elec::*;
+pub use elec_circuits::*;
 pub use equipment::*;
 pub use library::standard_air_terminal_models;
 pub use network::{DEFAULT_MARGIN_MM, DuctNetwork, FLEX_ROUGHNESS_MM, MAX_DUCTS};
@@ -94,6 +98,7 @@ fn hvac_layer_color(name: &str) -> Option<cadcraft_color::Color> {
         _ => pipe::pipe_layer_color(name)
             .or_else(|| slab::slab_layer_color(name))
             .or_else(|| part::part_layer_color(name))
+            .or_else(|| elec::elec_layer_color(name))
             .or_else(|| pipe_networks::network_base(name).and_then(hvac_layer_color)),
     }
 }
@@ -297,6 +302,8 @@ impl crate::Drawing {
 mod accessory_tests;
 #[cfg(test)]
 mod duct_tests;
+#[cfg(test)]
+mod elec_tests;
 #[cfg(test)]
 mod equipment_tests;
 #[cfg(test)]

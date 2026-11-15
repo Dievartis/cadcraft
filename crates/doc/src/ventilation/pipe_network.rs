@@ -363,6 +363,9 @@ fn size_tree(
     Ok((PipeNetworkReport { service, leg, source: root_run.handle, total_load, total_loss_kpa, critical, runs: results, warnings }, changed))
 }
 
+/// How far the end of a tube may be from the body of a refrigerant branch part and still be on it, mm.
+const BRANCH_REACH_MM: f64 = 250.0;
+
 impl crate::Drawing {
     /// The parts in the line of a pipe, as footprints the network is read through.
     pub(super) fn part_bridges(&self) -> Vec<Equip> {
@@ -392,11 +395,13 @@ impl crate::Drawing {
             .filter_map(|e| {
                 let p = part_of(e).filter(|p| p.kind.is_refrigerant() && !p.kind.is_inline())?;
                 let EntityKind::Insert(i) = &e.kind else { return None };
+                // The tubes end at the outlets, which stand out of the body of the part: the outline is taken wider by the reach of an outlet.
+                let reach = p.units.to_units(BRANCH_REACH_MM);
                 Some(Equip {
                     centre: Vec2::new(i.insert.x, i.insert.y),
                     rotation: i.rotation,
-                    half_length: p.units.to_units(p.length_mm) * i.scale.x.abs() / 2.0,
-                    half_width: p.units.to_units(p.width_mm) * i.scale.y.abs() / 2.0,
+                    half_length: p.units.to_units(p.length_mm) * i.scale.x.abs() / 2.0 + reach,
+                    half_width: p.units.to_units(p.width_mm) * i.scale.y.abs() / 2.0 + reach,
                     chiller: false,
                     loads: Vec::new(),
                     part: Some((e.handle, p)),

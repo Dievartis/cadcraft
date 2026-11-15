@@ -220,6 +220,8 @@ fn run_ahuadd(s: &mut Session, p: &Value) -> Result<Value> {
         model: str_param(p, "model").unwrap_or_default().to_string(),
         weight_kg: positive(CMD, p, "weight")?,
         coils: coils_param(CMD, p, cadcraft_doc::AhuCoils::default())?,
+        electric_kw: None,
+        circuit: String::new(),
         label_height_mm: positive(CMD, p, "labelHeight")?.unwrap_or(100.0),
         units: units_of(s)?,
     };
@@ -391,6 +393,8 @@ impl AhuAddM {
                     model: String::new(),
                     weight_kg: None,
                     coils: Default::default(),
+                    electric_kw: None,
+                    circuit: String::new(),
                     label_height_mm: 100.0,
                     units: units_of(s)?,
                 };
@@ -475,6 +479,8 @@ impl Interactive for AhuAddM {
             model: String::new(),
             weight_kg: None,
             coils: Default::default(),
+            electric_kw: None,
+            circuit: String::new(),
             label_height_mm: 100.0,
             units,
         };
