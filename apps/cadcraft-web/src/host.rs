@@ -85,11 +85,12 @@ impl Bridge {
     }
 }
 
-/// Tell the parent page that a drawing it sent didn't open (`cadcraft:open-failed`). Does nothing
-/// outside host mode.
+/// Tell the parent page that a drawing it sent didn't open. Does nothing outside host mode.
+/// Adapts PR #2512 to the `craft-web-host` bridge: its `failed` message has no file name field,
+/// so the name leads the error text.
 pub fn post_open_failed(name: &str, error: &str) {
     if let Some(bridge) = BRIDGE.with(|b| b.borrow().clone()) {
-        bridge.send(&[("type", "cadcraft:open-failed".into()), ("name", name.into()), ("error", error.into())]);
+        bridge.post_failed(&if name.is_empty() { error.to_string() } else { format!("{name}: {error}") });
     }
 }
 
