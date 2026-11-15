@@ -28,6 +28,7 @@ pub mod chrome;
 pub mod clipboard;
 pub mod closing;
 pub mod cmdline;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod collab;
 pub mod context_menu;
 pub mod control;
@@ -306,6 +307,7 @@ pub struct CadApp {
     pub integrated_titlebar: bool,
     control_rx: Option<Receiver<ControlRequest>>,
     /// A shared session's connection, when this drawing is being edited together.
+    #[cfg(not(target_arch = "wasm32"))]
     pub collab: Option<collab::Collab>,
     /// What the other participants are looking at, by actor.
     pub remote_presence: std::collections::BTreeMap<String, cadcraft_collab::Presence>,
@@ -465,6 +467,7 @@ impl CadApp {
             opening: opening::Opening::default(),
             integrated_titlebar: false,
             control_rx: None,
+            #[cfg(not(target_arch = "wasm32"))]
             collab: None,
             remote_presence: std::collections::BTreeMap::new(),
             collab_version: 0,
@@ -672,6 +675,7 @@ impl CadApp {
         if let Some(r) = menus::run_ui_command(self, id, &params) {
             return r;
         }
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(r) = self.collab_command(id, &params) {
             return r;
         }
@@ -1002,6 +1006,7 @@ impl CadApp {
         // Consume-based queues: each item is handled once, whichever callback delivers it. A
         // reply arriving during a later pass is never starved until the next frame.
         self.drain_control(ctx);
+        #[cfg(not(target_arch = "wasm32"))]
         self.collab_tick(ctx);
         self.finish_pick(ctx);
         self.finish_opening();
@@ -1633,5 +1638,13 @@ mod tests {
         assert!(a.ui.show_palettes, "the palettes are still hidden");
         assert!(a.ui.show_toolsets);
         assert_eq!(a.ui.in_window_menu, !cfg!(target_os = "macos"), "the menu bar did not come back");
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl CadApp {
+    /// A shared session needs the desktop transport, so a drawing opened on the web is never shared.
+    pub fn is_shared(&self) -> bool {
+        false
     }
 }

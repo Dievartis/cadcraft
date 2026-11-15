@@ -14,11 +14,13 @@
 #![forbid(unsafe_code)]
 
 mod client;
+#[cfg(not(target_arch = "wasm32"))]
 mod session;
 #[cfg(not(target_arch = "wasm32"))]
 mod ws;
 
 pub use client::{Client, ClientError};
+#[cfg(not(target_arch = "wasm32"))]
 pub use session::{Event, Session, SessionError};
 #[cfg(not(target_arch = "wasm32"))]
 pub use ws::Connection;
