@@ -1692,3 +1692,42 @@ menu	View	视图
 	All open	全部展开
 	All closed	全部折叠
 	Remember the last use	记住上次使用的状态
+	Choose a service (chilled water, hot water, change-over, condensate, refrigerant), then click the points of the run: one pipe is drawn per segment, seen from above.	选择一种系统（冷冻水、热水、冷热切换、冷凝水、制冷剂），然后依次点击管路各点：每段画一根管，俯视图。
+	At the command line: Service, Leg (supply or return), Diameter (inches for refrigerant: 3/8, 1 1/8) and Insulation. A refrigerant link draws its liquid and gas tubes as one line.	命令行选项：Service、Leg（供水或回水）、Diameter（制冷剂用英寸：3/8、1 1/8）和 Insulation。制冷剂连接管的液管与气管画成一条线。
+	Each service has its own colour. To size a network, mark the run that starts at the source, type the loads at the free ends, then use Size Pipes.	每种系统有自己的颜色。要计算管网，标出从热源出发的管段，在自由端输入负荷，然后使用“计算管径”。
+	A pipe is joined to another only where their ends meet: start a branch at the end of a run.	只有端点相接的管道才相连：请从管段的端点开始分支。
+	It sizes chilled water, hot water, change-over and condensate. Refrigerant links are not sized: type their diameters in inches.	可计算冷冻水、热水、冷热切换和冷凝水。制冷剂连接管不计算：请以英寸输入管径。
+	Each network needs a source: tick "Starts at the source" on its first run, or start the run on a chiller or in the shaft of a pipe riser.	每个管网需要一个起点：在其第一段勾选“起点为热源”，或让该段从冷水机组或管道立管的管井出发。
+	Type the load at each free end (kW, l/h for a drain), or end the run in a unit or an air handling unit that has a power: its coil counts.	在每个自由端输入负荷（kW；排水管为 l/h），或让管段终止于有功率的机组或空调箱：其盘管将被计入。
+	Run it: each pipe gets its size, flow and velocity, and the pressure lost on the most unfavourable circuit is told. A size you typed is checked, not changed. Run it again after any change.	运行：每根管得到管径、流量和流速，并给出最不利环路的压力损失。你输入的管径只检查不更改。任何修改后请重新运行。
+	Click the corners of the shaft, then press Enter. Options: Name (the same on every floor), Lines, Height and Up or Down.	点击管井各角，然后按 Enter。选项：Name（各层相同）、Lines、Height 以及 Up 或 Down。
+	In Lines, type what goes through the shaft, separated by commas: CHW-S, CHW-R, HW-S, HW-R, CO-S, CO-R, COND, REF (liquid and gas), REF-HR (three tubes), REF-L, REF-G.	在 Lines 中输入穿过管井的管线，用逗号分隔：CHW-S、CHW-R、HW-S、HW-R、CO-S、CO-R、COND、REF（液管和气管）、REF-HR（三根管）、REF-L、REF-G。
+	In Properties: the size of each line (inches for refrigerant) and what it carries to the other floors (kW, l/h for a drain, capacity index for refrigerant). Add or remove lines there, and type the height from floor to floor.	在特性中：每条管线的管径（制冷剂用英寸）和输送至其他楼层的量（kW；排水管为 l/h；制冷剂为能力指数）。在此添加或移除管线，并输入层高。
+	End the pipes of the floor in the shaft, or start them there: they are read through it. Size Pipes sizes the lines, and the takeoff counts them by the height.	让本层的管道终止于管井或从管井出发：它们会穿过管井被读取。“计算管径”计算管线，统计则按层高计数。
+	A network is the pipes of one service that are joined end to end, through the parts on them, the units they end in and the shaft of a riser.	管网是同一系统中首尾相连的管道，可经过其上的附件、终止的机组和立管的管井。
+	This tool names every network that has no name (CHW1, HW1…) and gives each its own colour, so that two networks of the same service can be told apart.	此工具为每个未命名的管网命名（CHW1、HW1…）并赋予各自的颜色，使同一系统的两个管网可以区分。
+	Type a name on one pipe in Properties to name its whole network; there you also choose its colour and, for a print without colour, its line type.	在特性中为一根管道输入名称即可命名其整个管网；在那里还可选择颜色，以及用于无彩色打印的线型。
+	A pipe or a part drawn on a named network takes its name. The legend and the takeoff follow the names.	画在已命名管网上的管道或附件会采用其名称。图例和统计跟随名称。
+	Click where the upper left corner of the legend goes.	点击图例左上角的位置。
+	It has a row for each network: a sample in its colour and line type, its name, its pipes and their length.	每个管网一行：以其颜色和线型显示样例、名称、管道及长度。
+	It is redrawn by itself when a network is named, renamed or restyled.	管网命名、重命名或改变样式时会自动重绘。
+	Click a part, then click where it goes; or drag it onto the drawing to drop it there.	点击一个附件，再点击放置位置；或将其拖到图纸上放下。
+	A valve, a filter or a pump clicked on a pipe turns along it and cuts it. For the others you are asked the orientation: a second click, an angle, or Enter.	点在管道上的阀门、过滤器或水泵会沿管道旋转并切断管道。其他附件会询问方向：再点一次、输入角度或按 Enter。
+	In Properties: its tag, its size (height, width, depth), volume, power, pressure loss, the outlets of a box or a header, and another model of the same kind.	在特性中：标记、尺寸（高、宽、深）、容积、功率、压力损失、箱体或集管的出口数，以及同类的其他型号。
+	Keep a part of the drawing as a model of your own (My models): it is saved with the drawing.	可将图中的附件保存为自己的模型（我的模型）：随图纸一起保存。
+	Draw the outdoor unit, the links (one line for the liquid and the gas), the Y joints, the headers and the branch boxes, and the indoor units. The pipes must end on them.	绘制室外机、连接管（液管和气管一条线）、Y 型分支、集管、分支箱和室内机。管道必须终止于它们。
+	It follows the network from each outdoor unit and counts the units and the capacity index (cooling kW × 10) at each outlet.	从每台室外机追踪管网，统计每个出口的机组数和能力指数（制冷 kW × 10）。
+	It tells what is over the limits: 5 units and index 140 per outlet of a box, and the joint or header that suits the index below it.	指出超限之处：分支箱每个出口 5 台机组、指数 140，以及适合下游指数的分支或集管。
+	A network can start or end at a pipe riser: what the other floors serve is typed on its line.	管网可以从管道立管出发或终止于立管：其他楼层所服务的量输入在其管线上。
+	It looks at the door and window blocks of a plan that lie on walls (by the words in their block or layer names).	检查图中位于墙上的门窗块（根据块名或图层名中的词）。
+	It lists what it found; accept, and each becomes an opening you can change in Properties.	列出找到的内容；接受后每个都成为可在特性中修改的洞口。
+	The old blocks are kept on a frozen layer, A-OPENING-OLD: thaw it to see them.	旧块保留在冻结图层 A-OPENING-OLD 上：解冻即可查看。
+	Click the wall, then the point where the elevation is drawn, next to the plan.	点击墙体，再点击立面绘制位置（在平面旁）。
+	It shows the wall seen from the side, with its openings, sills and heights.	显示侧视的墙体，包括洞口、窗台和高度。
+	Run it again after changing the wall or its openings.	修改墙体或洞口后请重新运行。
+	Walls are joined where they meet (corner, tee or cross) as they are drawn, by the priority of their layers.	墙体在相交处（转角、T 形或十字）绘制时按各层优先级连接。
+	After moving, copying or erasing walls, run this tool: it joins them again.	移动、复制或删除墙体后运行此工具：会重新连接。
+	A wall drawn first gives way to a wall of higher priority; layers of equal priority are joined without a line.	墙体让位于优先级更高的墙；优先级相同的层无线相连。
+	Click near the corner of two walls that meet.	点击两面相交墙体的转角附近。
+	A window is put on each wall, from the corner, of the length given by the Width option (1200 mm by default).	从转角起在每面墙上放一扇窗，长度由 Width 选项决定（默认 1200 mm）。
+	They are two ordinary openings: change each of them in Properties.	它们是两个普通洞口：可在特性中分别修改。

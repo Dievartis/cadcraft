@@ -78,6 +78,111 @@ const HELPS: &[Help] = &[
         ],
         figure: quantities,
     },
+    Help {
+        id: "Piping",
+        steps: &[
+            "Choose a service (chilled water, hot water, change-over, condensate, refrigerant), then click the points of the run: one pipe is drawn per segment, seen from above.",
+            "At the command line: Service, Leg (supply or return), Diameter (inches for refrigerant: 3/8, 1 1/8) and Insulation. A refrigerant link draws its liquid and gas tubes as one line.",
+            "Each service has its own colour. To size a network, mark the run that starts at the source, type the loads at the free ends, then use Size Pipes.",
+            "A pipe is joined to another only where their ends meet: start a branch at the end of a run.",
+        ],
+        figure: piping,
+    },
+    Help {
+        id: "Size Pipes",
+        steps: &[
+            "It sizes chilled water, hot water, change-over and condensate. Refrigerant links are not sized: type their diameters in inches.",
+            "Each network needs a source: tick \"Starts at the source\" on its first run, or start the run on a chiller or in the shaft of a pipe riser.",
+            "Type the load at each free end (kW, l/h for a drain), or end the run in a unit or an air handling unit that has a power: its coil counts.",
+            "Run it: each pipe gets its size, flow and velocity, and the pressure lost on the most unfavourable circuit is told. A size you typed is checked, not changed. Run it again after any change.",
+        ],
+        figure: size_pipes,
+    },
+    Help {
+        id: "Pipe Riser",
+        steps: &[
+            "Click the corners of the shaft, then press Enter. Options: Name (the same on every floor), Lines, Height and Up or Down.",
+            "In Lines, type what goes through the shaft, separated by commas: CHW-S, CHW-R, HW-S, HW-R, CO-S, CO-R, COND, REF (liquid and gas), REF-HR (three tubes), REF-L, REF-G.",
+            "In Properties: the size of each line (inches for refrigerant) and what it carries to the other floors (kW, l/h for a drain, capacity index for refrigerant). Add or remove lines there, and type the height from floor to floor.",
+            "End the pipes of the floor in the shaft, or start them there: they are read through it. Size Pipes sizes the lines, and the takeoff counts them by the height.",
+        ],
+        figure: pipe_riser,
+    },
+    Help {
+        id: "Name Networks",
+        steps: &[
+            "A network is the pipes of one service that are joined end to end, through the parts on them, the units they end in and the shaft of a riser.",
+            "This tool names every network that has no name (CHW1, HW1…) and gives each its own colour, so that two networks of the same service can be told apart.",
+            "Type a name on one pipe in Properties to name its whole network; there you also choose its colour and, for a print without colour, its line type.",
+            "A pipe or a part drawn on a named network takes its name. The legend and the takeoff follow the names.",
+        ],
+        figure: name_networks,
+    },
+    Help {
+        id: "Network Legend",
+        steps: &[
+            "Click where the upper left corner of the legend goes.",
+            "It has a row for each network: a sample in its colour and line type, its name, its pipes and their length.",
+            "It is redrawn by itself when a network is named, renamed or restyled.",
+        ],
+        figure: network_legend,
+    },
+    Help {
+        id: "Library…",
+        steps: &[
+            "Click a part, then click where it goes; or drag it onto the drawing to drop it there.",
+            "A valve, a filter or a pump clicked on a pipe turns along it and cuts it. For the others you are asked the orientation: a second click, an angle, or Enter.",
+            "In Properties: its tag, its size (height, width, depth), volume, power, pressure loss, the outlets of a box or a header, and another model of the same kind.",
+            "Keep a part of the drawing as a model of your own (My models): it is saved with the drawing.",
+        ],
+        figure: library,
+    },
+    Help {
+        id: "Check Refrigerant",
+        steps: &[
+            "Draw the outdoor unit, the links (one line for the liquid and the gas), the Y joints, the headers and the branch boxes, and the indoor units. The pipes must end on them.",
+            "It follows the network from each outdoor unit and counts the units and the capacity index (cooling kW × 10) at each outlet.",
+            "It tells what is over the limits: 5 units and index 140 per outlet of a box, and the joint or header that suits the index below it.",
+            "A network can start or end at a pipe riser: what the other floors serve is typed on its line.",
+        ],
+        figure: check_refrigerant,
+    },
+    Help {
+        id: "Convert to Openings",
+        steps: &[
+            "It looks at the door and window blocks of a plan that lie on walls (by the words in their block or layer names).",
+            "It lists what it found; accept, and each becomes an opening you can change in Properties.",
+            "The old blocks are kept on a frozen layer, A-OPENING-OLD: thaw it to see them.",
+        ],
+        figure: convert_openings,
+    },
+    Help {
+        id: "Wall Elevation",
+        steps: &[
+            "Click the wall, then the point where the elevation is drawn, next to the plan.",
+            "It shows the wall seen from the side, with its openings, sills and heights.",
+            "Run it again after changing the wall or its openings.",
+        ],
+        figure: wall_elevation,
+    },
+    Help {
+        id: "Wall Junctions",
+        steps: &[
+            "Walls are joined where they meet (corner, tee or cross) as they are drawn, by the priority of their layers.",
+            "After moving, copying or erasing walls, run this tool: it joins them again.",
+            "A wall drawn first gives way to a wall of higher priority; layers of equal priority are joined without a line.",
+        ],
+        figure: wall_junctions,
+    },
+    Help {
+        id: "Corner Window",
+        steps: &[
+            "Click near the corner of two walls that meet.",
+            "A window is put on each wall, from the corner, of the length given by the Width option (1200 mm by default).",
+            "They are two ordinary openings: change each of them in Properties.",
+        ],
+        figure: corner_window,
+    },
 ];
 
 /// Asks for the help of the tool whose label is `id` to open.
@@ -274,7 +379,7 @@ mod tests {
 
     #[test]
     fn every_tool_has_a_help_window_that_draws_and_closes() {
-        assert_eq!(HELPS.len(), 7);
+        assert_eq!(HELPS.len(), 18);
         for help in HELPS {
             let mut h = Harness::builder().with_size(vec2(700.0, 500.0)).build_ui(|ui| {
                 show(ui.ctx());
@@ -308,6 +413,252 @@ mod shots {
             if let Ok(img) = h.render() {
                 let _ = img.save(std::path::Path::new(&dir).join(format!("{}.png", help.id.replace(' ', "_"))));
             }
+        }
+    }
+}
+
+const PIPE_BLUE: Color32 = Color32::from_rgb(0x1e, 0x6f, 0xd9);
+const PIPE_RED: Color32 = Color32::from_rgb(0xe0, 0x24, 0x24);
+const PIPE_ORANGE: Color32 = Color32::from_rgb(0xe6, 0x7e, 0x22);
+const WALL: Color32 = Color32::from_gray(190);
+
+/// A pipe seen from above: two lines.
+fn pipe_line(p: &Painter, a: egui::Pos2, b: egui::Pos2, color: Color32) {
+    let d = (b - a).normalized();
+    let n = vec2(-d.y, d.x) * 2.5;
+    let s = Stroke::new(1.3, color);
+    p.line_segment([a + n, b + n], s);
+    p.line_segment([a - n, b - n], s);
+}
+
+fn unit_box(p: &Painter, c: egui::Pos2, size: egui::Vec2, label: &str) {
+    let r = Rect::from_center_size(c, size);
+    p.rect_stroke(r, 0.0, Stroke::new(1.2, GREY), egui::StrokeKind::Inside);
+    p.text(c, egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(10.0), GREY);
+}
+
+fn piping(p: &Painter, r: Rect) {
+    let at = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());
+    unit_box(p, at(0.07, 0.5), vec2(46.0, 54.0), "GE");
+    pipe_line(p, at(0.14, 0.34), at(0.78, 0.34), PIPE_BLUE);
+    pipe_line(p, at(0.14, 0.66), at(0.78, 0.66), PIPE_BLUE.gamma_multiply(0.6));
+    pipe_line(p, at(0.5, 0.34), at(0.5, 0.05), PIPE_BLUE);
+    unit_box(p, at(0.88, 0.34), vec2(44.0, 34.0), "UI");
+    unit_box(p, at(0.88, 0.66), vec2(44.0, 34.0), "UI");
+    text(p, at(0.2, 0.2), "supply", PIPE_BLUE);
+    text(p, at(0.2, 0.82), "return", PIPE_BLUE.gamma_multiply(0.7));
+    text(p, at(0.53, 0.1), "branch from the end of a run", GREY);
+}
+
+fn size_pipes(p: &Painter, r: Rect) {
+    let at = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());
+    unit_box(p, at(0.07, 0.5), vec2(46.0, 54.0), "GE");
+    pipe_line(p, at(0.14, 0.5), at(0.5, 0.5), PIPE_BLUE);
+    pipe_line(p, at(0.5, 0.5), at(0.5, 0.18), PIPE_BLUE);
+    pipe_line(p, at(0.5, 0.5), at(0.5, 0.82), PIPE_BLUE);
+    pipe_line(p, at(0.5, 0.18), at(0.8, 0.18), PIPE_BLUE);
+    pipe_line(p, at(0.5, 0.82), at(0.8, 0.82), PIPE_BLUE);
+    unit_box(p, at(0.89, 0.18), vec2(44.0, 28.0), "30 kW");
+    unit_box(p, at(0.89, 0.82), vec2(44.0, 28.0), "70 kW");
+    text(p, at(0.15, 0.34), "source  DN80", PIPE_BLUE);
+    text(p, at(0.53, 0.34), "DN50", PIPE_BLUE);
+    text(p, at(0.53, 0.68), "DN65", PIPE_BLUE);
+    text(p, at(0.15, 0.7), "100 kW", GREY);
+}
+
+fn pipe_riser(p: &Painter, r: Rect) {
+    let at = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());
+    let shaft = Rect::from_center_size(at(0.72, 0.5), vec2(110.0, 70.0));
+    p.rect_filled(shaft, 0.0, DUCT_FILL);
+    p.rect_stroke(shaft, 0.0, Stroke::new(1.4, GREY), egui::StrokeKind::Inside);
+    for (k, color) in [PIPE_BLUE, PIPE_BLUE.gamma_multiply(0.6), PIPE_RED, PIPE_ORANGE].into_iter().enumerate() {
+        let c = shaft.left_top() + vec2(18.0 + 25.0 * k as f32, 35.0);
+        p.circle_stroke(c, 8.0, Stroke::new(1.4, color));
+        p.circle_filled(c, 1.8, color);
+    }
+    pipe_line(p, at(0.05, 0.4), pos2(shaft.left() + 12.0, at(0.0, 0.4).y), PIPE_BLUE);
+    pipe_line(p, at(0.05, 0.62), pos2(shaft.left() + 12.0, at(0.0, 0.62).y), PIPE_BLUE.gamma_multiply(0.6));
+    text(p, at(0.05, 0.2), "pipes end in the shaft", GREY);
+    text(p, shaft.left_bottom() + vec2(0.0, 12.0), "CT1  CHW-S/R  HW  REF", GREY);
+}
+
+fn name_networks(p: &Painter, r: Rect) {
+    let at = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());
+    let colours = [Color32::from_rgb(0x00, 0x72, 0xb2), Color32::from_rgb(0xe6, 0x9f, 0x00), Color32::from_rgb(0x00, 0x9e, 0x73)];
+    for (k, (c, name)) in colours.into_iter().zip(["CHW1", "CHW2", "CHW3"]).enumerate() {
+        let y = 0.2 + 0.3 * k as f32;
+        unit_box(p, at(0.06, y), vec2(34.0, 28.0), "GE");
+        pipe_line(p, at(0.12, y - 0.04), at(0.8, y - 0.04), c);
+        pipe_line(p, at(0.12, y + 0.06), at(0.8, y + 0.06), c.gamma_multiply(0.7));
+        unit_box(p, at(0.88, y), vec2(34.0, 28.0), "UI");
+        text(p, at(0.4, y - 0.12), name, c);
+    }
+}
+
+fn network_legend(p: &Painter, r: Rect) {
+    let at = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());
+    let frame = Rect::from_min_max(at(0.18, 0.04), at(0.82, 0.96));
+    p.rect_stroke(frame, 0.0, Stroke::new(1.0, GREY), egui::StrokeKind::Inside);
+    text(p, at(0.22, 0.14), "Networks", Color32::WHITE);
+    let colours = [Color32::from_rgb(0x00, 0x72, 0xb2), Color32::from_rgb(0xe6, 0x9f, 0x00), Color32::from_rgb(0x00, 0x9e, 0x73)];
+    for (k, (c, row)) in colours.into_iter().zip(["CHW1  CHW-S/R  42 m", "CHW2  CHW-S/R  57 m", "COND1  COND  18 m"]).enumerate() {
+        let y = 0.36 + 0.22 * k as f32;
+        pipe_line(p, at(0.22, y), at(0.38, y), c);
+        text(p, at(0.42, y), row, c);
+    }
+}
+
+fn library(p: &Painter, r: Rect) {
+    let at = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());
+    pipe_line(p, at(0.05, 0.5), at(0.36, 0.5), PIPE_BLUE);
+    pipe_line(p, at(0.64, 0.5), at(0.95, 0.5), PIPE_BLUE);
+    // A valve in the line, the pipe cut where it sits.
+    let c = at(0.5, 0.5);
+    let s = Stroke::new(1.4, Color32::from_rgb(0xe6, 0xb4, 0x3c));
+    p.add(egui::Shape::closed_line(vec![c + vec2(-16.0, -12.0), c + vec2(16.0, 12.0), c + vec2(16.0, -12.0), c + vec2(-16.0, 12.0)], s));
+    text(p, at(0.42, 0.22), "valve on a pipe: cuts it", GREY);
+    // A pump and a vessel, put anywhere.
+    let teal = Stroke::new(1.4, Color32::from_rgb(0x3f, 0xb8, 0xa8));
+    p.circle_stroke(at(0.2, 0.82), 12.0, teal);
+    p.circle_stroke(at(0.8, 0.82), 12.0, teal);
+    p.line_segment([at(0.8, 0.82) - vec2(12.0, 0.0), at(0.8, 0.82) + vec2(12.0, 0.0)], teal);
+    p.arrow(at(0.5, 0.95), vec2(0.0, -14.0), Stroke::new(1.0, GREY));
+}
+
+fn check_refrigerant(p: &Painter, r: Rect) {
+    let at = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());
+    unit_box(p, at(0.07, 0.5), vec2(46.0, 54.0), "VRV");
+    pipe_line(p, at(0.14, 0.5), at(0.36, 0.5), PIPE_ORANGE);
+    let bx = Rect::from_center_size(at(0.46, 0.5), vec2(48.0, 24.0));
+    p.rect_stroke(bx, 0.0, Stroke::new(1.3, PIPE_ORANGE), egui::StrokeKind::Inside);
+    for y in [0.16, 0.5, 0.84] {
+        pipe_line(p, at(0.52, 0.5), at(0.74, y), PIPE_ORANGE);
+        unit_box(p, at(0.88, y), vec2(44.0, 26.0), "UI 25");
+    }
+    text(p, at(0.2, 0.86), "outlet: 5 units, index 140", GREY);
+}
+
+fn convert_openings(p: &Painter, r: Rect) {
+    let at = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());
+    let wall = |x0: f32, x1: f32| {
+        p.rect_filled(Rect::from_min_max(at(x0, 0.42), at(x1, 0.58)), 0.0, WALL.gamma_multiply(0.35));
+        p.rect_stroke(Rect::from_min_max(at(x0, 0.42), at(x1, 0.58)), 0.0, Stroke::new(1.2, WALL), egui::StrokeKind::Inside);
+    };
+    wall(0.05, 0.4);
+    wall(0.6, 0.95);
+    // The old block, then the opening that replaces it.
+    p.line_segment([at(0.4, 0.5), at(0.6, 0.5)], Stroke::new(1.0, GREY));
+    // The swing of the door, a quarter of a circle.
+    let (c, rad) = (at(0.4, 0.5), 0.2 * r.width());
+    let swing: Vec<egui::Pos2> = (0..=12)
+        .map(|i| {
+            let a = std::f32::consts::FRAC_PI_2 * i as f32 / 12.0;
+            c + vec2(rad * a.cos(), -rad * a.sin())
+        })
+        .collect();
+    p.add(egui::Shape::line(swing, Stroke::new(1.0, GREY)));
+    text(p, at(0.36, 0.2), "block  >  opening", GREY);
+    text(p, at(0.3, 0.86), "old block kept on a frozen layer", GREY);
+}
+
+fn wall_elevation(p: &Painter, r: Rect) {
+    let at = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());
+    let wall = Rect::from_min_max(at(0.1, 0.45), at(0.9, 0.95));
+    p.rect_stroke(wall, 0.0, Stroke::new(1.3, WALL), egui::StrokeKind::Inside);
+    p.rect_stroke(Rect::from_min_max(at(0.2, 0.55), at(0.34, 0.95)), 0.0, Stroke::new(1.2, DUCT), egui::StrokeKind::Inside);
+    p.rect_stroke(Rect::from_min_max(at(0.55, 0.6), at(0.78, 0.8)), 0.0, Stroke::new(1.2, DUCT), egui::StrokeKind::Inside);
+    // The plan above it.
+    p.rect_filled(Rect::from_min_max(at(0.1, 0.1), at(0.9, 0.22)), 0.0, WALL.gamma_multiply(0.35));
+    p.rect_stroke(Rect::from_min_max(at(0.1, 0.1), at(0.9, 0.22)), 0.0, Stroke::new(1.2, WALL), egui::StrokeKind::Inside);
+    p.arrow(at(0.5, 0.26), vec2(0.0, 18.0), Stroke::new(1.0, GREY));
+}
+
+fn wall_junctions(p: &Painter, r: Rect) {
+    let at = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());
+    let fill = WALL.gamma_multiply(0.35);
+    let s = Stroke::new(1.3, WALL);
+    // An L, a T and a cross, joined without a line across.
+    for (cx, kind) in [(0.17, 0), (0.5, 1), (0.83, 2)] {
+        let c = at(cx, 0.5);
+        let h = |x0: f32, x1: f32| Rect::from_min_max(c + vec2(x0, -7.0), c + vec2(x1, 7.0));
+        let v = |y0: f32, y1: f32| Rect::from_min_max(c + vec2(-7.0, y0), c + vec2(7.0, y1));
+        let parts: Vec<Rect> = match kind {
+            0 => vec![h(-40.0, 7.0), v(-7.0, 40.0)],
+            1 => vec![h(-40.0, 40.0), v(-7.0, 40.0)],
+            _ => vec![h(-40.0, 40.0), v(-40.0, 40.0)],
+        };
+        for part in &parts {
+            p.rect_filled(*part, 0.0, fill);
+        }
+        for part in parts {
+            p.rect_stroke(part, 0.0, s, egui::StrokeKind::Inside);
+        }
+        // The joint: the middle painted over the lines that crossed it.
+        p.circle_filled(c, 4.5, Tokens::get().chrome_dark);
+    }
+}
+
+fn corner_window(p: &Painter, r: Rect) {
+    let at = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());
+    let fill = WALL.gamma_multiply(0.35);
+    let hwall = Rect::from_min_max(at(0.2, 0.72), at(0.8, 0.86));
+    let vwall = Rect::from_min_max(at(0.66, 0.1), at(0.8, 0.86));
+    for w in [hwall, vwall] {
+        p.rect_filled(w, 0.0, fill);
+        p.rect_stroke(w, 0.0, Stroke::new(1.3, WALL), egui::StrokeKind::Inside);
+    }
+    // A window on each wall, from the corner.
+    let win = Stroke::new(2.0, DUCT);
+    p.line_segment([at(0.36, 0.79), at(0.66, 0.79)], win);
+    p.line_segment([at(0.73, 0.2), at(0.73, 0.72)], win);
+    text(p, at(0.24, 0.56), "click near the corner", GREY);
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn every_help_has_steps_a_translation_and_a_figure_that_draws() {
+        let mut ids: Vec<&str> = HELPS.iter().map(|h| h.id).collect();
+        ids.sort_unstable();
+        let n = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), n, "one help for each tool");
+        for h in HELPS {
+            assert!((3..=5).contains(&h.steps.len()), "{}: {} steps", h.id, h.steps.len());
+            for step in h.steps {
+                assert_ne!(crate::i18n::tr("fr", step), *step, "{}: not translated into French: {step}", h.id);
+                assert_ne!(crate::i18n::tr("zh", step), *step, "{}: not translated into Chinese: {step}", h.id);
+            }
+        }
+        // Every figure draws without panicking, in a box of the size the window gives it.
+        let mut hn = egui_kittest::Harness::new_ui(|ui| {
+            for h in HELPS {
+                let (r, _) = ui.allocate_exact_size(vec2(440.0, 170.0), egui::Sense::hover());
+                (h.figure)(&ui.painter().with_clip_rect(r), r.shrink(10.0));
+            }
+        });
+        hn.run_steps(2);
+    }
+
+    #[test]
+    fn the_complex_tools_of_the_tabs_have_a_help() {
+        let have = |id: &str| HELPS.iter().any(|h| h.id == id);
+        for id in [
+            "Piping",
+            "Size Pipes",
+            "Pipe Riser",
+            "Name Networks",
+            "Network Legend",
+            "Library…",
+            "Check Refrigerant",
+            "Convert to Openings",
+            "Wall Elevation",
+            "Wall Junctions",
+            "Corner Window",
+        ] {
+            assert!(have(id), "{id}");
         }
     }
 }

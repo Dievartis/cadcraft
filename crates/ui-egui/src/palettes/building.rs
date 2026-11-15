@@ -25,6 +25,11 @@ fn open_id() -> egui::Id {
 /// The header of a section of the HVAC tab: a triangle and its title; clicked, it folds or opens the rows under it (the rows of a
 /// closed section are not drawn: see [`row_tip`]). The state is kept as the Options say ([`crate::sections`]).
 fn header(ui: &mut egui::Ui, title: &str) {
+    header_with(ui, title, None);
+}
+
+/// [`header`] with an "i" at the right that opens the help of the whole group.
+fn header_with(ui: &mut egui::Ui, title: &str, help: Option<&'static str>) {
     let t = Tokens::get();
     let key = format!("HVAC/{title}");
     let mut open = ui.data(|d| d.get_temp::<crate::sections::Sections>(sections_id())).is_none_or(|s| s.is_open(&key));
@@ -50,6 +55,17 @@ fn header(ui: &mut egui::Ui, title: &str) {
         t.text,
     );
     crate::icons::describe_control(ui, &resp, title, Some(open), false);
+    if let Some(id) = help {
+        let i = Rect::from_center_size(pos2(r.right() - 14.0, r.center().y), vec2(18.0, 18.0));
+        let ir = ui.interact(i, resp.id.with("help"), Sense::click());
+        let colour = if ir.hovered() { t.text } else { t.text_dim };
+        ui.painter().circle_stroke(i.center(), 7.5, Stroke::new(1.0, colour));
+        ui.painter().text(i.center(), egui::Align2::CENTER_CENTER, "i", egui::FontId::proportional(11.0), colour);
+        crate::icons::describe_control(ui, &ir, "Help", None, false);
+        if ir.clicked() {
+            hvachelp::request(ui.ctx(), id);
+        }
+    }
 }
 
 fn separator(ui: &mut egui::Ui) {
@@ -317,7 +333,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         }
         ui.add_space(6.0);
         separator(ui);
-        header(ui, "Piping");
+        header_with(ui, "Piping", Some("Piping"));
         for &(label, service, leg) in PIPES {
             let selected = pipe_now.0 == service && (!service.has_legs() || pipe_now.1 == leg);
             if row_button(ui, crate::i18n::t(label), selected, |p, r| thumbs::paint_pipe(p, r, service, leg)) {
@@ -328,7 +344,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
             ui,
             crate::i18n::t("Pipe Riser"),
             crate::i18n::t("The shaft where the pipes of a floor go up or down, with the pipes it holds (chilled water, hot water, change-over, condensate, refrigerant links). The pipes of the floor that end in the shaft, or start in it, are read through it."),
-            None,
+            Some("Pipe Riser"),
             false,
             thumbs::paint_pipe_riser,
         ) {
@@ -344,7 +360,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
             ui,
             crate::i18n::t("Size Pipes"),
             crate::i18n::t("Mark the run that starts at the source of each network, type the load (kW; l/h for a drain) at the free ends, then size: the flow comes from the load, the size from the flow."),
-            None,
+            Some("Size Pipes"),
             false,
             thumbs::paint_size_pipes,
         ) {
@@ -357,7 +373,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
             ui,
             crate::i18n::t("Name Networks"),
             crate::i18n::t("Names every pipe network that has no name (CHW1, HW1, COND1…) and gives each its own colour, so that two networks of the same service can be told apart on the plan. A name typed on a pipe in Properties is the name of its whole network."),
-            None,
+            Some("Name Networks"),
             false,
             thumbs::paint_name_networks,
         ) {
@@ -367,7 +383,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
             ui,
             crate::i18n::t("Network Legend"),
             crate::i18n::t("Puts a legend on the plan: a row for each network, in its colour and line type, with its name, its pipes and their length. It is redrawn when a network is named, renamed or restyled."),
-            None,
+            Some("Network Legend"),
             false,
             thumbs::paint_network_legend,
         ) {
@@ -617,16 +633,16 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
             }
         });
         section(ui, "Tools", true, &mut |ui| {
-            if row_button(ui, crate::i18n::t("Corner Window"), false, thumbs::paint_corner_window) {
+            if row_tip(ui, crate::i18n::t("Corner Window"), "", Some("Corner Window"), false, thumbs::paint_corner_window) {
                 start = Some("cornerwindow");
             }
             if row_button(ui, crate::i18n::t("Edit Slab"), false, thumbs::paint_edit_slab) {
                 start = Some("slabedit");
             }
-            if row_button(ui, crate::i18n::t("Wall Elevation"), false, thumbs::paint_elevation) {
+            if row_tip(ui, crate::i18n::t("Wall Elevation"), "", Some("Wall Elevation"), false, thumbs::paint_elevation) {
                 start = Some("wallelevation");
             }
-            if row_button(ui, crate::i18n::t("Convert to Openings"), false, thumbs::paint_convert) {
+            if row_tip(ui, crate::i18n::t("Convert to Openings"), "", Some("Convert to Openings"), false, thumbs::paint_convert) {
                 start = Some("openingconvert");
             }
             if row_button(ui, crate::i18n::t("Edit Wall"), false, thumbs::paint_edit_wall) {
@@ -635,12 +651,13 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
             if row_button(ui, crate::i18n::t("Wall Styles"), false, thumbs::paint_wall_styles) {
                 start = Some("wallstyleedit");
             }
-            if row_button(ui, crate::i18n::t("Wall Junctions"), false, thumbs::paint_junctions) {
+            if row_tip(ui, crate::i18n::t("Wall Junctions"), "", Some("Wall Junctions"), false, thumbs::paint_junctions) {
                 cleanup = true;
             }
         });
     });
     app.ui.sections = sections;
+    hvachelp::show(ui.ctx());
     if let Some(name) = draw {
         // The style clicked becomes WALLADD's style, then WALLADD starts with it.
         app.session.last_used.wall_style = name;
@@ -698,7 +715,7 @@ fn parts_section(ui: &mut egui::Ui, part_now: &str, chosen_part: &mut Option<&'s
         crate::i18n::t(
             "All the valves, pumps, vessels, boilers, instruments and refrigerant branches and boxes: click one, then click where it goes, or drag it onto the drawing.",
         ),
-        None,
+        Some("Library…"),
         false,
         thumbs::paint_library,
     ) {
@@ -713,7 +730,7 @@ fn parts_section(ui: &mut egui::Ui, part_now: &str, chosen_part: &mut Option<&'s
         crate::i18n::t(
             "Follows the refrigerant pipes from each outdoor unit through the joints, headers and branch boxes to the indoor units, counts the units and the capacity index at each outlet, and tells what is over the limits.",
         ),
-        None,
+        Some("Check Refrigerant"),
         false,
         thumbs::paint_check_refrigerant,
     ) {
