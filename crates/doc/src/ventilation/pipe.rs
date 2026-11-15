@@ -368,6 +368,19 @@ impl PipeParams {
         STEEL_PIPE_SIZES.iter().min_by(|a, b| (a.0 - self.dn_mm).abs().total_cmp(&(b.0 - self.dn_mm).abs())).map_or(self.dn_mm, |(_, od)| *od)
     }
 
+    /// The outer surface of the insulation per metre of run, m²: each tube of the run with the insulation either side (0 when it has none).
+    pub fn insulation_m2_per_m(&self) -> f64 {
+        if self.insulation_mm <= 0.0 {
+            return 0.0;
+        }
+        let tubes: Vec<f64> = match self.service {
+            PipeService::RefrigerantPair => vec![self.dn_mm, self.gas_dn_mm],
+            PipeService::RefrigerantTriple => vec![self.dn_mm, self.gas_dn_mm, self.gas2_dn_mm],
+            _ => vec![self.outer_diameter_mm()],
+        };
+        tubes.iter().filter(|d| d.is_finite() && **d > 0.0).map(|d| std::f64::consts::PI * (d + 2.0 * self.insulation_mm) / 1000.0).sum()
+    }
+
     /// The width a plan shows: the outer diameter and the insulation either side; for a refrigerant pair, the two
     /// tubes side by side with a small gap.
     pub fn plan_width_mm(&self) -> f64 {

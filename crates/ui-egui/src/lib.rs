@@ -396,6 +396,8 @@ pub struct CadApp {
     pub wall_style_dlg: Option<wallstyledlg::WallStyleDlgState>,
     /// The HVAC Quantities dialog while open ([`takeoffdlg`]).
     pub takeoff_dlg: Option<takeoffdlg::TakeoffDlgState>,
+    /// The prices and the levels kept for the building total, across uses and restarts.
+    pub takeoff_store: takeoffdlg::Store,
     /// The design charts window while open ([`chartsdlg`]).
     pub charts_dlg: Option<chartsdlg::ChartsState>,
     /// The Pipework Part Library window while open ([`partlibdlg`]).
@@ -518,6 +520,7 @@ impl CadApp {
             alias_dlg: None,
             wall_style_dlg: None,
             takeoff_dlg: None,
+            takeoff_store: Default::default(),
             charts_dlg: None,
             part_lib: None,
             hatch_dlg: None,
@@ -770,6 +773,7 @@ impl CadApp {
             "quickcalc": self.quickcalc.prefs(),
             "paletteSections": self.ui.sections.prefs(),
             "refrigerantSizes": options::refrigerant_defaults(self),
+            "takeoffStore": self.takeoff_store,
         });
         if self.spacemouse.settings != spacemouse::Settings::default() {
             prefs["spacemouse"] = json!(self.spacemouse.settings);
@@ -794,6 +798,9 @@ impl CadApp {
         let Ok(v) = serde_json::from_str::<Value>(json) else { return };
         if let Some(calculator) = v.get("quickcalc") {
             self.quickcalc.load_prefs(calculator);
+        }
+        if let Some(store) = v.get("takeoffStore").and_then(|s| serde_json::from_value::<takeoffdlg::Store>(s.clone()).ok()) {
+            self.takeoff_store = store;
         }
         if let Some(sizes) = v.get("refrigerantSizes").and_then(Value::as_array) {
             let size = |i: usize| sizes.get(i).and_then(Value::as_f64).filter(|x| x.is_finite() && *x > 0.0 && *x < 500.0);

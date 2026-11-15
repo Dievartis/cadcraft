@@ -201,3 +201,26 @@ fn a_heat_recovery_link_takes_three_sizes_in_inches() {
     let last = s.doc().unwrap().model.iter().filter_map(|e| pipe_of(e)).last().unwrap();
     assert_eq!((last.dn_mm, last.gas_dn_mm, last.gas2_dn_mm), (6.35, 12.7, 15.88));
 }
+
+#[test]
+fn hvactakeoff_prices_the_lines_and_adds_the_levels_of_a_building() {
+    let mut s = metric();
+    s.execute("pipeadd", &json!({"points": [[0, 0], [4000, 0]], "service": "chilledWater", "dn": 25, "insulation": 20})).unwrap();
+    let ground = s.execute("hvactakeoff", &json!({"level": "RDC"})).unwrap();
+    assert!(ground["totals"]["pipeInsulationM2"].as_f64().unwrap() > 0.0);
+    // A second floor of the same pipe: the building has twice the length and each floor's totals.
+    let both = s
+        .execute(
+            "hvactakeoff",
+            &json!({"level": "R+1", "levels": [ground], "building": "Total", "prices": {"Pipe|chilledWater|DN25": 12.5, "Pipe insulation": 4.0}}),
+        )
+        .unwrap();
+    assert_eq!((both["level"].as_str(), both["totals"]["pipeLengthM"].as_f64()), (Some("Total"), Some(8.0)));
+    assert_eq!(both["levels"].as_array().map(Vec::len), Some(2));
+    let c = &both["costing"];
+    assert_eq!(c["unpriced"], 0);
+    assert!(c["total"].as_f64().unwrap() > 100.0, "{c}");
+    // A price that is not a number is refused.
+    assert!(s.execute("hvactakeoff", &json!({"prices": {"Pipe|x": "cheap"}})).is_err());
+    assert!(s.execute("hvactakeoff", &json!({"prices": {"Pipe|x": -3}})).is_err());
+}

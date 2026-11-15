@@ -18,8 +18,8 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(
                 "{level? (the name of the floor, written on the result), path? (a file to write: .xlsx for an Excel workbook with the calculation note, \\
                  else .csv with `;` between cells), decimal?: comma|point (the decimal mark of a .csv, default comma), lang?: fr|en (the labels of an .xlsx, default en), \\
-                 note? (add the calculation note: default true for an .xlsx), + the sizing criteria of ductsize} → {level, ducts, fittings, accessories, terminals, units, \\
-                 risers, equipment, spaces, totals, note?, path?}",
+                 note? (add the calculation note: default true for an .xlsx), prices? ({\"Duct|Ø200\": euros per metre, \"Pipe insulation\": euros per m², \"Elbow 90°|Ø200\": euros each…}: adds `costing`), insulatedAir? (the air directions whose ducts are insulated: supply, extract, fresh, exhaust), levels? (the takeoffs of the other floors, as this command returned them: the result is then the total of the building, this floor replacing the one of the same name), building? (the name of that total, default Building), + the sizing criteria of ductsize} → {level, ducts, fittings, accessories, terminals, units, \\
+                 risers, equipment, spaces, totals, levels, costing?, note?, path?}",
             ),
     ]
 }
@@ -39,7 +39,13 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
         Some("point") => false,
         Some(_) => return Err(bad(CMD, "`decimal` is comma or point")),
     };
-    let t = s.doc()?.takeoff(level).map_err(|e| other(e.to_string()))?;
+    let mut t = s.doc()?.takeoff(level).map_err(|e| other(e.to_string()))?;
+    if let Some(others) = p.get("levels").filter(|v| !v.is_null()) {
+        t = building(&t, others, str_param(p, "building").unwrap_or("Building"))?;
+    }
+    if let Some(settings) = settings(p)? {
+        t.costing = Some(t.costing(&settings));
+    }
     let mut out = serde_json::to_value(&t).map_err(|e| other(e.to_string()))?;
     let path = str_param(p, "path").map(str::trim).filter(|x| !x.is_empty());
     let xlsx = path.is_some_and(|x| x.to_ascii_lowercase().ends_with(".xlsx"));
@@ -71,6 +77,53 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
         out["path"] = json!(path.display().to_string());
     }
     Ok(out)
+}
+
+/// The prices and the insulated directions of `p`, when it has either.
+fn settings(p: &Value) -> Result<Option<cadcraft_doc::TakeoffSettings>> {
+    const CMD: &str = "hvactakeoff";
+    if p.get("prices").is_none_or(Value::is_null) && p.get("insulatedAir").is_none_or(Value::is_null) {
+        return Ok(None);
+    }
+    let mut st = cadcraft_doc::TakeoffSettings::default();
+    if let Some(prices) = p.get("prices").filter(|v| !v.is_null()) {
+        let map = prices.as_object().ok_or_else(|| bad(CMD, "`prices` is an object of unit prices by line"))?;
+        if map.len() > 10_000 {
+            return Err(bad(CMD, "at most 10000 prices"));
+        }
+        for (k, v) in map {
+            let price =
+                v.as_f64().and_then(cadcraft_doc::usable_price).ok_or_else(|| bad(CMD, format!("the price of `{k}` is a number of euros")))?;
+            st.prices.insert(k.clone(), price);
+        }
+    }
+    if let Some(a) = p.get("insulatedAir").filter(|v| !v.is_null()) {
+        let list = a.as_array().ok_or_else(|| bad(CMD, "`insulatedAir` is a list of supply, extract, fresh or exhaust"))?;
+        for v in list {
+            let dir: cadcraft_doc::AirDirection =
+                serde_json::from_value(v.clone()).map_err(|_| bad(CMD, "`insulatedAir` takes supply, extract, fresh or exhaust"))?;
+            st.insulated_air.push(dir);
+        }
+    }
+    Ok(Some(st))
+}
+
+/// The total of the building: the other floors given (as this command returned them) and this one, which replaces the floor of its name.
+fn building(this: &cadcraft_doc::Takeoff, others: &Value, name: &str) -> Result<cadcraft_doc::Takeoff> {
+    const CMD: &str = "hvactakeoff";
+    let list = others.as_array().ok_or_else(|| bad(CMD, "`levels` is a list of takeoffs"))?;
+    if list.len() > 500 {
+        return Err(bad(CMD, "at most 500 levels"));
+    }
+    let mut levels: Vec<cadcraft_doc::Takeoff> = Vec::new();
+    for v in list {
+        let t: cadcraft_doc::Takeoff = serde_json::from_value(v.clone()).map_err(|e| bad(CMD, format!("a level is not a takeoff: {e}")))?;
+        if t.level != this.level {
+            levels.push(t);
+        }
+    }
+    levels.push(this.clone());
+    Ok(cadcraft_doc::Takeoff::building(name, &levels))
 }
 
 fn r(v: f64, places: i32) -> f64 {

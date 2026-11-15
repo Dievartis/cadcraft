@@ -404,3 +404,21 @@ fn a_part_in_the_line_of_a_pipe_cuts_it_and_the_network_is_read_through_the_part
     assert_eq!(d.pipe_ends(short).unwrap().0.length, 100.0);
     assert!(d.split_pipe(short, f64::NAN, 10.0).unwrap().is_none());
 }
+
+#[test]
+fn the_takeoff_counts_the_insulation_surface_and_prices_the_lines() {
+    let mut d = Drawing::new_metric();
+    let units = HvacUnits { mm_per_unit: 1.0 };
+    let p = PipeParams { insulation_mm: 30.0, ..PipeParams::new(PipeService::ChilledWater, 25.0, units) };
+    d.add_pipe(&Space::Model, Common::default(), p, cadcraft_geom::Vec2::new(0.0, 0.0), cadcraft_geom::Vec2::new(3000.0, 0.0)).unwrap();
+    add(&mut d, PipeService::HotWater, PipeLeg::Supply, (0.0, 500.0), (2000.0, 500.0), None, true);
+    let t = d.takeoff("").unwrap();
+    // 3 m of DN25 (33.7 mm) with 30 mm either side: pi x 0.0937 x 3.
+    assert_eq!((t.pipes.iter().map(|q| q.insulation_m2).sum::<f64>(), t.totals.pipe_insulation_m2), (0.88, 0.88));
+    let mut s = TakeoffSettings::default();
+    s.prices.insert("Pipe|chilledWater|DN25".into(), 10.0);
+    s.prices.insert("Pipe insulation".into(), 5.0);
+    let c = t.costing(&s);
+    assert_eq!(c.total, 10.0 * 3.0 + 5.0 * 0.88);
+    assert_eq!(c.unpriced, 1, "the hot water pipe has no price");
+}

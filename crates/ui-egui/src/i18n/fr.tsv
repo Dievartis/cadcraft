@@ -1646,3 +1646,23 @@
 	Refrigerant gas tube	Tube frigo gaz par défaut
 	Refrigerant high/low-pressure gas tube	Tube frigo gaz HP/BP par défaut
 	Built-in	Valeur d'origine
+	Building	Bâtiment
+	Show the building total	Afficher le total du bâtiment
+	Keep this level for the building	Garder ce niveau pour le bâtiment
+	Levels kept: {names}	Niveaux gardés : {names}
+	Forget the levels	Oublier les niveaux
+	Prices and cost	Prix et coût
+	Insulated ducts:	Gaines isolées :
+	Total: {total} € ({n} lines without a price)	Total : {total} € ({n} lignes sans prix)
+	Insulation (m²)	Isolant (m²)
+	Label	Désignation
+	Quantity	Quantité
+	Unit price	Prix unitaire
+	Duct insulation	Isolant de gaine
+	Pipe insulation	Isolant de tuyauterie
+	Fitting	Raccord
+	Accessory	Accessoire
+	Pipework part	Pièce de tuyauterie
+	Unit	Unité
+	each	pièce
+	Terminal	Bouche

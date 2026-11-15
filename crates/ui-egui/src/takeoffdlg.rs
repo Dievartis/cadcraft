@@ -2,7 +2,7 @@
 //! of the drawing's level, by kind of object, as tables, and a button that writes them as a spreadsheet.
 //! Size the ducts first: the sections are the ones sizing wrote.
 
-use cadcraft_doc::Takeoff;
+use cadcraft_doc::{AirDirection, Takeoff, TakeoffSettings};
 use egui::{RichText, vec2};
 use serde_json::json;
 
@@ -19,9 +19,43 @@ pub struct TakeoffDlgState {
     /// Whether the file was typed or chosen: until it is, it follows the drawing's folder.
     pub path_edited: bool,
     pub takeoff: Option<Takeoff>,
+    /// Whether the total of the building (the levels kept and this one) is shown and exported, not this level alone.
+    pub building: bool,
     pub message: Option<String>,
     pub error: bool,
     pub raise: bool,
+}
+
+/// What the dialog keeps from one use to the next (in the preferences): the prices and the other levels of the building.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Store {
+    #[serde(default)]
+    pub settings: TakeoffSettings,
+    /// The levels kept for the building total, by name: a level kept again replaces the one of its name.
+    #[serde(default)]
+    pub levels: Vec<Takeoff>,
+}
+
+/// The most levels a building keeps.
+const MAX_LEVELS: usize = 200;
+
+impl Store {
+    /// Keep `t` for the building, replacing the level of the same name.
+    pub fn keep(&mut self, t: &Takeoff) {
+        if let Some(l) = self.levels.iter_mut().find(|l| l.level == t.level) {
+            *l = t.clone();
+        } else if self.levels.len() < MAX_LEVELS {
+            self.levels.push(t.clone());
+        }
+    }
+
+    /// The building: the levels kept, with `current` (which replaces the kept level of its name).
+    pub fn building(&self, current: &Takeoff) -> Takeoff {
+        let mut all: Vec<Takeoff> = self.levels.iter().filter(|l| l.level != current.level).cloned().collect();
+        all.push(current.clone());
+        Takeoff::building(crate::i18n::t("Building"), &all)
+    }
 }
 
 /// Open the dialog on the quantities of the drawing as it is now; open already, count again.
@@ -82,7 +116,18 @@ pub fn refresh(app: &mut CadApp) {
 /// Write the spreadsheet through HVACTAKEOFF, and say where.
 pub fn export(app: &mut CadApp) {
     let Some((level, path)) = app.takeoff_dlg.as_ref().map(|s| (s.level.clone(), s.path.clone())) else { return };
-    let r = app.run("hvactakeoff", json!({ "level": level, "path": path, "lang": crate::i18n::current_language() }));
+    let building = app.takeoff_dlg.as_ref().is_some_and(|s| s.building);
+    let mut params = json!({ "level": level, "path": path, "lang": crate::i18n::current_language() });
+    let settings = &app.takeoff_store.settings;
+    if !settings.prices.is_empty() || !settings.insulated_air.is_empty() {
+        params["prices"] = json!(settings.prices);
+        params["insulatedAir"] = json!(settings.insulated_air);
+    }
+    if building {
+        params["levels"] = json!(app.takeoff_store.levels);
+        params["building"] = json!(crate::i18n::t("Building"));
+    }
+    let r = app.run("hvactakeoff", params);
     if let Some(st) = app.takeoff_dlg.as_mut() {
         match r {
             Ok(v) => (st.message, st.error) = (Some(crate::tf!("Written: {path}", path = v["path"].as_str().unwrap_or(&path))), false),
@@ -105,6 +150,49 @@ pub fn export_csv(app: &mut CadApp) {
         st.path = std::path::Path::new(&st.path).with_extension("csv").display().to_string();
     }
     export(app);
+}
+
+/// The prices of the lines and the ducts insulated: what the building costs, line by line (a line without a price counts for nothing).
+fn prices_section(ui: &mut egui::Ui, settings: &mut TakeoffSettings, t: &Takeoff) {
+    let Some(costing) = &t.costing else { return };
+    egui::CollapsingHeader::new(RichText::new(crate::tl!("Prices and cost")).strong()).id_salt("takeoff_prices").default_open(false).show(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(crate::tl!("Insulated ducts:"));
+            for a in AirDirection::ALL {
+                let mut on = settings.insulated_air.contains(&a);
+                if ui.checkbox(&mut on, crate::i18n::t(a.name())).changed() {
+                    settings.insulated_air.retain(|x| *x != a);
+                    if on {
+                        settings.insulated_air.push(a);
+                    }
+                }
+            }
+        });
+        egui::Grid::new("takeoff_prices_grid").striped(true).num_columns(5).show(ui, |ui| {
+            for h in ["Group", "Label", "Quantity", "Unit price", "Total"] {
+                ui.strong(crate::i18n::t(h));
+            }
+            ui.end_row();
+            for l in &costing.lines {
+                ui.label(crate::i18n::t(&l.group));
+                ui.label(&l.label);
+                ui.label(format!("{} {}", num(l.quantity), crate::i18n::t(&l.unit)));
+                let mut price = l.unit_price.unwrap_or(0.0);
+                if ui.add(egui::DragValue::new(&mut price).speed(0.1).range(0.0..=1.0e6).suffix(" €")).changed() {
+                    if price > 0.0 {
+                        settings.prices.insert(l.key.clone(), price);
+                    } else {
+                        settings.prices.remove(&l.key);
+                    }
+                }
+                ui.label(l.total.map_or("—".to_string(), |x| format!("{} €", num(x))));
+                ui.end_row();
+            }
+        });
+        ui.label(
+            RichText::new(crate::tf!("Total: {total} € ({n} lines without a price)", total = num(costing.total), n = costing.unpriced)).strong(),
+        );
+    });
 }
 
 fn num(v: f64) -> String {
@@ -142,6 +230,15 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
     }
     let warn = Tokens::get().warn;
     let (mut refresh_clicked, mut excel_clicked, mut csv_clicked, mut browse_clicked) = (false, false, false, false);
+    let (mut keep_clicked, mut clear_clicked) = (false, false);
+    // What is shown: this level, or the building (the levels kept with this one), with the cost of the prices given.
+    let building_view = app.takeoff_dlg.as_ref().is_some_and(|s| s.building);
+    let mut shown =
+        app.takeoff_dlg.as_ref().and_then(|s| s.takeoff.clone()).map(|cur| if building_view { app.takeoff_store.building(&cur) } else { cur });
+    if let Some(t) = shown.as_mut() {
+        t.costing = Some(t.costing(&app.takeoff_store.settings));
+    }
+    let store = &mut app.takeoff_store;
     let Some(st) = app.takeoff_dlg.as_mut() else { return };
     let id = egui::Id::unique("takeoff_dialog");
     if std::mem::take(&mut st.raise) {
@@ -173,8 +270,21 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
             ui.label(if st.error { RichText::new(m).color(warn) } else { RichText::new(m) });
         }
         ui.label(RichText::new(crate::tl!("Size the ducts first: the sections are the ones sizing wrote.")).small());
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut st.building, crate::tl!("Show the building total"));
+            if ui.button(crate::tl!("Keep this level for the building")).clicked() {
+                keep_clicked = true;
+            }
+            let kept: Vec<&str> = store.levels.iter().map(|l| l.level.as_str()).collect();
+            if !kept.is_empty() {
+                ui.label(RichText::new(crate::tf!("Levels kept: {names}", names = kept.join(", "))).small());
+                if ui.button(crate::tl!("Forget the levels")).clicked() {
+                    clear_clicked = true;
+                }
+            }
+        });
         ui.separator();
-        let Some(t) = &st.takeoff else { return };
+        let Some(t) = &shown else { return };
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             let air = |a: cadcraft_doc::AirDirection| {
                 crate::i18n::t(match a {
@@ -214,10 +324,11 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
                         num(q.insulation_mm),
                         q.count.to_string(),
                         num(q.length_m),
+                        num(q.insulation_m2),
                     ]
                 })
                 .collect();
-            table(ui, "pipes", "Pipes", &["Network", "Service", "Leg", "Size", "Insulation (mm)", "Count", "Length (m)"], pipes);
+            table(ui, "pipes", "Pipes", &["Network", "Service", "Leg", "Size", "Insulation (mm)", "Count", "Length (m)", "Insulation (m²)"], pipes);
             let mut ducts: Vec<Vec<String>> = t
                 .ducts
                 .iter()
@@ -230,6 +341,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
                         d.count.to_string(),
                         num(d.length_m),
                         num(d.area_m2),
+                        num(d.weight_kg),
                     ]
                 })
                 .collect();
@@ -242,9 +354,11 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
                     t.totals.duct_count.to_string(),
                     num(t.totals.duct_length_m),
                     num(t.totals.duct_area_m2),
+                    num(t.totals.duct_weight_kg),
                 ]);
             }
-            table(ui, "ducts", "Ducts", &["Air", "Material", "Section", "Altitude (m)", "Count", "Length (m)", "Area (m²)"], ducts);
+            table(ui, "ducts", "Ducts", &["Air", "Material", "Section", "Altitude (m)", "Count", "Length (m)", "Area (m²)", "Weight (kg)"], ducts);
+            prices_section(ui, &mut store.settings, t);
             let counts = |list: &[cadcraft_doc::CountQuantity]| -> Vec<Vec<String>> {
                 list.iter().map(|c| vec![crate::i18n::t(&c.name).to_string(), c.size.clone(), c.count.to_string(), opt(c.power)]).collect()
             };
@@ -332,6 +446,12 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
             );
         });
     });
+    if keep_clicked && let Some(t) = app.takeoff_dlg.as_ref().and_then(|s| s.takeoff.clone()) {
+        app.takeoff_store.keep(&t);
+    }
+    if clear_clicked {
+        app.takeoff_store.levels.clear();
+    }
     if refresh_clicked {
         refresh(app);
     }
@@ -416,5 +536,22 @@ mod tests {
         let st = app.takeoff_dlg.as_ref().expect("the dialog is open");
         assert!(st.error && st.message.is_some());
         assert_eq!(st.path, "metre.xlsx");
+    }
+
+    #[test]
+    fn levels_are_kept_by_name_and_added_up_with_the_current_one_and_kept_in_the_preferences() {
+        let mut app = app_with(None);
+        app.run("pipeadd", json!({"points": [[0, 0], [2000, 0]], "service": "chilledWater", "dn": 25})).unwrap();
+        let ground = app.session.doc().unwrap().takeoff("RDC").unwrap();
+        app.takeoff_store.keep(&ground);
+        app.takeoff_store.keep(&ground);
+        assert_eq!(app.takeoff_store.levels.len(), 1, "the same name replaces");
+        let upper = app.session.doc().unwrap().takeoff("R+1").unwrap();
+        let total = app.takeoff_store.building(&upper);
+        assert_eq!((total.totals.pipe_length_m, total.levels.len()), (2.0 * ground.totals.pipe_length_m, 2));
+        let prefs = app.prefs_json();
+        let mut again = app_with(None);
+        again.load_prefs(&prefs);
+        assert_eq!(again.takeoff_store.levels.len(), 1);
     }
 }

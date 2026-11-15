@@ -1737,3 +1737,15 @@ menu	View	视图
 	Refrigerant gas tube	默认冷媒气管
 	Refrigerant high/low-pressure gas tube	默认冷媒高/低压气管
 	Built-in	内置
+	Building	建筑
+	Show the building total	显示建筑合计
+	Keep this level for the building	保存此楼层到建筑
+	Levels kept: {names}	已保存楼层：{names}
+	Forget the levels	清除楼层
+	Prices and cost	价格和成本
+	Insulated ducts:	保温风管：
+	Total: {total} € ({n} lines without a price)	合计：{total} €（{n} 行无价格）
+	Insulation (m²)	保温 (m²)
+	Label	名称
+	Quantity	数量
+	Unit price	单价

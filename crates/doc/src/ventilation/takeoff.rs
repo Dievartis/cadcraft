@@ -13,6 +13,24 @@ use super::xlsx::{SheetCell, Workbook};
 use super::{AirDirection, DuctShape, accessory_of, ahu_of, air_terminal_of, equipment_of, part_of, riser_of};
 use crate::{EntityKind, Result};
 
+/// Weight of one square metre of steel sheet per millimetre of thickness, kg (7.85 kg/dm³).
+const STEEL_KG_PER_M2_MM: f64 = 7.85;
+
+/// The thickness of the sheet steel of a rigid duct, mm: indicative values by the largest dimension of the section (up to 500 mm: 0.6; to 1000:
+/// 0.8; to 1500: 1.0; above: 1.2), which a design office's own table replaces.
+pub fn sheet_thickness_mm(p: &super::DuctParams) -> f64 {
+    let largest = match p.shape {
+        DuctShape::Round => p.diameter_mm,
+        DuctShape::Rectangular => p.width_mm.max(p.height_mm),
+    };
+    match largest {
+        l if l <= 500.0 => 0.6,
+        l if l <= 1000.0 => 0.8,
+        l if l <= 1500.0 => 1.0,
+        _ => 1.2,
+    }
+}
+
 /// Most points sampled along one duct to find the length of it inside a space.
 const SAMPLES: usize = 400;
 
@@ -30,6 +48,9 @@ pub struct DuctQuantity {
     pub length_m: f64,
     /// The outer surface, m²: the perimeter times the length.
     pub area_m2: f64,
+    /// The weight of the sheet steel, kg (0 for a flexible duct): the surface times the thickness of the section ([`sheet_thickness_mm`]).
+    #[serde(default)]
+    pub weight_kg: f64,
 }
 
 /// The pipes of one service and leg, one size and one insulation.
@@ -46,6 +67,9 @@ pub struct PipeQuantity {
     pub network: String,
     pub count: usize,
     pub length_m: f64,
+    /// The outer surface of the insulation, m² (0 for a bare pipe).
+    #[serde(default)]
+    pub insulation_m2: f64,
 }
 
 /// Something counted: a fitting, an accessory, equipment.
@@ -176,6 +200,12 @@ pub struct Totals {
     pub duct_count: usize,
     pub duct_length_m: f64,
     pub duct_area_m2: f64,
+    /// The weight of the sheet steel of the rigid ducts, kg.
+    #[serde(default)]
+    pub duct_weight_kg: f64,
+    /// The outer surface of the pipe insulation, m².
+    #[serde(default)]
+    pub pipe_insulation_m2: f64,
     pub terminals: usize,
     pub equipment: usize,
     /// Vertical length of the risers, m.
@@ -198,6 +228,20 @@ pub struct Takeoff {
     pub risers: Vec<RiserQuantity>,
     pub equipment: Vec<CountQuantity>,
     pub spaces: Vec<SpaceQuantity>,
+    pub totals: Totals,
+    /// The levels a building total is made of, with each one's totals (empty for one level).
+    #[serde(default)]
+    pub levels: Vec<LevelTotals>,
+    /// What the quantities cost, when prices were given.
+    #[serde(default)]
+    pub costing: Option<super::Costing>,
+}
+
+/// The totals of one level of a building.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelTotals {
+    pub level: String,
     pub totals: Totals,
 }
 
@@ -234,37 +278,7 @@ impl crate::Drawing {
     /// The quantities of the HVAC objects in model space, for the level named `level`.
     pub fn takeoff(&self, level: &str) -> Result<Takeoff> {
         let mut t = Takeoff { level: level.to_string(), ..Takeoff::default() };
-        // Ducts, by direction, material, section and altitude.
-        let mut ducts = Vec::new();
-        for e in self.model.iter() {
-            let Some((p, ..)) = self.duct_ends(e.handle) else { continue };
-            let length_m = p.length_m();
-            let perimeter_m = match p.shape {
-                DuctShape::Round => std::f64::consts::PI * p.diameter_mm / 1000.0,
-                DuctShape::Rectangular => 2.0 * (p.width_mm + p.height_mm) / 1000.0,
-            };
-            ducts.push((p.air, p.flexible, p.size_label(), p.altitude_mm().map(|mm| (mm / 10.0).round() / 100.0), length_m, perimeter_m * length_m));
-            if let Some(r) = &p.reducer {
-                add_count(&mut t.fittings, "Reducer", &format!("{:.0} → {}", r.from_mm, p.size_label()), None);
-            }
-        }
-        for (air, flexible, section, altitude_m, length_m, area_m2) in ducts {
-            match t.ducts.iter_mut().find(|d| d.air == air && d.flexible == flexible && d.section == section && d.altitude_m == altitude_m) {
-                Some(d) => {
-                    d.count += 1;
-                    d.length_m += length_m;
-                    d.area_m2 += area_m2;
-                }
-                None => t.ducts.push(DuctQuantity { air, flexible, section, altitude_m, count: 1, length_m, area_m2 }),
-            }
-        }
-        t.ducts.sort_by(|a, b| {
-            air_rank(a.air)
-                .cmp(&air_rank(b.air))
-                .then(a.flexible.cmp(&b.flexible))
-                .then(a.section.cmp(&b.section))
-                .then(a.altitude_m.partial_cmp(&b.altitude_m).unwrap_or(std::cmp::Ordering::Equal))
-        });
+        t.ducts = self.duct_quantities(&mut t.fittings);
         // Elbows and tees: those of each network as it is read, with the section of the run that carries them.
         for net in self.duct_networks()? {
             for (i, seg) in net.network.segments.iter().enumerate() {
@@ -383,6 +397,10 @@ impl crate::Drawing {
         for d in &mut t.ducts {
             d.length_m = (d.length_m * 100.0).round() / 100.0;
             d.area_m2 = (d.area_m2 * 100.0).round() / 100.0;
+            d.weight_kg = (d.weight_kg * 10.0).round() / 10.0;
+        }
+        for q in &mut t.pipes {
+            q.insulation_m2 = (q.insulation_m2 * 100.0).round() / 100.0;
         }
         t.totals = Totals {
             pipe_count: t.pipes.iter().map(|q| q.count).sum(),
@@ -390,11 +408,62 @@ impl crate::Drawing {
             duct_count: t.ducts.iter().map(|d| d.count).sum(),
             duct_length_m: (t.ducts.iter().map(|d| d.length_m).sum::<f64>() * 100.0).round() / 100.0,
             duct_area_m2: (t.ducts.iter().map(|d| d.area_m2).sum::<f64>() * 100.0).round() / 100.0,
+            duct_weight_kg: (t.ducts.iter().map(|d| d.weight_kg).sum::<f64>() * 10.0).round() / 10.0,
+            pipe_insulation_m2: (t.pipes.iter().map(|q| q.insulation_m2).sum::<f64>() * 100.0).round() / 100.0,
             terminals: t.terminals.iter().map(|q| q.count).sum(),
             equipment: t.equipment.iter().map(|c| c.count).sum(),
             riser_length_m: (t.risers.iter().filter_map(|r| r.length_m).sum::<f64>() * 100.0).round() / 100.0,
         };
         Ok(t)
+    }
+}
+
+impl crate::Drawing {
+    /// The ducts of model space by direction, material, section and altitude; the reducers they carry go to `fittings`.
+    fn duct_quantities(&self, fittings: &mut Vec<CountQuantity>) -> Vec<DuctQuantity> {
+        // Ducts, by direction, material, section and altitude.
+        let mut ducts = Vec::new();
+        let mut out: Vec<DuctQuantity> = Vec::new();
+        for e in self.model.iter() {
+            let Some((p, ..)) = self.duct_ends(e.handle) else { continue };
+            let length_m = p.length_m();
+            let perimeter_m = match p.shape {
+                DuctShape::Round => std::f64::consts::PI * p.diameter_mm / 1000.0,
+                DuctShape::Rectangular => 2.0 * (p.width_mm + p.height_mm) / 1000.0,
+            };
+            let weight = if p.flexible { 0.0 } else { perimeter_m * length_m * sheet_thickness_mm(&p) * STEEL_KG_PER_M2_MM };
+            ducts.push((
+                p.air,
+                p.flexible,
+                p.size_label(),
+                p.altitude_mm().map(|mm| (mm / 10.0).round() / 100.0),
+                length_m,
+                perimeter_m * length_m,
+                weight,
+            ));
+            if let Some(r) = &p.reducer {
+                add_count(fittings, "Reducer", &format!("{:.0} → {}", r.from_mm, p.size_label()), None);
+            }
+        }
+        for (air, flexible, section, altitude_m, length_m, area_m2, weight_kg) in ducts {
+            match out.iter_mut().find(|d| d.air == air && d.flexible == flexible && d.section == section && d.altitude_m == altitude_m) {
+                Some(d) => {
+                    d.count += 1;
+                    d.length_m += length_m;
+                    d.area_m2 += area_m2;
+                    d.weight_kg += weight_kg;
+                }
+                None => out.push(DuctQuantity { air, flexible, section, altitude_m, count: 1, length_m, area_m2, weight_kg }),
+            }
+        }
+        out.sort_by(|a, b| {
+            air_rank(a.air)
+                .cmp(&air_rank(b.air))
+                .then(a.flexible.cmp(&b.flexible))
+                .then(a.section.cmp(&b.section))
+                .then(a.altitude_m.partial_cmp(&b.altitude_m).unwrap_or(std::cmp::Ordering::Equal))
+        });
+        out
     }
 }
 
@@ -405,6 +474,24 @@ fn tr(lang: &str, key: &str) -> String {
     }
     let fr = match key {
         "Summary" => "Récapitulatif",
+        "Weight (kg)" => "Poids (kg)",
+        "Duct weight (kg)" => "Poids des gaines (kg)",
+        "Pipe insulation (m²)" => "Isolant de tuyauterie (m²)",
+        "Insulation (m²)" => "Isolant (m²)",
+        "Levels" => "Niveaux",
+        "Cost" => "Prix",
+        "Group" => "Groupe",
+        "Label" => "Désignation",
+        "Unit" => "Unité",
+        "Quantity" => "Quantité",
+        "Unit price" => "Prix unitaire",
+        "Unpriced lines" => "Lignes sans prix",
+        "each" => "pièce",
+        "Duct insulation" => "Isolant de gaine",
+        "Pipe insulation" => "Isolant de tuyauterie",
+        "Fitting" => "Raccord",
+        "Accessory" => "Accessoire",
+        "Pipework part" => "Pièce de tuyauterie",
         "Ducts" => "Gaines",
         "Pipes" => "Tuyauteries",
         "Network" => "Réseau",
@@ -530,17 +617,35 @@ impl Takeoff {
             vec![C::head(t("Duct count")), C::Num(self.totals.duct_count as f64)],
             vec![C::head(t("Duct length (m)")), num(self.totals.duct_length_m)],
             vec![C::head(t("Duct area (m²)")), num(self.totals.duct_area_m2)],
+            vec![C::head(t("Duct weight (kg)")), num(self.totals.duct_weight_kg)],
             vec![C::head(t("Terminals")), C::Num(self.totals.terminals as f64)],
             vec![C::head(t("Equipment")), C::Num(self.totals.equipment as f64)],
             vec![C::head(t("Riser height (m)")), num(self.totals.riser_length_m)],
             vec![C::head(t("Pipe count")), C::Num(self.totals.pipe_count as f64)],
             vec![C::head(t("Pipe length (m)")), num(self.totals.pipe_length_m)],
+            vec![C::head(t("Pipe insulation (m²)")), num(self.totals.pipe_insulation_m2)],
             vec![],
             vec![C::text(t("Run the sizing first: the sections are the ones it wrote."))],
         ];
+        let mut rows = rows;
+        if !self.levels.is_empty() {
+            rows.push(vec![]);
+            rows.push(head(&["Levels", "Duct length (m)", "Duct weight (kg)", "Pipe length (m)", "Pipe insulation (m²)", "Terminals"]));
+            for l in &self.levels {
+                let x = &l.totals;
+                rows.push(vec![
+                    C::text(l.level.clone()),
+                    num(x.duct_length_m),
+                    num(x.duct_weight_kg),
+                    num(x.pipe_length_m),
+                    num(x.pipe_insulation_m2),
+                    C::Num(x.terminals as f64),
+                ]);
+            }
+        }
         wb.sheet(&t("Summary"), rows)?;
         // Ducts.
-        let mut rows = vec![head(&["Air", "Material", "Section", "Altitude (m)", "Count", "Length (m)", "Area (m²)"])];
+        let mut rows = vec![head(&["Air", "Material", "Section", "Altitude (m)", "Count", "Length (m)", "Area (m²)", "Weight (kg)"])];
         for d in &self.ducts {
             rows.push(vec![
                 C::text(air(d.air)),
@@ -550,6 +655,7 @@ impl Takeoff {
                 C::Num(d.count as f64),
                 num(d.length_m),
                 num(d.area_m2),
+                num(d.weight_kg),
             ]);
         }
         rows.push(vec![
@@ -560,10 +666,11 @@ impl Takeoff {
             C::Num(self.totals.duct_count as f64),
             num(self.totals.duct_length_m),
             num(self.totals.duct_area_m2),
+            num(self.totals.duct_weight_kg),
         ]);
         wb.sheet(&t("Ducts"), rows)?;
         // Pipes.
-        let mut rows = vec![head(&["Network", "Service", "Leg", "Size", "Insulation (mm)", "Count", "Length (m)"])];
+        let mut rows = vec![head(&["Network", "Service", "Leg", "Size", "Insulation (mm)", "Count", "Length (m)", "Insulation (m²)"])];
         for q in &self.pipes {
             rows.push(vec![
                 C::text(q.network.clone()),
@@ -573,6 +680,7 @@ impl Takeoff {
                 num(q.insulation_mm),
                 C::Num(q.count as f64),
                 num(q.length_m),
+                num(q.insulation_m2),
             ]);
         }
         rows.push(vec![
@@ -583,6 +691,7 @@ impl Takeoff {
             C::Empty,
             C::Num(self.totals.pipe_count as f64),
             num(self.totals.pipe_length_m),
+            num(self.totals.pipe_insulation_m2),
         ]);
         wb.sheet(&t("Pipes"), rows)?;
         // Fittings and accessories.
@@ -694,6 +803,23 @@ impl Takeoff {
             }
         }
         wb.sheet(&t("Space detail"), rows)?;
+        // The cost, when prices were given.
+        if let Some(c) = &self.costing {
+            let mut rows = vec![head(&["Group", "Label", "Unit", "Quantity", "Unit price", "Total"])];
+            for l in &c.lines {
+                rows.push(vec![
+                    C::text(t(&l.group)),
+                    C::text(l.label.clone()),
+                    C::text(t(&l.unit)),
+                    num(l.quantity),
+                    C::opt(l.unit_price),
+                    C::opt(l.total),
+                ]);
+            }
+            rows.push(vec![C::head(t("Total")), C::Empty, C::Empty, C::Empty, C::Empty, num(c.total)]);
+            rows.push(vec![C::head(t("Unpriced lines")), C::Empty, C::Empty, C::Empty, C::Empty, C::Num(c.unpriced as f64)]);
+            wb.sheet(&t("Cost"), rows)?;
+        }
         // The calculation note.
         if let Some(note) = note {
             let mut rows = Vec::new();
@@ -770,7 +896,16 @@ impl Takeoff {
         row(&["Level".into(), self.level.clone()]);
         row(&[]);
         row(&["Ducts".into()]);
-        row(&["Air".into(), "Material".into(), "Section".into(), "Altitude (m)".into(), "Count".into(), "Length (m)".into(), "Area (m2)".into()]);
+        row(&[
+            "Air".into(),
+            "Material".into(),
+            "Section".into(),
+            "Altitude (m)".into(),
+            "Count".into(),
+            "Length (m)".into(),
+            "Area (m2)".into(),
+            "Weight (kg)".into(),
+        ]);
         for d in &self.ducts {
             row(&[
                 air(d.air),
@@ -780,6 +915,7 @@ impl Takeoff {
                 d.count.to_string(),
                 num(d.length_m),
                 num(d.area_m2),
+                num(d.weight_kg),
             ]);
         }
         row(&[
@@ -790,6 +926,7 @@ impl Takeoff {
             self.totals.duct_count.to_string(),
             num(self.totals.duct_length_m),
             num(self.totals.duct_area_m2),
+            num(self.totals.duct_weight_kg),
         ]);
         row(&[]);
         row(&["Pipes".into()]);
@@ -914,32 +1051,36 @@ impl crate::Drawing {
     /// count with them, a length of the riser's height each.
     fn pipe_quantities(&self) -> Vec<PipeQuantity> {
         let mut pipes: Vec<PipeQuantity> = Vec::new();
-        let mut add = |service: super::PipeService, leg: super::PipeLeg, size: String, insulation_mm: f64, network: &str, length_m: f64| {
-            let network = network.trim().to_string();
-            match pipes.iter_mut().find(|q| {
-                q.service == service
-                    && q.leg == leg
-                    && q.size == size
-                    && q.insulation_mm == insulation_mm
-                    && super::same_network(&q.network, &network)
-            }) {
-                Some(q) => {
-                    q.count += 1;
-                    q.length_m += length_m;
+        let mut add =
+            |service: super::PipeService, leg: super::PipeLeg, size: String, insulation_mm: f64, network: &str, length_m: f64, per_m: f64| {
+                let network = network.trim().to_string();
+                match pipes.iter_mut().find(|q| {
+                    q.service == service
+                        && q.leg == leg
+                        && q.size == size
+                        && q.insulation_mm == insulation_mm
+                        && super::same_network(&q.network, &network)
+                }) {
+                    Some(q) => {
+                        q.count += 1;
+                        q.length_m += length_m;
+                        q.insulation_m2 += length_m * per_m;
+                    }
+                    None => {
+                        pipes.push(PipeQuantity { service, leg, size, insulation_mm, network, count: 1, length_m, insulation_m2: length_m * per_m })
+                    }
                 }
-                None => pipes.push(PipeQuantity { service, leg, size, insulation_mm, network, count: 1, length_m }),
-            }
-        };
+            };
         for e in self.model.iter() {
             let Some((p, ..)) = self.pipe_ends(e.handle) else { continue };
             let leg = if p.service.has_legs() { p.leg } else { super::PipeLeg::Supply };
-            add(p.service, leg, p.size_text(), p.insulation_mm, &p.network, p.length_m());
+            add(p.service, leg, p.size_text(), p.insulation_mm, &p.network, p.length_m(), p.insulation_m2_per_m());
         }
         for (_, riser, _) in self.pipe_risers() {
             let metres = riser.height_mm.map_or(0.0, |h| h / 1000.0);
             for line in &riser.lines {
                 let p = line.pipe(riser.units);
-                add(line.service, p.leg, p.size_text(), line.insulation_mm, &line.network, metres);
+                add(line.service, p.leg, p.size_text(), line.insulation_mm, &line.network, metres, p.insulation_m2_per_m());
             }
         }
         let rank = |s: super::PipeService| super::PipeService::ALL.iter().position(|x| *x == s).unwrap_or(0);
