@@ -111,6 +111,67 @@ impl crate::Drawing {
     }
 }
 
+/// One room against the presence of emergency lighting (article R4227-14 of the Code du travail; the arrêté du 14 décembre 2011 and the standard
+/// NF EN 1838 give the levels, which are the designer's to check: this only says where nothing is drawn).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmergencyReport {
+    pub space: String,
+    pub area_m2: f64,
+    pub occupants: u32,
+    /// Emergency lights (ambient and escape) and exit signs drawn in the room.
+    pub emergency_lights: usize,
+    pub exit_signs: usize,
+    pub ok: bool,
+    pub warnings: Vec<String>,
+}
+
+/// The occupancy from which a room is asked for anti-panic lighting: 100 people and more than one person for ten square metres.
+const ANTI_PANIC_OCCUPANTS: u32 = 100;
+
+impl crate::Drawing {
+    /// The spaces of model space with the emergency devices drawn in them: an escape route (circulation, stairs) with none, and a crowded room with no
+    /// emergency light, are told.
+    pub fn emergency_reports(&self) -> Vec<EmergencyReport> {
+        let devices: Vec<(Vec2, DeviceKind)> = self
+            .model
+            .iter()
+            .filter_map(|e| {
+                let d = device_of(e).filter(|d| d.kind.is_emergency())?;
+                let crate::EntityKind::Insert(i) = &e.kind else { return None };
+                Some((Vec2::new(i.insert.x, i.insert.y), d.kind))
+            })
+            .collect();
+        let mut out = Vec::new();
+        for e in self.model.iter() {
+            let Some((sp, outline)) = self.space_outline(e.handle) else { continue };
+            let inside: Vec<DeviceKind> = devices.iter().filter(|(at, _)| cadcraft_geom::point_in_polygon(&outline, *at)).map(|(_, k)| *k).collect();
+            let (lights, signs) =
+                (inside.iter().filter(|k| **k == DeviceKind::Emergency).count(), inside.iter().filter(|k| **k == DeviceKind::ExitSign).count());
+            let area = sp.area_m2();
+            let mut warnings = Vec::new();
+            if class_of(&sp.name) == RoomLighting::Circulation && inside.is_empty() {
+                warnings.push("an escape route: no emergency light or exit sign is drawn in it".to_string());
+            }
+            let crowded = sp.occupants >= ANTI_PANIC_OCCUPANTS && f64::from(sp.occupants) * 10.0 > area;
+            if crowded && lights == 0 {
+                warnings.push(format!("{} people for {area:.0} m²: anti-panic lighting is asked, and no emergency light is drawn", sp.occupants));
+            }
+            out.push(EmergencyReport {
+                space: sp.name.clone(),
+                area_m2: (area * 100.0).round() / 100.0,
+                occupants: sp.occupants,
+                emergency_lights: lights,
+                exit_signs: signs,
+                ok: warnings.is_empty(),
+                warnings,
+            });
+        }
+        out.sort_by(|a, b| a.space.cmp(&b.space));
+        out
+    }
+}
+
 /// The cables of one section and use.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

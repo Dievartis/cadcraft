@@ -242,6 +242,7 @@ impl crate::Drawing {
         }
         self.refresh_network_layers();
         self.refresh_network_legends();
+        self.refresh_circuit_legends();
         Ok(style)
     }
 

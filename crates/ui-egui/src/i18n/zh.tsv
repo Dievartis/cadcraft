@@ -1774,3 +1774,5 @@ menu	View	视图
 	Type how many: 6 spreads six in the most even grid the room's shape allows; 2x3 makes 2 rows by 3 columns.	输入数量：6 会按房间形状尽量均匀地布置六个；2x3 为 2 行 3 列。
 	A grid cell whose centre is outside the space gets nothing, so an L-shaped room is filled by its two arms.	中心在房间外的网格单元不放置设备，所以 L 形房间由两翼填充。
 	Terminals share the space's flow; units get their model's power. Edit one afterwards, or move it by its grip.	风口分摊房间的风量；机组取其型号的功率。之后可逐个编辑，或用夹点移动。
+	Check Emergency Lighting	检查应急照明
+	Circuit Legend	回路图例

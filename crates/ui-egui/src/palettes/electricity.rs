@@ -5,7 +5,7 @@
 use cadcraft_doc::{CableUsage, DeviceKind};
 use egui::{Rect, Stroke, pos2, vec2};
 
-use super::building::{charts_row, header, open_id, row_button, sections_id, separator};
+use super::building::{header, open_id, row_button, sections_id, separator};
 use super::hvachelp;
 use crate::CadApp;
 use crate::theme::Tokens;
@@ -145,7 +145,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut chosen_device: Option<DeviceKind> = None;
     let mut chosen_usage: Option<CableUsage> = None;
     let mut start: Option<&'static str> = None;
-    let (mut check, mut size, mut lighting) = (false, false, false);
+    let (mut check, mut size, mut lighting, mut emergency) = (false, false, false, false);
     let sections = std::mem::take(&mut app.ui.sections);
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -153,7 +153,6 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
             d.insert_temp(sections_id(), sections);
             d.insert_temp(open_id(), true);
         });
-        charts_row(ui, &mut start);
         let groups: [(&str, &[DeviceKind]); 4] = [
             (
                 "Sockets and controls",
@@ -209,6 +208,12 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         if row_button(ui, crate::i18n::t("Check Lighting"), false, paint_lux) {
             lighting = true;
         }
+        if row_button(ui, crate::i18n::t("Check Emergency Lighting"), false, paint_lux) {
+            emergency = true;
+        }
+        if row_button(ui, crate::i18n::t("Circuit Legend"), false, super::thumbs::paint_quantities) {
+            start = Some("circuitlegend");
+        }
         ui.add_space(6.0);
         separator(ui);
         header(ui, "Quantities");
@@ -237,6 +242,8 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         run_and_say(app, "circuitsize", serde_json::json!({}), say_circuits);
     } else if lighting {
         run_and_say(app, "lightingcheck", serde_json::json!({}), say_lighting);
+    } else if emergency {
+        run_and_say(app, "emergencycheck", serde_json::json!({}), say_emergency);
     } else if let Some(id) = start {
         app.cmd.buffer.clear();
         app.start(id);
@@ -262,6 +269,21 @@ fn say_circuits(app: &mut CadApp, r: &serde_json::Value) {
     for w in r["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()) {
         app.session.echo(w.to_string());
     }
+}
+
+/// Says where emergency lighting is missing, and that only its presence is checked.
+fn say_emergency(app: &mut CadApp, r: &serde_json::Value) {
+    let problems = r["problems"].as_u64().unwrap_or(0);
+    if r["spaces"].as_array().is_none_or(Vec::is_empty) {
+        app.session.echo(crate::tl!("No space: draw spaces to check their emergency lighting.").to_string());
+        return;
+    }
+    app.session.echo(crate::tf!("Emergency lighting: {p} space(s) to correct", p = problems));
+    for w in r["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()) {
+        app.session.echo(w.to_string());
+    }
+    app.session
+        .echo(crate::tl!("Presence only: the levels and the autonomy are those of the arrêté du 14 décembre 2011 and of NF EN 1838.").to_string());
 }
 
 /// Says each space with its illuminance against its minimum.

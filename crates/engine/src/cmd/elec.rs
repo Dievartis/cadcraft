@@ -60,6 +60,16 @@ pub fn specs() -> Vec<CommandSpec> {
              warnings, problems}: the illuminance each space gets from the luminaires drawn in it (flux × utilisation × maintenance ÷ area), against the minimum of the Code du travail, article R4223-4 (40 lux for a circulation, \
              60 for stairs and stores, 120 for a workroom, a cloakroom or a toilet; the class follows the space's name)",
         ),
+        CommandSpec::new("emergencycheck", "Check Emergency Lighting", run_emergency).menu(&["Draw", "Electricity", "Check Emergency Lighting"]).params(
+            "{} → {spaces: [{space, areaM2, occupants, emergencyLights, exitSigns, ok, warnings}], warnings, problems, note}: where emergency lighting is missing: an escape route (a space named circulation, \
+             couloir, hall, escalier…) with no emergency light or exit sign, and a room of 100 people or more, with more than one person for 10 m², with no emergency light. It checks the presence only: the levels \
+             and the autonomy are those of the arrêté du 14 décembre 2011 and of NF EN 1838, to be checked by the designer",
+        ),
+        CommandSpec::new("circuitlegend", "Circuit Legend", run_legend).menu(&["Draw", "Electricity", "Circuit Legend"]).params(
+            "{at ([x, y]: the upper left corner), title?, labelHeight? (mm)} → {handle}: a row for each circuit, a sample of its cable in its colour and line type, its name, use, cable, length, power and breaker; \
+             it is redrawn when a circuit is named, renamed, sized or restyled",
+        )
+        .interactive(|_| Ok(Box::new(LegendM { title: None, ask_title: false }))),
         CommandSpec::new("electakeoff", "Electrical Quantities", run_takeoff).menu(&["Draw", "Electricity", "Quantities"]).params(
             "{level? (the name of the floor), path? (a file to write: .xlsx for a workbook, else .csv of the circuits), prices? ({\"Cable|3G2.5\": euros per metre, \"Device|Socket\": euros each…}: adds `costing`), \
              decimal?: comma|point, ownSubstation?, diversity?} → {level, cables, devices, panels, hvac, circuits, cableLengthM, installedPowerW, costing?, path?}",
@@ -243,6 +253,7 @@ fn run_device_add(s: &mut Session, p: &Value) -> Result<Value> {
         }
         handles.push(put_device(s, &dp, at, rotation)?.hex());
     }
+    s.doc_mut()?.refresh_circuit_legends();
     Ok(json!({ "handles": handles }))
 }
 
@@ -284,6 +295,7 @@ fn run_cable_add(s: &mut Session, p: &Value) -> Result<Value> {
             handles.push(add_run(s, &params, *a, *b)?.hex());
         }
     }
+    s.doc_mut()?.refresh_circuit_legends();
     Ok(json!({ "handles": handles }))
 }
 
@@ -342,6 +354,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
     }
+    doc.refresh_circuit_legends();
     Ok(json!({ "changed": done.len() }))
 }
 
@@ -692,5 +705,74 @@ impl Interactive for AssignM {
             Err(e) => s.echo(e.to_string()),
         }
         Ok(Step::Done)
+    }
+}
+
+fn run_emergency(s: &mut Session, _p: &Value) -> Result<Value> {
+    let reports = s.doc()?.emergency_reports();
+    let warnings: Vec<String> = reports.iter().flat_map(|r| r.warnings.iter().map(|w| format!("{}: {w}", r.space))).collect();
+    Ok(json!({
+        "spaces": reports, "warnings": warnings, "problems": reports.iter().filter(|r| !r.ok).count(),
+        "note": "presence only: the levels and the autonomy are those of the arrêté du 14 décembre 2011 and of NF EN 1838",
+    }))
+}
+
+fn legend_at(s: &mut Session, at: Vec2, title: Option<&str>, label: Option<f64>) -> Result<Handle> {
+    let mut params = cadcraft_doc::CircuitLegendParams::new(HvacUnits::of(s.doc()?));
+    if let Some(t) = title {
+        params.title = t.trim().to_string();
+    }
+    if let Some(l) = label {
+        params.label_height_mm = l;
+    }
+    params.validate().map_err(doc_err)?;
+    let space = s.space();
+    let common = s.current_common();
+    s.doc_mut()?.add_circuit_legend(&space, common, &params, at).map_err(doc_err)
+}
+
+fn run_legend(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "circuitlegend";
+    let at = super::point_req(CMD, p, "at")?;
+    let h = legend_at(s, at, str_param(p, "title"), number(CMD, p, "labelHeight")?)?;
+    Ok(json!({ "handle": h.hex() }))
+}
+
+/// CIRCUITLEGEND at the command line: a click puts a legend there.
+struct LegendM {
+    title: Option<String>,
+    ask_title: bool,
+}
+
+impl Interactive for LegendM {
+    fn name(&self) -> &'static str {
+        "CIRCUITLEGEND"
+    }
+    fn prompt(&self, _s: &Session) -> Prompt {
+        if self.ask_title {
+            return Prompt::new("Enter the title of the legend", Accept::TEXT).default(self.title.clone().unwrap_or_else(|| "Circuits".into()));
+        }
+        Prompt::new("Specify the upper left corner of the legend", Accept::POINT).kw(&["Title"])
+    }
+    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
+        if self.ask_title {
+            if let Input::Text(t) | Input::Keyword(t) = &i {
+                self.title = Some(t.trim().to_string());
+            }
+            self.ask_title = false;
+            return Ok(Step::Continue);
+        }
+        match i {
+            Input::Keyword(k) if k == "Title" => {
+                self.ask_title = true;
+                Ok(Step::Continue)
+            }
+            Input::Point(at) => {
+                legend_at(s, at, self.title.as_deref(), None)?;
+                Ok(Step::Done)
+            }
+            Input::Enter | Input::Cancel => Ok(Step::Done),
+            _ => Ok(Step::Continue),
+        }
     }
 }

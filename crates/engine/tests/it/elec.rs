@@ -123,3 +123,34 @@ fn the_cable_and_the_device_are_drawn_from_the_command_line_and_their_grips_work
     let (_, a, b) = s.doc().unwrap().cable_ends(cable).unwrap();
     assert_eq!((a.x.round(), b.x.round()), (0.0, 5000.0));
 }
+
+#[test]
+fn the_circuit_legend_follows_the_circuits_and_the_emergency_check_tells_where_nothing_is_drawn() {
+    let mut s = metric();
+    s.execute("elecdeviceadd", &json!({"at": [500, 500], "kind": "socket", "circuit": "TD1-C1"})).unwrap();
+    s.execute("cableadd", &json!({"points": [[0, 0], [10000, 0]], "circuit": "TD1-C1", "section": 2.5})).unwrap();
+    let r = s.execute("circuitlegend", &json!({"at": [0, -5000], "title": "Circuits RDC"})).unwrap();
+    let h = hd(&r["handle"]);
+    let texts = |s: &Session| -> Vec<String> {
+        let d = s.doc().unwrap();
+        let cadcraft_doc::EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!("a block reference") };
+        d.block(&i.block)
+            .unwrap()
+            .entities
+            .iter()
+            .filter_map(|e| if let cadcraft_doc::EntityKind::Text(t) = &e.kind { Some(t.value.clone()) } else { None })
+            .collect()
+    };
+    assert!(texts(&s).iter().any(|t| t.starts_with("TD1-C1") && t.contains("3G2.5") && t.contains("10 m")), "{:?}", texts(&s));
+    // Renaming the circuit redraws the legend.
+    s.execute("circuitedit", &json!({"name": "TD1-C1", "rename": "TD1-P4"})).unwrap();
+    assert!(texts(&s).iter().any(|t| t.starts_with("TD1-P4")), "{:?}", texts(&s));
+    // A corridor with no emergency light is told, and one with a BAES is not.
+    s.execute("spaceadd", &json!({"points": [[0, 3000], [10000, 3000], [10000, 4500], [0, 4500]], "name": "Couloir", "flow": 100})).unwrap();
+    s.execute("spaceadd", &json!({"points": [[0, 8000], [10000, 8000], [10000, 9500], [0, 9500]], "name": "Couloir 2", "flow": 100})).unwrap();
+    s.execute("elecdeviceadd", &json!({"at": [5000, 8700], "kind": "emergencyLight"})).unwrap();
+    let e = s.execute("emergencycheck", &json!({})).unwrap();
+    assert_eq!(e["problems"], 1, "{e}");
+    assert!(e["warnings"][0].as_str().unwrap().starts_with("Couloir:"), "{e}");
+    assert!(e["note"].as_str().unwrap().contains("2011"));
+}

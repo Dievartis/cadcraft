@@ -7,6 +7,7 @@
 //! The flow rates and sizes come from [`cadcraft_hvac`]; this module only draws and stores.
 
 mod accessory;
+mod circuit_legend;
 mod crossing;
 mod distribute;
 mod duct;
@@ -37,6 +38,7 @@ mod xlsx;
 mod zone;
 
 pub use accessory::*;
+pub use circuit_legend::*;
 pub use crossing::DuctCrossing;
 pub use distribute::{Distribution, MAX_DISTRIBUTED, distribute_in_polygon};
 pub use duct::*;

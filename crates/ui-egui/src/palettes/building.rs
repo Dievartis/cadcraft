@@ -225,7 +225,7 @@ fn air_label(name: &str) -> &'static str {
 /// What the Design Charts row says, in the HVAC and Architecture tabs.
 const CHARTS_TIP: &str = "The tables and rules the sizing tools apply: refrigerant links, water pipes, drains, ducts.";
 
-/// The first row of the HVAC and Architecture tabs: the design charts window.
+/// The first row of the HVAC tab: the design charts window (also in the Help menu).
 /// The rows of the Equipment group: a row for each kind, then the distribution of indoor units.
 fn equipment_rows(
     ui: &mut egui::Ui,
@@ -262,7 +262,7 @@ fn start_distribution(app: &mut CadApp, units: bool) {
     app.cmdline("Distribute");
 }
 
-pub(super) fn charts_row(ui: &mut egui::Ui, start: &mut Option<&'static str>) {
+fn charts_row(ui: &mut egui::Ui, start: &mut Option<&'static str>) {
     if row_tip(ui, crate::i18n::t("Design Charts"), crate::i18n::t(CHARTS_TIP), None, false, thumbs::paint_quantities) {
         *start = Some("ui.charts");
     }
@@ -643,7 +643,6 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut slab_chosen: Option<cadcraft_doc::SlabKind> = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        charts_row(ui, &mut start);
         // A section opens or folds as the Options say and the user left it ([`crate::sections`]); a click on its header changes it.
         let mut section = |ui: &mut egui::Ui, title: &str, _open: bool, body: &mut dyn FnMut(&mut egui::Ui)| {
             let key = format!("Architecture/{title}");
@@ -983,5 +982,15 @@ mod tests {
         let st = h.state();
         assert_eq!(st.session.last_used.equipment.kind, cadcraft_doc::EquipmentKind::Cassette);
         assert!(st.session.prompt_text().contains("Select space"), "{}", st.session.prompt_text());
+    }
+
+    #[test]
+    fn the_design_charts_row_is_in_the_hvac_tab_only() {
+        let hvac = tab(app(SectionsMode::Open), "HVAC");
+        assert!(hvac.query_by_label("Design Charts").is_some());
+        for other in ["Architecture", "Electricity"] {
+            let t = tab(app(SectionsMode::Open), other);
+            assert!(t.query_by_label("Design Charts").is_none(), "{other}");
+        }
     }
 }

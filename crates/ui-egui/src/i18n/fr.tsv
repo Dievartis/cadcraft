@@ -1778,3 +1778,8 @@
 	A grid cell whose centre is outside the space gets nothing, so an L-shaped room is filled by its two arms.	Une case de la grille dont le centre est hors du local ne reçoit rien : un local en L est rempli par ses deux bras.
 	Terminals share the space's flow; units get their model's power. Edit one afterwards, or move it by its grip.	Les bouches se partagent le débit du local ; les unités prennent la puissance de leur modèle. Modifie-en une ensuite, ou déplace-la par sa poignée.
 	Enter number of units or rows x columns	Nombre d'unités, ou rangées x colonnes
+	Check Emergency Lighting	Contrôler l'éclairage de sécurité
+	Circuit Legend	Légende des circuits
+	No space: draw spaces to check their emergency lighting.	Aucun local : trace des locaux pour contrôler leur éclairage de sécurité.
+	Emergency lighting: {p} space(s) to correct	Éclairage de sécurité : {p} local(aux) à corriger
+	Presence only: the levels and the autonomy are those of the arrêté du 14 décembre 2011 and of NF EN 1838.	Présence seulement : les niveaux et l'autonomie sont ceux de l'arrêté du 14 décembre 2011 et de la NF EN 1838.

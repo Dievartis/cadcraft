@@ -174,6 +174,7 @@ impl crate::Drawing {
                 }
             }
         }
+        self.refresh_circuit_legends();
         Ok(self.circuit_reports(opts))
     }
 }
@@ -343,6 +344,7 @@ impl crate::Drawing {
         for (h, c) in &next {
             self.regenerate_cable(*h, c)?;
         }
+        self.refresh_circuit_legends();
         Ok(next.len())
     }
 
@@ -376,6 +378,7 @@ impl crate::Drawing {
         if !to.is_empty() && self.network_style(to).is_none() {
             self.set_network_style(to, None, None)?;
         }
+        self.refresh_circuit_legends();
         Ok(n)
     }
 
