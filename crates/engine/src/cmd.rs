@@ -25,6 +25,7 @@ pub(crate) mod groups;
 mod opening;
 mod part;
 mod pipe;
+mod pipe_riser;
 mod riser;
 mod slab;
 mod takeoff;
@@ -222,6 +223,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(duct::specs());
         v.extend(pipe::specs());
         v.extend(part::specs());
+        v.extend(pipe_riser::specs());
         v.extend(slab::specs());
         v.extend(duct_acc::specs());
         v.extend(zone::specs());

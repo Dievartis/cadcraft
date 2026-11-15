@@ -17,6 +17,7 @@ mod part;
 mod part_library;
 mod pipe;
 mod pipe_network;
+mod pipe_riser;
 mod refrigerant;
 mod riser;
 mod slab;
@@ -40,6 +41,7 @@ pub use part_library::{
 };
 pub use pipe::*;
 pub use pipe_network::{MAX_PIPES as MAX_PIPE_RUNS, PipeNetworkReport, PipeResult, PipeSizingParams};
+pub use pipe_riser::*;
 pub use refrigerant::{OutletReport, PartReport, RefrigerantNetwork, RefrigerantReport};
 pub use riser::*;
 pub use slab::*;
@@ -275,6 +277,8 @@ mod duct_tests;
 mod equipment_tests;
 #[cfg(test)]
 mod part_tests;
+#[cfg(test)]
+mod pipe_riser_tests;
 #[cfg(test)]
 mod pipe_tests;
 #[cfg(test)]

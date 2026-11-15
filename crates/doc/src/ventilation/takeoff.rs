@@ -903,6 +903,31 @@ impl crate::Drawing {
                 None => pipes.push(PipeQuantity { service: p.service, leg, size, insulation_mm: p.insulation_mm, count: 1, length_m: p.length_m() }),
             }
         }
+        // The lines of the pipe risers: a length of the riser's height for each, counted with the pipes of their size.
+        for (_, riser, _) in self.pipe_risers() {
+            let metres = riser.height_mm.map_or(0.0, |h| h / 1000.0);
+            for line in &riser.lines {
+                let p = line.pipe(riser.units);
+                let size = p.size_text();
+                match pipes
+                    .iter_mut()
+                    .find(|q| q.service == line.service && q.leg == p.leg && q.size == size && q.insulation_mm == line.insulation_mm)
+                {
+                    Some(q) => {
+                        q.count += 1;
+                        q.length_m += metres;
+                    }
+                    None => pipes.push(PipeQuantity {
+                        service: line.service,
+                        leg: p.leg,
+                        size,
+                        insulation_mm: line.insulation_mm,
+                        count: 1,
+                        length_m: metres,
+                    }),
+                }
+            }
+        }
         let rank = |s: super::PipeService| super::PipeService::ALL.iter().position(|x| *x == s).unwrap_or(0);
         pipes.sort_by(|a, b| rank(a.service).cmp(&rank(b.service)).then((a.leg as u8).cmp(&(b.leg as u8))).then(a.size.cmp(&b.size)));
         for q in &mut pipes {

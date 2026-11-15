@@ -4,8 +4,9 @@
 
 use cadcraft_doc::{
     AccessoryKind, AccessoryParams, AhuKind, AhuParams, AirDirection, Drawing, DuctKind, DuctParams, DuctShape, Handle, OpeningKind, OpeningParams,
-    PartParams, PipeParams, PipeService, RiserParams, SlabParams, SpaceParams, TerminalKind, TerminalParams, WallJustification, ZoneParams,
-    accessory_of, ahu_of, air_terminal_of, duct_of, opening_of, part_of, pipe_of, riser_of, slab_of, space_of, wall_of, zone_of,
+    PartParams, PipeParams, PipeRiserParams, PipeService, RiserParams, SlabParams, SpaceParams, TerminalKind, TerminalParams, WallJustification,
+    ZoneParams, accessory_of, ahu_of, air_terminal_of, duct_of, opening_of, part_of, pipe_of, pipe_riser_of, riser_of, slab_of, space_of, wall_of,
+    zone_of,
 };
 use cadcraft_hvac::RoomUse;
 use egui::{Sense, pos2, vec2};
@@ -79,6 +80,10 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     if !pipes.is_empty() && pipes.len() == sel.len() {
         return pipe_section(ui, sel, &pipes, len, bad);
     }
+    let pipe_risers: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| pipe_riser_of(e))).collect();
+    if !pipe_risers.is_empty() && pipe_risers.len() == sel.len() {
+        return pipe_riser_section(ui, sel, &pipe_risers, bad);
+    }
     let parts: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| part_of(e))).collect();
     if !parts.is_empty() && parts.len() == sel.len() {
         return part_section(ui, sel, &parts, &d.part_library(), bad);
@@ -88,6 +93,117 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
         return slab_section(ui, sel, &slabs, bad);
     }
     None
+}
+
+/// The line tags a pipe riser can be given.
+const RISER_TAGS: [&str; 11] = ["CHW-S", "CHW-R", "HW-S", "HW-R", "CO-S", "CO-R", "COND", "REF-L", "REF-G", "REF", "REF-HR"];
+
+/// The Properties group of pipe risers: their name, direction and height, and the lines each holds (its size, and what it carries to
+/// the other floors), with what sizing found; lines are added and removed.
+fn pipe_riser_section(ui: &mut egui::Ui, sel: &[Handle], rs: &[PipeRiserParams], bad: &mut Option<String>) -> Action {
+    let ids = handles(sel);
+    let mut action: Action = None;
+    let edit = |key: &str, value: Value| Some(("piperiseredit", json!({ "handles": ids, key: value })));
+    group(ui, "Pipe Riser");
+    let name = shared(&rs.iter().map(|r| r.name.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Name", |ui| {
+        if let Some(n) = edit_field(ui, ui.scope_id().with(("riser_name", &ids)), name).filter(|n| !n.trim().is_empty() && n != VARIES) {
+            action = edit("name", json!(n));
+        }
+    });
+    let up = shared(&rs.iter().map(|r| r.up).collect::<Vec<_>>());
+    prop_row(ui, "Direction", |ui| {
+        let shown = up.map_or(VARIES, |u| if u { "Up" } else { "Down" });
+        if let Some(k) = choice(ui, shown, &[("up", "Up"), ("down", "Down")]) {
+            action = edit("up", json!(k == "up"));
+        }
+    });
+    let height =
+        shared(&rs.iter().map(|r| r.height_mm.map_or(String::new(), |h| format!("{h}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Height (mm)", |ui| {
+        if let Some(t) = edit_field(ui, ui.scope_id().with(("riser_height", &ids)), height).filter(|t| t != VARIES) {
+            if t.trim().is_empty() {
+                action = edit("height", Value::Null);
+            } else if let Some(n) = number(Some(t), bad) {
+                action = edit("height", json!(n));
+            }
+        }
+    });
+    // The lines of one riser: their size, and what they carry to the other floors.
+    let [r] = rs else { return action };
+    for (i, line) in r.lines.iter().enumerate() {
+        let n = i + 1;
+        let pipe = line.pipe(r.units);
+        let tag = pipe.tag();
+        let line_edit = |key: &str, value: Value| Some(("piperiseredit", json!({ "handles": ids, "line": { "index": n, key: value } })));
+        // Sizes: a steel pipe in millimetres, a refrigerant tube in inches (3/8, 1 1/8) or millimetres.
+        let tubes: Vec<(&str, &str, f64)> = if line.service.is_refrigerant() {
+            let mut v = vec![("dn", "liquid", line.dn_mm)];
+            if line.service.has_gas_tube() {
+                v.push(("gas", if line.service == cadcraft_doc::PipeService::RefrigerantTriple { "suction gas" } else { "gas" }, line.gas_dn_mm));
+            }
+            if line.service == cadcraft_doc::PipeService::RefrigerantTriple {
+                v.push(("hpGas", "HP/LP gas", line.gas2_dn_mm));
+            }
+            v
+        } else {
+            vec![("dn", "size", line.dn_mm)]
+        };
+        for (key, what, value) in tubes {
+            let label = crate::tf!("Line {n} {tag}: {what}", n = n, tag = tag, what = crate::i18n::t(what));
+            let shown = if line.service.is_refrigerant() { cadcraft_doc::refrigerant_size_label(value).replace('"', "") } else { format!("{value}") };
+            prop_row(ui, &label, |ui| {
+                if let Some(t) = edit_field(ui, ui.scope_id().with(("riser_size", n, key, &ids)), shown).filter(|t| !t.trim().is_empty()) {
+                    if line.service.is_refrigerant() {
+                        if cadcraft_doc::parse_refrigerant_size(&t).is_some() {
+                            action = line_edit(key, json!(t));
+                        } else {
+                            *bad = Some(t);
+                        }
+                    } else if let Some(mm) = number(Some(t), bad) {
+                        action = line_edit(key, json!(mm));
+                    }
+                }
+            });
+        }
+        let unit = match line.service {
+            cadcraft_doc::PipeService::Condensate => "l/h",
+            s if s.is_refrigerant() => "index",
+            _ => "kW",
+        };
+        let label = crate::tf!("Line {n} {tag}: carried to the other floors ({unit})", n = n, tag = tag, unit = unit);
+        let incoming = line.incoming.map_or(String::new(), |v| format!("{v}"));
+        prop_row(ui, &label, |ui| {
+            if let Some(t) = edit_field(ui, ui.scope_id().with(("riser_incoming", n, &ids)), incoming) {
+                if t.trim().is_empty() {
+                    action = line_edit("incoming", Value::Null);
+                } else if let Some(v) = number(Some(t), bad) {
+                    action = line_edit("incoming", json!(v));
+                }
+            }
+        });
+        if let (Some(load), Some(flow)) = (line.load, line.flow_m3h) {
+            let label = crate::tf!("Line {n} {tag}: carried here", n = n, tag = tag);
+            let text = if line.service == cadcraft_doc::PipeService::Condensate {
+                format!("{load:.0} l/h")
+            } else {
+                format!("{load:.0} kW, {flow:.2} m³/h")
+            };
+            prop_row(ui, &label, |ui| read_only(ui, &text));
+        }
+    }
+    prop_row(ui, "Lines", |ui| {
+        if let Some(tag) = pick_menu(ui, crate::i18n::t("Add a line"), RISER_TAGS.iter().map(|t| (*t).to_string())) {
+            action = edit("addLines", json!([tag]));
+        }
+        let names: Vec<String> = r.lines.iter().enumerate().map(|(i, l)| format!("{} {}", i + 1, l.pipe(r.units).tag())).collect();
+        let removed =
+            pick_menu(ui, crate::i18n::t("Remove a line"), names).and_then(|c| c.split_whitespace().next().and_then(|n| n.parse::<u64>().ok()));
+        if let Some(n) = removed {
+            action = edit("removeLine", json!(n));
+        }
+    });
+    action
 }
 
 /// The Properties group of pipework parts: their tag, size, volume, power, flow and head, their outlets and their connections.
@@ -225,6 +341,7 @@ pub(crate) fn is_parametric(d: &Drawing, h: Handle) -> bool {
             || pipe_of(e).is_some()
             || slab_of(e).is_some()
             || part_of(e).is_some()
+            || pipe_riser_of(e).is_some()
             || accessory_of(e).is_some()
             || riser_of(e).is_some()
             || cadcraft_doc::equipment_of(e).is_some()
@@ -1550,6 +1667,25 @@ mod hvac_tests {
         type_into(&mut hn, &height, "420");
         let p = cadcraft_doc::part_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
         assert_eq!(p.height_mm, Some(420.0));
+    }
+
+    #[test]
+    fn a_selected_pipe_riser_shows_its_lines_and_takes_their_sizes_and_loads_typed() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        *app.session.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+        let r = app.run("piperiseradd", json!({ "points": [[0, 0], [800, 0], [800, 500], [0, 500]], "lines": ["CHW-S", "REF"] })).unwrap();
+        let h = cadcraft_doc::Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+        assert!(super::is_parametric(app.session.doc().unwrap(), h), "a double-click opens Properties");
+        app.session.set_selection(vec![h]);
+        let mut hn = palette(app);
+        // The size of the chilled-water line is typed (the user's: sizing leaves it), and what it carries.
+        type_into(&mut hn, "50", "80");
+        let p = cadcraft_doc::pipe_riser_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
+        assert_eq!((p.lines[0].dn_mm, p.lines[0].imposed), (80.0, true));
+        // The liquid tube of the link is typed in inches.
+        type_into(&mut hn, "3/8", "1/2");
+        let p = cadcraft_doc::pipe_riser_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
+        assert_eq!(p.lines[1].dn_mm, 12.7);
     }
 
     #[test]

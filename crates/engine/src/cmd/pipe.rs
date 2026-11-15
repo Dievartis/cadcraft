@@ -28,7 +28,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .interactive(|s| Ok(Box::new(PipeAddM::new(s)))),
         CommandSpec::new("pipesize", "Size Pipes", run_pipesize).menu(&["Draw", "HVAC", "Size Pipes"]).params(
             "{deltaT? ({chilledWater?, hotWater?, changeOver?}: the temperature difference of each water network, K; default 5, 20 and 5), maxVelocity? (m/s; default: by size, 0.7 to 2), \
-             maxGradient? (Pa/m, default 300), minDn? (mm, default 15), slope? (% of a condensate drain, default 1)} → {networks: [{service, leg, source, totalLoad, totalLoss (kPa from the source to the far end of the most unfavourable run, pipes and parts), critical, runs: [{handle, dn, load, flowM3h, velocity, gradient, imposed, governing, runLoss, partLoss, parts}], warnings}], warnings}: \
+             maxGradient? (Pa/m, default 300), minDn? (mm, default 15), slope? (% of a condensate drain, default 1)} → {risers: [{handle, name, lines: [{tag, dn, imposed, load, flowM3h, velocity, incoming}]}] (the lines of the pipe risers, sized for what they carry here: the load of the networks that start in the shaft and `incoming`), networks: [{service, leg, source, totalLoad, totalLoss (kPa from the source to the far end of the most unfavourable run, pipes and parts), critical, runs: [{handle, dn, load, flowM3h, velocity, gradient, imposed, governing, runLoss, partLoss, parts}], warnings}], warnings}: \
              each network starts at the run marked as its source, the loads typed at the free ends (kW; l/h for a drain) are added up towards it",
         ),
         CommandSpec::new("pipeedit", "Edit Pipe", run_pipeedit).params(
@@ -304,7 +304,21 @@ fn run_pipesize(s: &mut Session, p: &Value) -> Result<Value> {
             })
         })
         .collect();
-    Ok(json!({ "networks": networks, "warnings": warnings }))
+    // The lines of the pipe risers, sized for what they carry at this level.
+    let risers: Vec<Value> = s
+        .doc()?
+        .pipe_risers()
+        .into_iter()
+        .map(|(h, r, _)| {
+            json!({
+                "handle": h.hex(), "name": r.name,
+                "lines": r.lines.iter().map(|l| json!({
+                    "tag": l.pipe(r.units).tag(), "dn": l.dn_mm, "imposed": l.imposed, "load": l.load, "flowM3h": l.flow_m3h, "velocity": l.velocity, "incoming": l.incoming,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(json!({ "networks": networks, "risers": risers, "warnings": warnings }))
 }
 
 #[derive(Clone, Copy, PartialEq)]

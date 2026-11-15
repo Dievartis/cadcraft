@@ -1501,3 +1501,16 @@
 	Follows the refrigerant pipes from each outdoor unit through the joints, headers and branch boxes to the indoor units, counts the units and the capacity index at each outlet, and tells what is over the limits.	Suit les liaisons frigorifiques depuis chaque groupe extérieur à travers les piquages, nourrices et boîtes de détente jusqu'aux unités intérieures, compte les unités et l'indice de capacité à chaque sortie, et signale ce qui dépasse les limites.
 	No refrigerant network: draw an outdoor unit, its pipes and its indoor units.	Aucun réseau frigorifique : dessinez un groupe extérieur, ses liaisons et ses unités intérieures.
 	Refrigerant network: {units} indoor unit(s), capacity index {index}	Réseau frigorifique : {units} unité(s) intérieure(s), indice de capacité {index}
+	Pipe Riser	Colonne de tuyauterie
+	Edit Pipe Riser	Modifier la colonne de tuyauterie
+	The shaft where the pipes of a floor go up or down, with the pipes it holds (chilled water, hot water, change-over, condensate, refrigerant links). The pipes of the floor that end in the shaft, or start in it, are read through it.	La trémie où les tuyaux d'un étage montent ou descendent, avec les tuyaux qu'elle contient (eau glacée, eau chaude, change-over, condensats, liaisons frigorifiques). Les tuyaux de l'étage qui finissent dans la trémie, ou y commencent, sont lus à travers elle.
+	Add a line	Ajouter une ligne
+	Remove a line	Retirer une ligne
+	Lines	Lignes
+	Line {n} {tag}: {what}	Ligne {n} {tag} : {what}
+	Line {n} {tag}: carried to the other floors ({unit})	Ligne {n} {tag} : porté vers les autres étages ({unit})
+	Line {n} {tag}: carried here	Ligne {n} {tag} : porté ici
+	liquid	liquide
+	gas	gaz
+	suction gas	gaz d'aspiration
+	HP/LP gas	gaz HP/BP

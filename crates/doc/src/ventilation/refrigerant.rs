@@ -5,7 +5,8 @@
 
 use cadcraft_geom::Vec2;
 
-use super::{EquipmentKind, PartKind, PartParams, ahu_of, equipment_of, part_of};
+use super::pipe_riser::in_shaft;
+use super::{EquipmentKind, PartKind, PartParams, PipeRiserParams, ahu_of, equipment_of, part_of};
 use crate::{EntityKind, Handle, Result};
 
 /// How close a pipe's end is to a connection point or to a unit's outline, mm.
@@ -45,7 +46,12 @@ pub struct PartReport {
 /// The network of one outdoor unit.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RefrigerantNetwork {
+    /// The outdoor unit, or the pipe riser the network starts at when its outdoor unit is on another floor.
     pub outdoor: Handle,
+    /// The name of that riser.
+    pub source_riser: Option<String>,
+    /// The risers the network reaches (what the other floors serve is typed on their lines: it is added to the index).
+    pub risers: Vec<String>,
     pub units: usize,
     pub index: f64,
     pub parts: Vec<PartReport>,
@@ -100,6 +106,8 @@ struct Graph {
     parts: Vec<PartNode>,
     units: Vec<Unit>,
     outdoors: Vec<(Handle, Footprint)>,
+    /// The pipe risers that have a refrigerant line, with their shafts.
+    risers: Vec<(Handle, PipeRiserParams, Vec<Vec2>)>,
     tol: f64,
     mm: f64,
 }
@@ -108,14 +116,19 @@ struct Graph {
 #[derive(Default)]
 struct Below {
     units: Vec<usize>,
+    /// The capacity index the risers reached carry to the other floors.
+    extra: f64,
 }
 
 struct Walk {
     seen_runs: Vec<bool>,
     seen_parts: Vec<bool>,
     seen_units: Vec<bool>,
-    /// For each part reached: its outlets' units, and the units below it.
-    found: Vec<(usize, Vec<(usize, Vec<usize>)>, Vec<usize>)>,
+    /// For each part reached: its outlets (the units and the extra index of each), and the units and extra index below it.
+    found: Vec<(usize, Vec<(usize, Vec<usize>, f64)>, Vec<usize>, f64)>,
+    /// How many refrigerant lines of each riser a network has taken, and the risers reached in this walk.
+    riser_used: Vec<usize>,
+    reached: Vec<usize>,
     nodes: usize,
 }
 
@@ -135,6 +148,20 @@ impl Graph {
                 out.units.push(k);
             }
         }
+        // A shaft with a refrigerant line: what the other floors serve is typed on the line (the next one not taken yet).
+        for (k, (_, riser, outline)) in self.risers.iter().enumerate() {
+            if !in_shaft(outline, point, self.tol) {
+                continue;
+            }
+            let used = w.riser_used.get(k).copied().unwrap_or(usize::MAX);
+            if let Some(line) = riser.lines.iter().filter(|l| l.service.is_refrigerant()).nth(used) {
+                out.extra += line.incoming.unwrap_or(0.0);
+                if let Some(u) = w.riser_used.get_mut(k) {
+                    *u += 1;
+                }
+                w.reached.push(k);
+            }
+        }
         for (k, r) in self.runs.iter().enumerate() {
             if w.seen_runs.get(k).copied().unwrap_or(true) {
                 continue;
@@ -150,7 +177,9 @@ impl Graph {
                 *s = true;
             }
             w.nodes += 1;
-            out.units.extend(self.below(far, w, depth + 1).units);
+            let below = self.below(far, w, depth + 1);
+            out.units.extend(below.units);
+            out.extra += below.extra;
         }
         for (k, part) in self.parts.iter().enumerate() {
             if w.seen_parts.get(k).copied().unwrap_or(true) {
@@ -164,19 +193,21 @@ impl Graph {
                 *s = true;
             }
             w.nodes += 1;
-            let mut per_outlet: Vec<(usize, Vec<usize>)> = Vec::new();
-            let mut all = Vec::new();
+            let mut per_outlet: Vec<(usize, Vec<usize>, f64)> = Vec::new();
+            let (mut all, mut all_extra) = (Vec::new(), 0.0);
             for (at, outlet) in &part.ports {
                 if let Some(o) = outlet {
-                    let found = self.below(*at, w, depth + 1).units;
-                    all.extend(found.iter().copied());
-                    if !found.is_empty() {
-                        per_outlet.push((*o, found));
+                    let below = self.below(*at, w, depth + 1);
+                    all.extend(below.units.iter().copied());
+                    all_extra += below.extra;
+                    if !below.units.is_empty() || below.extra > 0.0 {
+                        per_outlet.push((*o, below.units, below.extra));
                     }
                 }
             }
             out.units.extend(all.iter().copied());
-            w.found.push((k, per_outlet, all));
+            out.extra += all_extra;
+            w.found.push((k, per_outlet, all, all_extra));
         }
         out
     }
@@ -206,7 +237,7 @@ impl crate::Drawing {
             .iter()
             .find_map(|e| self.pipe_ends(e.handle).map(|(p, ..)| p.units.mm_per_unit))
             .unwrap_or_else(|| super::HvacUnits::of(self).mm_per_unit);
-        let mut g = Graph { runs: Vec::new(), parts: Vec::new(), units: Vec::new(), outdoors: Vec::new(), tol: MEET_MM / mm, mm };
+        let mut g = Graph { runs: Vec::new(), parts: Vec::new(), units: Vec::new(), outdoors: Vec::new(), risers: Vec::new(), tol: MEET_MM / mm, mm };
         for e in self.model.iter() {
             if let Some((p, a, b)) = self.pipe_ends(e.handle).filter(|(p, ..)| p.service.is_refrigerant()) {
                 let _ = p;
@@ -246,50 +277,51 @@ impl crate::Drawing {
                 return Err(super::invalid(format!("A refrigerant network is read {MAX_NODES} objects at a time at most.")));
             }
         }
-        let mut seen_runs = vec![false; g.runs.len()];
-        let mut seen_parts = vec![false; g.parts.len()];
-        let mut seen_units = vec![false; g.units.len()];
+        g.risers = self.pipe_risers().into_iter().filter(|(_, r, _)| r.lines.iter().any(|l| l.service.is_refrigerant())).collect();
+        let mut walk = Walk {
+            seen_runs: vec![false; g.runs.len()],
+            seen_parts: vec![false; g.parts.len()],
+            seen_units: vec![false; g.units.len()],
+            found: Vec::new(),
+            riser_used: vec![0; g.risers.len()],
+            reached: Vec::new(),
+            nodes: 0,
+        };
         let mut networks = Vec::new();
         for (outdoor, foot) in &g.outdoors {
-            let mut w = Walk {
-                seen_runs: std::mem::take(&mut seen_runs),
-                seen_parts: std::mem::take(&mut seen_parts),
-                seen_units: std::mem::take(&mut seen_units),
-                found: Vec::new(),
-                nodes: 0,
-            };
-            let mut units: Vec<usize> = Vec::new();
             // The pipes that start on the outdoor unit, and the parts put right against it.
-            let starts: Vec<Vec2> = g.runs.iter().flat_map(|r| [r.a, r.b]).filter(|p| foot.holds(*p, g.tol)).collect();
-            let near_parts: Vec<Vec2> = g
-                .parts
-                .iter()
-                .flat_map(|p| p.ports.iter().filter(|(_, o)| o.is_none()).map(|(at, _)| *at))
-                .filter(|p| foot.holds(*p, g.tol))
-                .collect();
-            for start in starts.iter().chain(near_parts.iter()) {
-                units.extend(g.below_from_run_end(*start, &mut w));
-            }
-            let index: f64 = units.iter().filter_map(|k| g.units.get(*k)).fold(0.0, |a, u| a + u.index);
-            let mut warnings = Vec::new();
-            let mut parts = Vec::new();
-            for (k, per_outlet, all) in &w.found {
-                let Some(node) = g.parts.get(*k) else { continue };
-                parts.push(g.report_part(node, per_outlet, all, &mut warnings));
-            }
-            if starts.is_empty() && near_parts.is_empty() {
-                warnings.push("no refrigerant pipe starts at this outdoor unit".to_string());
-            } else if units.is_empty() {
-                warnings.push("no indoor unit is reached from this outdoor unit".to_string());
-            }
-            networks.push(RefrigerantNetwork { outdoor: *outdoor, units: units.len(), index, parts, warnings });
-            seen_runs = w.seen_runs;
-            seen_parts = w.seen_parts;
-            seen_units = w.seen_units;
+            let mut starts: Vec<Vec2> = g.runs.iter().flat_map(|r| [r.a, r.b]).filter(|p| foot.holds(*p, g.tol)).collect();
+            starts.extend(
+                g.parts.iter().flat_map(|p| p.ports.iter().filter(|(_, o)| o.is_none()).map(|(at, _)| *at)).filter(|p| foot.holds(*p, g.tol)),
+            );
+            networks.push(g.network(*outdoor, None, &starts, &mut walk));
         }
-        let unconnected: Vec<Handle> = g.units.iter().zip(&seen_units).filter(|(_, s)| !**s).map(|(u, _)| u.handle).collect();
+        // A riser that no outdoor unit reaches is where a network starts: its outdoor unit is on another floor.
+        for k in 0..g.risers.len() {
+            if walk.riser_used.get(k).copied().unwrap_or(1) > 0 {
+                continue;
+            }
+            let Some((handle, riser, outline)) = g.risers.get(k) else { continue };
+            let starts: Vec<Vec2> = g
+                .runs
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !walk.seen_runs.get(*i).copied().unwrap_or(true))
+                .flat_map(|(_, r)| [r.a, r.b])
+                .filter(|p| in_shaft(outline, *p, g.tol))
+                .collect();
+            if starts.is_empty() {
+                continue;
+            }
+            // It is where the network starts, not a place it ends.
+            if let Some(u) = walk.riser_used.get_mut(k) {
+                *u = riser.lines.len();
+            }
+            networks.push(g.network(*handle, Some(riser.name.clone()), &starts, &mut walk));
+        }
+        let unconnected: Vec<Handle> = g.units.iter().zip(&walk.seen_units).filter(|(_, s)| !**s).map(|(u, _)| u.handle).collect();
         let mut warnings = Vec::new();
-        if !unconnected.is_empty() && !g.outdoors.is_empty() {
+        if !unconnected.is_empty() && !networks.is_empty() {
             warnings.push(format!("{} indoor unit(s) are reached from no outdoor unit", unconnected.len()));
         }
         Ok(RefrigerantReport { networks, unconnected, warnings })
@@ -297,17 +329,47 @@ impl crate::Drawing {
 }
 
 impl Graph {
-    /// The units below an end of a pipe that starts on the outdoor unit: the pipe is followed from its far end.
-    fn below_from_run_end(&self, point: Vec2, w: &mut Walk) -> Vec<usize> {
-        // `point` is the end on the outdoor unit; the walk takes the pipe that has an end there.
-        self.below(point, w, 0).units
+    /// The network that starts at `starts` (the ends of the pipes on the outdoor unit or in the shaft of a riser).
+    fn network(&self, outdoor: Handle, source_riser: Option<String>, starts: &[Vec2], w: &mut Walk) -> RefrigerantNetwork {
+        w.found.clear();
+        w.reached.clear();
+        let mut units: Vec<usize> = Vec::new();
+        let mut extra = 0.0;
+        for start in starts {
+            let below = self.below(*start, w, 0);
+            units.extend(below.units);
+            extra += below.extra;
+        }
+        let index = units.iter().filter_map(|k| self.units.get(*k)).fold(0.0, |a, u| a + u.index) + extra;
+        let mut warnings = Vec::new();
+        let mut parts = Vec::new();
+        for (k, per_outlet, all, all_extra) in &w.found {
+            let Some(node) = self.parts.get(*k) else { continue };
+            parts.push(self.report_part(node, per_outlet, all, *all_extra, &mut warnings));
+        }
+        if starts.is_empty() {
+            warnings.push("no refrigerant pipe starts at this outdoor unit".to_string());
+        } else if units.is_empty() && extra <= 0.0 {
+            warnings.push("no indoor unit is reached from here".to_string());
+        }
+        let mut risers: Vec<String> = w.reached.iter().filter_map(|k| self.risers.get(*k)).map(|(_, r, _)| r.name.clone()).collect();
+        risers.sort();
+        risers.dedup();
+        RefrigerantNetwork { outdoor, source_riser, risers, units: units.len(), index, parts, warnings }
     }
 
-    fn report_part(&self, node: &PartNode, per_outlet: &[(usize, Vec<usize>)], all: &[usize], warnings: &mut Vec<String>) -> PartReport {
+    fn report_part(
+        &self,
+        node: &PartNode,
+        per_outlet: &[(usize, Vec<usize>, f64)],
+        all: &[usize],
+        all_extra: f64,
+        warnings: &mut Vec<String>,
+    ) -> PartReport {
         let index_of = |list: &[usize]| list.iter().filter_map(|k| self.units.get(*k)).fold(0.0, |a, u| a + u.index);
-        let index = index_of(all);
+        let index = index_of(all) + all_extra;
         let outlets: Vec<OutletReport> =
-            per_outlet.iter().map(|(o, list)| OutletReport { outlet: *o, units: list.len(), index: index_of(list) }).collect();
+            per_outlet.iter().map(|(o, list, extra)| OutletReport { outlet: *o, units: list.len(), index: index_of(list) + extra }).collect();
         let at = node.ports.first().map_or(Vec2::ZERO, |p| p.0);
         let place = format!("({:.0}, {:.0})", at.x * self.mm / 1000.0, at.y * self.mm / 1000.0);
         let kind = node.params.kind;

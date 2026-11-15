@@ -287,6 +287,19 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
                 chosen_pipe = Some((service, leg));
             }
         }
+        if row_tip(
+            ui,
+            crate::i18n::t("Pipe Riser"),
+            crate::i18n::t("The shaft where the pipes of a floor go up or down, with the pipes it holds (chilled water, hot water, change-over, condensate, refrigerant links). The pipes of the floor that end in the shaft, or start in it, are read through it."),
+            None,
+            false,
+            thumbs::paint_pipe_riser,
+        ) {
+            start = Some("piperiseradd");
+        }
+        if row_button(ui, crate::i18n::t("Edit Pipe Riser"), false, thumbs::paint_edit_pipe_riser) {
+            start = Some("piperiseredit");
+        }
         if row_button(ui, crate::i18n::t("Edit Pipe"), false, thumbs::paint_edit_pipe) {
             start = Some("pipeedit");
         }

@@ -594,3 +594,24 @@ pub(super) fn paint_check_refrigerant(p: &Painter, r: Rect) {
     t.l((9.0, 12.0), (15.0, 18.0), t.base);
     t.poly(&[(14.0, 13.0), (17.0, 16.0), (22.0, 9.0)], false, t.acc);
 }
+
+/// A shaft with the pipes that go through it, in the colours of their services: Pipe Riser.
+pub(super) fn paint_pipe_riser(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.rect(3.0, 4.0, 18.0, 16.0, t.base);
+    let colour = |service: PipeService, leg: PipeLeg| pipe_color(cadcraft_doc::pipe_layer_of(service, leg), t.acc);
+    t.circle(8.0, 9.0, 2.2, colour(PipeService::ChilledWater, PipeLeg::Supply));
+    t.circle(16.0, 9.0, 2.2, colour(PipeService::ChilledWater, PipeLeg::Return));
+    t.circle(8.0, 15.5, 2.2, colour(PipeService::HotWater, PipeLeg::Supply));
+    t.circle(16.0, 15.5, 2.2, colour(PipeService::RefrigerantLiquid, PipeLeg::Supply));
+    t.dot(12.0, 12.0);
+}
+
+/// A shaft with a pencil: Edit Pipe Riser.
+pub(super) fn paint_edit_pipe_riser(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.rect(2.0, 6.0, 13.0, 11.0, t.base);
+    t.circle(6.0, 11.5, 2.0, t.acc);
+    t.circle(11.0, 11.5, 2.0, t.acc);
+    t.pencil();
+}

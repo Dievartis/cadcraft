@@ -29,7 +29,7 @@ pub fn specs() -> Vec<CommandSpec> {
              loses in a network, the first given in that order, else the kind's indicative one; connections?, height? (mm or null), length? | width? (mm: L along the pipe, P across); model? a model of the library: the part takes its size, outlets and connections (its tag and its pipe size stay)} → {changed}",
         ),
         CommandSpec::new("refrigerantcheck", "Check Refrigerant", run_check).menu(&["Draw", "HVAC", "Check Refrigerant"]).params(
-            "{} → {networks: [{outdoor, units, index, parts: [{handle, kind, model, units, index, outlets: [{outlet, units, index}], recommended?}], warnings}], unconnected, warnings}: \
+            "{} → {networks: [{outdoor (an outdoor unit, or the pipe riser the network starts at when its outdoor unit is on another floor), sourceRiser?, risers (the pipe risers it reaches: what the other floors serve is typed on their lines and added to the index), units, index, parts: [{handle, kind, model, units, index, outlets: [{outlet, units, index}], recommended?}], warnings}], unconnected, warnings}: \
              from each outdoor unit the refrigerant pipes, joints, headers and branch boxes are followed to the indoor units (and the air handling units with a \
              direct-expansion coil); the units and the capacity index (cooling kW × 10) are counted at each outlet and below each joint or header, and what is over the \
              limits is told (5 units and index 140 per outlet of a box, 250 joining two; the joint or header suited to the index below it)",
@@ -341,7 +341,7 @@ fn run_check(s: &mut Session, _p: &Value) -> Result<Value> {
         .iter()
         .map(|n| {
             json!({
-                "outdoor": n.outdoor.hex(), "units": n.units, "index": n.index, "warnings": n.warnings,
+                "outdoor": n.outdoor.hex(), "sourceRiser": n.source_riser, "risers": n.risers, "units": n.units, "index": n.index, "warnings": n.warnings,
                 "parts": n.parts.iter().map(|x| json!({
                     "handle": x.handle.hex(), "kind": x.kind.name(), "model": x.model, "units": x.units, "index": x.index, "recommended": x.recommended,
                     "outlets": x.outlets.iter().map(|o| json!({ "outlet": o.outlet + 1, "units": o.units, "index": o.index })).collect::<Vec<_>>(),

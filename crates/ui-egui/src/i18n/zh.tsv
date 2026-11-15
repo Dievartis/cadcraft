@@ -1647,3 +1647,18 @@ menu	View	视图
 	Follows the refrigerant pipes from each outdoor unit through the joints, headers and branch boxes to the indoor units, counts the units and the capacity index at each outlet, and tells what is over the limits.	从每台室外机沿制冷剂管路经分支、集管和分支箱追踪到室内机，统计每个出口的机组数和能力指数，并指出超限之处。
 	No refrigerant network: draw an outdoor unit, its pipes and its indoor units.	没有制冷剂系统：请绘制室外机、管路和室内机。
 	Refrigerant network: {units} indoor unit(s), capacity index {index}	制冷剂系统：{units} 台室内机，能力指数 {index}
+	Pipe Riser	管道立管
+	Edit Pipe Riser	编辑管道立管
+	The shaft where the pipes of a floor go up or down, with the pipes it holds (chilled water, hot water, change-over, condensate, refrigerant links). The pipes of the floor that end in the shaft, or start in it, are read through it.	楼层管道上下穿越的管井及其所含管道（冷冻水、热水、冷热切换、冷凝水、制冷剂连接管）。该层终止或起始于管井的管道将穿过它被读取。
+	Direction	方向
+	Add a line	添加管线
+	Remove a line	移除管线
+	Lines	管线
+	Line {n} {tag}: {what}	管线 {n} {tag}：{what}
+	Line {n} {tag}: carried to the other floors ({unit})	管线 {n} {tag}：输送至其他楼层 ({unit})
+	Line {n} {tag}: carried here	管线 {n} {tag}：本层承载
+	size	管径
+	liquid	液管
+	gas	气管
+	suction gas	吸气管
+	HP/LP gas	高/低压气管

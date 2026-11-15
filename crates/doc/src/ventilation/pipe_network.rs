@@ -5,7 +5,8 @@
 use cadcraft_geom::Vec2;
 use cadcraft_hvac::{PipeCriteria, PipeGoverning, WaterTemperature, check_water_pipe, size_condensate_drain, size_water_pipe, water_flow_m3h};
 
-use super::{EquipmentKind, PipeLeg, PipeParams, PipeService, ahu_of, equipment_of, invalid, part_of};
+use super::pipe_riser::in_shaft;
+use super::{EquipmentKind, PipeLeg, PipeParams, PipeRiserParams, PipeService, ahu_of, equipment_of, invalid, part_of};
 use crate::{EntityKind, Handle, Result};
 
 /// How close two ends are to be one point, mm; and, as a share of the wider pipe, how close to its axis.
@@ -117,6 +118,21 @@ struct Node {
     via: Vec<usize>,
 }
 
+/// A pipe riser of the drawing with its shaft.
+type RiserShaft = (Handle, PipeRiserParams, Vec<Vec2>);
+
+/// What a pipe of the network of `params` finds at `at` in a shaft: the line of a riser that is its network.
+fn riser_line_at<'a>(risers: &'a [RiserShaft], params: &PipeParams, at: Vec2) -> Option<&'a super::RiserLine> {
+    let margin = params.units.to_units(MEET_MM);
+    let (service, leg) = group(params);
+    risers.iter().filter(|(_, _, outline)| in_shaft(outline, at, margin)).find_map(|(_, r, _)| r.line_for(service, leg))
+}
+
+/// What the line a pipe ends on carries to the other floors, when it was typed.
+fn riser_incoming(risers: &[RiserShaft], params: &PipeParams, at: Vec2) -> Option<f64> {
+    riser_line_at(risers, params, at).and_then(|l| l.incoming).filter(|v| *v > 0.0)
+}
+
 fn group(p: &PipeParams) -> (PipeService, PipeLeg) {
     (p.service, if p.service.has_legs() { p.leg } else { PipeLeg::Supply })
 }
@@ -137,17 +153,20 @@ impl crate::Drawing {
         }
         let equipment = self.equipment_footprints();
         let bridges = self.part_bridges();
+        let risers = self.pipe_risers();
         let mut taken = vec![false; runs.len()];
         let mut reports = Vec::new();
         let mut writes: Vec<(Handle, PipeParams)> = Vec::new();
         for (i, root) in runs.iter().enumerate() {
             let from_chiller =
                 root.params.service.has_legs() && equipment.iter().any(|q| q.chiller && q.holds(root.a, root.params.units.to_units(MEET_MM)));
-            if !(root.params.source || from_chiller) || taken.get(i).copied().unwrap_or(true) {
+            // A run that starts in a shaft whose riser has a line of its network takes the riser as its source.
+            let from_riser = !root.params.service.is_refrigerant() && riser_line_at(&risers, &root.params, root.a).is_some();
+            if !(root.params.source || from_chiller || from_riser) || taken.get(i).copied().unwrap_or(true) {
                 continue;
             }
             let nodes = read_tree(&runs, &mut taken, i, &bridges);
-            let (report, changed) = size_tree(&runs, &nodes, &equipment, &bridges, sizing)?;
+            let (report, changed) = size_tree(&runs, &nodes, &equipment, &bridges, &risers, sizing)?;
             writes.extend(changed);
             reports.push(report);
         }
@@ -165,6 +184,7 @@ impl crate::Drawing {
         for (h, p) in writes {
             self.regenerate_pipe(h, &p)?;
         }
+        self.size_riser_lines(&runs, &reports, &risers, sizing)?;
         Ok((reports, warnings))
     }
 }
@@ -226,6 +246,7 @@ fn size_tree(
     nodes: &[Node],
     equipment: &[Equip],
     bridges: &[Equip],
+    risers: &[RiserShaft],
     sizing: &PipeSizingParams,
 ) -> Result<(PipeNetworkReport, Vec<(Handle, PipeParams)>)> {
     let mut warnings: Vec<String> = Vec::new();
@@ -242,7 +263,14 @@ fn size_tree(
                 .load_kw
                 .or_else(|| {
                     let margin = r.params.units.to_units(MEET_MM);
-                    leaf.then(|| equipment.iter().filter(|q| q.holds(far, margin)).find_map(|q| q.power(r.params.service))).flatten()
+                    leaf.then(|| {
+                        equipment
+                            .iter()
+                            .filter(|q| q.holds(far, margin))
+                            .find_map(|q| q.power(r.params.service))
+                            .or_else(|| riser_incoming(risers, &r.params, far))
+                    })
+                    .flatten()
                 })
                 .unwrap_or(0.0)
         })
@@ -396,5 +424,61 @@ impl crate::Drawing {
             }
         }
         out
+    }
+}
+
+impl crate::Drawing {
+    /// Sizes the lines of the pipe risers for what they carry at this level: what the line carries to the other floors, as typed, and
+    /// the load of the networks of this floor that start in its shaft. A size typed is checked, not changed.
+    fn size_riser_lines(&mut self, runs: &[Run], reports: &[PipeNetworkReport], risers: &[RiserShaft], sizing: &PipeSizingParams) -> Result<()> {
+        for (h, riser, outline) in risers {
+            let mut next = riser.clone();
+            let margin = riser.units.to_units(MEET_MM);
+            for line in &mut next.lines {
+                let from_floor: f64 = reports
+                    .iter()
+                    .filter(|r| r.service == line.service && (!line.service.has_legs() || r.leg == line.leg))
+                    .filter(|r| runs.iter().find(|x| x.handle == r.source).is_some_and(|x| in_shaft(outline, x.a, margin)))
+                    .map(|r| r.total_load)
+                    .sum();
+                let carried = line.incoming.unwrap_or(0.0) + from_floor;
+                match size_line(line, carried, sizing)? {
+                    Some((flow, size)) => {
+                        if !line.imposed {
+                            line.dn_mm = size.dn_mm;
+                        }
+                        (line.load, line.flow_m3h, line.velocity) = (Some(carried), Some(flow), Some(size.velocity_ms));
+                    }
+                    None => (line.load, line.flow_m3h, line.velocity) = (None, None, None),
+                }
+            }
+            if next != *riser {
+                self.regenerate_pipe_riser(*h, &next)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The flow and the size of a riser line that carries `load` (kW; l/h for a drain); none for refrigerant and for a line that carries nothing.
+fn size_line(line: &super::RiserLine, load: f64, sizing: &PipeSizingParams) -> Result<Option<(f64, cadcraft_hvac::PipeSizing)>> {
+    if load <= 0.0 || line.service.is_refrigerant() {
+        return Ok(None);
+    }
+    let water = match line.service {
+        PipeService::ChilledWater => Some((WaterTemperature::Cold, sizing.delta_t_chilled)),
+        PipeService::HotWater => Some((WaterTemperature::Hot, sizing.delta_t_hot)),
+        PipeService::ChangeOver => Some((WaterTemperature::Mixed, sizing.delta_t_change_over)),
+        _ => None,
+    };
+    match water {
+        Some((temp, dt)) => {
+            let flow = water_flow_m3h(load, dt).map_err(|e| invalid(e.to_string()))?;
+            let size =
+                if line.imposed { check_water_pipe(flow, line.dn_mm, temp, &sizing.criteria) } else { size_water_pipe(flow, temp, &sizing.criteria) }
+                    .map_err(|e| invalid(e.to_string()))?;
+            Ok(Some((flow, size)))
+        }
+        None => Ok(Some((load / 1000.0, size_condensate_drain(load, sizing.drain_slope_percent).map_err(|e| invalid(e.to_string()))?))),
     }
 }

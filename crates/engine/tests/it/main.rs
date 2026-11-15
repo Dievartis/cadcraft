@@ -129,6 +129,7 @@ mod pedit_splinedit;
 mod pick_text;
 mod pickdrag;
 mod pipe;
+mod pipe_riser;
 mod pline_arc_xline_options;
 mod plot_styles;
 mod point_modifiers;

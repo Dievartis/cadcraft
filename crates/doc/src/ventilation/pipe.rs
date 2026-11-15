@@ -372,7 +372,7 @@ impl PipeParams {
 
     /// The tubes of a refrigerant link, from one side to the other: the layer and the width with the insulation, mm.
     /// Empty for a pipe that is a single run.
-    fn tubes(&self) -> Vec<(&'static str, f64)> {
+    pub(super) fn tubes(&self) -> Vec<(&'static str, f64)> {
         let w = |dn: f64| dn + 2.0 * self.insulation_mm;
         match self.service {
             PipeService::RefrigerantPair => vec![(PIPE_REFRIGERANT_LIQUID_LAYER, w(self.dn_mm)), (PIPE_REFRIGERANT_GAS_LAYER, w(self.gas_dn_mm))],
@@ -493,6 +493,24 @@ impl PipeParams {
         let p: PipeParams = xdata::from_xdata(PIPE_APP, PIPE_FORMAT, tags)?;
         p.validate().is_ok().then_some(p)
     }
+}
+
+/// The service and leg a short tag stands for ("CHW-S", "HW-R", "CO-S", "COND", "REF-L", "REF-G", "REF", "REF-HR"; hyphen and case do
+/// not matter), the tags the plan writes on the pipes.
+pub fn pipe_tag_parse(text: &str) -> Option<(PipeService, PipeLeg)> {
+    let key = |t: &str| t.chars().filter(char::is_ascii_alphanumeric).collect::<String>().to_ascii_uppercase();
+    let wanted = key(text);
+    for service in PipeService::ALL {
+        for leg in [PipeLeg::Supply, PipeLeg::Return] {
+            if !service.has_legs() && leg == PipeLeg::Return {
+                continue;
+            }
+            if key(PipeParams { leg, ..PipeParams::new(service, 50.0, HvacUnits::default()) }.tag()) == wanted {
+                return Some((service, leg));
+            }
+        }
+    }
+    None
 }
 
 /// The layer of a pipe of `service` and `leg`.
