@@ -31,6 +31,9 @@ pub fn specs() -> Vec<CommandSpec> {
              maxGradient? (Pa/m, default 300), minDn? (mm, default 15), slope? (% of a condensate drain, default 1)} → {risers: [{handle, name, lines: [{tag, dn, imposed, load, flowM3h, velocity, incoming}]}] (the lines of the pipe risers, sized for what they carry here: the load of the networks that start in the shaft and `incoming`), networks: [{service, leg, source, totalLoad, totalLoss (kPa from the source to the far end of the most unfavourable run, pipes and parts), critical, runs: [{handle, dn, load, flowM3h, velocity, gradient, imposed, governing, runLoss, partLoss, parts}], warnings}], warnings}: \
              each network starts at the run marked as its source, the loads typed at the free ends (kW; l/h for a drain) are added up towards it",
         ),
+        CommandSpec::new("pipefittings", "Pipe Fittings", run_pipefittings).menu(&["Draw", "HVAC", "Pipe Fittings"]).params(
+            "{} → {fittings: [{kind, name, at: [x, y], service, leg, size, pipes: [handle]}], counts: {name: n}}: the elbows, tees, crosses, reducers and crossovers read from where the pipes meet and cross",
+        ),
         CommandSpec::new("pipeedit", "Edit Pipe", run_pipeedit).params(
             "{handle | handles, service?, leg?, dn? (mm, inches for a refrigerant tube, or auto: sizing chooses the size), gas? (mm or inches: the gas tube of a link), hpGas? (the high/low-pressure gas tube of a heat-recovery link), insulation? (mm), altitude? (m or null), load? (kW, l/h for a condensate drain, or null), \
              source? (true or false), network? (a name: it is the name of the whole network of each pipe)} → {changed}",
@@ -549,4 +552,24 @@ impl Interactive for PipeAddM {
         let rotation = (c - last).angle();
         p.generate(false).map(|pieces| cadcraft_doc::preview_entities(pieces, last, rotation)).unwrap_or_default()
     }
+}
+
+/// PIPEFITTINGS: what the pipes of the drawing need where they meet and cross, as a list and as counts.
+fn run_pipefittings(s: &mut Session, _p: &Value) -> Result<Value> {
+    let fittings = s.doc()?.pipe_fittings();
+    let mut counts = serde_json::Map::new();
+    for f in &fittings {
+        let n = counts.get(f.kind.name()).and_then(Value::as_u64).unwrap_or(0);
+        counts.insert(f.kind.name().into(), json!(n + 1));
+    }
+    let list: Vec<Value> = fittings
+        .iter()
+        .map(|f| {
+            json!({
+                "kind": format!("{:?}", f.kind), "name": f.kind.name(), "at": [f.at.x, f.at.y], "service": f.service.name(),
+                "leg": f.leg.name(), "size": f.size, "pipes": f.pipes.iter().map(|h| h.hex()).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(json!({ "fittings": list, "counts": counts }))
 }

@@ -384,6 +384,27 @@ impl crate::Drawing {
             .collect()
     }
 
+    /// The refrigerant branch parts (Y joints, headers, branch boxes) as footprints: the tubes that end in one are one circuit, though the part is not in the line of a
+    /// pipe.
+    pub(super) fn branch_outlines(&self) -> Vec<Equip> {
+        self.model
+            .iter()
+            .filter_map(|e| {
+                let p = part_of(e).filter(|p| p.kind.is_refrigerant() && !p.kind.is_inline())?;
+                let EntityKind::Insert(i) = &e.kind else { return None };
+                Some(Equip {
+                    centre: Vec2::new(i.insert.x, i.insert.y),
+                    rotation: i.rotation,
+                    half_length: p.units.to_units(p.length_mm) * i.scale.x.abs() / 2.0,
+                    half_width: p.units.to_units(p.width_mm) * i.scale.y.abs() / 2.0,
+                    chiller: false,
+                    loads: Vec::new(),
+                    part: Some((e.handle, p)),
+                })
+            })
+            .collect()
+    }
+
     /// The equipment and air handling units of model space with their footprints and powers.
     pub(super) fn equipment_footprints(&self) -> Vec<Equip> {
         let mut out = Vec::new();

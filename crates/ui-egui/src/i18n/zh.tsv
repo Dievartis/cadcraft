@@ -1749,3 +1749,12 @@ menu	View	视图
 	Label	名称
 	Quantity	数量
 	Unit price	单价
+	Pipe Fittings	管件
+	Pipe elbow 90°	管道弯头 90°
+	Pipe elbow 45°	管道弯头 45°
+	Pipe elbow, other angle	管道弯头（其他角度）
+	Pipe tee	管道三通
+	Pipe cross	管道四通
+	Pipe junction, 5 or more	五通及以上
+	Pipe reducer	管道异径接头
+	Pipe crossover	管道交叉

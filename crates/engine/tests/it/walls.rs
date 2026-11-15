@@ -945,3 +945,30 @@ fn cornerwindow_puts_a_window_on_each_of_the_two_walls_that_meet_at_the_corner()
     assert!(s.execute("cornerwindow", &json!({})).is_err());
     assert_eq!(openings(&s).len(), 2);
 }
+
+#[test]
+fn stretching_the_end_of_a_wall_onto_another_lengthens_it_and_joins_them() {
+    let mut s = metric();
+    let a = h(&s.execute("walladd", &json!({"points": [[0, 0], [4000, 0]], "style": BRICK})).unwrap());
+    let b = h(&s.execute("walladd", &json!({"points": [[2000, 2000], [2000, 5000]], "style": PARTITION})).unwrap());
+    assert!(!joined(&s, b));
+    // The lower end of the partition is stretched down onto the long wall.
+    s.execute("stretch", &json!({"window": [[1500, 1500], [2500, 2500]], "delta": [0, -2000]})).unwrap();
+    let w = wall(&s, b);
+    let ys: Vec<f64> = w.path.iter().map(|p| p.y).collect();
+    assert!(ys.contains(&0.0) && ys.contains(&5000.0), "the partition is longer, not moved: {ys:?}");
+    assert!(joined(&s, a) && joined(&s, b), "the stretched wall meets the other at once");
+}
+
+#[test]
+fn stretching_a_whole_wall_moves_it_and_stretching_into_a_point_is_refused_without_panic() {
+    let mut s = metric();
+    let a = h(&s.execute("walladd", &json!({"points": [[0, 0], [4000, 0]], "style": BRICK})).unwrap());
+    // Both ends in the window: the wall moves, same length.
+    s.execute("stretch", &json!({"window": [[-500, -500], [4500, 500]], "delta": [0, 1000]})).unwrap();
+    let w = wall(&s, a);
+    assert_eq!((w.path.len(), (w.path[1] - w.path[0]).len()), (2, 4000.0));
+    // One end dragged onto the other would leave a wall of no length: refused, the wall stays.
+    assert!(s.execute("stretch", &json!({"window": [[3500, 500], [4500, 1500]], "delta": [-4000, 0]})).is_err());
+    assert_eq!((wall(&s, a).path[1] - wall(&s, a).path[0]).len(), 4000.0);
+}

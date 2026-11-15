@@ -296,6 +296,9 @@ impl crate::Drawing {
                 }
             }
         }
+        for f in self.pipe_fittings() {
+            add_count(&mut t.fittings, f.kind.name(), &f.size, None);
+        }
         t.fittings.sort_by(|a, b| a.name.cmp(&b.name).then(a.size.cmp(&b.size)));
         // The rest, object by object.
         let mut terminals: Vec<(Vec2, AirDirection, f64, String)> = Vec::new();

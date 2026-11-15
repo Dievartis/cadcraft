@@ -422,3 +422,35 @@ fn the_takeoff_counts_the_insulation_surface_and_prices_the_lines() {
     assert_eq!(c.total, 10.0 * 3.0 + 5.0 * 0.88);
     assert_eq!(c.unpriced, 1, "the hot water pipe has no price");
 }
+
+#[test]
+fn the_fittings_are_read_from_where_pipes_meet_and_cross() {
+    use crate::PipeFittingKind::{Cross, Crossover, Elbow45, Elbow90, Reducer, Tee};
+    let mut d = Drawing::new_metric();
+    let (s, c) = (PipeLeg::Supply, PipeService::ChilledWater);
+    // An elbow at 90°, then a 45° one, then a tee on the run, a reducer in line, and a pipe of another service crossing.
+    add(&mut d, c, s, (0.0, 0.0), (3000.0, 0.0), None, true);
+    add(&mut d, c, s, (3000.0, 0.0), (3000.0, 3000.0), None, false);
+    add(&mut d, c, s, (3000.0, 3000.0), (5000.0, 5000.0), None, false);
+    add(&mut d, c, s, (1500.0, 0.0), (1500.0, -2000.0), None, false);
+    let big = PipeParams { dn_mm: 50.0, ..PipeParams::new(c, 50.0, HvacUnits { mm_per_unit: 1.0 }) };
+    d.add_pipe(&Space::Model, Common::default(), big, cadcraft_geom::Vec2::new(5000.0, 5000.0), cadcraft_geom::Vec2::new(7000.0, 7000.0)).unwrap();
+    add(&mut d, PipeService::HotWater, s, (-500.0, -1000.0), (-500.0, 1000.0), None, true);
+    add(&mut d, PipeService::Condensate, s, (-1000.0, 0.0), (500.0, 0.0), None, true);
+    let kinds = |d: &Drawing| {
+        let mut k: Vec<_> = d.pipe_fittings().into_iter().map(|f| f.kind).collect();
+        k.sort_by_key(|k| *k as u8);
+        k
+    };
+    assert_eq!(kinds(&d), vec![Elbow90, Elbow45, Tee, Reducer, Crossover]);
+    // Four pipes on a point make a cross.
+    let mut x = Drawing::new_metric();
+    for (a, b) in [((0.0, 0.0), (1000.0, 0.0)), ((0.0, 0.0), (-1000.0, 0.0)), ((0.0, 0.0), (0.0, 1000.0)), ((0.0, 0.0), (0.0, -1000.0))] {
+        add(&mut x, c, s, a, b, None, false);
+    }
+    assert_eq!(kinds(&x), vec![Cross]);
+    // The takeoff counts them with the size of the largest pipe.
+    let t = d.takeoff("").unwrap();
+    assert!(t.fittings.iter().any(|f| f.name == "Pipe elbow 90°" && f.count == 1), "{:?}", t.fittings);
+    assert!(t.fittings.iter().any(|f| f.name == "Pipe reducer" && f.size.contains('→')));
+}

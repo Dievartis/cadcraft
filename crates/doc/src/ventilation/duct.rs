@@ -1378,7 +1378,7 @@ impl crate::Drawing {
         Some((p, a, b))
     }
 
-    /// The grips of an object: those of a duct run are its two ends and its middle (0 and 2 stretch
+    /// The grips of an object: those of a duct or pipe run are its two ends and its middle (0 and 2 stretch
     /// an end, 1 moves the run); any other object has its own shape's grips.
     pub fn entity_grips(&self, e: &crate::Entity) -> Vec<Vec2> {
         if let EntityKind::Insert(i) = &e.kind
@@ -1386,6 +1386,9 @@ impl crate::Drawing {
         {
             let a = Vec2::new(i.insert.x, i.insert.y);
             let b = a + Vec2::from_angle(i.rotation) * (p.length * i.scale.x);
+            return vec![a, a.mid(b), b];
+        }
+        if let Some((_, a, b)) = self.pipe_ends(e.handle) {
             return vec![a, a.mid(b), b];
         }
         e.kind.grips()

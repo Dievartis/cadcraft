@@ -622,6 +622,36 @@ impl crate::Drawing {
     }
 
     /// Gives pipe `h` the parameters `p` (its length as it is now), redrawing it in place.
+    /// Drags grip `index` of pipe `h` (0 and 2 its ends, 1 its middle: the run moves) to `to`, redrawing it. `Ok(false)` when `h` is not a
+    /// pipe, the grip does not exist or the run would be shorter than a millimetre.
+    pub fn stretch_pipe_grip(&mut self, h: crate::Handle, index: usize, to: Vec2) -> Result<bool> {
+        let Some((mut p, a, b)) = self.pipe_ends(h) else { return Ok(false) };
+        if !to.is_finite() || index > 2 {
+            return Ok(false);
+        }
+        let Some(EntityKind::Insert(i)) = self.entity(h).map(|e| e.kind.clone()) else { return Ok(false) };
+        let d = to - a.mid(b);
+        let (na, nb) = match index {
+            0 => (to, b),
+            1 => (a + d, b + d),
+            _ => (a, to),
+        };
+        let len = na.dist(nb);
+        if i.scale.x <= 0.0 || len * i.scale.x * p.units.mm_per_unit < 1.0 {
+            return Ok(false);
+        }
+        p.length = len;
+        let rotation = (nb - na).angle();
+        self.modify_entity(h, |e| {
+            if let EntityKind::Insert(ins) = &mut e.kind {
+                ins.insert = v3(na);
+                ins.rotation = rotation;
+            }
+        })?;
+        self.regenerate_pipe(h, &p)?;
+        Ok(true)
+    }
+
     pub fn regenerate_pipe(&mut self, h: crate::Handle, p: &PipeParams) -> Result<()> {
         let e = self.entity(h).ok_or(crate::DocError::NoEntity(h))?;
         let EntityKind::Insert(i) = &e.kind else { return Err(invalid("The object is not a block reference.")) };

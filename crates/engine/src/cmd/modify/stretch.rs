@@ -82,6 +82,40 @@ fn stretch_entity(e: &mut Entity, wins: &[StretchArea], d: Vec2) {
     }
 }
 
+/// STRETCH of one object: a wall moves its path vertices inside the areas (so its end follows, the walls it meets are joined again after the
+/// command), anything else goes through [`stretch_entity`].
+fn stretch_object(doc: &mut cadcraft_doc::Drawing, h: Handle, areas: &[StretchArea], d: Vec2) -> Result<()> {
+    if let Some((mut wall, at, rotation)) = stretched_wall(doc, h) {
+        let to_world = |v: Vec2| at + v.rotate(rotation);
+        let world: Vec<Vec2> = wall.path.iter().map(|v| to_world(*v)).collect();
+        if !world.iter().any(|v| areas.iter().any(|a| a.contains(*v))) {
+            return Ok(());
+        }
+        let moved: Vec<Vec2> = world.iter().map(|v| if areas.iter().any(|a| a.contains(*v)) { *v + d } else { *v }).collect();
+        let Some(origin) = moved.first().copied() else { return Ok(()) };
+        wall.path = moved.iter().map(|v| *v - origin).collect();
+        wall.joints = Default::default();
+        wall.validate().map_err(|e| crate::EngineError::Other(e.to_string()))?;
+        doc.regenerate_wall(h, &wall).map_err(|e| crate::EngineError::Other(e.to_string()))?;
+        doc.modify_entity(h, |e| {
+            if let EntityKind::Insert(i) = &mut e.kind {
+                (i.insert.x, i.insert.y, i.rotation) = (origin.x, origin.y, 0.0);
+            }
+        })?;
+        return Ok(());
+    }
+    doc.modify_entity(h, |e| stretch_entity(e, areas, d))?;
+    Ok(())
+}
+
+/// The wall `h` is, when it is one that can be regenerated: its data, where it is and how it is turned.
+fn stretched_wall(doc: &cadcraft_doc::Drawing, h: Handle) -> Option<(cadcraft_doc::WallParams, Vec2, f64)> {
+    let e = doc.entity(h)?;
+    let EntityKind::Insert(i) = &e.kind else { return None };
+    let w = cadcraft_doc::wall_of(e)?;
+    doc.wall_is_intact(h).then(|| (w, Vec2::new(i.insert.x, i.insert.y), i.rotation))
+}
+
 pub(super) fn run_stretch(s: &mut Session, p: &Value) -> Result<Value> {
     let d = delta_of("stretch", p)?;
     let space = s.space();
@@ -111,7 +145,7 @@ pub(super) fn run_stretch(s: &mut Session, p: &Value) -> Result<Value> {
     let doc = s.doc_mut()?;
     let areas = [area];
     for h in &hs {
-        doc.modify_entity(*h, |e| stretch_entity(e, &areas, d))?;
+        stretch_object(doc, *h, &areas, d)?;
     }
     Ok(json!({ "stretched": hs.len() }))
 }
@@ -322,7 +356,7 @@ impl StretchM {
         for h in self.objs.iter().filter(|h| !self.whole.contains(h)) {
             let locked = doc.entity(*h).and_then(|e| doc.layer(&e.common.layer)).is_some_and(|l| l.locked);
             if !locked {
-                doc.modify_entity(*h, |e| stretch_entity(e, self.areas(*h), d))?;
+                stretch_object(doc, *h, self.areas(*h), d)?;
             }
         }
         s.set_selection(Vec::new());

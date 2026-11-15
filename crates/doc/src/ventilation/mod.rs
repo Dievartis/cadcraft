@@ -17,6 +17,7 @@ mod network_legend;
 mod part;
 mod part_library;
 mod pipe;
+mod pipe_fittings;
 mod pipe_network;
 mod pipe_network_names;
 mod pipe_networks;
@@ -45,6 +46,7 @@ pub use part_library::{
     MAX_USER_PART_MODELS, PartEntry, PartModel, PartTemplate, standard_part_model_named, standard_part_models, tag_prefix as part_tag_prefix,
 };
 pub use pipe::*;
+pub use pipe_fittings::{MAX_FITTING_PIPES, PipeFitting, PipeFittingKind};
 pub use pipe_network::{MAX_PIPES as MAX_PIPE_RUNS, PipeNetworkReport, PipeResult, PipeSizingParams};
 pub use pipe_network_names::NetworkSummary;
 pub use pipe_networks::*;

@@ -1076,7 +1076,7 @@ fn duct_grips_stretch_an_end_move_the_run_and_drag_the_runs_that_meet_there() {
     let hs: Vec<Handle> = r["handles"].as_array().unwrap().iter().map(hd).collect();
     let ends = |s: &Session, h: Handle| s.doc().unwrap().duct_ends(h).map(|(p, a, b)| (p.length, a, b)).unwrap();
     let grips = s.grips_of(hs[0]).unwrap_or_default();
-    assert_eq!(grips.len(), 1, "grips_of still reads the shape; the duct grips come from the drawing");
+    assert_eq!(grips.len(), 3, "grips_of gives the duct's two ends and its middle, as the drawing does");
     let d = s.doc().unwrap();
     assert_eq!(d.entity_grips(d.entity(hs[0]).unwrap()).len(), 3);
     // Select both runs, drag the shared corner: both follow.

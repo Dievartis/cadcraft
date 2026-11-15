@@ -224,3 +224,69 @@ fn hvactakeoff_prices_the_lines_and_adds_the_levels_of_a_building() {
     assert!(s.execute("hvactakeoff", &json!({"prices": {"Pipe|x": "cheap"}})).is_err());
     assert!(s.execute("hvactakeoff", &json!({"prices": {"Pipe|x": -3}})).is_err());
 }
+
+#[test]
+fn pipefittings_lists_the_elbows_and_tees_of_the_drawing() {
+    let mut s = metric();
+    s.execute("pipeadd", &json!({"points": [[0, 0], [3000, 0], [3000, 3000]], "service": "chilledWater", "dn": 50})).unwrap();
+    s.execute("pipeadd", &json!({"points": [[1500, 0], [1500, -2000]], "service": "chilledWater", "dn": 25})).unwrap();
+    let r = s.execute("pipefittings", &json!({})).unwrap();
+    assert_eq!(r["counts"]["Pipe elbow 90°"], 1, "{r}");
+    assert_eq!(r["counts"]["Pipe tee"], 1, "{r}");
+    let tee = r["fittings"].as_array().unwrap().iter().find(|f| f["kind"] == "Tee").unwrap();
+    assert_eq!(tee["size"], "DN50", "a tee has the size of the larger pipe");
+    assert_eq!(s.execute("pipefittings", &json!({})).unwrap()["fittings"].as_array().unwrap().len(), 2);
+}
+
+/// The two ends of a pipe or duct run, in drawing units.
+fn run_ends(s: &Session, h: Handle) -> ((f64, f64), (f64, f64)) {
+    let d = s.doc().unwrap();
+    let (a, b) = d.pipe_ends(h).map(|(_, a, b)| (a, b)).or_else(|| d.duct_ends(h).map(|(_, a, b)| (a, b))).unwrap();
+    ((a.x.round(), a.y.round()), (b.x.round(), b.y.round()))
+}
+
+#[test]
+fn the_three_grips_of_a_pipe_and_a_duct_work_one_by_one_and_hot() {
+    let mut s = metric();
+    let pipe = hd(&s.execute("pipeadd", &json!({"points": [[0, 0], [4000, 0]], "service": "chilledWater", "dn": 25})).unwrap()["handles"][0]);
+    let next = hd(&s.execute("pipeadd", &json!({"points": [[4000, 0], [4000, 3000]], "service": "chilledWater", "dn": 25})).unwrap()["handles"][0]);
+    let duct = hd(&s.execute("ductadd", &json!({"points": [[0, 2000], [3000, 2000]], "diameter": 200})).unwrap()["handles"][0]);
+    for h in [pipe, duct] {
+        assert_eq!(s.grips_of(h).unwrap().len(), 3, "the ends and the middle");
+    }
+    // Hot grip on the end of the first pipe, the second pipe selected with it: it follows its end.
+    s.set_selection(vec![pipe, next]);
+    s.start_grip_edit(&[(pipe, 2)]).unwrap();
+    s.cmdline("4000,1000").unwrap();
+    assert!(s.running.is_none(), "{}", s.prompt_text());
+    assert_eq!(run_ends(&s, pipe), ((0.0, 0.0), (4000.0, 1000.0)));
+    assert_eq!(run_ends(&s, next).0, (4000.0, 1000.0), "the pipe that met it follows");
+    // The middle grip moves the run, the other end grip of a duct stretches it.
+    s.set_selection(vec![pipe]);
+    s.start_grip_edit(&[(pipe, 1)]).unwrap();
+    s.cmdline("2000,-500").unwrap();
+    assert_eq!(run_ends(&s, pipe), ((0.0, -1000.0), (4000.0, 0.0)));
+    s.set_selection(vec![duct]);
+    s.start_grip_edit(&[(duct, 0)]).unwrap();
+    s.cmdline("1000,2000").unwrap();
+    assert_eq!(run_ends(&s, duct), ((1000.0, 2000.0), (3000.0, 2000.0)));
+    // The single-grip command takes the same indices, and refuses one that does not exist.
+    s.execute("grip.stretch", &json!({"handle": duct.hex(), "index": 2, "to": [3500, 2000]})).unwrap();
+    assert_eq!(run_ends(&s, duct).1, (3500.0, 2000.0));
+    assert!(s.execute("grip.stretch", &json!({"handle": duct.hex(), "index": 3, "to": [0, 0]})).is_err());
+}
+
+#[test]
+fn the_links_of_one_refrigerant_system_are_one_network_through_the_branch_parts() {
+    let mut s = metric();
+    s.execute("pipepartadd", &json!({"at": [5000, 0], "model": "Refrigerant header, index below 290", "rotation": 0})).unwrap();
+    // Three links ending in the header from three sides, and a fourth that is nowhere near.
+    for (a, b) in [([0, 0], [5000, 0]), ([5000, 4000], [5000, 0]), ([10000, 0], [5000, 0]), ([0, 20000], [3000, 20000])] {
+        s.execute("pipeadd", &json!({"points": [a, b], "service": "refrigerantPair", "dn": "1/4", "gas": "1/2"})).unwrap();
+    }
+    let r = s.execute("pipenetwork", &json!({})).unwrap();
+    let nets = r["networks"].as_array().unwrap();
+    let mut pipes: Vec<u64> = nets.iter().map(|n| n["pipes"].as_u64().unwrap()).collect();
+    pipes.sort_unstable();
+    assert_eq!(pipes, vec![1, 3], "the three links on the header are one network, the lone one another: {nets:?}");
+}

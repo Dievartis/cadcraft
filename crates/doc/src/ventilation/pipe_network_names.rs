@@ -127,6 +127,8 @@ impl crate::Drawing {
         // Through a part in the line of a pipe, and through equipment and units: the runs of one service that end in the same outline.
         let mut outlines = self.part_bridges();
         outlines.extend(self.equipment_footprints());
+        // A refrigerant branch (joint, header, box) joins the tubes that end in it: one system, one network.
+        outlines.extend(self.branch_outlines());
         for o in &outlines {
             let mut first_of: Vec<(PipeService, usize)> = Vec::new();
             for (i, r) in runs.iter().enumerate() {
