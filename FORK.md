@@ -59,9 +59,16 @@ Remotes : `origin` = ce fork, `upstream` = `storytold/cadcraft`. Ne pousse jamai
 
 Cette section sert à reprendre le travail dans une nouvelle conversation, avec n'importe quelle IA. Elle est mise à jour en continu (règle n° 2) : date, ce qui est fait, ce qui reste.
 
-*Dernière mise à jour : 14 novembre 2026 (base 0.20.1, 18 nouvelles PR intégrées ; onglet Architecture étendu).*
+*Dernière mise à jour : 15 novembre 2026 (base 0.20.1 ; DWG dans le build web, collab compilable en wasm).*
 
 ### Fait
+
+- **DWG dans le build web et collab compilable en WebAssembly** (15 novembre, trois commits sur `perso`, pas encore poussés).
+  - **Collab en wasm** (`cd7a6614`) : la PR #2936 (collab, fusionnée dans `perso`, encore ouverte chez les mainteneurs) casse le build web : `collab-client` n'exporte `Session`/`Event`/`Connection` que hors wasm32, mais `ui-egui/src/collab.rs` les utilise. Contournement : `cfg(not(target_arch = "wasm32"))` sur `mod session` et son `pub use` (`collab-client`), sur le module `collab`, le champ, son initialisation, `collab_command` et `collab_tick` (`ui-egui/src/lib.rs`), plus un stub `CadApp::is_shared() -> false` sous wasm en fin de `lib.rs`. **Retrait** : quand #2936 est compatible wasm ou fusionnée ainsi, enlever ces `cfg` et le stub.
+  - **PR #2512 « DWG in the web build »** (fusion `37970dd9`, conflit dans `contributors/people.toml` : les deux côtés gardés, TOML vérifié) : lecture et écriture DWG dans le build web. **Retrait** : quand #2512 sera fusionnée upstream, ne plus la fusionner à la main.
+  - **Adaptation à la refonte de Bridge** : `post_open_failed` appelait `bridge.send(...)`, supprimée par le commit `0902a13b` de `main`. Elle passe maintenant par `Host::post_failed(error, None)` de `craft-web-host` ; ce message n'a pas de champ « nom du fichier », donc le nom est placé au début du texte d'erreur. La page parente reçoit `failed` et non plus `cadcraft:open-failed`. `inbox.refuse(name, error)` (`upload.rs`) est cohérent avec le code actuel.
+  - **À savoir** : dans le build web, le DWG s'enregistre en DWG si Options > format d'enregistrement est sur DWG. Le défaut est DXF, y compris pour un fichier DWG ouvert.
+  - Pas vérifié (rien compilé ni testé) : `cargo check -p cadcraft-collab-client --target wasm32-unknown-unknown`, le build web (`trunk serve`), l'ouverture et l'enregistrement d'un DWG dans la page.
 
 - **Pointillés sous le coude de la gaine du dessus** (14 novembre, retour de Guillaume : les pointillés avaient disparu au début du passage sous l'autre gaine). La correction précédente supprimait les pointillés dès que la gaine du dessus était aussi large : or sous **ses coudes**, ses côtés quittent ceux de la gaine du dessous, qui est alors bien cachée. `CoverMark.over_straight_mm` garde la partie où les côtés de la gaine du dessus sont droits (`DuctParams::straight_range`, hors coudes et cônes), en coordonnées de la gaine du dessous ; `refresh_cover_straights` la met à jour à la fin de chaque « Dimensionner » (les coudes ne sont connus qu'à ce moment). Les pointillés sont tracés hors de cette partie quand la gaine du dessus est aussi large, partout quand elle est plus large. Tests : `under_a_duct_as_wide_the_dashes_…`, `the_stretch_where_the_duct_over_has_straight_sides_…`. Vérifié en rendu sur le dessin de Guillaume (calques rallumés : son fichier est enregistré avec le calque de soufflage éteint).
 
