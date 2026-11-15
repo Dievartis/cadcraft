@@ -364,9 +364,10 @@ impl PipeAddM {
             gas.push_str(&format!(", HPgas = {}", self.size_text(self.last.gas2_mm.unwrap_or(19.05))));
         }
         s.echo(format!(
-            "Current settings: Service = {}, Leg = {}, Diameter = {dn}{gas}, Insulation = {}",
+            "Current settings: Service = {}, Leg = {}, {} = {dn}{gas}, Insulation = {}",
             self.last.service.name(),
             if self.last.service.has_legs() { self.last.leg.name() } else { "-" },
+            if self.last.service.has_gas_tube() { "Liquid" } else { "Diameter" },
             self.last.insulation_mm
         ));
     }
@@ -401,7 +402,7 @@ impl PipeAddM {
         match k {
             "Service" => self.ask = PipeAsk::Service,
             "Leg" => self.ask = PipeAsk::Leg,
-            "Diameter" => self.ask = PipeAsk::Diameter,
+            "Diameter" | "Liquid" => self.ask = PipeAsk::Diameter,
             "Gas" if self.last.service.has_gas_tube() => self.ask = PipeAsk::Gas,
             "HPgas" if self.last.service == PipeService::RefrigerantTriple => self.ask = PipeAsk::HpGas,
             "Insulation" => self.ask = PipeAsk::Insulation,
@@ -474,7 +475,9 @@ impl Interactive for PipeAddM {
                 .default(self.last.service.name()),
             PipeAsk::Leg => Prompt::new("Enter pipe leg", super::curves::KW).kw(&["Supply", "Return"]).default(self.last.leg.name()),
             PipeAsk::Diameter => Prompt::new(
-                if self.last.service.is_refrigerant() {
+                if self.last.service.has_gas_tube() {
+                    "Enter liquid tube diameter (inches, e.g. 3/8, or mm) or [Auto]"
+                } else if self.last.service.is_refrigerant() {
                     "Enter tube diameter (inches, e.g. 3/8, or mm) or [Auto]"
                 } else {
                     "Enter pipe diameter (mm) or [Auto]"
@@ -489,8 +492,8 @@ impl Interactive for PipeAddM {
             PipeAsk::Insulation => Prompt::new("Enter insulation thickness (mm)", Accept::NUMBER).default(format!("{}", self.last.insulation_mm)),
             PipeAsk::Point => match self.pts.last().copied() {
                 None => Prompt::new("Specify start point of pipe", Accept::POINT).kw(match self.last.service {
-                    PipeService::RefrigerantPair => &["Service", "Leg", "Diameter", "Gas", "Insulation"][..],
-                    PipeService::RefrigerantTriple => &["Service", "Leg", "Diameter", "Gas", "HPgas", "Insulation"][..],
+                    PipeService::RefrigerantPair => &["Service", "Leg", "Liquid", "Gas", "Insulation"][..],
+                    PipeService::RefrigerantTriple => &["Service", "Leg", "Liquid", "Gas", "HPgas", "Insulation"][..],
                     _ => &["Service", "Leg", "Diameter", "Insulation"][..],
                 }),
                 last => Prompt::new("Specify next point", Accept::POINT).kw(&["Undo"]).base_opt(last),

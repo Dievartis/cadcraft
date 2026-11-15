@@ -1731,3 +1731,5 @@ menu	View	视图
 	Click near the corner of two walls that meet.	点击两面相交墙体的转角附近。
 	A window is put on each wall, from the corner, of the length given by the Width option (1200 mm by default).	从转角起在每面墙上放一扇窗，长度由 Width 选项决定（默认 1200 mm）。
 	They are two ordinary openings: change each of them in Properties.	它们是两个普通洞口：可在特性中分别修改。
+	Design Charts	设计图表
+	The tables and rules the sizing tools apply: refrigerant links, water pipes, drains, ducts.	选型工具所用的表格和规则：冷媒管、水管、冷凝水管、风管。

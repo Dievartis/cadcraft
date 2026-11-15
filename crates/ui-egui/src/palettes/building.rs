@@ -214,6 +214,16 @@ fn air_label(name: &str) -> &'static str {
     }
 }
 
+/// What the Design Charts row says, in the HVAC and Architecture tabs.
+const CHARTS_TIP: &str = "The tables and rules the sizing tools apply: refrigerant links, water pipes, drains, ducts.";
+
+/// The first row of the HVAC and Architecture tabs: the design charts window.
+fn charts_row(ui: &mut egui::Ui, start: &mut Option<&'static str>) {
+    if row_tip(ui, crate::i18n::t("Design Charts"), crate::i18n::t(CHARTS_TIP), None, false, thumbs::paint_quantities) {
+        *start = Some("ui.charts");
+    }
+}
+
 fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
     let current = app.session.last_used.air_terminal.kind;
     let app_air = app.session.last_used.air_terminal.air;
@@ -243,6 +253,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
             d.insert_temp(sections_id(), sections);
             d.insert_temp(open_id(), true);
         });
+        charts_row(ui, &mut start);
         header(ui, "Spaces");
         if row_button(ui, crate::i18n::t("Space"), false, paint_space) {
             start = Some("spaceadd");
@@ -594,6 +605,7 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut slab_chosen: Option<cadcraft_doc::SlabKind> = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        charts_row(ui, &mut start);
         // A section opens or folds as the Options say and the user left it ([`crate::sections`]); a click on its header changes it.
         let mut section = |ui: &mut egui::Ui, title: &str, _open: bool, body: &mut dyn FnMut(&mut egui::Ui)| {
             let key = format!("Architecture/{title}");

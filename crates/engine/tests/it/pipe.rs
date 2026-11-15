@@ -173,7 +173,7 @@ fn a_refrigerant_link_is_drawn_as_one_run_with_its_tubes_given_in_inches() {
 #[test]
 fn pipeadd_at_the_command_line_takes_the_refrigerant_sizes_in_inches() {
     let mut s = metric();
-    for t in ["pipeadd", "se", "refrigerantpair", "d", "1/4", "g", "1/2", "0,0", "3000,0", ""] {
+    for t in ["pipeadd", "se", "refrigerantpair", "liq", "1/4", "g", "1/2", "0,0", "3000,0", ""] {
         s.cmdline(t).unwrap();
     }
     let p = s.doc().unwrap().model.iter().filter_map(|e| pipe_of(e)).next().unwrap();
@@ -195,7 +195,7 @@ fn a_heat_recovery_link_takes_three_sizes_in_inches() {
     let q = s.execute("pipeadd", &json!({"points": [[0, 1000], [2000, 1000]], "service": "refrigerantPair"})).unwrap();
     s.execute("pipeedit", &json!({"handle": q["handles"][0], "service": "refrigerantTriple"})).unwrap();
     assert_eq!(pipe(&s, hd(&q["handles"][0])).gas2_dn_mm, 19.05);
-    for t in ["pipeadd", "se", "refrigeranttriple", "d", "1/4", "g", "1/2", "hp", "5/8", "0,3000", "3000,3000", ""] {
+    for t in ["pipeadd", "se", "refrigeranttriple", "liq", "1/4", "g", "1/2", "hp", "5/8", "0,3000", "3000,3000", ""] {
         s.cmdline(t).unwrap();
     }
     let last = s.doc().unwrap().model.iter().filter_map(|e| pipe_of(e)).last().unwrap();

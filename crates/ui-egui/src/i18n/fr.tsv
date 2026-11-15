@@ -1584,3 +1584,61 @@
 	Click near the corner of two walls that meet.	Clique près de l'angle de deux murs qui se rejoignent.
 	A window is put on each wall, from the corner, of the length given by the Width option (1200 mm by default).	Une fenêtre est posée sur chaque mur, depuis l'angle, de la longueur donnée par l'option Width (1200 mm par défaut).
 	They are two ordinary openings: change each of them in Properties.	Ce sont deux ouvertures ordinaires : modifie chacune dans Propriétés.
+	Design Charts	Abaques de dimensionnement
+	The tables and rules the sizing tools apply: refrigerant links, water pipes, drains, ducts.	Les tableaux et règles que les outils de dimensionnement appliquent : liaisons frigorifiques, tuyaux d'eau, siphons, gaines.
+	Refrigerant, heat pump (2 pipes)	Frigo, pompe à chaleur (2 tubes)
+	Refrigerant, heat recovery (3 pipes)	Frigo, récupération (3 tubes)
+	Refrigerant, rules	Frigo, règles
+	Water pipes	Tuyaux d'eau
+	Condensate drains	Évacuations de condensats
+	Ducts and fresh air	Gaines et air neuf
+	Two pipes: liquid and gas, copper, outer diameters in mm (inch sizes are the same pipes: 6.4 = 1/4, 9.5 = 3/8, 12.7 = 1/2, 15.9 = 5/8, 19.1 = 3/4).	Deux tubes : liquide et gaz, en cuivre, diamètres extérieurs en mm (les pouces sont les mêmes tubes : 6,4 = 1/4, 9,5 = 3/8, 12,7 = 1/2, 15,9 = 5/8, 19,1 = 3/4).
+	A, B, C: from the outdoor unit to the first branch, by the total capacity of the outdoor units (HP).	A, B, C : de l'unité extérieure au premier branchement, selon la puissance totale des unités extérieures (CV).
+	D: between branches, by the capacity index of everything downstream (about ten times the cooling kW); never larger than the pipe A.	D : entre branchements, selon l'indice de capacité de tout ce qui est en aval (environ dix fois les kW froid) ; jamais plus gros que le tube A.
+	E: into one indoor unit, the connection size of that unit. F, G: a branch-selector box and the units behind it.	E : vers une unité intérieure, au diamètre de raccordement de cette unité. F, G : une boîte de détente et les unités derrière elle.
+	A, B, C: outdoor unit to first branch	A, B, C : unité extérieure vers le premier branchement
+	D: between branches	D : entre branchements
+	E: into an indoor unit	E : vers une unité intérieure
+	F: to a branch-selector box	F : vers une boîte de détente
+	Outdoor HP	CV extérieur
+	Liquid	Liquide
+	Gas	Gaz
+	Index downstream	Indice en aval
+	Unit index	Indice de l'unité
+	Index behind the box	Indice derrière la boîte
+	Suction gas	Gaz aspiration
+	High/low gas	Gaz HP/BP
+	Three pipes: liquid, suction gas and high/low-pressure gas. The rules are those of the heat pump, with the third pipe.	Trois tubes : liquide, gaz d'aspiration et gaz haute/basse pression. Les règles sont celles de la pompe à chaleur, avec le troisième tube.
+	A, B, C: by the total capacity of the outdoor units (HP). D: by the capacity index downstream, never larger than A.	A, B, C : selon la puissance totale des unités extérieures (CV). D : selon l'indice de capacité en aval, jamais plus gros que A.
+	Size-up: when the equivalent length of the longest run is 90 m or more, the liquid pipe of the main line goes one size up (9.5 → 12.7, 12.7 → 15.9, 15.9 → 19.1, 19.1 → 22.2).	Surdimensionnement : quand la longueur équivalente du trajet le plus long atteint 90 m, le tube liquide de la ligne principale passe au diamètre au-dessus (9,5 → 12,7, 12,7 → 15,9, 15,9 → 19,1, 19,1 → 22,2).
+	Wall: the pipe must be at least this thick. Annealed copper up to 15.9, half-hard from 19.1.	Épaisseur : le tube doit être au moins aussi épais. Cuivre recuit jusqu'à 15,9, mi-dur à partir de 19,1.
+	A branch kit on a box takes at most 5 units and an index of 140 (250 when it joins two outlets). The Check Refrigerant tool tests this.	Une sortie de boîte prend au plus 5 unités et un indice de 140 (250 quand elle réunit deux sorties). L'outil de vérification frigo le contrôle.
+	The check does not size the links yet: it only reports what exceeds these limits.	La vérification ne dimensionne pas encore les liaisons : elle signale seulement ce qui dépasse ces limites.
+	Minimal wall thickness	Épaisseur minimale de paroi
+	Pipe ⌀ (mm)	Tube ⌀ (mm)
+	Wall (mm)	Paroi (mm)
+	Flow = power ÷ (4.18 × temperature difference): 5 K for chilled water, 20 K for hot water, 5 K for change-over.	Débit = puissance ÷ (4,18 × écart de température) : 5 K en eau glacée, 20 K en eau chaude, 5 K en réversible.
+	The smallest steel pipe is chosen whose velocity stays under the limit of its size (0.7 m/s up to 2 m/s, growing with the diameter) and whose pressure loss stays under 300 Pa/m (Darcy-Weisbach, Colebrook).	On choisit le plus petit tuyau en acier dont la vitesse reste sous la limite de son diamètre (de 0,7 à 2 m/s, croissante avec le diamètre) et dont la perte de charge reste sous 300 Pa/m (Darcy-Weisbach, Colebrook).
+	The table gives the highest flow each size carries within both limits, and the power that is at 5 K (chilled) and 20 K (hot).	Le tableau donne le débit maximal de chaque diamètre dans les deux limites, et la puissance correspondante à 5 K (glacée) et 20 K (chaude).
+	Steel pipes, default limits	Tuyaux acier, limites par défaut
+	Outer ⌀	⌀ ext.
+	Inner ⌀	⌀ int.
+	Max m/s	m/s max
+	Chilled m³/h	Glacée m³/h
+	kW at 5 K	kW à 5 K
+	Hot m³/h	Chaude m³/h
+	kW at 20 K	kW à 20 K
+	A gravity drain runs half full (Manning, n = 0.011) and must carry twice the flow it is given. Smallest size: 20 mm. The usual slope is 1 %.	Une évacuation gravitaire coule à demi-section (Manning, n = 0,011) et doit pouvoir porter le double du débit donné. Plus petit diamètre : 20 mm. La pente courante est de 1 %.
+	The table gives the highest condensate flow of each size, in litres per hour, at three slopes.	Le tableau donne le débit de condensats maximal de chaque diamètre, en litres par heure, pour trois pentes.
+	Plastic drains	Évacuations PVC
+	l/h at 1 %	l/h à 1 %
+	l/h at 2 %	l/h à 2 %
+	l/h at 3 %	l/h à 3 %
+	Fresh air (labour code): 25 m³/h per occupant in offices, 30 in restaurants, shops and meeting rooms, 45 in light workshops, 60 in other workshops. Toilets 30, bathrooms 45, bathroom with toilet 60 (15 if not collective).	Air neuf (code du travail) : 25 m³/h par occupant en bureau, 30 en restaurant, commerce et salle de réunion, 45 en atelier léger, 60 en autre atelier. WC 30, salle d'eau 45, salle d'eau avec WC 60 (15 si non collectif).
+	Ducts are sized by velocity and pressure loss (Darcy-Weisbach, Colebrook). A rectangular duct is replaced by the round duct of the same friction.	Les gaines sont dimensionnées par la vitesse et la perte de charge (Darcy-Weisbach, Colebrook). Une gaine rectangulaire est remplacée par la gaine ronde de même frottement.
+	The table gives the flow of each round size at 3, 5 and 8 m/s.	Le tableau donne le débit de chaque diamètre rond à 3, 5 et 8 m/s.
+	Round ducts	Gaines rondes
+	⌀ (mm)	⌀ (mm)
+	m³/h at 3 m/s	m³/h à 3 m/s
+	m³/h at 5 m/s	m³/h à 5 m/s
+	m³/h at 8 m/s	m³/h à 8 m/s

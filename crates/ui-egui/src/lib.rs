@@ -24,6 +24,7 @@ pub mod autosave;
 pub mod bedit;
 pub mod canvas;
 pub mod capture;
+pub mod chartsdlg;
 pub mod chrome;
 pub mod clipboard;
 pub mod closing;
@@ -395,6 +396,8 @@ pub struct CadApp {
     pub wall_style_dlg: Option<wallstyledlg::WallStyleDlgState>,
     /// The HVAC Quantities dialog while open ([`takeoffdlg`]).
     pub takeoff_dlg: Option<takeoffdlg::TakeoffDlgState>,
+    /// The design charts window while open ([`chartsdlg`]).
+    pub charts_dlg: Option<chartsdlg::ChartsState>,
     /// The Pipework Part Library window while open ([`partlibdlg`]).
     pub part_lib: Option<partlibdlg::PartLibState>,
     /// The Hatch and Gradient dialog while open or picking ([`hatchdlg`]).
@@ -515,6 +518,7 @@ impl CadApp {
             alias_dlg: None,
             wall_style_dlg: None,
             takeoff_dlg: None,
+            charts_dlg: None,
             part_lib: None,
             hatch_dlg: None,
             attedit: attedit::State::default(),

@@ -213,6 +213,44 @@ pub fn steel_inner_diameter_mm(dn_mm: f64) -> Option<f64> {
     inner_of(dn_mm)
 }
 
+/// The largest flow, m³/h, that the steel pipe of nominal diameter `dn_mm` carries within the criteria's velocity and
+/// pressure loss (the stricter of the two): the chart that [`size_water_pipe`] reads the other way round.
+pub fn max_flow_m3h(dn_mm: f64, water: WaterTemperature, criteria: &PipeCriteria) -> Result<f64> {
+    let criteria = criteria.checked()?;
+    let inner = inner_of(dn_mm).ok_or_else(|| HvacError::BadValue(format!("{dn_mm} mm is not a standard steel pipe size")))?;
+    let v_limit = criteria.max_velocity_ms.unwrap_or_else(|| max_velocity_ms(dn_mm));
+    // The velocity limit gives a flow directly; the pressure loss grows with the flow, so bisect.
+    let by_velocity = v_limit * std::f64::consts::PI * (inner / 1000.0).powi(2) / 4.0 * 3600.0;
+    let fluid = water.fluid();
+    let (mut lo, mut hi) = (0.0, by_velocity);
+    if pressure_gradient(hi, inner, criteria.roughness_mm, &fluid)? <= criteria.max_gradient_pa_m {
+        return Ok(hi);
+    }
+    for _ in 0..60 {
+        let mid = 0.5 * (lo + hi);
+        if pressure_gradient(mid, inner, criteria.roughness_mm, &fluid)? <= criteria.max_gradient_pa_m {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    Ok(lo)
+}
+
+/// The condensate flow, l/h, a plastic drain of outer diameter `od_mm` carries by gravity at `slope_percent`, with the
+/// safety margin [`size_condensate_drain`] keeps (half full, divided by two).
+pub fn drain_capacity_lph(od_mm: f64, slope_percent: f64) -> Result<f64> {
+    let slope = checked("slope (%)", slope_percent, 0.1, 50.0)? / 100.0;
+    let (od, wall) = DRAIN_PIPES
+        .iter()
+        .find(|(od, _)| (*od - od_mm).abs() < 1e-6)
+        .copied()
+        .ok_or_else(|| HvacError::BadValue(format!("{od_mm} mm is not a drain pipe size")))?;
+    let d = (od - 2.0 * wall) / 1000.0;
+    let full = (1.0 / MANNING_N) * (std::f64::consts::PI * d * d / 4.0) * (d / 4.0).powf(2.0 / 3.0) * slope.sqrt();
+    Ok(0.5 * full * 1000.0 * 3600.0 / DRAIN_SAFETY)
+}
+
 #[cfg(test)]
 mod pipe_tests {
     use super::*;
