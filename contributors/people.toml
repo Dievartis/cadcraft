@@ -124,3 +124,7 @@ real_name = "Ashok Ram"
 
 [people.withshalom]
 sync_github_name = true
+
+[people.ATARYS-LAB]
+display_name = "Julien - ATARYS"
+sync_github_name = false

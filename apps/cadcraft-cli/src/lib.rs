@@ -55,6 +55,15 @@ fn install_io() {
         entity: cadcraft_io::entity_from_groups,
         objects: cadcraft_io::object_records,
     });
+    // PDF underlays read their pages.
+    cadcraft_engine::cmd::underlay::set_pdf(cadcraft_engine::cmd::underlay::PdfHooks {
+        page: cadcraft_io::pdf_read::page_info,
+        render: cadcraft_io::pdf_read::render_page,
+        lines: cadcraft_io::pdf_read::page_lines,
+        region: cadcraft_io::pdf_read::render_page_region,
+        layers: cadcraft_io::pdf_layers::layer_list,
+        with_layers: cadcraft_io::pdf_layers::apply_layers,
+    });
 }
 
 /// `path` as text, for the engine and io calls that take a file name as a string.
