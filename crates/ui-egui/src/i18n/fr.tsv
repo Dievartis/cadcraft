@@ -1884,3 +1884,6 @@
 	Writes the address beside every object that has one: control devices, equipment, air handling units, electrical devices.	Écrit l'adresse à côté de chaque objet qui en a une : appareils de régulation, équipements, centrales de traitement d'air, appareillage électrique.
 	Addresses: {n} object(s) changed, {t} address(es) in the drawing	Adresses : {n} objet(s) modifié(s), {t} adresse(s) dans le dessin
 	Clip PDF Underlay	Découper le fond de plan PDF
+
+# ArtCraft feature naming
+	Additional Tools	Outils supplémentaires

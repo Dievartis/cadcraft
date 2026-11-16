@@ -425,3 +425,24 @@ fn serve_survives_non_utf8_line() {
     assert_eq!(replies[0]["error"]["code"], -32700);
     assert_eq!(replies[1]["id"], 7);
 }
+
+#[test]
+fn legacy_protocol_routing_and_version_negotiation() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    assert!(s.handle_line(r#"{"method":"notifications/initialized"}"#).is_none());
+    assert!(s.is_initialized());
+    for (params, expected) in
+        [(json!(null), "2025-06-18"), (json!({"protocolVersion":"2024-11-05"}), "2024-11-05"), (json!({"protocolVersion":"other"}), "2025-06-18")]
+    {
+        let response = call(&mut s, 1, "initialize", params);
+        assert_eq!(response["result"]["protocolVersion"], expected);
+        assert_eq!(response["result"]["serverInfo"]["title"], "CADCraft");
+        assert!(response["result"]["instructions"].as_str().unwrap().contains("Backend:"));
+    }
+    let response: Value =
+        serde_json::from_str(&s.handle_line(r#"[{"id":[1],"method":"ping","params":5},{"method":"ignored"},{"result":1},{}]"#).unwrap()).unwrap();
+    assert_eq!(
+        response,
+        json!([{"jsonrpc":"2.0","id":[1],"result":{}},{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"missing `method`"}}])
+    );
+}

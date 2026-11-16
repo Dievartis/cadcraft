@@ -69,11 +69,24 @@ pub enum IoError {
 
 pub type Result<T> = std::result::Result<T, IoError>;
 
-/// How a program runs the DWG reader and writer in a child process (`cadcraft_dwg::worker`).
+/// Restore CADCraft's public diagnostics after the shared byte bridge supplies generic wording.
+fn cadcraft_dwg_message(message: &str) -> String {
+    message
+        .replace("accepted by this bridge", "CADCraft opens")
+        .replace("types this bridge can't preserve", "types CADCraft doesn't keep")
+        .replace("this bridge writes", "CADCraft writes")
+        .replace("accepted for DWG conversion", "CADCraft converts to DWG")
+}
+
+fn dwg_error(message: String) -> IoError {
+    IoError::Format(cadcraft_dwg_message(&message))
+}
+
+/// How a program runs the DWG reader and writer in a child process (`craft_dwg::worker`).
 pub mod dwg_worker {
-    pub use cadcraft_dwg::{WORKER_ARG, serve_if_asked, use_own_worker};
+    pub use craft_dwg::{WORKER_ARG, serve_if_asked, use_own_worker};
     #[cfg(all(not(target_arch = "wasm32"), not(all(target_os = "freebsd", target_arch = "aarch64"))))]
-    pub use cadcraft_dwg::{crash_worker_for_test, use_worker};
+    pub use craft_dwg::{crash_worker_for_test, use_worker};
 }
 
 fn ext(name: impl AsRef<Path>) -> String {
@@ -89,10 +102,10 @@ pub fn read(bytes: &[u8], name: impl AsRef<Path>) -> Result<Drawing> {
 /// [`read`], also returning the DXF rendition a DWG was read through (`None` for other files),
 /// which the round-trip harness counts.
 pub(crate) fn read_source(bytes: &[u8], name: &Path) -> Result<(Drawing, Option<Vec<u8>>)> {
-    if cadcraft_dwg::is_dwg(bytes) {
-        let (dxf, notes) = cadcraft_dwg::decode(bytes, cadcraft_dwg::Limits::DEFAULT).map_err(IoError::Format)?;
-        let mut d = read_dwg_rendition(&dxf)?;
-        d.read_notes = notes;
+    if craft_dwg::is_dwg(bytes) {
+        let (dxf, notes) = craft_dwg::decode(bytes, craft_dwg::Limits::DEFAULT).map_err(dwg_error)?;
+        let mut d = dxf_read::read(&dxf).map_err(|e| IoError::Format(format!("{e} (in the DXF converted from this DWG)")))?;
+        d.read_notes = notes.into_iter().map(|note| cadcraft_dwg_message(&note)).collect();
         return Ok((d, Some(dxf)));
     }
     let d = match (Format::from_path(name), ext(name).as_str()) {
@@ -188,36 +201,21 @@ pub fn write_with(d: &Drawing, name: impl AsRef<Path>, opts: &SaveOptions) -> Re
 /// [`write_with`], also returning what the file leaves out of the drawing: for a DWG, how many
 /// records of each DXF type the DWG writer can't write (other programs' custom entities and
 /// objects); for other formats, nothing.
-pub fn write_noted(d: &Drawing, name: impl AsRef<Path>, opts: &SaveOptions) -> Result<(Vec<u8>, cadcraft_dwg::Unwritten)> {
+pub fn write_noted(d: &Drawing, name: impl AsRef<Path>, opts: &SaveOptions) -> Result<(Vec<u8>, craft_dwg::Unwritten)> {
     let name = name.as_ref();
     if matches!(Format::from_path(name), Some(Format::Dwg)) && !opts.binary {
         return write_dwg(d, opts.version.unwrap_or_else(|| save_version(d).max(Version::R2004)));
     }
-    write_with(d, name, opts).map(|b| (b, cadcraft_dwg::Unwritten::new()))
+    write_with(d, name, opts).map(|b| (b, craft_dwg::Unwritten::new()))
 }
 
 /// The DWG bridge reads our R2000 DXF and writes the DWG at `version`, in the DWG worker when
 /// there is one. The objects CADCraft keeps without modelling them are still in the groups of the
 /// file they came from (`Foreign::version`, not `$ACADVER`, which SAVEAS changes), and the bridge
 /// reads them as that version.
-///
-/// A drawing with field texts and no kept version (a new one, or one from a DXF without
-/// `$ACADVER`) or a kept version older than AutoCAD 2010 gets FIELD objects in the groups of
-/// AutoCAD 2010 ([`dxf_field::OBJECT_VERSION`]), and the bridge reads the drawing as that: read as
-/// R2000, acadrust drops a FIELD's flags, cached value and format (#551). The bridge's text is
-/// ASCII with `\U+XXXX` escapes, which this acadrust decodes for every version; a newer one that
-/// does not (acadrust#213, CADCraft #2851) would leave the escapes in non-ASCII field text.
-fn write_dwg(d: &Drawing, version: Version) -> Result<(Vec<u8>, cadcraft_dwg::Unwritten)> {
+fn write_dwg(d: &Drawing, version: Version) -> Result<(Vec<u8>, craft_dwg::Unwritten)> {
     let bridge = dxf_write::dwg_bridge(d, version);
-    // Field objects are written in the groups of AutoCAD 2010, so a drawing that has them is read
-    // as at least that. Kept groups from a newer file stay as that version; older ones are read
-    // as AutoCAD 2010 only when fields are written, which the other kept objects read the same.
-    let fields = version >= Version::R2004 && dxf_field::writes_fields(d);
-    let kept = match d.foreign.version.as_deref() {
-        Some(v) if !fields || Version::for_acadver(v).is_some_and(|k| k >= Version::R2010) => Some(v),
-        _ => fields.then_some(dxf_field::OBJECT_VERSION),
-    };
-    cadcraft_dwg::encode_kept_noted(bridge.as_bytes(), version.code(), kept).map_err(IoError::Format)
+    craft_dwg::encode_kept_noted(bridge.as_bytes(), version.code(), d.foreign.version.as_deref()).map_err(dwg_error)
 }
 
 /// Like [`write`], but image formats (PNG, SVG, PDF) show `window` (a model-space rectangle in

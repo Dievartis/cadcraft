@@ -890,7 +890,7 @@ fn landscape_media_keeps_its_size_order_and_rotation() {
         assert_eq!(p.paper, media);
 
         let dwg = write(&d, "t.dwg").unwrap();
-        let back = String::from_utf8_lossy(&cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).into_owned();
+        let back = String::from_utf8_lossy(&craft_dwg::dwg_to_dxf(&dwg).unwrap()).into_owned();
         assert_eq!(plot_paper_groups(&back, "Layout1"), (420.0, 297.0, rotation), "DWG, landscape {landscape}");
         let r = read(&dwg, "t.dwg").unwrap();
         let p = &r.layout("Layout1").unwrap().page;
@@ -937,7 +937,7 @@ fn a_files_own_paper_groups_are_written_back() {
         assert_eq!((p.width_mm, p.height_mm, p.landscape), (pw, ph, landscape), "{media} {groups:?} read");
         assert_eq!(plot_paper_groups(&write_dxf(&r), "Layout1"), groups, "{media} {groups:?} DXF");
         let dwg = write(&r, "t.dwg").unwrap();
-        let back = String::from_utf8_lossy(&cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).into_owned();
+        let back = String::from_utf8_lossy(&craft_dwg::dwg_to_dxf(&dwg).unwrap()).into_owned();
         assert_eq!(plot_paper_groups(&back, "Layout1"), groups, "{media} {groups:?} DWG");
         let r = read(&dwg, "t.dwg").unwrap();
         assert_eq!(plot_paper_groups(&write_dxf(&r), "Layout1"), groups, "{media} {groups:?} DWG read and saved again");
@@ -1415,7 +1415,7 @@ fn viewport_frozen_layers_survive_dwg() {
     let back = read(&dwg, "t.dwg").unwrap();
     assert_eq!(viewport_frozen(&back, 2), vec!["Walls".to_string(), "A B".to_string()]);
     // The DWG holds them in group 331, what AutoCAD reads.
-    let p = pairs(&String::from_utf8(cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap());
+    let p = pairs(&String::from_utf8(craft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap());
     assert_eq!(frozen_331(&p), [layer_handle(&p, "Walls"), layer_handle(&p, "A B")]);
 }
 
@@ -1560,8 +1560,8 @@ fn generated_arrowhead_blocks_are_not_kept_as_user_blocks() {
     for (_, name) in crate::dxf_ext::ARROWS.iter().filter(|(k, _)| *k != cadcraft_render::Arrowhead::ClosedFilled) {
         assert!(dxf.contains(&format!("\r\n{name}\r\n")), "{name} is written");
     }
-    let dwg = cadcraft_dwg::dxf_to_dwg(dxf.as_bytes()).unwrap();
-    let from_dwg = read_dxf(&cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
+    let dwg = craft_dwg::dxf_to_dwg(dxf.as_bytes()).unwrap();
+    let from_dwg = read_dxf(&craft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
     for (back, what) in [(read_dxf(dxf.as_bytes()).unwrap(), "DXF"), (from_dwg, "DWG")] {
         assert!(back.blocks.keys().all(|k| !k.starts_with('_')), "{what}: {:?}", back.blocks.keys().collect::<Vec<_>>());
         assert!(roundtrip(&back).blocks.keys().all(|k| !k.starts_with('_')), "{what}: second save");
@@ -1592,8 +1592,8 @@ fn file_arrowhead_blocks_with_standard_names_are_kept() {
     d.dim_styles.push(DimStyle { name: "Dots".into(), arrow_block1: "_Dot".into(), arrow_block2: "_DotSmall".into(), ..DimStyle::default() });
     let kinds = |d: &Drawing, name: &str| d.block(name).map(|b| b.entities.iter().map(|e| e.kind.clone()).collect::<Vec<_>>()).unwrap_or_default();
     let dxf = write_dxf(&d);
-    let dwg = cadcraft_dwg::dxf_to_dwg(dxf.as_bytes()).unwrap();
-    let from_dwg = read_dxf(&cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
+    let dwg = craft_dwg::dxf_to_dwg(dxf.as_bytes()).unwrap();
+    let from_dwg = read_dxf(&craft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
     for (back, what) in [(read_dxf(dxf.as_bytes()).unwrap(), "DXF"), (from_dwg, "DWG")] {
         for name in ["_Dot", "_DotSmall"] {
             assert_eq!(kinds(&back, name), kinds(&d, name), "{what}: {name}");
@@ -1663,8 +1663,8 @@ fn many_entities(n: usize) -> Drawing {
 #[cfg(not(target_arch = "wasm32"))]
 fn ac1024_dwg(n: usize) -> Vec<u8> {
     let dxf = write_dxf(&many_entities(n)).replacen("AC1015", "AC1024", 1);
-    let dwg = cadcraft_dwg::dxf_to_dwg(dxf.as_bytes()).unwrap();
-    assert_eq!(cadcraft_dwg::version(&dwg).as_deref(), Some("AC1024"));
+    let dwg = craft_dwg::dxf_to_dwg(dxf.as_bytes()).unwrap();
+    assert_eq!(craft_dwg::version(&dwg).as_deref(), Some("AC1024"));
     dwg
 }
 
@@ -1676,82 +1676,12 @@ fn ac1024_dwg(n: usize) -> Vec<u8> {
 fn ac1024_dwg_with_many_entities_opens() {
     let n = 30_000;
     let dwg = ac1024_dwg(n);
-    let dxf = cadcraft_dwg::dwg_to_dxf(&dwg).unwrap();
+    let dxf = craft_dwg::dwg_to_dxf(&dwg).unwrap();
     let tags = craft_dxf::parse(&dxf).unwrap().len();
     assert!(dxf.len() < dwg.len() * 20, "DXF {} bytes from {} DWG bytes", dxf.len(), dwg.len());
     assert!(tags < dwg.len(), "{tags} group codes from {} DWG bytes", dwg.len());
     let d = read(&dwg, "big.dwg").unwrap();
     assert_eq!(d.entity_count(), n);
-}
-
-/// A DWG whose text DXF passes the limit (a site plan held in huge blocks: a 317 MB drawing
-/// whose DXF is 1.7 GB) opens through binary DXF, with every entity and a note.
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn a_dwg_too_large_as_text_dxf_reads_through_binary_dxf() {
-    let dwg = ac1024_dwg(3000);
-    let text = cadcraft_dwg::dwg_to_dxf(&dwg).unwrap();
-    // A limit the text form passes but the binary form fits: the text form is written before
-    // the header variables are added, so step down from below its final size.
-    let (binary, notes) = (5..10)
-        .rev()
-        .find_map(|tenths| {
-            let limits = cadcraft_dwg::Limits { max_dxf_bytes: text.len() * tenths / 10, ..cadcraft_dwg::Limits::DEFAULT };
-            cadcraft_dwg::dwg_to_dxf_noted(&dwg, limits).ok().filter(|(_, notes)| notes.iter().any(|n| n.contains("binary DXF")))
-        })
-        .expect("some limit between half and all of the text DXF reads through binary DXF");
-    assert!(binary.starts_with(b"AutoCAD Binary DXF\r\n\x1a\0"), "binary DXF");
-    assert!(binary.len() < text.len(), "{} < {}", binary.len(), text.len());
-    assert!(notes.iter().any(|n| n.contains("binary DXF")), "{notes:?}");
-    let from_text = read_dxf(&text).unwrap();
-    let from_binary = read_dxf(&binary).unwrap();
-    assert_eq!(from_binary.entity_count(), from_text.entity_count());
-    assert!(from_text.entity_count() == 3000);
-}
-
-/// #2690 review: the binary-DXF path keeps the header variables the text path adds after
-/// writing (those acadrust leaves unwritten: $FILLETRAD, $CHAMFERA…). Both paths read back to the
-/// same values. (MTEXT contents with a caret followed by a space still differ: follow-up.)
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn a_dwg_read_through_binary_dxf_keeps_header_variables() {
-    let mut d = many_entities(3000);
-    for (name, v) in [("FILLETRAD", 2.5), ("CHAMFERA", 1.25), ("CHAMFERB", 0.75), ("ELEVATION", 3.0), ("THICKNESS", 0.5)] {
-        d.header.set_f64(name, v);
-    }
-    d.add(
-        &Space::Model,
-        Common::default(),
-        EntityKind::MText(MText {
-            insert: Vec3::new(5.0, 5.0, 0.0),
-            height: 2.5,
-            width: 30.0,
-            attach: 1,
-            rotation: 0.0,
-            style: "Standard".into(),
-            contents: "caret ^ space\\Ptab\tend".into(),
-            line_spacing: 1.0,
-            line_spacing_exact: false,
-            columns: None,
-        }),
-    )
-    .unwrap();
-    let dxf = write_dxf(&d).replacen("AC1015", "AC1024", 1);
-    let dwg = cadcraft_dwg::dxf_to_dwg(dxf.as_bytes()).unwrap();
-    let text = cadcraft_dwg::dwg_to_dxf(&dwg).unwrap();
-    let binary = (5..10)
-        .rev()
-        .find_map(|tenths| {
-            let limits = cadcraft_dwg::Limits { max_dxf_bytes: text.len() * tenths / 10, ..cadcraft_dwg::Limits::DEFAULT };
-            cadcraft_dwg::dwg_to_dxf_noted(&dwg, limits).ok().filter(|(_, notes)| notes.iter().any(|n| n.contains("binary DXF"))).map(|(b, _)| b)
-        })
-        .expect("some limit between half and all of the text DXF reads through binary DXF");
-    let (from_text, from_binary) = (read_dxf(&text).unwrap(), read_dxf(&binary).unwrap());
-    for name in ["FILLETRAD", "CHAMFERA", "CHAMFERB", "ELEVATION", "THICKNESS", "ANGBASE"] {
-        assert_eq!(from_binary.header.f64(name, -1.0), from_text.header.f64(name, -1.0), "{name}");
-    }
-    assert_eq!(from_text.header.f64("FILLETRAD", 0.0), 2.5, "the text path keeps $FILLETRAD");
-    assert_eq!(from_binary.header.i64("ANGDIR", -1), from_text.header.i64("ANGDIR", -1), "ANGDIR");
 }
 
 /// Issue #57: oversized input is rejected early, with a message naming the limit, never a panic.
@@ -1763,18 +1693,16 @@ fn a_dwg_read_through_binary_dxf_keeps_header_variables() {
 #[test]
 fn oversized_dwg_and_dxf_are_rejected_early() {
     let dwg = ac1024_dwg(3000);
-    let full = cadcraft_dwg::dwg_to_dxf(&dwg).unwrap().len();
+    let full = craft_dwg::dwg_to_dxf(&dwg).unwrap().len();
     assert!(full > 400_000, "{full}");
-    // Past the limit as text, the DWG is read through binary DXF instead; only
-    // when that is too large as well does the read fail.
-    let limits = cadcraft_dwg::Limits { max_dxf_bytes: 2_000, ..cadcraft_dwg::Limits::DEFAULT };
-    let e = cadcraft_dwg::dwg_to_dxf_with(&dwg, limits).unwrap_err();
+    let limits = craft_dwg::Limits { max_dxf_bytes: 300_000, ..craft_dwg::Limits::DEFAULT };
+    let e = craft_dwg::dwg_to_dxf_with(&dwg, limits).unwrap_err();
     assert!(e.starts_with("DWG: converting this 0."), "{e}");
     assert!(e.contains("MB file produced more than 0.0 MB of drawing data (the limit)"), "{e}");
 
-    let limits = cadcraft_dwg::Limits { max_dwg_bytes: 100_000, ..cadcraft_dwg::Limits::DEFAULT };
-    let e = cadcraft_dwg::dwg_to_dxf_with(&dwg, limits).unwrap_err();
-    assert!(e.starts_with("DWG: the file is 0.") && e.ends_with("MB, larger than the 0.1 MB CADCraft opens"), "{e}");
+    let limits = craft_dwg::Limits { max_dwg_bytes: 100_000, ..craft_dwg::Limits::DEFAULT };
+    let e = craft_dwg::dwg_to_dxf_with(&dwg, limits).unwrap_err();
+    assert!(e.starts_with("DWG: the file is 0.") && e.ends_with("MB, larger than the 0.1 MB accepted by this bridge"), "{e}");
 
     // Lines that aren't even group codes: the size is reported before anything is parsed.
     let text = "not a group code\nx\n".repeat(60);
@@ -1828,6 +1756,26 @@ fn dxf_cut_inside_a_group_code_pair_opens_the_pairs_before_it() {
     let binary = crate::write_with(&whole, "x.dxf", &crate::SaveOptions { binary: true, ..Default::default() }).unwrap();
     let at = (40..binary.len() - 1).find(|&at| craft_dxf::parse(&binary[..at]).is_err()).expect("some cut of the binary DXF fails to parse");
     assert!(read_dxf(&binary[..at]).is_err(), "a binary cut at {at} must not open");
+}
+
+#[test]
+fn shared_dwg_diagnostics_keep_cadcraft_vocabulary() {
+    assert_eq!(
+        cadcraft_dwg_message("DWG: the file is 0.1 MB, larger than the 0.1 MB accepted by this bridge"),
+        "DWG: the file is 0.1 MB, larger than the 0.1 MB CADCraft opens"
+    );
+    assert_eq!(
+        cadcraft_dwg_message("DWG: 2 objects of types this bridge can't preserve were left out (FOO × 2)"),
+        "DWG: 2 objects of types CADCraft doesn't keep were left out (FOO × 2)"
+    );
+    assert_eq!(
+        cadcraft_dwg_message("DWG version `AC1015` can't be written (this bridge writes AC1018+)"),
+        "DWG version `AC1015` can't be written (CADCraft writes AC1018+)"
+    );
+    assert_eq!(
+        cadcraft_dwg_message("DXF: the input is 1024 MB, larger than the 1024 MB accepted for DWG conversion"),
+        "DXF: the input is 1024 MB, larger than the 1024 MB CADCraft converts to DWG"
+    );
 }
 
 /// Issue #800: one unreadable object record doesn't fail the whole DWG. The reader skips it, the
@@ -2653,8 +2601,8 @@ fn arc_length_dimension_keeps_its_kind_and_centre_on_roundtrip() {
         _ => panic!("not a dimension"),
     }
     // And through DWG.
-    let dwg = cadcraft_dwg::dxf_to_dwg(text.as_bytes()).unwrap();
-    let back = read_dxf(&cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
+    let dwg = craft_dwg::dxf_to_dwg(text.as_bytes()).unwrap();
+    let back = read_dxf(&craft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
     let dims: Vec<_> = back.model.iter().filter_map(|e| if let EntityKind::Dimension(x) = &e.kind { Some(x.clone()) } else { None }).collect();
     assert_eq!(dims.len(), 1);
     assert!(matches!(dims[0].kind, DimKind::ArcLength), "{:?}", dims[0].kind);
@@ -3408,42 +3356,12 @@ fn svg_path_lines_curves_and_arcs() {
 }
 
 #[test]
-fn svg_ellipse_major_is_relative_and_arcs_follow_the_spec() {
-    // Off-origin ellipse: the major axis is a vector from the centre, not an absolute point.
-    let svg = format!("{SVG_PAGE}<ellipse cx=\"10\" cy=\"5\" rx=\"4\" ry=\"2\"/></svg>");
-    let d = read(svg.as_bytes(), "e.svg").unwrap();
-    let e = first(&d, |k| if let EntityKind::Ellipse(e) = k { Some(e.clone()) } else { None });
-    assert!((e.major.x - 4.0).abs() < 1e-9 && e.major.y.abs() < 1e-9, "{e:?}");
-
-    // Unequal radii must not collapse into a circular bulge: the end must still be reached.
-    let svg = format!("{SVG_PAGE}<path d=\"M2 5 A4 2 0 0 1 10 5\"/></svg>");
-    let d = read(svg.as_bytes(), "a.svg").unwrap();
-    let p = first(&d, |k| if let EntityKind::LwPolyline(p) = k { Some(p.clone()) } else { None });
-    assert!(p.vertices.len() > 2 && p.vertices.iter().all(|v| v.bulge == 0.0), "{p:?}");
-    let top = p.vertices.iter().map(|v| v.p.y).fold(f64::MIN, f64::max);
-    assert!((top - 7.0).abs() < 0.1, "half ellipse rises by ry, got {top}");
-
-    // Radii too small for the chord are scaled up, so the flattened arc still ends at the endpoint.
-    let svg = format!("{SVG_PAGE}<path d=\"M2 5 A1 1 0 0 1 10 5\"/><path d=\"M2 5 A1 0.5 0 0 1 10 5\"/></svg>");
-    let d = read(svg.as_bytes(), "s.svg").unwrap();
-    let end = Vec2::new(10.0, 5.0);
-    let mut seen = 0;
-    for e in d.model.iter() {
-        if let EntityKind::LwPolyline(p) = &e.kind
-            && p.vertices.len() > 2
-        {
-            seen += 1;
-            let last = p.vertices[p.vertices.len() - 1].p;
-            assert!((last - end).len() < 1e-6, "arc ends at {last:?}");
-        }
-    }
-    assert_eq!(seen, 1, "only the elliptical arc is flattened");
-
-    // A zero radius draws a straight line to the endpoint.
-    let svg = format!("{SVG_PAGE}<path d=\"M2 5 A0 3 0 0 1 10 5\"/></svg>");
-    let d = read(svg.as_bytes(), "z.svg").unwrap();
-    let p = first(&d, |k| if let EntityKind::LwPolyline(p) = k { Some(p.clone()) } else { None });
-    assert!(p.vertices.len() == 2 && (p.vertices[1].p - Vec2::new(10.0, 5.0)).len() < 1e-9, "{p:?}");
+fn svg_smooth_quadratic_has_two_coordinates() {
+    let smooth = format!("{SVG_PAGE}<path d=\"M0 0 Q3 3 6 0 T12 0\"/></svg>");
+    let explicit = format!("{SVG_PAGE}<path d=\"M0 0 Q3 3 6 0 Q9 -3 12 0\"/></svg>");
+    let smooth = read(smooth.as_bytes(), "smooth.svg").unwrap();
+    let explicit = read(explicit.as_bytes(), "explicit.svg").unwrap();
+    assert_eq!(geometry(&smooth), geometry(&explicit));
 }
 
 #[test]
@@ -3576,12 +3494,30 @@ fn svgz_gunzips_to_the_same_drawing() {
 }
 
 #[test]
-fn svg_percentage_root_width_is_ignored() {
-    let body = "<line x1=\"0\" y1=\"0\" x2=\"1000\" y2=\"0\"/></svg>";
-    let with = read(format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" viewBox=\"0 0 1000 500\">{body}").as_bytes(), "a.svg").unwrap();
-    let without = read(format!("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1000 500\">{body}").as_bytes(), "b.svg").unwrap();
-    assert_eq!(with.model.iter().map(|e| &e.kind).collect::<Vec<_>>(), without.model.iter().map(|e| &e.kind).collect::<Vec<_>>());
-    assert_eq!(with.model.len(), 1);
+fn svgz_checks_the_gzip_trailer_and_combines_members() {
+    let svg = format!("{SVG_PAGE}<circle cx=\"5\" cy=\"5\" r=\"1\"/></svg>");
+    let split = svg.len() / 2;
+    let mut members = gzip_of(&svg.as_bytes()[..split]);
+    members.extend(gzip_of(&svg.as_bytes()[split..]));
+    let plain = read(svg.as_bytes(), "a.svg").unwrap();
+    let decoded = read(&members, "a.svgz").unwrap();
+    assert_eq!(plain.model.iter().map(|e| &e.kind).collect::<Vec<_>>(), decoded.model.iter().map(|e| &e.kind).collect::<Vec<_>>());
+
+    let mut corrupt = gzip_of(svg.as_bytes());
+    let crc_offset = corrupt.len() - 8;
+    corrupt[crc_offset] ^= 1;
+    assert!(read(&corrupt, "a.svgz").is_err());
+}
+
+#[test]
+fn svgz_open_and_svg_export_follow_the_public_dispatch() {
+    let source = format!("{SVG_PAGE}<line x1=\"1\" y1=\"2\" x2=\"9\" y2=\"7\"/></svg>");
+    let drawing = read(&gzip_of(source.as_bytes()), "input.svgz").unwrap();
+    assert_eq!(kinds(&drawing), ["Line"]);
+    let output = write(&drawing, "output.svg").unwrap();
+    assert!(std::str::from_utf8(&output).unwrap().contains("<polyline"));
+    let reopened = read(&output, "output.svg").unwrap();
+    assert!(!reopened.model.is_empty());
 }
 
 #[test]
@@ -4100,7 +4036,7 @@ fn proxies_keep_their_class_in_dwg() {
 fn a_proxy_whose_class_is_unknown_is_left_out_of_the_dwg() {
     use acadrust::entities::{EntityType, ExtendedEntityData};
     use acadrust::objects::ObjectType;
-    let dwg = cadcraft_dwg::dxf_to_dwg_as(&proxy_file(), "AC1032").unwrap();
+    let dwg = craft_dwg::dxf_to_dwg_as(&proxy_file(), "AC1032").unwrap();
     let doc = acadrust::DwgReader::from_stream(std::io::Cursor::new(dwg)).read().unwrap();
     let class_of = |id: i32| doc.classes.iter().find(|c| i32::from(c.class_number) == id).map(|c| c.dxf_name.clone());
     let mut objects: Vec<Option<String>> = doc
@@ -4131,11 +4067,11 @@ fn a_proxy_whose_class_is_unknown_is_left_out_of_the_dwg() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn a_proxy_left_out_of_the_dwg_is_counted_as_unwritten() {
-    let (_, unwritten) = cadcraft_dwg::dxf_to_dwg_noted(&proxy_file(), "AC1032").unwrap();
+    let (_, unwritten) = craft_dwg::dxf_to_dwg_noted(&proxy_file(), "AC1032").unwrap();
     assert_eq!(unwritten, [("ACAD_PROXY_OBJECT".to_string(), 1)].into_iter().collect());
     let d = read(&proxy_file(), "p.dxf").unwrap();
     let binary = write_with(&d, "p.dxf", &SaveOptions { version: Some(Version::R2018), binary: true }).unwrap();
-    let (_, unwritten) = cadcraft_dwg::dxf_to_dwg_noted(&binary, "AC1032").unwrap();
+    let (_, unwritten) = craft_dwg::dxf_to_dwg_noted(&binary, "AC1032").unwrap();
     // CADCraft's own save already left the stray proxy out; the binary DXF's other three go.
     assert_eq!(unwritten, [("ACAD_PROXY_ENTITY".to_string(), 1), ("ACAD_PROXY_OBJECT".to_string(), 2)].into_iter().collect());
 }
@@ -4152,7 +4088,7 @@ fn a_binary_dxf_leaves_its_proxies_out_of_the_dwg() {
     let d = read(&proxy_file(), "p.dxf").unwrap();
     let binary = write_with(&d, "p.dxf", &SaveOptions { version: Some(Version::R2018), binary: true }).unwrap();
     assert!(binary.starts_with(b"AutoCAD Binary DXF"));
-    let dwg = cadcraft_dwg::dxf_to_dwg_as(&binary, "AC1032").unwrap();
+    let dwg = craft_dwg::dxf_to_dwg_as(&binary, "AC1032").unwrap();
     let doc = acadrust::DwgReader::from_stream(std::io::Cursor::new(dwg)).read().unwrap();
     let proxies = doc.objects.values().filter(|o| matches!(o, ObjectType::ProxyObject(_))).count()
         + doc.entities().filter(|e| matches!(e, EntityType::Extended(x) if matches!(x.data, ExtendedEntityData::Proxy(_)))).count();

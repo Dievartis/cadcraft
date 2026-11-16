@@ -255,16 +255,40 @@ fn wholly_inside(d: &Drawing, e: &Entity, tol: f64, pts: &[Vec2]) -> bool {
     !tris.is_empty() && pts.iter().all(|p| tris.iter().any(|t| point_in_polygon(t, *p)))
 }
 
-/// Whether `e` can be picked or selected: shown, and not on a locked layer when
-/// [`Drawing::locked_unselectable`] says so (snapping doesn't ask this).
-pub fn selectable(d: &Drawing, e: &Entity) -> bool {
-    d.is_visible(e) && !locked_against_selection(d, e)
-}
-
 /// Whether `e` is on a locked layer and [`Drawing::locked_unselectable`] keeps such objects from
 /// being selected.
 pub fn locked_against_selection(d: &Drawing, e: &Entity) -> bool {
     d.locked_unselectable && d.layer(&e.common.layer).is_some_and(|l| l.locked)
+}
+
+/// `hs` without the objects on a locked layer that [`Drawing::locked_unselectable`] keeps from selection.
+pub(crate) fn unlocked(d: &Drawing, hs: Vec<Handle>) -> Vec<Handle> {
+    hs.into_iter().filter(|h| !d.entity(*h).is_some_and(|e| locked_against_selection(d, e))).collect()
+}
+
+/// Whether `e` is on one of the layers in `frozen`: the layers frozen in a layout viewport, which
+/// does not draw their objects. The names are compared as the renderer compares them.
+pub(crate) fn on_frozen_layer(frozen: &[String], e: &Entity) -> bool {
+    frozen.iter().any(|l| l.eq_ignore_ascii_case(&e.common.layer))
+}
+
+/// The last object of `store`, in draw order, that is not on one of the layers in `frozen`, the
+/// layers frozen in the layout viewport the selection is made through: what the Last option
+/// takes there. With no such layers it is the last object, whether the drawing shows it or not.
+pub(crate) fn last_in(store: &cadcraft_doc::EntityStore, frozen: &[String]) -> Option<Handle> {
+    if frozen.is_empty() {
+        return store.last().map(|e| e.handle);
+    }
+    store.iter().filter(|e| !on_frozen_layer(frozen, e)).last().map(|e| e.handle)
+}
+
+/// Whether a selection can take `e`: the drawing shows it ([`Drawing::is_visible`]), it is not on a locked layer that
+/// [`Drawing::locked_unselectable`] keeps from selection ([`locked_against_selection`]; snapping does not ask this) and it is not
+/// on one of the layers in `frozen`, the layers frozen in the layout viewport the selection is
+/// made through ([`crate::DocState::viewport_frozen`]; empty anywhere else). A viewport shows
+/// model space, so `frozen` goes with a selection in model space only.
+pub(crate) fn selectable(d: &Drawing, e: &Entity, frozen: &[String]) -> bool {
+    d.is_visible(e) && !on_frozen_layer(frozen, e) && !locked_against_selection(d, e)
 }
 
 /// Entities to test, in the order to test them, each with its bounds when already known.
@@ -370,8 +394,7 @@ pub(crate) fn candidates<'a>(
 /// the nearest, as AutoCAD 2024 picks (two objects under the pickbox: the one drawn later is
 /// picked, and DRAWORDER changes which).
 pub fn pick(d: &Drawing, space: &Space, p: Vec2, aperture: f64) -> Option<Handle> {
-    let ix = spatial::index(d, space);
-    pick_with(d, space, &ix, p, aperture)
+    pick_in(d, space, &[], p, aperture)
 }
 
 /// Candidates [`pick_with`] takes from the tree and sorts; with more, it reads the index topmost
@@ -381,25 +404,40 @@ const PICK_SORTED_MAX: usize = 1024;
 /// few microseconds when none of them is a hit.
 const PICK_TOP_SCAN: usize = 4096;
 
-pub(crate) fn pick_with(d: &Drawing, space: &Space, ix: &Option<std::sync::Arc<SpatialIndex>>, p: Vec2, aperture: f64) -> Option<Handle> {
-    pick_scanning(d, space, ix, p, aperture, PICK_SORTED_MAX, PICK_TOP_SCAN)
+/// [`pick`] through a layout viewport: the objects on the layers in `frozen`, the layers frozen
+/// in that viewport, are not drawn there and are not picked.
+pub fn pick_in(d: &Drawing, space: &Space, frozen: &[String], p: Vec2, aperture: f64) -> Option<Handle> {
+    let ix = spatial::index(d, space);
+    pick_with(d, space, &ix, frozen, p, aperture)
 }
 
-/// [`pick_with`] with its limits: up to `sorted_max` candidates are sorted, more are read topmost
+pub(crate) fn pick_with(
+    d: &Drawing,
+    space: &Space,
+    ix: &Option<std::sync::Arc<SpatialIndex>>,
+    frozen: &[String],
+    p: Vec2,
+    aperture: f64,
+) -> Option<Handle> {
+    pick_scanning(d, space, ix, frozen, p, aperture, (PICK_SORTED_MAX, PICK_TOP_SCAN))
+}
+
+/// [`pick_with`] with its limits `(sorted_max, budget)`: up to `sorted_max` candidates are sorted, more are read topmost
 /// first, up to `budget` of them, before the rest are sorted.
 pub(crate) fn pick_scanning(
     d: &Drawing,
     space: &Space,
     ix: &Option<std::sync::Arc<SpatialIndex>>,
+    frozen: &[String],
     p: Vec2,
     aperture: f64,
-    sorted_max: usize,
-    budget: usize,
+    limits: (usize, usize),
 ) -> Option<Handle> {
     let probe = Bounds2::new(p, p).expand(aperture);
     let query = probe.expand(aperture);
+    let (sorted_max, budget) = limits;
     let hit = |e: &Entity, known: Option<Bounds2>| {
-        selectable(d, e)
+        selectable(d, e, frozen)
             && (is_infinite(e) || bounds_of(d, e, known).expand(aperture).intersects(&probe))
             && entity_distance(d, e, p, aperture / 4.0) <= aperture
     };
@@ -440,11 +478,16 @@ pub(crate) fn pick_scanning(
 /// Every entity within `aperture` of `p`, topmost first (so the first is what [`pick`] chooses):
 /// the objects selection cycling lists.
 pub fn pick_all(d: &Drawing, space: &Space, p: Vec2, aperture: f64) -> Vec<Handle> {
+    pick_all_in(d, space, &[], p, aperture)
+}
+
+/// [`pick_all`] through a layout viewport that freezes the layers in `frozen` ([`pick_in`]).
+pub fn pick_all_in(d: &Drawing, space: &Space, frozen: &[String], p: Vec2, aperture: f64) -> Vec<Handle> {
     let ix = spatial::index(d, space);
     let probe = Bounds2::new(p, p).expand(aperture);
     let Some(cands) = candidates(d, space, &ix, &probe.expand(aperture), true, true) else { return Vec::new() };
     cands
-        .filter(|(e, known)| selectable(d, e) && (is_infinite(e) || bounds_of(d, e, *known).expand(aperture).intersects(&probe)))
+        .filter(|(e, known)| selectable(d, e, frozen) && (is_infinite(e) || bounds_of(d, e, *known).expand(aperture).intersects(&probe)))
         .filter(|(e, _)| entity_distance(d, e, p, aperture / 4.0) <= aperture)
         .map(|(e, _)| e.handle)
         .collect()
@@ -472,14 +515,27 @@ fn seg_hits_box(a: Vec2, b: Vec2, bx: &Bounds2) -> bool {
 
 /// Window selection (entirely inside) or crossing selection (inside or touching).
 pub fn select_window(d: &Drawing, space: &Space, bx: Bounds2, crossing: bool) -> Vec<Handle> {
-    let ix = spatial::index(d, space);
-    select_window_with(d, space, &ix, bx, crossing)
+    select_window_in(d, space, &[], bx, crossing)
 }
 
-pub(crate) fn select_window_with(d: &Drawing, space: &Space, ix: &Option<std::sync::Arc<SpatialIndex>>, bx: Bounds2, crossing: bool) -> Vec<Handle> {
+/// [`select_window`] through a layout viewport: the objects on the layers in `frozen`, the layers
+/// frozen in that viewport, are not drawn there and are not selected.
+pub fn select_window_in(d: &Drawing, space: &Space, frozen: &[String], bx: Bounds2, crossing: bool) -> Vec<Handle> {
+    let ix = spatial::index(d, space);
+    select_window_with(d, space, &ix, frozen, bx, crossing)
+}
+
+pub(crate) fn select_window_with(
+    d: &Drawing,
+    space: &Space,
+    ix: &Option<std::sync::Arc<SpatialIndex>>,
+    frozen: &[String],
+    bx: Bounds2,
+    crossing: bool,
+) -> Vec<Handle> {
     let Some(cands) = candidates(d, space, ix, &bx, crossing, false) else { return Vec::new() };
     let tol = window_tol(&bx);
-    cands.filter(|(e, known)| selectable(d, e) && in_window(d, e, *known, &bx, crossing, tol)).map(|(e, _)| e.handle).collect()
+    cands.filter(|(e, known)| selectable(d, e, frozen) && in_window(d, e, *known, &bx, crossing, tol)).map(|(e, _)| e.handle).collect()
 }
 
 /// The tessellation tolerance window and crossing tests use for a box.
@@ -526,11 +582,23 @@ pub(crate) fn in_window(d: &Drawing, e: &Entity, known: Option<Bounds2>, bx: &Bo
 
 /// Fence selection: entities crossed by the fence polyline.
 pub fn select_fence(d: &Drawing, space: &Space, fence: &[Vec2]) -> Vec<Handle> {
-    let ix = spatial::index(d, space);
-    select_fence_with(d, space, &ix, fence)
+    select_fence_in(d, space, &[], fence)
 }
 
-pub(crate) fn select_fence_with(d: &Drawing, space: &Space, ix: &Option<std::sync::Arc<SpatialIndex>>, fence: &[Vec2]) -> Vec<Handle> {
+/// [`select_fence`] through a layout viewport that freezes the layers in `frozen`
+/// ([`select_window_in`]).
+pub fn select_fence_in(d: &Drawing, space: &Space, frozen: &[String], fence: &[Vec2]) -> Vec<Handle> {
+    let ix = spatial::index(d, space);
+    select_fence_with(d, space, &ix, frozen, fence)
+}
+
+pub(crate) fn select_fence_with(
+    d: &Drawing,
+    space: &Space,
+    ix: &Option<std::sync::Arc<SpatialIndex>>,
+    frozen: &[String],
+    fence: &[Vec2],
+) -> Vec<Handle> {
     let fb = Bounds2::from_points(fence.iter().copied());
     let tol = (fb.width() + fb.height()).max(1e-9) / 2000.0;
     let probe = fb.expand(tol);
@@ -538,7 +606,7 @@ pub(crate) fn select_fence_with(d: &Drawing, space: &Space, ix: &Option<std::syn
     let mut out = Vec::new();
     for (e, known) in cands {
         // Infinite objects have no useful bounds; like window selection, test their geometry directly.
-        if !selectable(d, e) || (!is_infinite(e) && !bounds_of(d, e, known).intersects(&probe)) {
+        if !selectable(d, e, frozen) || (!is_infinite(e) && !bounds_of(d, e, known).intersects(&probe)) {
             continue;
         }
         let polys = selection_polylines(d, e, tol);
@@ -560,6 +628,12 @@ pub(crate) fn select_fence_with(d: &Drawing, space: &Space, ix: &Option<std::syn
 /// Window polygon selection (entities entirely inside `poly`) or crossing polygon selection
 /// (inside or crossing its edges). The polygon closes back to its first point.
 pub fn select_polygon(d: &Drawing, space: &Space, poly: &[Vec2], crossing: bool) -> Vec<Handle> {
+    select_polygon_in(d, space, &[], poly, crossing)
+}
+
+/// [`select_polygon`] through a layout viewport that freezes the layers in `frozen`
+/// ([`select_window_in`]).
+pub fn select_polygon_in(d: &Drawing, space: &Space, frozen: &[String], poly: &[Vec2], crossing: bool) -> Vec<Handle> {
     let (Some(first), true) = (poly.first(), poly.len() >= 3) else { return Vec::new() };
     let ix = spatial::index(d, space);
     let pb = Bounds2::from_points(poly.iter().copied());
@@ -570,7 +644,7 @@ pub fn select_polygon(d: &Drawing, space: &Space, poly: &[Vec2], crossing: bool)
     let mut out = Vec::new();
     for (e, known) in cands {
         let infinite = is_infinite(e);
-        if !selectable(d, e) || (infinite && !crossing) {
+        if !selectable(d, e, frozen) || (infinite && !crossing) {
             continue;
         }
         let eb = bounds_of(d, e, known);
@@ -599,9 +673,15 @@ pub fn select_polygon(d: &Drawing, space: &Space, poly: &[Vec2], crossing: bool)
 /// The selectable objects in `space` of the group called `name` (any case), or `None` when the
 /// drawing has no such group.
 pub fn select_group(d: &Drawing, space: &Space, name: &str) -> Option<Vec<Handle>> {
+    select_group_in(d, space, &[], name)
+}
+
+/// [`select_group`] through a layout viewport that freezes the layers in `frozen`: the group's
+/// objects on those layers are left out.
+pub fn select_group_in(d: &Drawing, space: &Space, frozen: &[String], name: &str) -> Option<Vec<Handle>> {
     let g = d.groups.iter().find(|g| g.name.eq_ignore_ascii_case(name.trim()))?;
     let store = d.space(space)?;
-    Some(g.members.iter().copied().filter(|h| store.get(*h).is_some_and(|e| selectable(d, e))).collect())
+    Some(g.members.iter().copied().filter(|h| store.get(*h).is_some_and(|e| selectable(d, e, frozen))).collect())
 }
 
 /// A selection mode typed at "Select objects", collecting its points before it selects.
@@ -675,14 +755,19 @@ impl SelectMode {
     }
     /// The objects the mode selects, or `None` while it has too few points.
     pub fn select(&self, d: &Drawing, space: &Space) -> Option<Vec<Handle>> {
+        self.select_in(d, space, &[])
+    }
+    /// [`SelectMode::select`] through a layout viewport: the objects on the layers in `frozen`,
+    /// the layers frozen in that viewport, are not drawn there and are not selected.
+    pub fn select_in(&self, d: &Drawing, space: &Space, frozen: &[String]) -> Option<Vec<Handle>> {
         match (self.kind, self.pts.as_slice()) {
             (SelectKind::Window | SelectKind::Crossing, [a, b, ..]) => {
-                Some(select_window(d, space, Bounds2::new(*a, *b), self.kind == SelectKind::Crossing))
+                Some(select_window_in(d, space, frozen, Bounds2::new(*a, *b), self.kind == SelectKind::Crossing))
             }
-            (SelectKind::Box, [a, b, ..]) => Some(select_window(d, space, Bounds2::new(*a, *b), b.x < a.x)),
-            (SelectKind::Fence, pts) if pts.len() >= 2 => Some(select_fence(d, space, pts)),
+            (SelectKind::Box, [a, b, ..]) => Some(select_window_in(d, space, frozen, Bounds2::new(*a, *b), b.x < a.x)),
+            (SelectKind::Fence, pts) if pts.len() >= 2 => Some(select_fence_in(d, space, frozen, pts)),
             (SelectKind::WPolygon | SelectKind::CPolygon, pts) if pts.len() >= 3 => {
-                Some(select_polygon(d, space, pts, self.kind == SelectKind::CPolygon))
+                Some(select_polygon_in(d, space, frozen, pts, self.kind == SelectKind::CPolygon))
             }
             _ => None,
         }

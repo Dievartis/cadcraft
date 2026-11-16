@@ -1,7 +1,5 @@
 //! SVG export of a space (vector, for the web and documents).
 
-use std::fmt::Write as _;
-
 use cadcraft_color::Rgb;
 use cadcraft_doc::{Drawing, Space};
 use cadcraft_geom::Bounds2;
@@ -35,12 +33,9 @@ pub(crate) fn export_window_from(d: &Drawing, space: &Space, window: Option<Boun
     export_list_over(&list, window, &images)
 }
 
-/// ` opacity="…"` for a transparent primitive (none for an opaque one or a wipeout's mask).
-fn opacity(p: &cadcraft_render::DPrim) -> String {
-    if p.kind == Kind::Mask || p.transparency == 0 {
-        return String::new();
-    }
-    format!(r#" opacity="{:.2}""#, f64::from(p.alpha()) / 255.0)
+/// Opacity for a transparent primitive (none for an opaque one or a wipeout's mask).
+fn opacity(p: &cadcraft_render::DPrim) -> Option<String> {
+    (p.kind != Kind::Mask && p.transparency != 0).then(|| format!("{:.2}", f64::from(p.alpha()) / 255.0))
 }
 
 /// Write a display list (as [`export_window`] does for a space's own).
@@ -75,26 +70,30 @@ pub(crate) fn export_list_over(list: &cadcraft_render::DisplayList, window: Opti
     let stroke = vw.max(vh) / 1500.0;
     // Decimals: at least 6, more when the stroke would otherwise lose its leading digits.
     let dp = (3.0 - stroke.log10().floor()).clamp(6.0, 15.0) as usize;
-    let mut s = String::new();
-    let _ = write!(
-        s,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {vw:.dp$} {vh:.dp$}" width="{:.0}" height="{:.0}"><rect width="100%" height="100%" fill="white"/>"#,
-        1600.0,
-        1600.0 * vh / vw
-    );
+    use craft_svg::write::{SvgWriter, num};
+    let mut writer = SvgWriter::fragment();
+    writer
+        .root()
+        .attr("viewBox", format!("0 0 {} {}", num(vw, dp), num(vh, dp)))
+        .attr("width", format!("{:.0}", 1600.0))
+        .attr("height", format!("{:.0}", 1600.0 * vh / vw))
+        .open();
+    writer.tag("rect").attr("width", "100%").attr("height", "100%").attr("fill", "white").empty();
     let white = Rgb(255, 255, 255);
     let tx = |x: f64| x - x0;
     let ty = |y: f64| y1 - y;
     let mut images: Vec<&crate::underlay_plot::PlotImage> = images.iter().collect();
     images.sort_by_key(|im| im.at);
     let mut images = images.into_iter().enumerate().peekable();
-    let image = |s: &mut String, n: usize, im: &crate::underlay_plot::PlotImage| {
-        let Some(png) = cadcraft_render::raster::pixels_png(im.width, im.height, &im.rgb, &im.alpha) else { return };
+    let image = |n: usize, im: &crate::underlay_plot::PlotImage| -> String {
+        use std::fmt::Write as _;
+        let mut s = String::new();
+        let Some(png) = cadcraft_render::raster::pixels_png(im.width, im.height, &im.rgb, &im.alpha) else { return s };
         // The unit square (its top row at y = 0) onto the page's parallelogram, in SVG units.
         let top = im.origin + im.v;
         let m = [im.u.x, -im.u.y, -im.v.x, im.v.y, tx(top.x), ty(top.y)];
         if m.iter().any(|v| !v.is_finite()) {
-            return;
+            return s;
         }
         // Seen through a viewport: clipped to it.
         let clipped = !im.clip.is_empty();
@@ -121,67 +120,77 @@ pub(crate) fn export_list_over(list: &cadcraft_render::DisplayList, window: Opti
         if clipped {
             s.push_str("</g>");
         }
+        s
     };
     for (i, p) in list.prims.iter().enumerate() {
         while let Some((n, im)) = images.next_if(|(_, im)| im.at <= i) {
-            image(&mut s, n, im);
+            writer.raw(&image(n, im));
         }
         let c = p.display_rgb(white).hex();
         let op = opacity(p);
         let pts = list.points(p);
         match p.kind {
             Kind::Polyline => {
-                let _ = write!(
-                    s,
-                    r#"<polyline fill="none" stroke="{c}"{op} stroke-width="{stroke:.dp$}" stroke-linecap="round" stroke-linejoin="round" points=""#
-                );
-                for q in pts {
-                    let _ = write!(s, "{:.dp$},{:.dp$} ", tx(q.x), ty(q.y));
+                let points = craft_svg::drawing_write::points(pts.iter().map(|q| [tx(q.x), ty(q.y)]), dp);
+                let mut tag = writer.tag("polyline").attr("fill", "none").attr("stroke", &c);
+                if let Some(op) = &op {
+                    tag = tag.attr("opacity", op);
                 }
-                s.push_str(r#""/>"#);
+                tag.attr("stroke-width", num(stroke, dp))
+                    .attr("stroke-linecap", "round")
+                    .attr("stroke-linejoin", "round")
+                    .attr("points", points)
+                    .empty();
             }
             Kind::Tris | Kind::Mask => {
-                // A wipeout's mask hides what lies under it with the white background.
                 let c = if p.kind == Kind::Mask { white.hex() } else { c };
-                let _ = write!(s, r#"<path fill="{c}"{op} d=""#);
-                for t in pts.chunks(3) {
-                    if let [a, b2, cc] = t {
-                        let _ =
-                            write!(s, "M{:.dp$} {:.dp$}L{:.dp$} {:.dp$}L{:.dp$} {:.dp$}Z", tx(a.x), ty(a.y), tx(b2.x), ty(b2.y), tx(cc.x), ty(cc.y));
-                    }
+                let triangles = pts
+                    .chunks(3)
+                    .filter_map(|t| if let [a, b, c] = t { Some([[tx(a.x), ty(a.y)], [tx(b.x), ty(b.y)], [tx(c.x), ty(c.y)]]) } else { None });
+                let path = craft_svg::drawing_write::triangles(triangles, dp);
+                let mut tag = writer.tag("path").attr("fill", &c);
+                if let Some(op) = &op {
+                    tag = tag.attr("opacity", op);
                 }
-                s.push_str(r#""/>"#);
+                tag.attr("d", path).empty();
             }
-            // Raster images are not written to SVG yet: their frame is.
             Kind::Image { .. } => {}
             Kind::Point => {
                 if let Some(q) = pts.first() {
-                    let _ = write!(s, r#"<circle cx="{:.dp$}" cy="{:.dp$}" r="{:.dp$}" fill="{c}"{op}/>"#, tx(q.x), ty(q.y), stroke);
+                    let mut tag =
+                        writer.tag("circle").attr("cx", num(tx(q.x), dp)).attr("cy", num(ty(q.y), dp)).attr("r", num(stroke, dp)).attr("fill", &c);
+                    if let Some(op) = &op {
+                        tag = tag.attr("opacity", op);
+                    }
+                    tag.empty();
                 }
             }
             Kind::Infinite { ray } => {
                 if let (Some(bp), Some(dir)) = (pts.first(), pts.get(1)) {
-                    // A window can lie far from the base point: reach past it.
                     let far = (vw + vh) * 2.0 + if window.is_some() { bp.dist(b.center()) } else { 0.0 };
                     let a = if ray { *bp } else { *bp - *dir * far };
                     let e = *bp + *dir * far;
-                    let _ = write!(
-                        s,
-                        r#"<line x1="{:.dp$}" y1="{:.dp$}" x2="{:.dp$}" y2="{:.dp$}" stroke="{c}"{op} stroke-width="{stroke:.dp$}"/>"#,
-                        tx(a.x),
-                        ty(a.y),
-                        tx(e.x),
-                        ty(e.y)
-                    );
+                    let mut tag = writer
+                        .tag("line")
+                        .attr("x1", num(tx(a.x), dp))
+                        .attr("y1", num(ty(a.y), dp))
+                        .attr("x2", num(tx(e.x), dp))
+                        .attr("y2", num(ty(e.y), dp))
+                        .attr("stroke", &c);
+                    if let Some(op) = &op {
+                        tag = tag.attr("opacity", op);
+                    }
+                    tag.attr("stroke-width", num(stroke, dp)).empty();
                 }
             }
         }
     }
+    // Pages drawn after the last primitive.
     for (n, im) in images {
-        image(&mut s, n, im);
+        writer.raw(&image(n, im));
     }
-    s.push_str("</svg>");
-    s
+    writer.close();
+    writer.finish()
 }
 
 /// `bytes` in base64 (RFC 4648, with padding), for a data URL.

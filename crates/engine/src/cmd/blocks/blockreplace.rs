@@ -184,9 +184,10 @@ impl Interactive for BlockreplaceM {
     }
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.stage {
-            Stage::Old => Prompt::new("Enter the name of the block to replace", Accept::TEXT).kw(&["?", "Select"]),
+            Stage::Old => Prompt::new("Enter the name of the block to replace", Accept::TEXT).kw(&["?", "Select"]).takes_block(),
             Stage::New => Prompt::with_values("Enter the name of the replacement block for {block}", [("block", self.old.clone())], Accept::TEXT)
-                .kw(&["?", "Select"]),
+                .kw(&["?", "Select"])
+                .takes_block(),
             Stage::Select => Prompt::new("Select a block reference", Accept::SELECT),
             Stage::Purge => Prompt::with_values("Purge the unreferenced block definition {block}?", [("block", self.old.clone())], KW)
                 .kw(&["Yes", "No"])

@@ -122,22 +122,37 @@ pub struct Suggestion {
 const LISP_LABEL: &str = "LISP command";
 
 /// AutoComplete for the command line's text: [`suggestions`] with the commands the active
-/// drawing's LISP defines.
+/// drawing's LISP defines, and a Greek word that is a command of its own there (an alias, a command
+/// the drawing's LISP defines) left as typed.
 fn suggest(app: &CadApp, prefix: &str) -> Vec<Suggestion> {
     if prefix.is_empty() || prefix.contains(' ') {
         return Vec::new();
     }
-    suggestions(prefix, &crate::context_menu::lisp_commands(app))
+    suggestions(prefix, &crate::context_menu::lisp_commands(app), &|word| app.session.greek_word_is_a_command(word))
+}
+
+/// [`suggestions`] for what `session` can run, without the commands LISP defines.
+#[cfg(test)]
+fn suggestions_in(session: &cadcraft_engine::Session, prefix: &str) -> Vec<Suggestion> {
+    suggestions(prefix, &[], &|word| session.greek_word_is_a_command(word))
 }
 
 /// Matching command names/aliases for AutoComplete; `lisp` are the names of the commands LISP
 /// routines define (`c:` functions), listed after the registered commands whose name matches, or
-/// first when the whole name is typed: that is what Enter runs.
-fn suggestions(prefix: &str, lisp: &[String]) -> Vec<Suggestion> {
+/// first when the whole name is typed: that is what Enter runs. `is_own_command` tells whether a
+/// Greek-layout word is a command of its own rather than the Latin name its keys type.
+fn suggestions(prefix: &str, lisp: &[String], is_own_command: &dyn Fn(&str) -> bool) -> Vec<Suggestion> {
     if prefix.is_empty() || prefix.contains(' ') {
         return Vec::new();
     }
-    let p = prefix.to_ascii_lowercase();
+    // Typed with the Greek keyboard layout (ΛΙΝ), it completes as the Latin name (LINE), unless the word
+    // as typed already names a command, alias or LISP command: that is what Enter runs.
+    let typed = prefix.to_ascii_lowercase();
+    let p = if cadcraft_engine::cmd::find_command(&cadcraft_engine::cmd::resolve_alias(&typed)).is_some() {
+        typed
+    } else {
+        cadcraft_engine::keyboard::latin_keys(prefix).filter(|_| !is_own_command(prefix)).unwrap_or(typed)
+    };
 
     let mut out: Vec<Suggestion> = Vec::new();
     let mut seen_ids: HashSet<&'static str> = HashSet::new();
@@ -800,6 +815,52 @@ mod tests {
         frame(app, ctx, vec![Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: egui::Modifiers::default() }]);
     }
 
+    /// A Greek-layout prefix completes like its Latin keys; a prefix in another script is matched
+    /// as it is.
+    #[test]
+    fn autocomplete_reads_a_greek_layout_prefix_as_its_latin_keys() {
+        // ΛΙΝ is the keys L-I-N on the Greek layout: it completes like the Latin prefix does.
+        let latin: Vec<String> = suggestions("lin", &[], &|_| false).into_iter().map(|s| s.id).collect();
+        assert!(latin.iter().any(|id| id == "LINE"), "{latin:?}");
+        let greek: Vec<String> = suggestions("ΛΙΝ", &[], &|_| false).into_iter().map(|s| s.id).collect();
+        assert_eq!(greek, latin);
+        // A prefix that is not Greek-layout typing is matched as it is.
+        assert!(suggestions("ЖЖЖ", &[], &|_| false).is_empty());
+    }
+
+    /// A Greek word the user made an alias is offered as that alias's command, which is what Enter
+    /// runs.
+    #[test]
+    fn autocomplete_offers_the_greek_alias_the_user_defined_that_enter_would_run() {
+        // Enter runs a word that is an alias as typed, so AutoComplete must not read it as Latin keys first:
+        // Ξ is the J key (JOIN's alias), but the user made Ξ an alias of QSAVE. The alias store is
+        // process-wide and the alias dialog's tests clear it, so this test takes its turn with them.
+        let _alone = crate::aliasdlg::lock_alias_store();
+        let mut session = Session::empty();
+        session.execute("aliasedit", &serde_json::json!({ "set": { "Ξ": "qsave" } })).unwrap();
+        let first = suggestions("Ξ", &[], &|_| false).into_iter().next().map(|s| s.id);
+        session.execute("aliasedit", &serde_json::json!({ "remove": ["Ξ"] })).unwrap();
+        assert_eq!(first.as_deref(), Some("QSAVE"));
+    }
+
+    /// A Greek word the drawing's LISP defines as a command is not completed to the Latin name of
+    /// its keys.
+    #[test]
+    fn autocomplete_leaves_a_greek_word_the_drawings_lisp_defines_as_typed() {
+        // ΛΙΝΕ is the keys of LINE, but the drawing defines a command of that Greek name: Enter runs that
+        // command, so Tab must not replace the word with LINE.
+        let mut session = Session::new();
+        session.cmdline("(defun c:ΛΙΝΕ () (princ))").unwrap();
+        for word in ["ΛΙΝΕ", "λινε", "λίνε"] {
+            assert!(suggestions_in(&session, word).is_empty(), "{word}: {:?}", suggestions_in(&session, word));
+        }
+        // Another word of the same keys is still read as Latin: Enter would start LINE for it too.
+        assert!(suggestions_in(&session, "ΛΙΝ").iter().any(|s| s.id == "LINE"));
+        // Without the definition ΛΙΝΕ completes as LINE.
+        let plain = Session::new();
+        assert!(suggestions_in(&plain, "ΛΙΝΕ").iter().any(|s| s.id == "LINE"));
+    }
+
     #[test]
     fn ime_preedit_is_shown_and_its_commit_is_inserted_once() {
         use cadcraft_engine::geom::Vec2;
@@ -998,7 +1059,7 @@ mod autocomplete_tests {
 
     #[test]
     fn exact_alias_is_first_suggestion_with_alias_display() {
-        let rec = suggestions("rec", &[]);
+        let rec = suggestions("rec", &[], &|_| false);
         assert!(!rec.is_empty());
         assert_eq!(rec[0].id, "RECTANG");
         assert_eq!(rec[0].display, "REC (RECTANG)");
@@ -1008,26 +1069,26 @@ mod autocomplete_tests {
         assert_eq!(rec[1].id, "RECOVER");
         assert_eq!(rec[1].display, "RECOVER");
 
-        let l = suggestions("l", &[]);
+        let l = suggestions("l", &[], &|_| false);
         assert_eq!(l[0].id, "LINE");
         assert_eq!(l[0].display, "L (LINE)");
 
-        let c = suggestions("c", &[]);
+        let c = suggestions("c", &[], &|_| false);
         assert_eq!(c[0].id, "CIRCLE");
         assert_eq!(c[0].display, "C (CIRCLE)");
 
-        let co = suggestions("co", &[]);
+        let co = suggestions("co", &[], &|_| false);
         assert_eq!(co[0].id, "COPY");
         assert_eq!(co[0].display, "CO (COPY)");
     }
 
     #[test]
     fn prefix_without_alias_shows_command_id() {
-        let rect = suggestions("rect", &[]);
+        let rect = suggestions("rect", &[], &|_| false);
         assert_eq!(rect[0].id, "RECTANG");
         assert_eq!(rect[0].display, "RECTANG");
 
-        let line = suggestions("line", &[]);
+        let line = suggestions("line", &[], &|_| false);
         assert_eq!(line[0].id, "LINE");
         assert_eq!(line[0].display, "LINE");
     }
@@ -1035,18 +1096,18 @@ mod autocomplete_tests {
     #[test]
     fn lisp_commands_are_suggested_after_registered_ones() {
         let lisp = ["PIDLINEA".to_string(), "PIDINST".to_string(), "LINE".to_string(), "PP".to_string()];
-        let pid = suggestions("pid", &lisp);
+        let pid = suggestions("pid", &lisp, &|_| false);
         assert_eq!(pid.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["PIDINST", "PIDLINEA"]);
         assert!(pid.iter().all(|s| s.label == LISP_LABEL && s.display == s.id));
         // A registered command of the same name is listed once, as the registered command.
-        let line = suggestions("line", &lisp);
+        let line = suggestions("line", &lisp, &|_| false);
         assert_eq!(line.iter().filter(|s| s.id == "LINE").count(), 1);
         assert_ne!(line[0].label, LISP_LABEL);
         // Typed in any case; nothing without a prefix.
-        assert_eq!(suggestions("PidI", &lisp).first().map(|s| s.id.as_str()), Some("PIDINST"));
-        assert!(suggestions("", &lisp).is_empty());
+        assert_eq!(suggestions("PidI", &lisp, &|_| false).first().map(|s| s.id.as_str()), Some("PIDINST"));
+        assert!(suggestions("", &lisp, &|_| false).is_empty());
         // The whole name goes first, ahead of the registered commands it is a prefix of.
-        let lin = suggestions("lin", &["LIN".to_string()]);
+        let lin = suggestions("lin", &["LIN".to_string()], &|_| false);
         assert_eq!((lin[0].id.as_str(), lin[0].label), ("LIN", LISP_LABEL));
         assert_eq!(lin[1].id, "LINE");
     }

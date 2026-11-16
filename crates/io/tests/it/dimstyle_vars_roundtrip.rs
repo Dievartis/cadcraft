@@ -250,8 +250,8 @@ fn header_jog_angle_takes_degrees_too_and_drops_unusable_values() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn dwg_jog_angle_reads_in_degrees() {
-    let dwg = cadcraft_dwg::dxf_to_dwg_as(dxf(&drawing(), Version::R2018).as_bytes(), "AC1032").unwrap();
-    let text = String::from_utf8(cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
+    let dwg = craft_dwg::dxf_to_dwg_as(dxf(&drawing(), Version::R2018).as_bytes(), "AC1032").unwrap();
+    let text = String::from_utf8(craft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
     let lines: Vec<&str> = text.lines().collect();
     let jog: f64 = lines[style_group(&lines, "Detail", "50").unwrap()].trim().parse().unwrap();
     assert!((jog - 30.0).abs() < 1e-9, "the bridge's DXF has degrees: {jog}");

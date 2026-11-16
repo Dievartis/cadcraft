@@ -19,6 +19,8 @@ cadcraft-render = { workspace = true }
 cadcraft-engine = { workspace = true }
 cadcraft-collab = { workspace = true }
 cadcraft-collab-client = { workspace = true }
+cadcraft-io = { workspace = true }
+craft-image-codecs = { workspace = true }
 cadcraft-fonts = { workspace = true }
 craft-window = { workspace = true }
 egui = { workspace = true }
