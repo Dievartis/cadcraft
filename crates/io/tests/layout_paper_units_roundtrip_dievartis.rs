@@ -5,20 +5,48 @@ use cadcraft_doc::{Drawing, Layout};
 use cadcraft_io::{read, write_dxf};
 
 fn round_trip(measurement: i64, paper_mm: bool, override_mm: Option<bool>) {
+    check_round_trip(measurement, paper_mm, override_mm, false);
+    check_round_trip(measurement, paper_mm, override_mm, true);
+}
+
+fn check_round_trip(measurement: i64, paper_mm: bool, override_mm: Option<bool>, saved_view: bool) {
     let mut drawing = if measurement == 1 { Drawing::new_metric() } else { Drawing::new_imperial() };
     drawing.header.set_i64("MEASUREMENT", measurement);
     let mut layout = Layout::new("UNITS_TEST", 9);
     layout.page.paper_mm = paper_mm;
     layout.page.paper_unit_mm_override = override_mm;
+    layout.view = saved_view.then_some((cadcraft_geom::Vec2::new(210.0, 148.5), 320.0));
     drawing.layouts.push(layout);
 
     let before = &drawing.layout("UNITS_TEST").unwrap().page;
     let expected_mm = cadcraft_render::paper::page_unit_mm(&drawing, before);
 
     let dxf = write_dxf(&drawing);
+    let mut in_layout = false;
+    let mut seen_subclass = false;
+    let mut app_groups = 0;
+    let lines: Vec<_> = dxf.lines().collect();
+    for pair in lines.as_chunks::<2>().0 {
+        let code = pair[0].trim();
+        let value = pair[1].trim();
+        if code == "0" {
+            if in_layout {
+                assert_eq!(app_groups, 1, "one CADCRAFT group per layout");
+            }
+            in_layout = value == "LAYOUT";
+            seen_subclass = false;
+            app_groups = 0;
+        } else if in_layout && code == "100" && value == "AcDbLayout" {
+            seen_subclass = true;
+        } else if in_layout && code == "1001" && value == "CADCRAFT" {
+            assert!(seen_subclass, "extended data follows normal layout fields");
+            app_groups += 1;
+        }
+    }
     let reopened = read(dxf.as_bytes(), "paper_units_test.dxf").unwrap();
     let after = &reopened.layout("UNITS_TEST").unwrap().page;
 
+    assert_eq!(reopened.layout("UNITS_TEST").unwrap().view, drawing.layout("UNITS_TEST").unwrap().view);
     assert_eq!(after.paper_mm, paper_mm);
     assert_eq!(after.paper_unit_mm_override, override_mm);
     assert_eq!(cadcraft_render::paper::page_unit_mm(&reopened, after), expected_mm);

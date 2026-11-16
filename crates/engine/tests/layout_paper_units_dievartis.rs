@@ -1,6 +1,6 @@
 //! Regression tests for page-setup paper-space units in CADCraft.
 //! Supplements the earlier PageSetup.paper_mm work from #1085.
-//! Based on Dievartis/cadcraft commit 0cf789be; no production changes.
+//! Verifies the effective paper dimensions as well as the stored unit flags.
 
 use cadcraft_engine::Session;
 use serde_json::json;
@@ -75,17 +75,23 @@ fn inch_paper_in_metric_drawing_uses_25_4_mm_per_unit() {
     let mut session = session_with_measurement(1);
     new_layout(&mut session, "InchSheet");
 
-    session.execute(
-        "pagesetup",
-        &json!({ "layout": "InchSheet", "paper": "Letter" }),
-    ).unwrap();
+    session.execute("pagesetup", &json!({ "layout": "InchSheet", "paper": "Letter" })).unwrap();
 
     let drawing = session.doc().unwrap();
     let page = &drawing.layout("InchSheet").unwrap().page;
 
-    assert_eq!(
-        cadcraft_render::paper::page_unit_mm(drawing, page),
-        25.4,
-        "Letter must use inches even when MEASUREMENT=1"
-    );
+    assert_eq!(cadcraft_render::paper::page_unit_mm(drawing, page), 25.4, "Letter must use inches even when MEASUREMENT=1");
+}
+
+#[test]
+fn a3_landscape_measures_420_by_297_paper_units() {
+    for measurement in [0, 1] {
+        let mut session = session_with_measurement(measurement);
+        new_layout(&mut session, "A3Sheet");
+        session.execute("pagesetup", &json!({"layout": "A3Sheet", "paper": "A3", "landscape": true})).unwrap();
+        let sheet = cadcraft_render::paper::sheet(session.doc().unwrap(), "A3Sheet").unwrap();
+        assert_eq!(sheet.unit_mm, 1.0);
+        assert_eq!(sheet.size.x, 420.0);
+        assert_eq!(sheet.size.y, 297.0);
+    }
 }
