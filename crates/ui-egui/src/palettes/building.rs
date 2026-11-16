@@ -637,11 +637,16 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut draw: Option<String> = None;
     let mut start: Option<&'static str> = None;
     let mut cleanup = false;
+    let mut cleanup_structure = false;
     let last = app.session.last_used.opening.clone();
     let mut chosen: Option<Preset> = None;
     let mut sections = std::mem::take(&mut app.ui.sections);
     let app_slab_kind = app.session.last_used.slab.kind;
     let mut slab_chosen: Option<cadcraft_doc::SlabKind> = None;
+    // The section new columns and beams take, and the one chosen in the Structure group this frame.
+    let struct_section = app.session.last_used.structure.section.clone();
+    let mut struct_chosen: Option<String> = None;
+    let mut struct_start: Option<&'static str> = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         // A section opens or folds as the Options say and the user left it ([`crate::sections`]); a click on its header changes it.
@@ -682,6 +687,23 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
                 }
             }
         });
+        section(ui, "Structure", true, &mut |ui| {
+            if let Some(chosen) = section_picker(ui, &struct_section) {
+                struct_chosen = Some(chosen);
+            }
+            if row_tip(ui, crate::i18n::t("Column"), "", Some("Column"), false, thumbs::paint_column) {
+                struct_start = Some("columnadd");
+            }
+            if row_tip(ui, crate::i18n::t("Beam"), "", Some("Beam"), false, thumbs::paint_beam) {
+                struct_start = Some("beamadd");
+            }
+            if row_tip(ui, crate::i18n::t("Edit Structure"), "", Some("Edit Structure"), false, thumbs::paint_edit_structure) {
+                struct_start = Some("structedit");
+            }
+            if row_tip(ui, crate::i18n::t("Structure Joints"), "", Some("Structure Joints"), false, thumbs::paint_junctions) {
+                cleanup_structure = true;
+            }
+        });
         section(ui, "Tools", true, &mut |ui| {
             if row_tip(ui, crate::i18n::t("Corner Window"), "", Some("Corner Window"), false, thumbs::paint_corner_window) {
                 start = Some("cornerwindow");
@@ -708,7 +730,23 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
     });
     app.ui.sections = sections;
     hvachelp::show(ui.ctx());
-    if let Some(name) = draw {
+    if let Some(sec) = struct_chosen {
+        app.session.last_used.structure.section = sec;
+    }
+    if cleanup_structure {
+        // STRUCTCLEANUP asks nothing: it cuts the beams at once and says how many.
+        match app.run("structcleanup", serde_json::json!({})) {
+            Ok(r) => {
+                let n = r["regenerated"].as_u64().unwrap_or(0);
+                app.session.echo(crate::tf!("Beams cut: {n} redrawn", n = n));
+            }
+            Err(e) => app.session.echo(e.to_string()),
+        }
+    }
+    if let Some(cmd) = struct_start {
+        app.cmd.buffer.clear();
+        app.start(cmd);
+    } else if let Some(name) = draw {
         // The style clicked becomes WALLADD's style, then WALLADD starts with it.
         app.session.last_used.wall_style = name;
         app.cmd.buffer.clear();
@@ -738,6 +776,38 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
             Err(e) => app.session.echo(e.to_string()),
         }
     }
+}
+
+/// The section chooser of the Structure group: the family and the size, as two lists. Gives the designation chosen this frame ("IPN 200").
+fn section_picker(ui: &mut egui::Ui, current: &str) -> Option<String> {
+    use cadcraft_hvac::{SectionFamily, parse_section, sections_of};
+    let parsed = parse_section(current);
+    let family = parsed.map_or(SectionFamily::Hea, |s| s.family);
+    let mut chosen: Option<String> = None;
+    ui.horizontal(|ui| {
+        ui.add_space(12.0);
+        let name = ui.label(crate::i18n::t("Section"));
+        let family_box = craft_ui::ComboBox::from_id_salt("struct_family").width(70.0).selected_text(family.name()).show_ui(ui, |ui| {
+            for f in SectionFamily::ALL {
+                if ui.selectable_label(f == family, f.name()).clicked() && f != family {
+                    // The size nearest to the current one in the new family.
+                    let want = parsed.map_or(200, |s| s.number);
+                    chosen = sections_of(f).min_by_key(|s| s.number.abs_diff(want)).map(cadcraft_hvac::SteelSection::designation);
+                }
+            }
+        });
+        family_box.response.labelled_by(name.id);
+        let shown = parsed.map_or(String::from("-"), |s| s.number.to_string());
+        let size_box = craft_ui::ComboBox::from_id_salt("struct_size").width(70.0).selected_text(shown).show_ui(ui, |ui| {
+            for s in sections_of(family) {
+                if ui.selectable_label(parsed.is_some_and(|p| p.number == s.number), format!("{} ({:.1} kg/m)", s.number, s.kg_m)).clicked() {
+                    chosen = Some(s.designation());
+                }
+            }
+        });
+        size_box.response.labelled_by(name.id);
+    });
+    chosen
 }
 
 /// The slabs of the Slabs group: the label and the kind.
@@ -941,6 +1011,21 @@ mod tests {
         hn.state_mut().ui.sections.set_mode(SectionsMode::Open);
         hn.run_steps(3);
         assert!(hn.query_by_label("Edit Wall").is_some());
+    }
+
+    #[test]
+    fn the_structure_group_lists_the_columns_and_beams_and_a_click_starts_the_command_with_the_section() {
+        let mut hn = tab(app(SectionsMode::Open), "Architecture");
+        for label in ["Structure", "Column", "Beam", "Edit Structure", "Structure Joints"] {
+            assert!(hn.query_by_label(label).is_some(), "{label}");
+        }
+        // The section chooser: its label and the two lists it names.
+        assert!(hn.get_all_by_label("Section").count() >= 1);
+        hn.get_by_label("Column").click();
+        hn.run_steps(3);
+        assert!(hn.state().session.running.is_some(), "the command is running");
+        // The section new columns take is the one kept by the session.
+        assert_eq!(hn.state().session.last_used.structure.section, "HEA 200");
     }
 
     #[test]

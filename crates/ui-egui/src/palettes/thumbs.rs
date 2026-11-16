@@ -636,3 +636,61 @@ pub(super) fn paint_network_legend(p: &Painter, r: Rect) {
         t.l((13.0, y), (19.0, y), t.acc);
     }
 }
+
+/// A column seen in plan: an I section, filled.
+pub(super) fn paint_column(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.poly(
+        &[
+            (5.0, 4.0),
+            (19.0, 4.0),
+            (19.0, 7.0),
+            (13.5, 7.0),
+            (13.5, 17.0),
+            (19.0, 17.0),
+            (19.0, 20.0),
+            (5.0, 20.0),
+            (5.0, 17.0),
+            (10.5, 17.0),
+            (10.5, 7.0),
+            (5.0, 7.0),
+        ],
+        true,
+        t.base,
+    );
+    t.dot(12.0, 12.0);
+}
+
+/// A beam seen in plan: a band with the lines of its web, ending on two columns.
+pub(super) fn paint_beam(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.poly(&[(6.0, 9.0), (18.0, 9.0), (18.0, 15.0), (6.0, 15.0)], true, t.base);
+    t.l((6.0, 11.0), (18.0, 11.0), t.acc);
+    t.l((6.0, 13.0), (18.0, 13.0), t.acc);
+    t.l((3.0, 5.0), (3.0, 19.0), t.base);
+    t.l((21.0, 5.0), (21.0, 19.0), t.base);
+}
+
+/// A column with a pencil: Edit Structure.
+pub(super) fn paint_edit_structure(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.poly(
+        &[
+            (3.0, 6.0),
+            (13.0, 6.0),
+            (13.0, 8.0),
+            (9.0, 8.0),
+            (9.0, 15.0),
+            (13.0, 15.0),
+            (13.0, 17.0),
+            (3.0, 17.0),
+            (3.0, 15.0),
+            (7.0, 15.0),
+            (7.0, 8.0),
+            (3.0, 8.0),
+        ],
+        true,
+        t.base,
+    );
+    t.pencil();
+}

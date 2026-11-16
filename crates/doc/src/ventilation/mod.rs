@@ -33,6 +33,7 @@ mod refrigerant;
 mod riser;
 mod slab;
 mod space;
+mod structure;
 mod takeoff;
 mod takeoff_cost;
 mod terminal;
@@ -69,6 +70,7 @@ pub use refrigerant::{OutletReport, PartReport, RefrigerantNetwork, RefrigerantR
 pub use riser::*;
 pub use slab::*;
 pub use space::*;
+pub use structure::*;
 pub use takeoff::*;
 pub use takeoff_cost::*;
 pub use terminal::*;
@@ -107,6 +109,7 @@ fn hvac_layer_color(name: &str) -> Option<cadcraft_color::Color> {
         EQUIPMENT_ZONE_LAYER => Some(Color::True(Rgb(0x9a, 0x9a, 0x9a))),
         _ => pipe::pipe_layer_color(name)
             .or_else(|| slab::slab_layer_color(name))
+            .or_else(|| structure::structure_layer_color(name))
             .or_else(|| part::part_layer_color(name))
             .or_else(|| elec::elec_layer_color(name))
             .or_else(|| control::control_layer_color(name))
@@ -331,5 +334,7 @@ mod refrigerant_tests;
 mod riser_tests;
 #[cfg(test)]
 mod slab_tests;
+#[cfg(test)]
+mod structure_tests;
 #[cfg(test)]
 mod tests;

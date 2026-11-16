@@ -46,6 +46,8 @@ pub struct LastUsed {
     /// CONTROLADD's type and controller.
     pub control: cmd::ControlLastUsed,
     pub slab: cmd::SlabLastUsed,
+    /// COLUMNADD and BEAMADD: the section and the elevations.
+    pub structure: cmd::StructLastUsed,
     /// DUCTACCESSORYADD's type.
     pub accessory: cmd::AccessoryLastUsed,
     /// ZONEADD's height and altitude.
@@ -83,6 +85,7 @@ impl Default for LastUsed {
             device: cmd::DeviceLastUsed::default(),
             control: cmd::ControlLastUsed::default(),
             slab: cmd::SlabLastUsed::default(),
+            structure: cmd::StructLastUsed::default(),
             accessory: cmd::AccessoryLastUsed::default(),
             zone: cmd::ZoneLastUsed::default(),
             equipment: cmd::EquipmentLastUsed::default(),

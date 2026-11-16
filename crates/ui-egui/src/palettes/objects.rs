@@ -5,8 +5,8 @@
 use cadcraft_doc::{
     AccessoryKind, AccessoryParams, AhuKind, AhuParams, AirDirection, Drawing, DuctKind, DuctParams, DuctShape, Handle, OpeningKind, OpeningParams,
     PartParams, PipeParams, PipeRiserParams, PipeService, RiserParams, SlabParams, SpaceParams, TerminalKind, TerminalParams, WallJustification,
-    ZoneParams, accessory_of, ahu_of, air_terminal_of, duct_of, opening_of, part_of, pipe_of, pipe_riser_of, riser_of, slab_of, space_of, wall_of,
-    zone_of,
+    ZoneParams, accessory_of, ahu_of, air_terminal_of, duct_of, opening_of, part_of, pipe_of, pipe_riser_of, riser_of, slab_of, space_of, struct_of,
+    wall_of, zone_of,
 };
 use cadcraft_hvac::RoomUse;
 use egui::{Sense, pos2, vec2};
@@ -103,6 +103,10 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     let slabs: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| slab_of(e))).collect();
     if !slabs.is_empty() && slabs.len() == sel.len() {
         return slab_section(ui, sel, &slabs, bad);
+    }
+    let structs: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| struct_of(e))).collect();
+    if !structs.is_empty() && structs.len() == sel.len() {
+        return struct_section(ui, sel, &structs, bad);
     }
     None
 }
@@ -496,6 +500,44 @@ fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], library: &
     action
 }
 
+/// The Properties group of columns and beams: tag, section, height (a column), elevation, with the mass and the top.
+fn struct_section(ui: &mut egui::Ui, sel: &[Handle], ss: &[cadcraft_doc::StructParams], bad: &mut Option<String>) -> Action {
+    use cadcraft_doc::StructKind;
+    let ids = handles(sel);
+    let mut action: Action = None;
+    let kind = shared(&ss.iter().map(|p| p.kind).collect::<Vec<_>>());
+    group(
+        ui,
+        match kind {
+            Some(StructKind::Column) => "Column",
+            Some(StructKind::Beam) => "Beam",
+            None => "Structure",
+        },
+    );
+    elec_text(ui, "structedit", "Tag", "name", &ids, ss.iter().map(|p| p.name.clone()).collect(), &mut action);
+    elec_text(ui, "structedit", "Section", "section", &ids, ss.iter().map(|p| p.section.clone()).collect(), &mut action);
+    if kind == Some(StructKind::Column) {
+        elec_number(ui, ("structedit", "Height (mm)", "height", false), &ids, ss.iter().map(|p| Some(p.height_mm)).collect(), bad, &mut action);
+    }
+    let (label, key) = match kind {
+        Some(StructKind::Column) => ("Elevation of the foot (m)", "elevation"),
+        Some(StructKind::Beam) => ("Elevation of the underside (m)", "elevation"),
+        None => ("Elevation (m)", "elevation"),
+    };
+    elec_number(ui, ("structedit", label, key, false), &ids, ss.iter().map(|p| Some(p.elevation_mm / 1000.0)).collect(), bad, &mut action);
+    if let [p] = ss {
+        prop_row(ui, "Top (m)", |ui| read_only(ui, &format!("{:+.2}", p.top_mm() / 1000.0)));
+        if p.kind == StructKind::Beam {
+            prop_row(ui, "Length (m)", |ui| read_only(ui, &format!("{:.3}", p.length_mm() / 1000.0)));
+        }
+        prop_row(ui, "Mass (kg)", |ui| read_only(ui, &format!("{:.1}", p.mass_kg())));
+    } else {
+        let total: f64 = ss.iter().map(cadcraft_doc::StructParams::mass_kg).sum();
+        prop_row(ui, "Mass (kg)", |ui| read_only(ui, &format!("{total:.1}")));
+    }
+    action
+}
+
 /// The Properties group of slabs: their kind, name, thickness and the elevation of their top, with the area and volume.
 fn slab_section(ui: &mut egui::Ui, sel: &[Handle], ss: &[SlabParams], bad: &mut Option<String>) -> Action {
     let ids = handles(sel);
@@ -542,6 +584,7 @@ pub(crate) fn is_parametric(d: &Drawing, h: Handle) -> bool {
             || duct_of(e).is_some()
             || pipe_of(e).is_some()
             || slab_of(e).is_some()
+            || struct_of(e).is_some()
             || part_of(e).is_some()
             || pipe_riser_of(e).is_some()
             || accessory_of(e).is_some()
@@ -1973,6 +2016,28 @@ mod hvac_tests {
         let net = |h: &str| cadcraft_doc::pipe_of(d.entity(handle(h)).unwrap()).unwrap().network;
         assert_eq!((net(&ha), net(&hb)), ("Toiture".to_string(), "Toiture".to_string()), "the return is on the network too");
         assert!(d.network_style("toiture").is_some());
+    }
+
+    #[test]
+    fn a_selected_column_shows_its_section_and_takes_a_typed_height_and_section() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        *app.session.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+        let r = app.run("columnadd", json!({ "at": [0, 0], "section": "HEA 200", "height": 3000, "elevation": 0.5 })).unwrap();
+        let h = cadcraft_doc::Handle::parse_hex(r["handles"][0].as_str().unwrap()).unwrap();
+        app.session.set_selection(vec![h]);
+        let mut hn = palette(app);
+        for label in ["Section", "Height (mm)", "Elevation of the foot (m)", "Top (m)", "Mass (kg)"] {
+            assert!(hn.query_by_label(label).is_some(), "{label} is shown");
+        }
+        type_into(&mut hn, "3000", "3600");
+        type_into(&mut hn, "HEA 200", "IPN 300");
+        let p = cadcraft_doc::struct_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
+        assert_eq!((p.height_mm, p.section.as_str(), p.elevation_mm), (3600.0, "IPN 300", 500.0));
+        assert!(super::is_parametric(hn.state().session.doc().unwrap(), h));
+        // A section that is not in the table is refused and leaves the column as it is.
+        type_into(&mut hn, "IPN 300", "XYZ 1");
+        let p = cadcraft_doc::struct_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
+        assert_eq!(p.section, "IPN 300");
     }
 
     #[test]

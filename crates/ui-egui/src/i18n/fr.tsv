@@ -1463,6 +1463,16 @@
 	Roof slab	Dalle de toiture
 	Foundation slab	Dalle de fondation
 	Edit Slab	Modifier la dalle
+	Column	Poteau
+	Beam	Poutre
+	Edit Structure	Modifier la structure
+	Structure Joints	Jonctions de la structure
+	Elevation of the foot (m)	Cote du pied (m)
+	Elevation of the underside (m)	Cote du dessous (m)
+	Elevation (m)	Cote (m)
+	Top (m)	Cote du dessus (m)
+	Mass (kg)	Masse (kg)
+	Beams cut: {n} redrawn	Poutres coupées : {n} redessinées
 	Slab	Dalle
 	Elevation of the top (m)	Cote du dessus (m)
 	Corner Window	Fenêtre d'angle

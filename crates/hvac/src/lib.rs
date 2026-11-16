@@ -20,6 +20,7 @@ mod pipe;
 mod rates;
 mod refrigerant;
 mod sizes;
+mod steel;
 
 pub use air::Air;
 pub use electrical::{
@@ -40,6 +41,7 @@ pub use refrigerant::{
     min_wall_mm, unit_link,
 };
 pub use sizes::{COMMON_RECT_MM, ROUND_DIAMETERS_MM, equivalent_diameter_mm, flow_at_velocity_m3h, rect_area_m2, round_area_m2};
+pub use steel::{STEEL_SECTIONS, SectionFamily, SteelSection, find_section, parse_section, sections_of};
 
 /// What a calculation refuses, with the reason in words a user can act on.
 #[derive(Clone, Debug, PartialEq)]

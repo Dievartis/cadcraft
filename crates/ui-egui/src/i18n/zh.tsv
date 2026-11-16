@@ -1594,6 +1594,20 @@ menu	View	视图
 	Roof slab	屋面板
 	Foundation slab	基础板
 	Edit Slab	编辑楼板
+	Structure	结构
+	Column	柱
+	Beam	梁
+	Edit Structure	编辑结构
+	Structure Joints	结构节点
+	Section	截面
+	Elevation of the foot (m)	柱脚标高 (m)
+	Elevation of the underside (m)	梁底标高 (m)
+	Elevation (m)	标高 (m)
+	Top (m)	顶标高 (m)
+	Length (m)	长度 (m)
+	Mass (kg)	质量 (kg)
+	Beams cut: {n} redrawn	已切断梁：重绘 {n} 根
+	Height (mm)	高度 (mm)
 	Slab	楼板
 	Corner Window	转角窗
 	Chilled water coil (kW)	冷冻水盘管 (kW)

@@ -188,6 +188,7 @@ mod spline_degree;
 mod spline_options;
 mod stretch;
 mod stretch_select;
+mod structure;
 mod table_formulas;
 mod table_styles;
 mod temp_tracking;
