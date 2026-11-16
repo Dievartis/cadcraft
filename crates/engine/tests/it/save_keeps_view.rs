@@ -7,8 +7,7 @@ use cadcraft_engine::{Session, View};
 use cadcraft_geom::Vec2;
 use serde_json::json;
 
-#[path = "../support/temp_dir.rs"]
-mod temp_dir;
+use crate::lisp_findfile::temp_dir;
 
 use temp_dir::TempDir;
 

@@ -104,7 +104,7 @@ pub fn read(bytes: &[u8], name: impl AsRef<Path>) -> Result<Drawing> {
 pub(crate) fn read_source(bytes: &[u8], name: &Path) -> Result<(Drawing, Option<Vec<u8>>)> {
     if craft_dwg::is_dwg(bytes) {
         let (dxf, notes) = craft_dwg::decode(bytes, craft_dwg::Limits::DEFAULT).map_err(dwg_error)?;
-        let mut d = dxf_read::read(&dxf).map_err(|e| IoError::Format(format!("{e} (in the DXF converted from this DWG)")))?;
+        let mut d = read_dwg_rendition(&dxf)?;
         d.read_notes = notes.into_iter().map(|note| cadcraft_dwg_message(&note)).collect();
         return Ok((d, Some(dxf)));
     }
