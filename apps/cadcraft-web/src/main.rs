@@ -260,6 +260,12 @@ mod web {
                             picker.pick();
                             None
                         }));
+                        // PDFATTACH asks for a PDF: the same picker, limited to .pdf; the file is attached as a backdrop when it arrives.
+                        let pdf_picker = inbox.clone();
+                        app.services.pick_pdf = Some(Box::new(move || {
+                            pdf_picker.pick_pdf();
+                            None
+                        }));
                         let host = app_bridge.inspect(|bridge| {
                             bridge.listen(inbox.clone());
                             bridge.post_ready();

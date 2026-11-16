@@ -19,6 +19,8 @@ use web_sys::js_sys;
 const INPUT_ID: &str = "cadcraft_open_input";
 /// What the picker offers: the formats OPEN reads, and the SHX fonts drawings name.
 const ACCEPT: &str = ".dxf,.dwg,.shx,.pdf";
+/// What PDFATTACH's picker offers: one PDF.
+const ACCEPT_PDF: &str = ".pdf";
 
 /// Most files taken from one pick.
 const MAX_PICKED: u32 = 64;
@@ -76,12 +78,20 @@ impl Inbox {
     /// Show the browser's file picker and return at once. A chosen file arrives through
     /// [`Self::drain`]; cancelling the picker does nothing.
     pub fn pick(&self) {
-        if let Err(e) = self.show_picker() {
+        if let Err(e) = self.show_picker(ACCEPT, true) {
             self.push(Upload::picked(String::new(), Err(format!("Open: the browser's file picker is not available ({e})"))));
         }
     }
 
-    fn show_picker(&self) -> Result<(), String> {
+    /// Show the picker of PDFATTACH, limited to one PDF; the file chosen is attached under the drawing (`attach_pdf`) when it arrives through
+    /// [`Self::drain`], as one that was opened.
+    pub fn pick_pdf(&self) {
+        if let Err(e) = self.show_picker(ACCEPT_PDF, false) {
+            self.push(Upload::picked(String::new(), Err(format!("PDF underlay: the browser's file picker is not available ({e})"))));
+        }
+    }
+
+    fn show_picker(&self, accept: &str, multiple: bool) -> Result<(), String> {
         let document = web_sys::window().and_then(|w| w.document()).ok_or("no browser document")?;
         let body = document.body().ok_or("the page has no body")?;
         if let Some(old) = document.get_element_by_id(INPUT_ID) {
@@ -93,9 +103,9 @@ impl Inbox {
             .dyn_into::<web_sys::HtmlInputElement>()
             .map_err(|_| "could not create a file input".to_string())?;
         input.set_type("file");
-        input.set_accept(ACCEPT);
-        // A drawing and the fonts it uses can be chosen together.
-        input.set_multiple(true);
+        input.set_accept(accept);
+        // A drawing and the fonts it uses can be chosen together; a PDF underlay is one file.
+        input.set_multiple(multiple);
         input.set_id(INPUT_ID);
         input.set_attribute("style", "display:none").map_err(js_error)?;
         let (inbox, chosen) = (self.clone(), input.clone());
