@@ -17,7 +17,7 @@ use std::fmt::Write as _;
 use cadcraft_color::Rgb;
 use cadcraft_doc::{Drawing, Handle, PageSetup, Space};
 use cadcraft_geom::{Bounds2, Vec2};
-use cadcraft_render::{DPrim, Kind, Sheet, clip, paper};
+use cadcraft_render::{DImage, DPrim, Kind, Sheet, clip, paper};
 use serde_json::Value;
 
 use craft_pdf::write::backend as kr;
@@ -25,7 +25,8 @@ use craft_pdf::write::{self, Metadata, WriteError, Writer};
 use kr::action::LinkAction;
 use kr::annotation::{Annotation, LinkAnnotation, Target};
 use kr::error::KrillaError;
-use kr::geom::{Path, PathBuilder, Point, Rect, Transform};
+use kr::geom::{Path, PathBuilder, Point, Rect, Size, Transform};
+use kr::image::Image as KrillaImage;
 use kr::num::NormalizedF32;
 use kr::optional_content::OcgId;
 use kr::page::{PageLabel, PageSettings};
@@ -887,12 +888,35 @@ fn marks(s: &mut Surface<'_>, p: &SheetPage, groups: &Groups, fonts: &mut fonts:
                 }
             }
             Kind::Point => point(s, &mut batch, &p.map, raw, m),
-            // Raster images are not written to PDF yet: their frame is.
-            Kind::Image { .. } => {}
+            Kind::Image { index } => {
+                flush(s, &mut batch);
+                if let Some(image) = list.images.get(index as usize) {
+                    draw_image(s, image, prim.alpha(), &p.map);
+                }
+            }
         }
     }
     flush(s, &mut batch);
     layer_changed(s, layer, None)
+}
+
+/// Paint a loaded raster image as a PDF image XObject.  The render list already contains the
+/// decoded pixels and the world-space pixel basis, so export does not need to reopen the source
+/// file (and remains usable for unsaved drawings and web builds).
+fn draw_image(s: &mut Surface<'_>, image: &DImage, alpha: u8, map: &Map) {
+    let rgba = image.raster.rgba().to_vec();
+    let bitmap = KrillaImage::from_rgba8(rgba, image.raster.width(), image.raster.height());
+    let origin = map.pt(image.origin);
+    let right = map.pt(image.origin + image.right) - origin;
+    let down = map.pt(image.origin + image.down) - origin;
+    let (Some((a, b)), Some((c, d)), Some((e, f))) = (coord(right), coord(down), coord(origin)) else { return };
+    let Some(size) = Size::from_wh(image.raster.width() as f32, image.raster.height() as f32) else { return };
+    let Some(opacity) = NormalizedF32::new(image.opacity(alpha)) else { return };
+    s.push_transform(&Transform::from_row(a, b, c, d, e, f));
+    s.push_opacity(opacity);
+    s.draw_image(bitmap, size);
+    s.pop();
+    s.pop();
 }
 
 /// How a primitive is painted: colour, transparency (percent) and lineweight (points).
