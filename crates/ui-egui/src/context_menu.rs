@@ -168,13 +168,7 @@ fn object_commands(app: &CadApp) -> Vec<(&'static str, Option<&'static str>)> {
 pub fn object_entries(app: &CadApp) -> Vec<Entry> {
     let mut out: Vec<Entry> = object_commands(app)
         .into_iter()
-        .filter_map(|(id, label)| {
-            if id == "textedit" {
-                edit_text_window_entry(app).or_else(|| item(app, id, label))
-            } else {
-                item(app, id, label)
-            }
-        })
+        .filter_map(|(id, label)| if id == "textedit" { edit_text_window_entry(app).or_else(|| item(app, id, label)) } else { item(app, id, label) })
         .collect();
     out.extend(dimension_entries(app));
     out
@@ -250,7 +244,6 @@ fn set_precision(app: &mut CadApp, places: u8) {
             let _ = app.run("properties.set", json!({ "handles": hs, key: places }));
         }
     }
-
 }
 
 /// The command menu while a command runs (`None` when none does): Enter and Cancel, Recent Input,

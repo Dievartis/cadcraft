@@ -163,7 +163,9 @@ fn services() -> Services {
     Services {
         pick_open: Some(Box::new(|| file_dialog(&Pick::Open).pick_file().map(|p| p.to_string_lossy().to_string()))),
         pick_plot_style_open: Some(Box::new(|| file_dialog(&Pick::PlotStyleOpen).pick_file().map(|p| p.to_string_lossy().to_string()))),
-        pick_plot_style_save: Some(Box::new(|name: &str| file_dialog(&Pick::PlotStyleSave(name.into())).save_file().map(|p| p.to_string_lossy().to_string()))),
+        pick_plot_style_save: Some(Box::new(|name: &str| {
+            file_dialog(&Pick::PlotStyleSave(name.into())).save_file().map(|p| p.to_string_lossy().to_string())
+        })),
         pick_save: Some(Box::new(|name: &str| file_dialog(&Pick::Save(name.into())).save_file().map(|p| p.to_string_lossy().to_string()))),
         // macOS shows the dialogs as sheets (`sheet::start_pick`), set once the window exists.
         start_pick: None,
@@ -186,10 +188,9 @@ fn filters(pick: &Pick) -> Vec<(&'static str, Vec<&'static str>)> {
             (i18n::t("All files"), vec!["*"]),
         ],
         Pick::Save(name) => filters_for_save(name).iter().map(|(label, ext)| (i18n::t(label), vec![*ext])).collect(),
-        Pick::PlotStyleOpen | Pick::PlotStyleSave(_) => vec![
-            ("Styles de tracé CADCraft (JSON)", vec!["json"]),
-            (i18n::t("All files"), vec!["*"]),
-        ],
+        Pick::PlotStyleOpen | Pick::PlotStyleSave(_) => {
+            vec![(i18n::t("CADCraft plot styles (JSON)"), vec!["json"]), (i18n::t("All files"), vec!["*"])]
+        }
         Pick::Lisp(_) => vec![(i18n::t("AutoLISP (LSP)"), vec!["lsp"]), (i18n::t("All files"), vec!["*"])],
         Pick::Pgp(_) => vec![(i18n::t("Alias files (PGP)"), vec!["pgp"])],
     }

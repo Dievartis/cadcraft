@@ -369,7 +369,7 @@ pub(super) fn run_set(s: &mut Session, p: &Value) -> Result<Value> {
                             used.insert("height");
                         }
                     }
-                },
+                }
                 EntityKind::LwPolyline(pl) => {
                     if let Some(x) = c.num("width").filter(|x| *x >= 0.0) {
                         pl.const_width = x;

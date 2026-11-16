@@ -132,12 +132,16 @@ fn in_use(d: &Drawing) -> Vec<String> {
     out
 }
 
-pub(super) fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> super::Action {
+/// Render DIMSTYLE inside an existing `egui::Ui` (window, dock or other host).
+/// Owns its state and dispatches exactly the same undoable commands as the floating dialog.
+/// Does not create a window or alter the application's dialog routing.
+pub(super) fn content(app: &mut CadApp, ui: &mut egui::Ui) {
+    let ctx = ui.ctx().clone();
     let Ok(d) = app.session.doc() else {
-        super::no_drawing(ctx, crate::tl!("Dimension Style Manager"), open);
-        return None;
+        ui.label("Open a drawing first.");
+        return;
     };
-    let mut st: State = super::temp(ctx, STATE).unwrap_or_default();
+    let mut st: State = super::temp(&ctx, STATE).unwrap_or_default();
     let current = d.header.str("DIMSTYLE", "Standard");
     let overrides = d.dim_overrides();
     let valid = |n: &str| n == OVERRIDES && !overrides.is_empty() || d.dim_style(n).is_some();
@@ -145,23 +149,12 @@ pub(super) fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> 
         st.selected = current.clone();
     }
     let mut actions: Vec<(&'static str, Value)> = Vec::new();
-    let title = match (&st.page, &st.target) {
-        (Page::List, _) => crate::tl!("Dimension Style Manager").to_string(),
-        (Page::New, _) => crate::tl!("Create New Dimension Style").to_string(),
-        (Page::Edit, Target::Modify) => crate::tf!("Modify Dimension Style: {style}", style = st.editing),
-        (Page::Edit, Target::Override) => crate::tf!("Override Current Style: {style}", style = st.editing),
-        (Page::Edit, Target::Create) => crate::tf!("New Dimension Style: {style}", style = st.editing),
-        (Page::Compare, _) => crate::tl!("Compare Dimension Styles").to_string(),
-    };
-    egui::Window::new(title).id(egui::Id::unique(STATE)).open(open).default_size(vec2(720.0, 480.0)).resizable(true).collapsible(false).show(
-        ctx,
-        |ui| match st.page {
-            Page::List => list_page(ui, d, &mut st, &current, &overrides, &mut actions),
-            Page::New => new_page(ui, d, &mut st),
-            Page::Edit => edit_page(ui, d, &mut st, &mut actions),
-            Page::Compare => compare_page(ui, d, &mut st, &current, &overrides),
-        },
-    );
+    match st.page {
+        Page::List => list_page(ui, d, &mut st, &current, &overrides, &mut actions),
+        Page::New => new_page(ui, d, &mut st),
+        Page::Edit => edit_page(ui, d, &mut st, &mut actions),
+        Page::Compare => compare_page(ui, d, &mut st, &current, &overrides),
+    }
     // Errors are echoed on the command line by `run`; a failed step stops the rest.
     let mut ok = true;
     for (cmd, p) in actions {
@@ -176,9 +169,7 @@ pub(super) fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> 
         st.selected = selected;
         st.page = Page::List;
     }
-    // Closed (the title bar's X), it opens on the list next time, not on a page left open.
-    super::set_temp(ctx, STATE, if *open { st } else { State::default() });
-    None
+    super::set_temp(&ctx, STATE, st);
 }
 
 fn list_page(
@@ -771,4 +762,25 @@ fn sample(d: &Drawing, style: &DimStyle, w: u32, h: u32, bg: egui::Color32) -> O
     )?;
     let img = image::load_from_memory(&png).ok()?.to_rgba8();
     Some(egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw()))
+}
+
+#[cfg(test)]
+mod content_tests {
+    use super::*;
+    use cadcraft_engine::Session;
+
+    #[test]
+    fn manager_content_renders_without_a_floating_window() {
+        let ctx = egui::Context::default();
+        let mut app = CadApp::new(Session::new(), crate::Services::default());
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            content(&mut app, ui);
+        });
+        // The headless test does not upload textures to a GPU renderer.
+        output.textures_delta.clear();
+        assert_eq!(app.ui.dialog, None);
+        let state = super::super::temp::<State>(&ctx, STATE).expect("embedded content persisted its state");
+        assert!(state.page == Page::List);
+        assert!(!state.selected.is_empty());
+    }
 }
