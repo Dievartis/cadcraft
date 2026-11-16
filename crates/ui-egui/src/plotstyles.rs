@@ -4,14 +4,14 @@
 //! The dialog reads the drawing and changes it only through STYLESMANAGER and PAGESETUP
 //! (`app.run`), so every edit is undoable and scriptable.
 
-use egui::RichText;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
-use cadcraft_doc::{Drawing, Entity, EntityKind};
 use cadcraft_color::{Color, aci_rgb};
+use cadcraft_doc::{Drawing, Entity, EntityKind};
+use egui::RichText;
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use crate::{CadApp, Pick};
 use crate::theme::Tokens;
+use crate::{CadApp, Pick};
 
 /// Open the dockable panel for a typed or menu-invoked STYLESMANAGER (no parameters).
 pub fn route(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
@@ -41,7 +41,9 @@ struct ColumnWidths {
     manual: [bool; 7],
 }
 impl Default for ColumnWidths {
-    fn default() -> Self { Self { widths: DEFAULT_WIDTHS, manual: [false; 7] } }
+    fn default() -> Self {
+        Self { widths: DEFAULT_WIDTHS, manual: [false; 7] }
+    }
 }
 
 fn column_state(ctx: &egui::Context, named: bool) -> (egui::Id, ColumnWidths) {
@@ -80,9 +82,10 @@ fn used_aci_colors(d: &Drawing) -> BTreeSet<u8> {
         stack: Vec<String>,
         visited: HashSet<(String, String, String)>,
     }
-    fn visit(d: &Drawing, e: &Entity, inherited_layer: Option<&str>, inherited_block: Color,
-             state: &mut VisitState, depth: usize) {
-        if depth > 64 { return; }
+    fn visit(d: &Drawing, e: &Entity, inherited_layer: Option<&str>, inherited_block: Color, state: &mut VisitState, depth: usize) {
+        if depth > 64 {
+            return;
+        }
         let layer_name = if e.common.layer == "0" { inherited_layer.unwrap_or(&e.common.layer) } else { &e.common.layer };
         let color = resolved(d, e, inherited_layer, inherited_block);
         match &e.kind {
@@ -91,21 +94,23 @@ fn used_aci_colors(d: &Drawing) -> BTreeSet<u8> {
                 if let Some(block) = d.block(&insert.block)
                     && !state.stack.iter().any(|name| name.eq_ignore_ascii_case(&insert.block))
                 {
-                        // Repeated instances with the same effective layer and colour have
-                        // identical block-definition colours. Attributes are still checked below.
-                        let context = (insert.block.to_ascii_lowercase(), layer_name.to_ascii_lowercase(), format!("{color:?}"));
-                        if state.visited.insert(context) {
-                            state.stack.push(insert.block.clone());
-                            for child in block.entities.iter() {
-                                // Layer 0 and ByBlock inherit the insertion context.
-                                visit(d, child, Some(layer_name), color, state, depth + 1);
-                            }
-                            state.stack.pop();
+                    // Repeated instances with the same effective layer and colour have
+                    // identical block-definition colours. Attributes are still checked below.
+                    let context = (insert.block.to_ascii_lowercase(), layer_name.to_ascii_lowercase(), format!("{color:?}"));
+                    if state.visited.insert(context) {
+                        state.stack.push(insert.block.clone());
+                        for child in block.entities.iter() {
+                            // Layer 0 and ByBlock inherit the insertion context.
+                            visit(d, child, Some(layer_name), color, state, depth + 1);
                         }
+                        state.stack.pop();
+                    }
                 }
                 // Attribute instances can override their definition's colour and layer.
                 for attr in &insert.attribs {
-                    if attr.invisible { continue; }
+                    if attr.invisible {
+                        continue;
+                    }
                     let attr_layer = attr.props.layer.as_deref().unwrap_or(layer_name);
                     let attr_color = attr.props.color.unwrap_or(Color::ByBlock);
                     let effective = match attr_color {
@@ -113,21 +118,31 @@ fn used_aci_colors(d: &Drawing) -> BTreeSet<u8> {
                         Color::ByBlock => color,
                         c => c,
                     };
-                    if let Color::Index(i) = effective && i > 0 { state.used.insert(i); }
+                    if let Color::Index(i) = effective
+                        && i > 0
+                    {
+                        state.used.insert(i);
+                    }
                 }
             }
             EntityKind::AttDef(_) => {} // Definitions do not draw as independent objects.
-            _ => { if let Color::Index(i) = color && i > 0 { state.used.insert(i); } }
+            _ => {
+                if let Color::Index(i) = color
+                    && i > 0
+                {
+                    state.used.insert(i);
+                }
+            }
         }
     }
-    let mut state = VisitState {
-        used: BTreeSet::new(),
-        stack: Vec::new(),
-        visited: HashSet::new(),
-    };
-    for e in d.model.iter() { visit(d, e, None, Color::Index(7), &mut state, 0); }
+    let mut state = VisitState { used: BTreeSet::new(), stack: Vec::new(), visited: HashSet::new() };
+    for e in d.model.iter() {
+        visit(d, e, None, Color::Index(7), &mut state, 0);
+    }
     for layout in &d.layouts {
-        for e in layout.entities.iter() { visit(d, e, None, Color::Index(7), &mut state, 0); }
+        for e in layout.entities.iter() {
+            visit(d, e, None, Color::Index(7), &mut state, 0);
+        }
     }
     state.used
 }
@@ -141,11 +156,7 @@ fn cell(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) -> egui:
     // Reserve the exact footprint in the parent before laying out any controls.
     // A child widget may request more space, but cannot move subsequent columns.
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 24.0), egui::Sense::hover());
-    let mut child = ui.new_child(
-        egui::UiBuilder::new()
-            .max_rect(rect)
-            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-    );
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
     child.set_clip_rect(ui.clip_rect().intersect(rect));
     child.add_space(CELL_PADDING.min((width - 1.0).max(0.0)));
     add(&mut child);
@@ -156,7 +167,8 @@ fn cell(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) -> egui:
 fn resize_handle(ui: &mut egui::Ui, rect: egui::Rect, index: usize, width: f32, columns: &mut ColumnWidths, fit: f32) {
     let x = rect.right();
     let hit = egui::Rect::from_min_max(egui::pos2(x - 4.0, rect.top()), egui::pos2(x + 4.0, rect.bottom()));
-    let response = ui.interact(hit, ui.scope_id().with(("pstyle_resize", index)), egui::Sense::click_and_drag())
+    let response = ui
+        .interact(hit, ui.scope_id().with(("pstyle_resize", index)), egui::Sense::click_and_drag())
         .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
         .on_hover_text(crate::tl!("Drag to resize; double-click to fit"));
     ui.painter().vline(x, rect.y_range(), egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color));
@@ -221,11 +233,7 @@ pub fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
             }
             "plotstyle.export" => {
                 let Some(name) = params.get("name").and_then(Value::as_str) else { continue };
-                let filename = if name.to_ascii_lowercase().ends_with(".json") {
-                    name.to_owned()
-                } else {
-                    format!("{name}.json")
-                };
+                let filename = if name.to_ascii_lowercase().ends_with(".json") { name.to_owned() } else { format!("{name}.json") };
                 let table_name = name.to_owned();
                 let result = app.pick_then(Pick::PlotStyleSave(filename), move |app, path| {
                     app.run("stylesmanager", json!({ "action": "save", "name": table_name, "path": path }))?;
@@ -270,16 +278,11 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
     let mut new_style = temp::<String>(&ctx, "pstyle_new").unwrap_or_default();
     let mut action: Action = Vec::new();
     let mut state = temp::<TableUiState>(&ctx, "pstyle_ui_state").unwrap_or_default();
-    if !state.table.eq_ignore_ascii_case(&sel) { state = TableUiState { table: sel.clone(), ..Default::default() }; }
+    if !state.table.eq_ignore_ascii_case(&sel) {
+        state = TableUiState { table: sel.clone(), ..Default::default() };
+    }
     let set = |table: &str, style: Value| ("stylesmanager", json!({ "action": "set", "name": table, "style": style }));
-   egui::Frame::new()
-    .inner_margin(egui::Margin {
-        left: 8,
-        right: 8,
-        top: 0,
-        bottom: 0,
-    })
-    .show(ui, |ui| {
+    egui::Frame::new().inner_margin(egui::Margin { left: 8, right: 8, top: 0, bottom: 0 }).show(ui, |ui| {
         ui.set_min_height(ui.available_height());
         ui.horizontal(|ui| {
             ui.label(crate::tl!("Plot style table"));
@@ -304,7 +307,8 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
             if ui.button(crate::tl!("Import")).on_hover_text(crate::tl!("Load a CADCraft native JSON plot style table")).clicked() {
                 action.push(("plotstyle.import", Value::Null));
             }
-            if ui.add_enabled(table.is_some(), egui::Button::new(crate::tl!("Export")))
+            if ui
+                .add_enabled(table.is_some(), egui::Button::new(crate::tl!("Export")))
                 .on_hover_text(crate::tl!("Save the selected table in CADCraft native JSON format"))
                 .clicked()
             {
@@ -338,7 +342,9 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
             ui.label(crate::tl!("No plot style tables."));
             return;
         };
-        if !state.table.eq_ignore_ascii_case(&sel) { state = TableUiState { table: sel.clone(), ..Default::default() }; }
+        if !state.table.eq_ignore_ascii_case(&sel) {
+            state = TableUiState { table: sel.clone(), ..Default::default() };
+        }
         let named = !table.is_color_dependent();
         ui.label(RichText::new(&table.description).color(t.text_dim));
         if !in_drawing {
@@ -371,12 +377,16 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
             if let Some((col, descending)) = state.sort {
                 rows.sort_by(|a, b| {
                     let mut cmp = sort_key!(a, col).cmp(&sort_key!(b, col));
-                    if descending { cmp = cmp.reverse(); }
+                    if descending {
+                        cmp = cmp.reverse();
+                    }
                     if cmp == std::cmp::Ordering::Equal
                         && let Some((second, reverse)) = state.secondary
                     {
                         cmp = sort_key!(a, second).cmp(&sort_key!(b, second));
-                        if reverse { cmp = cmp.reverse(); }
+                        if reverse {
+                            cmp = cmp.reverse();
+                        }
                     }
                     cmp
                 });
@@ -384,8 +394,7 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
             state.displayed_order = rows.iter().map(|st| st.name.clone()).collect();
             state.applied_sort = Some(sort_config);
         } else {
-            let positions: BTreeMap<&str, usize> = state.displayed_order.iter()
-                .enumerate().map(|(index, name)| (name.as_str(), index)).collect();
+            let positions: BTreeMap<&str, usize> = state.displayed_order.iter().enumerate().map(|(index, name)| (name.as_str(), index)).collect();
             rows.sort_by_key(|st| positions.get(st.name.as_str()).copied().unwrap_or(usize::MAX));
         }
         // Remove names deleted from the table so a later batch edit cannot recreate them.
@@ -395,9 +404,19 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
         let (state_id, mut columns) = column_state(&ctx, named);
         let fit_requested = ui.button(crate::tl!("Fit columns")).clicked();
         let height = (ui.available_height() - if named { 46.0 } else { 0.0 }).max(120.0);
-        let headings = [crate::tl!("Plot style"), crate::tl!("Color"), crate::tl!("Grayscale"), crate::tl!("Screening"), crate::tl!("Linetype"), crate::tl!("Lineweight"), if named { crate::tl!("Remove") } else { crate::tl!("Used") }];
+        let headings = [
+            crate::tl!("Plot style"),
+            crate::tl!("Color"),
+            crate::tl!("Grayscale"),
+            crate::tl!("Screening"),
+            crate::tl!("Linetype"),
+            crate::tl!("Lineweight"),
+            if named { crate::tl!("Remove") } else { crate::tl!("Used") },
+        ];
         let mut fitted = [MIN_WIDTH; 7];
-        for i in 0..count { fitted[i] = text_width(ui, headings[i]) + 26.0; }
+        for i in 0..count {
+            fitted[i] = text_width(ui, headings[i]) + 26.0;
+        }
         for st in &rows {
             fitted[0] = fitted[0].max(text_width(ui, &st.name) + 40.0);
             fitted[1] = fitted[1].max(text_width(ui, &st.color.map(|c| c.hex()).unwrap_or_else(|| crate::tl!("Object").to_owned())) + 42.0);
@@ -406,35 +425,45 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
             let lw = st.lineweight.map(|w| format!("{:.2} mm", f64::from(w) / 100.0)).unwrap_or_else(|| crate::tl!("Default").to_owned());
             fitted[5] = fitted[5].max(text_width(ui, &lw) + 42.0);
         }
-        for name in &linetypes { fitted[4] = fitted[4].max(text_width(ui, name) + 42.0); }
-        for mm in LINEWEIGHTS { fitted[5] = fitted[5].max(text_width(ui, &format!("{mm:.2} mm")) + 42.0); }
-        if fit_requested { columns.manual = [false; 7]; }
+        for name in &linetypes {
+            fitted[4] = fitted[4].max(text_width(ui, name) + 42.0);
+        }
+        for mm in LINEWEIGHTS {
+            fitted[5] = fitted[5].max(text_width(ui, &format!("{mm:.2} mm")) + 42.0);
+        }
+        if fit_requested {
+            columns.manual = [false; 7];
+        }
         let widths = displayed_widths(&columns, count, &fitted);
         let total_width = widths[..count].iter().sum::<f32>() + COLUMN_GAP * count as f32;
         ui.label(format!("{} {}", state.selected.len(), crate::tl!("styles selected")));
         // One scrollable grid: a single horizontal coordinate system for headers and rows.
         // The selection checkboxes share the same vertical scroll as their data rows.
-        egui::ScrollArea::horizontal()
-            .id_salt("pstyle_horizontal")
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.set_min_width(total_width + 36.0);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = COLUMN_GAP;
-                    let all = !rows.is_empty() && rows.iter().all(|s| state.selected.contains(&s.name));
-                    let mut check = all;
-                    if ui.add_sized([24.0, 24.0], egui::Checkbox::without_text(&mut check))
-                        .on_hover_text(crate::tl!("Select all displayed styles")).changed() {
-                        for st in &rows {
-                            if check { state.selected.insert(st.name.clone()); }
-                            else { state.selected.remove(&st.name); }
+        egui::ScrollArea::horizontal().id_salt("pstyle_horizontal").auto_shrink([false, false]).show(ui, |ui| {
+            ui.set_min_width(total_width + 36.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = COLUMN_GAP;
+                let all = !rows.is_empty() && rows.iter().all(|s| state.selected.contains(&s.name));
+                let mut check = all;
+                if ui
+                    .add_sized([24.0, 24.0], egui::Checkbox::without_text(&mut check))
+                    .on_hover_text(crate::tl!("Select all displayed styles"))
+                    .changed()
+                {
+                    for st in &rows {
+                        if check {
+                            state.selected.insert(st.name.clone());
+                        } else {
+                            state.selected.remove(&st.name);
                         }
                     }
+                }
                 for i in 0..count {
                     let label = if let Some((col, desc)) = state.sort {
-                        if col == i { format!("{} {}", headings[i], if desc { "▼" } else { "▲" }) }
-                        else { headings[i].to_owned() }
-                    } else { headings[i].to_owned() };
+                        if col == i { format!("{} {}", headings[i], if desc { "▼" } else { "▲" }) } else { headings[i].to_owned() }
+                    } else {
+                        headings[i].to_owned()
+                    };
                     let rect = cell(ui, widths[i], |ui| {
                         if ui.add(egui::Label::new(RichText::new(label).strong()).sense(egui::Sense::click()).truncate()).clicked() {
                             let next = match state.sort {
@@ -449,140 +478,161 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
                                 state.secondary = None;
                             }
                         }
-                        if i == 4 { ui.label("?").on_hover_text(crate::tl!("Use object linetype")); }
-                        if i == 5 { ui.label("?").on_hover_text(crate::tl!("Use object lineweight")); }
+                        if i == 4 {
+                            ui.label("?").on_hover_text(crate::tl!("Use object linetype"));
+                        }
+                        if i == 5 {
+                            ui.label("?").on_hover_text(crate::tl!("Use object lineweight"));
+                        }
                     });
                     resize_handle(ui, rect, i, widths[i], &mut columns, fitted[i]);
                 }
             });
-                egui::ScrollArea::vertical()
-                    .id_salt("pstyle_rows_vertical")
-                    .max_height(height - 30.0)
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                    for st in &rows {
-                        ui.push_id((&table.name, &st.name), |ui| {
+            egui::ScrollArea::vertical().id_salt("pstyle_rows_vertical").max_height(height - 30.0).auto_shrink([false, false]).show(ui, |ui| {
+                for st in &rows {
+                    ui.push_id((&table.name, &st.name), |ui| {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = COLUMN_GAP;
                             let mut checked = state.selected.contains(&st.name);
                             if ui.add_sized([24.0, 24.0], egui::Checkbox::without_text(&mut checked)).changed() {
-                                if checked { state.selected.insert(st.name.clone()); }
-                                else { state.selected.remove(&st.name); }
-                            }
-                    let targets: Vec<_> = if state.selected.contains(&st.name) {
-                        state.selected.iter().cloned().collect()
-                    } else { vec![st.name.clone()] };
-                    let mut edit = |key: &str, value: Value| {
-                        for name in &targets {
-                            action.push(set(&table.name, json!({ "name": name, (key): value })));
-                        }
-                    };
-                    cell(ui, widths[0], |ui| {
-                        let index = style_aci(&st.name).map(usize::from).unwrap_or(7);
-                        swatch(ui, aci_swatch(index));
-                        ui.add(egui::Label::new(&st.name).truncate());
-                    });
-                    cell(ui, widths[1], |ui| {
-                        let current = st.color.map(Color::True).unwrap_or(Color::Index(7));
-                        let id = ui.scope_id().with(("pstyle_color", &st.name));
-                        let button_width = (widths[1] - CELL_PADDING * 2.0).max(12.0);
-                        let (rect, response) = ui.allocate_exact_size(egui::vec2(button_width, 20.0), egui::Sense::click());
-                        if response.hovered() {
-                            ui.painter().rect_filled(rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
-                        }
-                        if let Some(rgb) = st.color {
-                            let square = egui::Rect::from_min_size(
-                                egui::pos2(rect.left() + 3.0, rect.center().y - 6.0),
-                                egui::vec2(12.0, 12.0),
-                            );
-                            swatch_at(ui, square, egui::Color32::from_rgb(rgb.0, rgb.1, rgb.2));
-                            let text_rect = egui::Rect::from_min_max(
-                                egui::pos2(rect.left() + 20.0, rect.top()), rect.right_bottom(),
-                            );
-                            ui.painter().with_clip_rect(text_rect).text(
-                                text_rect.left_center(), egui::Align2::LEFT_CENTER,
-                                rgb.hex(), crate::theme::body(), ui.visuals().text_color(),
-                            );
-                        } else {
-                            ui.painter().with_clip_rect(rect).text(
-                                rect.left_center(), egui::Align2::LEFT_CENTER,
-                                crate::tl!("Object"), crate::theme::body(), ui.visuals().text_color(),
-                            );
-                        }
-                        let response = response.on_hover_text(
-                            st.color.map(|c| format!("RGB : {}", c.hex())).unwrap_or_else(|| crate::tl!("Object color").to_owned())
-                        );
-                        egui::Popup::from_toggle_button_response(&response)
-                            .id(id)
-                            .width(310.0)
-                            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                            .show(|ui| {
-                                // The popup must not inherit the clipped grid cell: the RGB
-                                // picker paints its gradient outside the cell's bounds.
-                                ui.set_clip_rect(ui.ctx().content_rect());
-                                if ui.button(crate::tl!("Object color")).clicked() {
-                                    edit("color", Value::Null);
-                                    ui.close();
+                                if checked {
+                                    state.selected.insert(st.name.clone());
+                                } else {
+                                    state.selected.remove(&st.name);
                                 }
-                                if let Some(picked) = crate::layers::color_palette(ui, id, current, false) {
-                                    let rgb = picked.resolve(Color::WHITE, Color::WHITE);
-                                    edit("color", json!(rgb.hex()));
-                                    ui.close();
+                            }
+                            let targets: Vec<_> =
+                                if state.selected.contains(&st.name) { state.selected.iter().cloned().collect() } else { vec![st.name.clone()] };
+                            let mut edit = |key: &str, value: Value| {
+                                for name in &targets {
+                                    action.push(set(&table.name, json!({ "name": name, (key): value })));
+                                }
+                            };
+                            cell(ui, widths[0], |ui| {
+                                let index = style_aci(&st.name).map(usize::from).unwrap_or(7);
+                                swatch(ui, aci_swatch(index));
+                                ui.add(egui::Label::new(&st.name).truncate());
+                            });
+                            cell(ui, widths[1], |ui| {
+                                let current = st.color.map(Color::True).unwrap_or(Color::Index(7));
+                                let id = ui.scope_id().with(("pstyle_color", &st.name));
+                                let button_width = (widths[1] - CELL_PADDING * 2.0).max(12.0);
+                                let (rect, response) = ui.allocate_exact_size(egui::vec2(button_width, 20.0), egui::Sense::click());
+                                if response.hovered() {
+                                    ui.painter().rect_filled(rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
+                                }
+                                if let Some(rgb) = st.color {
+                                    let square =
+                                        egui::Rect::from_min_size(egui::pos2(rect.left() + 3.0, rect.center().y - 6.0), egui::vec2(12.0, 12.0));
+                                    swatch_at(ui, square, egui::Color32::from_rgb(rgb.0, rgb.1, rgb.2));
+                                    let text_rect = egui::Rect::from_min_max(egui::pos2(rect.left() + 20.0, rect.top()), rect.right_bottom());
+                                    ui.painter().with_clip_rect(text_rect).text(
+                                        text_rect.left_center(),
+                                        egui::Align2::LEFT_CENTER,
+                                        rgb.hex(),
+                                        crate::theme::body(),
+                                        ui.visuals().text_color(),
+                                    );
+                                } else {
+                                    ui.painter().with_clip_rect(rect).text(
+                                        rect.left_center(),
+                                        egui::Align2::LEFT_CENTER,
+                                        crate::tl!("Object"),
+                                        crate::theme::body(),
+                                        ui.visuals().text_color(),
+                                    );
+                                }
+                                let response = response.on_hover_text(
+                                    st.color.map(|c| format!("RGB : {}", c.hex())).unwrap_or_else(|| crate::tl!("Object color").to_owned()),
+                                );
+                                egui::Popup::from_toggle_button_response(&response)
+                                    .id(id)
+                                    .width(310.0)
+                                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                                    .show(|ui| {
+                                        // The popup must not inherit the clipped grid cell: the RGB
+                                        // picker paints its gradient outside the cell's bounds.
+                                        ui.set_clip_rect(ui.ctx().content_rect());
+                                        if ui.button(crate::tl!("Object color")).clicked() {
+                                            edit("color", Value::Null);
+                                            ui.close();
+                                        }
+                                        if let Some(picked) = crate::layers::color_palette(ui, id, current, false) {
+                                            let rgb = picked.resolve(Color::WHITE, Color::WHITE);
+                                            edit("color", json!(rgb.hex()));
+                                            ui.close();
+                                        }
+                                    });
+                            });
+                            cell(ui, widths[2], |ui| {
+                                let mut gray = st.grayscale;
+                                if ui.checkbox(&mut gray, "").on_hover_text(crate::tl!("Print in grayscale")).changed() {
+                                    edit("grayscale", json!(gray));
                                 }
                             });
-                    });
-                    cell(ui, widths[2], |ui| {
-                        let mut gray = st.grayscale;
-                        if ui.checkbox(&mut gray, "").on_hover_text(crate::tl!("Print in grayscale")).changed() {
-                            edit("grayscale", json!(gray));
-                        }
-                    });
-                    cell(ui, widths[3], |ui| {
-                        let mut screen = st.screening.min(100);
-                        ui.push_id(("pstyle_screening", &table.name, &st.name), |ui| {
-                            if ui.add(egui::DragValue::new(&mut screen).range(0..=100).suffix(" %")).changed() {
-                                edit("screening", json!(screen));
+                            cell(ui, widths[3], |ui| {
+                                let mut screen = st.screening.min(100);
+                                ui.push_id(("pstyle_screening", &table.name, &st.name), |ui| {
+                                    if ui.add(egui::DragValue::new(&mut screen).range(0..=100).suffix(" %")).changed() {
+                                        edit("screening", json!(screen));
+                                    }
+                                });
+                            });
+                            cell(ui, widths[4], |ui| {
+                                let lt = st.linetype.clone().unwrap_or_else(|| crate::tl!("Default").to_string());
+                                craft_ui::ComboBox::from_id_salt(("pstyle_lt", &st.name))
+                                    .selected_text(lt)
+                                    .width((widths[4] - 18.0).max(12.0))
+                                    .show_ui(ui, |ui| {
+                                        if ui.selectable_label(st.linetype.is_none(), crate::tl!("Default")).clicked() {
+                                            edit("linetype", Value::Null);
+                                        }
+                                        for n in &linetypes {
+                                            if ui.selectable_label(st.linetype.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(n)), n).clicked() {
+                                                edit("linetype", json!(n));
+                                            }
+                                        }
+                                    });
+                            });
+                            cell(ui, widths[5], |ui| {
+                                let lw = st
+                                    .lineweight
+                                    .map(|w| format!("{:.2} mm", f64::from(w) / 100.0))
+                                    .unwrap_or_else(|| crate::tl!("Default").to_string());
+                                craft_ui::ComboBox::from_id_salt(("pstyle_lw", &st.name))
+                                    .selected_text(lw)
+                                    .width((widths[5] - 18.0).max(12.0))
+                                    .show_ui(ui, |ui| {
+                                        if ui.selectable_label(st.lineweight.is_none(), crate::tl!("Default")).clicked() {
+                                            edit("lineweight", Value::Null);
+                                        }
+                                        for mm in LINEWEIGHTS {
+                                            let hundredths = (mm * 100.0).round() as u16;
+                                            if ui.selectable_label(st.lineweight == Some(hundredths), format!("{mm:.2} mm")).clicked() {
+                                                edit("lineweight", json!(mm));
+                                            }
+                                        }
+                                    });
+                            });
+                            drop(edit);
+                            if !named {
+                                cell(ui, widths[6], |ui| {
+                                    if style_aci(&st.name).is_some_and(|i| used_colors.contains(&i)) {
+                                        ui.label("✓").on_hover_text(crate::tl!("Color used by at least one object"));
+                                    }
+                                });
+                            }
+                            if named {
+                                cell(ui, widths[6], |ui| {
+                                    let normal = st.name.eq_ignore_ascii_case(cadcraft_doc::NORMAL_STYLE);
+                                    if ui.add_enabled(!normal, egui::Button::new(crate::tl!("Remove"))).clicked() {
+                                        state.selected.remove(&st.name);
+                                        action.push(("stylesmanager", json!({ "action": "set", "name": table.name, "removeStyle": st.name })));
+                                    }
+                                });
                             }
                         });
                     });
-                    cell(ui, widths[4], |ui| {
-                        let lt = st.linetype.clone().unwrap_or_else(|| crate::tl!("Default").to_string());
-                        craft_ui::ComboBox::from_id_salt(("pstyle_lt", &st.name)).selected_text(lt).width((widths[4] - 18.0).max(12.0)).show_ui(ui, |ui| {
-                            if ui.selectable_label(st.linetype.is_none(), crate::tl!("Default")).clicked() { edit("linetype", Value::Null); }
-                            for n in &linetypes {
-                                if ui.selectable_label(st.linetype.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(n)), n).clicked() { edit("linetype", json!(n)); }
-                            }
-                        });
-                    });
-                    cell(ui, widths[5], |ui| {
-                        let lw = st.lineweight.map(|w| format!("{:.2} mm", f64::from(w) / 100.0)).unwrap_or_else(|| crate::tl!("Default").to_string());
-                        craft_ui::ComboBox::from_id_salt(("pstyle_lw", &st.name)).selected_text(lw).width((widths[5] - 18.0).max(12.0)).show_ui(ui, |ui| {
-                            if ui.selectable_label(st.lineweight.is_none(), crate::tl!("Default")).clicked() { edit("lineweight", Value::Null); }
-                            for mm in LINEWEIGHTS {
-                                let hundredths = (mm * 100.0).round() as u16;
-                                if ui.selectable_label(st.lineweight == Some(hundredths), format!("{mm:.2} mm")).clicked() { edit("lineweight", json!(mm)); }
-                            }
-                        });
-                    });
-                    drop(edit);
-                    if !named {
-                        cell(ui, widths[6], |ui| {
-                            if style_aci(&st.name).is_some_and(|i| used_colors.contains(&i)) {
-                                ui.label("✓").on_hover_text(crate::tl!("Color used by at least one object"));
-                            }
-                        });
-                    }
-                    if named {
-                        cell(ui, widths[6], |ui| {
-                            let normal = st.name.eq_ignore_ascii_case(cadcraft_doc::NORMAL_STYLE);
-                            if ui.add_enabled(!normal, egui::Button::new(crate::tl!("Remove"))).clicked() {
-                                state.selected.remove(&st.name);
-                                action.push(("stylesmanager", json!({ "action": "set", "name": table.name, "removeStyle": st.name })));
-                            }
-                        });
-                    }
-                    });
-                        });
                 }
             });
         });

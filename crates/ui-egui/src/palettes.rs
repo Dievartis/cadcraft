@@ -1264,13 +1264,14 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
             }
             _ => {}
         }
-    } else if !drawn && let Some(dims) = sel
-        .iter()
-        .map(|h| match d.entity(*h).map(|e| &e.kind) {
-            Some(EntityKind::Dimension(dm)) => Some(dm),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>()
+    } else if !drawn
+        && let Some(dims) = sel
+            .iter()
+            .map(|h| match d.entity(*h).map(|e| &e.kind) {
+                Some(EntityKind::Dimension(dm)) => Some(dm),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
     {
         // Several dimensions: every property of one dimension, `*VARIES*` where they differ; an
         // edit applies to all of them.
@@ -1620,12 +1621,16 @@ mod tests {
         app.run("properties.set", json!({ "handles": [dims[0].clone()], "textHeight": 7.0 })).unwrap();
         app.run("properties.set", json!({ "handles": [dims[1].clone()], "textHeight": 7.0 + 1e-13 })).unwrap();
         let texts = painted_texts(&mut app, properties_section);
-        assert!(texts.windows(2).any(|w| w[0] == "Text height" && w[1] == VARIES),
-            "the engine compares dimension text heights exactly; painted: {texts:?}");
+        assert!(
+            texts.windows(2).any(|w| w[0] == "Text height" && w[1] == VARIES),
+            "the engine compares dimension text heights exactly; painted: {texts:?}"
+        );
         app.run("properties.set", json!({ "handles": [dims[1].clone()], "textHeight": 7.000001 })).unwrap();
         let texts = painted_texts(&mut app, properties_section);
-        assert!(texts.windows(2).any(|w| w[0] == "Text height" && w[1] == VARIES),
-            "different text heights must vary even when rounded alike; painted: {texts:?}");
+        assert!(
+            texts.windows(2).any(|w| w[0] == "Text height" && w[1] == VARIES),
+            "different text heights must vary even when rounded alike; painted: {texts:?}"
+        );
 
         let mut app = CadApp::new(Session::default(), Services::default());
         let circles = circles(&mut app, &[2, 2], json!({}));
