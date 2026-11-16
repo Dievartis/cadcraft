@@ -638,6 +638,7 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut start: Option<&'static str> = None;
     let mut cleanup = false;
     let mut cleanup_structure = false;
+    let mut takeoff_structure = false;
     let last = app.session.last_used.opening.clone();
     let mut chosen: Option<Preset> = None;
     let mut sections = std::mem::take(&mut app.ui.sections);
@@ -703,6 +704,9 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
             if row_tip(ui, crate::i18n::t("Structure Joints"), "", Some("Structure Joints"), false, thumbs::paint_junctions) {
                 cleanup_structure = true;
             }
+            if row_tip(ui, crate::i18n::t("Structure Takeoff"), "", Some("Structure Takeoff"), false, thumbs::paint_struct_takeoff) {
+                takeoff_structure = true;
+            }
         });
         section(ui, "Tools", true, &mut |ui| {
             if row_tip(ui, crate::i18n::t("Corner Window"), "", Some("Corner Window"), false, thumbs::paint_corner_window) {
@@ -710,6 +714,9 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
             }
             if row_button(ui, crate::i18n::t("Edit Slab"), false, thumbs::paint_edit_slab) {
                 start = Some("slabedit");
+            }
+            if row_tip(ui, crate::i18n::t("Slab Opening"), "", Some("Slab Opening"), false, thumbs::paint_slab_opening) {
+                start = Some("slabhole");
             }
             if row_tip(ui, crate::i18n::t("Wall Elevation"), "", Some("Wall Elevation"), false, thumbs::paint_elevation) {
                 start = Some("wallelevation");
@@ -739,6 +746,24 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
             Ok(r) => {
                 let n = r["regenerated"].as_u64().unwrap_or(0);
                 app.session.echo(crate::tf!("Beams cut: {n} redrawn", n = n));
+            }
+            Err(e) => app.session.echo(e.to_string()),
+        }
+    }
+    if takeoff_structure {
+        // STRUCTTAKEOFF asks nothing: it adds up the steel and the slabs and says what it found.
+        match app.run("structtakeoff", serde_json::json!({})) {
+            Ok(r) => {
+                let count = |k: &str| r[k].as_array().map_or(0, |v| v.iter().filter_map(|q| q["count"].as_u64()).sum::<u64>());
+                app.session.echo(crate::tf!(
+                    "Structure: {c} columns, {b} beams, {kg} kg of steel; {s} slabs, {a} m², {v} m³",
+                    c = count("columns"),
+                    b = count("beams"),
+                    kg = format!("{:.0}", r["steelKg"].as_f64().unwrap_or(0.0)),
+                    s = count("slabs"),
+                    a = format!("{:.1}", r["slabAreaM2"].as_f64().unwrap_or(0.0)),
+                    v = format!("{:.1}", r["slabVolumeM3"].as_f64().unwrap_or(0.0))
+                ));
             }
             Err(e) => app.session.echo(e.to_string()),
         }

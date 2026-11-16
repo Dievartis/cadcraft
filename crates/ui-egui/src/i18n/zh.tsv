@@ -1598,6 +1598,12 @@ menu	View	视图
 	Column	柱
 	Beam	梁
 	Edit Structure	编辑结构
+	Structure Takeoff	结构工程量
+	Slab Opening	楼板洞口
+	Slope (%)	坡度 (%)
+	Slope direction (degrees)	坡向 (度)
+	Openings	洞口
+	Structure: {c} columns, {b} beams, {kg} kg of steel; {s} slabs, {a} m², {v} m³	结构：{c} 根柱，{b} 根梁，钢材 {kg} kg；{s} 块楼板，{a} m²，{v} m³
 	Structure Joints	结构节点
 	Section	截面
 	Elevation of the foot (m)	柱脚标高 (m)

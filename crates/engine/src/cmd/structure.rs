@@ -36,6 +36,12 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("structedit", "Edit Structure", run_structedit).params(
             "{handle | handles, section?, name?, height? (mm, a column), elevation? (m: a column's foot, a beam's underside), rotation? (degrees, a column), showLabel?, labelHeight? (mm)} → {changed}",
         ),
+        CommandSpec::new("structtakeoff", "Structure Takeoff", run_structtakeoff)
+            .menu(&["Draw", "Architecture", "Structure Takeoff"])
+            .params(
+                "{path? (a .xlsx workbook, or a text file with `;` between the columns), decimal?: comma|point (the text file, default comma)} → {columns, beams, slabs, steelKg, \
+                 slabAreaM2, slabVolumeM3}: the steel columns and beams by section (count, length, mass) and the slabs by kind (count, net area and volume)",
+            ),
         CommandSpec::new("structcleanup", "Structure Joints", run_structcleanup)
             .menu(&["Draw", "Architecture", "Structure Joints"])
             .params("{} → {regenerated}"),
@@ -274,6 +280,37 @@ fn run_structedit(s: &mut Session, p: &Value) -> Result<Value> {
     }
     cleanup(s)?;
     Ok(json!({ "changed": next.len() }))
+}
+
+fn run_structtakeoff(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "structtakeoff";
+    let comma = match str_param(p, "decimal").map(|t| t.trim().to_ascii_lowercase()).as_deref() {
+        None | Some("comma") => true,
+        Some("point") => false,
+        Some(_) => return Err(bad(CMD, "`decimal` is comma or point")),
+    };
+    let space = s.space();
+    let t = s.doc()?.struct_takeoff(&space);
+    let mut out = serde_json::to_value(&t).map_err(|e| other(e.to_string()))?;
+    if let Some(path) = str_param(p, "path").map(str::trim).filter(|x| !x.is_empty()) {
+        if path.len() > 1024 || path.contains('\0') {
+            return Err(bad(CMD, "`path` is not a usable file name"));
+        }
+        let path = std::path::Path::new(path);
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir).map_err(|e| other(format!("Cannot write {}: {e}", path.display())))?;
+        }
+        let bytes = if path.extension().is_some_and(|x| x.eq_ignore_ascii_case("xlsx")) {
+            t.to_xlsx().map_err(doc_err)?
+        } else {
+            let mut b = vec![0xEF, 0xBB, 0xBF];
+            b.extend_from_slice(t.csv(comma).as_bytes());
+            b
+        };
+        std::fs::write(path, bytes).map_err(|e| other(format!("Cannot write {}: {e}", path.display())))?;
+        out["path"] = json!(path.display().to_string());
+    }
+    Ok(out)
 }
 
 fn run_structcleanup(s: &mut Session, _p: &Value) -> Result<Value> {

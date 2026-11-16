@@ -12,7 +12,7 @@ use cadcraft_hvac::{SteelSection, parse_section};
 use serde::{Deserialize, Serialize};
 
 use super::part::{line, poly};
-use super::{HvacPiece, HvacUnits, check_label_height, check_name, invalid, label, v3, xdata};
+use super::{HvacPiece, HvacUnits, SheetCell, Workbook, check_label_height, check_name, invalid, label, v3, xdata};
 use crate::{EntityKind, Hatch, HatchLoop, RawTag, Result};
 
 /// The registered application name of a structural object's extended data.
@@ -588,5 +588,148 @@ impl crate::Drawing {
             self.regenerate_struct(h, &p)?;
         }
         Ok(n)
+    }
+}
+
+/// What one section is used for: how many pieces, the length they add up to and their mass.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SectionQuantity {
+    pub section: String,
+    pub count: usize,
+    pub length_m: f64,
+    pub mass_kg: f64,
+}
+
+/// What the slabs of one kind add up to.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlabQuantity {
+    pub kind: String,
+    pub count: usize,
+    pub area_m2: f64,
+    pub volume_m3: f64,
+    /// The openings (trémies) cut through them, and their area.
+    pub holes: usize,
+    pub holes_area_m2: f64,
+}
+
+/// The quantities of the structure of a space: the steel columns and beams by section, and the slabs by kind.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructTakeoff {
+    pub columns: Vec<SectionQuantity>,
+    pub beams: Vec<SectionQuantity>,
+    pub slabs: Vec<SlabQuantity>,
+    /// The mass of all the steel, kg.
+    pub steel_kg: f64,
+    pub slab_area_m2: f64,
+    pub slab_volume_m3: f64,
+}
+
+fn round2(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+impl StructTakeoff {
+    /// The columns, then the beams, then the slabs, as the lines of a table: type, section or kind, count, length (m), mass (kg), area (m²), volume (m³).
+    pub fn rows(&self) -> Vec<[String; 7]> {
+        let num = |v: f64| format!("{}", round2(v));
+        let mut rows = Vec::new();
+        for (what, list) in [("Column", &self.columns), ("Beam", &self.beams)] {
+            for q in list {
+                rows.push([what.into(), q.section.clone(), q.count.to_string(), num(q.length_m), num(q.mass_kg), String::new(), String::new()]);
+            }
+        }
+        for q in &self.slabs {
+            rows.push(["Slab".into(), q.kind.clone(), q.count.to_string(), String::new(), String::new(), num(q.area_m2), num(q.volume_m3)]);
+        }
+        rows
+    }
+
+    /// The table as a text file's lines, `;` between the columns; with `comma` the decimals are written with a comma.
+    pub fn csv(&self, comma: bool) -> String {
+        let fix = |t: String| if comma { t.replace('.', ",") } else { t };
+        let mut out = String::from("Type;Section;Count;Length (m);Mass (kg);Area (m²);Volume (m³)\r\n");
+        for r in self.rows() {
+            out.push_str(&r.iter().map(|c| fix(c.clone())).collect::<Vec<_>>().join(";"));
+            out.push_str("\r\n");
+        }
+        out
+    }
+
+    /// The quantities as an Excel workbook: the summary, the steel by section and the slabs.
+    pub fn to_xlsx(&self) -> Result<Vec<u8>> {
+        use SheetCell as C;
+        let head = |cols: &[&str]| cols.iter().map(|c| C::head(*c)).collect::<Vec<_>>();
+        let num = |v: f64| C::Num(round2(v));
+        let mut wb = Workbook::new();
+        wb.sheet(
+            "Summary",
+            vec![
+                vec![C::head("Columns"), C::Num(self.columns.iter().map(|q| q.count).sum::<usize>() as f64)],
+                vec![C::head("Beams"), C::Num(self.beams.iter().map(|q| q.count).sum::<usize>() as f64)],
+                vec![C::head("Steel (kg)"), num(self.steel_kg)],
+                vec![C::head("Slabs"), C::Num(self.slabs.iter().map(|q| q.count).sum::<usize>() as f64)],
+                vec![C::head("Slab area (m²)"), num(self.slab_area_m2)],
+                vec![C::head("Slab volume (m³)"), num(self.slab_volume_m3)],
+            ],
+        )?;
+        for (name, list) in [("Columns", &self.columns), ("Beams", &self.beams)] {
+            let mut rows = vec![head(&["Section", "Count", "Length (m)", "Mass (kg)"])];
+            rows.extend(list.iter().map(|q| vec![C::text(q.section.clone()), C::Num(q.count as f64), num(q.length_m), num(q.mass_kg)]));
+            wb.sheet(name, rows)?;
+        }
+        let mut rows = vec![head(&["Kind", "Count", "Area (m²)", "Volume (m³)", "Openings", "Openings area (m²)"])];
+        rows.extend(self.slabs.iter().map(|q| {
+            vec![C::text(q.kind.clone()), C::Num(q.count as f64), num(q.area_m2), num(q.volume_m3), C::Num(q.holes as f64), num(q.holes_area_m2)]
+        }));
+        wb.sheet("Slabs", rows)?;
+        wb.to_bytes()
+    }
+}
+
+impl crate::Drawing {
+    /// The quantities of the columns, the beams and the slabs of `space`.
+    pub fn struct_takeoff(&self, space: &crate::Space) -> StructTakeoff {
+        let mut t = StructTakeoff::default();
+        let Some(store) = self.space(space) else { return t };
+        for e in store.iter() {
+            if let Some(o) = struct_of(e) {
+                let (list, metres) = match o.kind {
+                    StructKind::Column => (&mut t.columns, o.height_mm / 1000.0),
+                    StructKind::Beam => (&mut t.beams, o.length_mm() / 1000.0),
+                };
+                let mass = o.mass_kg();
+                match list.iter_mut().find(|q| q.section == o.section) {
+                    Some(q) => (q.count, q.length_m, q.mass_kg) = (q.count + 1, q.length_m + metres, q.mass_kg + mass),
+                    None => list.push(SectionQuantity { section: o.section.clone(), count: 1, length_m: metres, mass_kg: mass }),
+                }
+                t.steel_kg += mass;
+            } else if let Some(p) = super::slab_of(e) {
+                let kind = p.kind.name().to_string();
+                let (area, volume, holes) = (p.area_m2(), p.volume_m3(), p.holes_area_m2());
+                t.slab_area_m2 += area;
+                t.slab_volume_m3 += volume;
+                match t.slabs.iter_mut().find(|q| q.kind == kind) {
+                    Some(q) => {
+                        q.count += 1;
+                        q.area_m2 += area;
+                        q.volume_m3 += volume;
+                        q.holes += p.holes.len();
+                        q.holes_area_m2 += holes;
+                    }
+                    None => {
+                        t.slabs.push(SlabQuantity { kind, count: 1, area_m2: area, volume_m3: volume, holes: p.holes.len(), holes_area_m2: holes })
+                    }
+                }
+            }
+        }
+        // The sections in the order of the table, the slabs in the order of their kinds.
+        let order = |q: &SectionQuantity| parse_section(&q.section).map(|s| (s.family, s.number));
+        t.columns.sort_by_key(order);
+        t.beams.sort_by_key(order);
+        t.slabs.sort_by(|a, b| a.kind.cmp(&b.kind));
+        t
     }
 }

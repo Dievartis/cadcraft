@@ -169,3 +169,47 @@ fn the_command_line_places_columns_one_after_the_other_and_beams_in_a_chain() {
     // The aliases and the programmatic form never open a dialog.
     assert!(s.execute("columnadd", &json!({"at": [9000, 0]})).is_ok());
 }
+
+#[test]
+fn the_takeoff_adds_up_the_steel_by_section_and_the_slabs_by_kind_and_is_written_to_a_file() {
+    let mut s = metric();
+    s.execute("columnadd", &json!({"points": [[0, 0], [5000, 0]], "section": "HEA 200", "height": 3000})).unwrap();
+    s.execute("columnadd", &json!({"at": [0, 5000], "section": "HEB 300", "height": 4000})).unwrap();
+    s.execute("beamadd", &json!({"points": [[0, 0], [5000, 0]], "section": "IPE 240"})).unwrap();
+    s.execute("beamadd", &json!({"points": [[0, 0], [0, 5000]], "section": "IPE 240"})).unwrap();
+    let slab = s.execute("slabadd", &json!({"points": [[0, 0], [8000, 0], [8000, 6000], [0, 6000]]})).unwrap();
+    s.execute("slabedit", &json!({"handle": slab["handle"], "hole": [[1000, 1000], [2000, 1000], [2000, 2000], [1000, 2000]]})).unwrap();
+    let t = s.execute("structtakeoff", &json!({})).unwrap();
+    let col = |i: usize| {
+        (
+            t["columns"][i]["section"].as_str().unwrap().to_string(),
+            t["columns"][i]["count"].as_u64().unwrap(),
+            t["columns"][i]["massKg"].as_f64().unwrap(),
+        )
+    };
+    // Two HEA 200 of 3 m (42.3 kg/m), one HEB 300 of 4 m (117 kg/m): in the order of the table.
+    assert_eq!((col(0).0.as_str(), col(0).1), ("HEA 200", 2));
+    assert!((col(0).2 - 2.0 * 3.0 * 42.3).abs() < 0.01 && (col(1).2 - 4.0 * 117.0).abs() < 0.01, "{t}");
+    assert_eq!(col(1).0, "HEB 300");
+    // Two IPE 240 of 5 m (30.7 kg/m).
+    assert_eq!((t["beams"][0]["count"].as_u64(), t["beams"][0]["lengthM"].as_f64()), (Some(2), Some(10.0)));
+    assert!((t["steelKg"].as_f64().unwrap() - (253.8 + 468.0 + 307.0)).abs() < 0.01, "{t}");
+    // One slab of 48 m² with a 1 m² opening, 200 mm thick.
+    assert_eq!((t["slabs"][0]["kind"].as_str(), t["slabs"][0]["holes"].as_u64()), (Some("floor"), Some(1)));
+    assert!((t["slabAreaM2"].as_f64().unwrap() - 47.0).abs() < 1e-9 && (t["slabVolumeM3"].as_f64().unwrap() - 9.4).abs() < 1e-9, "{t}");
+    // Written as a workbook and as a text file, decimals with a comma by default.
+    let dir = std::env::temp_dir().join(format!("cadcraft-struct-{}", std::process::id()));
+    let (xlsx, csv) = (dir.join("structure.xlsx"), dir.join("structure.csv"));
+    s.execute("structtakeoff", &json!({"path": xlsx.to_string_lossy()})).unwrap();
+    assert!(std::fs::read(&xlsx).unwrap().starts_with(b"PK"), "a workbook is a zip file");
+    s.execute("structtakeoff", &json!({"path": csv.to_string_lossy()})).unwrap();
+    let text = String::from_utf8(std::fs::read(&csv).unwrap()).unwrap();
+    assert!(text.starts_with('\u{feff}') && text.contains("Column;HEA 200;2;6;253,8"), "{text}");
+    s.execute("structtakeoff", &json!({"path": csv.to_string_lossy(), "decimal": "point"})).unwrap();
+    assert!(String::from_utf8(std::fs::read(&csv).unwrap()).unwrap().contains("Column;HEA 200;2;6;253.8"));
+    assert!(s.execute("structtakeoff", &json!({"decimal": "x"})).is_err());
+    // An empty drawing has nothing to add up.
+    let empty = metric().execute("structtakeoff", &json!({})).unwrap();
+    assert_eq!((empty["steelKg"].as_f64(), empty["columns"].as_array().map(Vec::len)), (Some(0.0), Some(0)));
+    let _ = std::fs::remove_dir_all(dir);
+}

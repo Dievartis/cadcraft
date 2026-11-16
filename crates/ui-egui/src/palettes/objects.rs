@@ -568,9 +568,26 @@ fn slab_section(ui: &mut egui::Ui, sel: &[Handle], ss: &[SlabParams], bad: &mut 
             action = edit("elevation", json!(m));
         }
     });
+    let slope = shared(&ss.iter().map(|p| format!("{}", p.slope_pct)).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Slope (%)", |ui| {
+        if let Some(v) = number(edit_field(ui, ui.scope_id().with(("slab_slope", &ids)), slope).filter(|t| t != VARIES), bad) {
+            action = edit("slope", json!(v));
+        }
+    });
+    if ss.iter().any(|p| p.slope_pct > 0.0) {
+        let dir = shared(&ss.iter().map(|p| format!("{}", p.slope_direction_deg)).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+        prop_row(ui, "Slope direction (degrees)", |ui| {
+            if let Some(v) = number(edit_field(ui, ui.scope_id().with(("slab_slope_dir", &ids)), dir).filter(|t| t != VARIES), bad) {
+                action = edit("slopeDirection", json!(v));
+            }
+        });
+    }
     if let [p] = ss {
         prop_row(ui, "Area", |ui| read_only(ui, &format!("{:.2} m²", p.area_m2())));
         prop_row(ui, "Volume", |ui| read_only(ui, &format!("{:.2} m³", p.volume_m3())));
+        if !p.holes.is_empty() {
+            prop_row(ui, "Openings", |ui| read_only(ui, &format!("{} ({:.2} m²)", p.holes.len(), p.holes_area_m2())));
+        }
     }
     action
 }

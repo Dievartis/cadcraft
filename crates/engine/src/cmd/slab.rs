@@ -21,8 +21,15 @@ pub fn specs() -> Vec<CommandSpec> {
                  pattern? (hatch name, empty for none), labelHeight? (mm)} → {handle, area (m²), volume (m³)}",
             )
             .interactive(|s| Ok(Box::new(SlabAddM::new(s)))),
-        CommandSpec::new("slabedit", "Edit Slab", run_slabedit)
-            .params("{handle | handles, kind?, name?, thickness? (mm), elevation? (m), pattern?} → {changed}"),
+        CommandSpec::new("slabedit", "Edit Slab", run_slabedit).params(
+            "{handle | handles, kind?, name?, thickness? (mm), elevation? (m), pattern?, slope? (per cent, 0 for flat), slopeDirection? (degrees: where it falls), \
+             hole? ([[x, y]…], 3 or more: an opening (trémie) in the slab), riserHoles? (true: the shaft of every riser inside the slab becomes an opening), \
+             clearHoles? (true: no opening any more)} → {changed, holes}",
+        ),
+        CommandSpec::new("slabhole", "Slab Opening", run_slabhole)
+            .menu(&["Draw", "Architecture", "Slab Opening"])
+            .params("{handle, points (3 or more) | riserHoles: true} → {holes}: cuts an opening (trémie) through a slab, from points or from the shafts of the risers inside it")
+            .interactive(|_| Ok(Box::new(SlabHoleM { slab: None, pts: Vec::new() }))),
     ]
 }
 
@@ -127,6 +134,23 @@ fn run_slabedit(s: &mut Session, p: &Value) -> Result<Value> {
     let kind = kind_param(CMD, p)?;
     let thickness = number(CMD, p, "thickness", 1.0)?;
     let elevation = p.get("elevation").and_then(Value::as_f64).filter(|e| e.is_finite()).map(|e| e * 1000.0);
+    let slope = number(CMD, p, "slope", 0.0)?;
+    let slope_direction = p
+        .get("slopeDirection")
+        .filter(|v| !v.is_null())
+        .map(|v| v.as_f64().filter(|x| x.is_finite()))
+        .map(|v| v.ok_or_else(|| bad(CMD, "`slopeDirection` must be a number")))
+        .transpose()?;
+    let clear = p.get("clearHoles").and_then(Value::as_bool).unwrap_or(false);
+    let riser_holes = p.get("riserHoles").and_then(Value::as_bool).unwrap_or(false);
+    let hole: Option<Vec<Vec2>> = match p.get("hole").filter(|v| !v.is_null()) {
+        None => None,
+        Some(Value::Array(raw)) if raw.len() <= MAX_SLAB_VERTICES => {
+            let pts: Option<Vec<Vec2>> = raw.iter().map(super::point_value).collect();
+            Some(pts.filter(|v| v.len() >= 3).ok_or_else(|| bad(CMD, "`hole` is 3 or more [x, y] points"))?)
+        }
+        Some(_) => return Err(bad(CMD, "`hole` is 3 or more [x, y] points")),
+    };
     let d = s.doc()?;
     let mut next = Vec::with_capacity(hs.len());
     for h in &hs {
@@ -134,6 +158,16 @@ fn run_slabedit(s: &mut Session, p: &Value) -> Result<Value> {
         sp.kind = kind.unwrap_or(sp.kind);
         sp.thickness_mm = thickness.unwrap_or(sp.thickness_mm);
         sp.elevation_mm = elevation.unwrap_or(sp.elevation_mm);
+        sp.slope_pct = slope.unwrap_or(sp.slope_pct);
+        sp.slope_direction_deg = slope_direction.unwrap_or(sp.slope_direction_deg);
+        if clear {
+            sp.holes.clear();
+        }
+        if let Some(pts) = &hole
+            && !d.slab_contains(*h, pts)
+        {
+            return Err(other("The opening is inside the slab."));
+        }
         if let Some(n) = str_param(p, "name") {
             sp.name = n.to_string();
         }
@@ -147,7 +181,151 @@ fn run_slabedit(s: &mut Session, p: &Value) -> Result<Value> {
     for (h, sp) in &next {
         d.regenerate_slab(*h, sp).map_err(doc_err)?;
     }
-    Ok(json!({ "changed": next.len() }))
+    for (h, _) in &next {
+        if let Some(outline) = &hole {
+            d.add_slab_hole(*h, outline).map_err(doc_err)?;
+        }
+        if riser_holes {
+            add_riser_holes(d, *h)?;
+        }
+    }
+    let total: usize = next.iter().map(|(h, _)| d.entity(*h).and_then(|e| slab_of(e)).map_or(0, |p| p.holes.len())).sum();
+    Ok(json!({ "changed": next.len(), "holes": total }))
+}
+
+/// The shafts of the risers inside slab `h` that are not yet openings of it become openings; how many were added.
+fn add_riser_holes(d: &mut cadcraft_doc::Drawing, h: Handle) -> Result<usize> {
+    let space = cadcraft_doc::Space::Model;
+    let shafts: Vec<Vec<Vec2>> = d.riser_shafts(&space).into_iter().filter(|sh| d.slab_contains(h, sh)).collect();
+    let have = d.slab_holes_world(h);
+    let mut n = 0;
+    for sh in shafts {
+        // The same shaft, as an opening that is already there: the same corners, in whatever order.
+        let known = have.iter().any(|o| o.len() == sh.len() && sh.iter().all(|q| o.iter().any(|r| r.near(*q, 1e-6))));
+        if !known {
+            d.add_slab_hole(h, &sh).map_err(doc_err)?;
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+fn run_slabhole(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "slabhole";
+    let h = super::curves::handle_param(p, "handle").ok_or_else(|| bad(CMD, "`handle` (a slab) is required"))?;
+    if s.doc()?.entity(h).and_then(|e| slab_of(e)).is_none() {
+        return Err(other("Select a slab."));
+    }
+    let riser = p.get("riserHoles").and_then(Value::as_bool).unwrap_or(false);
+    let pts = match p.get("points") {
+        Some(Value::Array(raw)) if raw.len() <= MAX_SLAB_VERTICES => {
+            let v: Option<Vec<Vec2>> = raw.iter().map(super::point_value).collect();
+            Some(v.filter(|v| v.len() >= 3).ok_or_else(|| bad(CMD, "`points` are 3 or more [x, y]"))?)
+        }
+        Some(Value::Null) | None => None,
+        Some(_) => return Err(bad(CMD, "`points` are 3 or more [x, y]")),
+    };
+    if pts.is_none() && !riser {
+        return Err(bad(CMD, "`points` or `riserHoles` is required"));
+    }
+    let d = s.doc_mut()?;
+    if let Some(v) = &pts {
+        if !d.slab_contains(h, v) {
+            return Err(other("The opening is inside the slab."));
+        }
+        d.add_slab_hole(h, v).map_err(doc_err)?;
+    }
+    if riser {
+        add_riser_holes(d, h)?;
+    }
+    let holes = d.entity(h).and_then(|e| slab_of(e)).map_or(0, |p| p.holes.len());
+    Ok(json!({ "holes": holes }))
+}
+
+/// SLABHOLE at the command line: the slab, then the corners of the opening.
+struct SlabHoleM {
+    slab: Option<Handle>,
+    pts: Vec<Vec2>,
+}
+
+impl Interactive for SlabHoleM {
+    fn name(&self) -> &'static str {
+        "SLABHOLE"
+    }
+    fn begin(&mut self, s: &mut Session) -> Result<Step> {
+        // A slab already selected is the one.
+        self.slab = s.selection().into_iter().find(|h| s.doc().ok().and_then(|d| d.entity(*h)).and_then(|e| slab_of(e)).is_some());
+        Ok(Step::Continue)
+    }
+    fn prompt(&self, _s: &Session) -> Prompt {
+        if self.slab.is_none() {
+            return Prompt::new("Select a slab", Accept::SELECT);
+        }
+        match self.pts.len() {
+            0 => Prompt::new("Specify first corner of the opening", Accept::POINT).kw(&["Risers"]),
+            1 | 2 => Prompt::new("Specify next corner", Accept::POINT).kw(&["Undo"]).base_opt(self.pts.last().copied()),
+            _ => Prompt::new("Specify next corner", Accept::POINT).kw(&["Close", "Undo"]).base_opt(self.pts.last().copied()),
+        }
+    }
+    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
+        let Some(slab) = self.slab else {
+            return match i {
+                Input::Pick(hs) => {
+                    match hs.iter().copied().find(|h| s.doc().ok().and_then(|d| d.entity(*h)).and_then(|e| slab_of(e)).is_some()) {
+                        Some(h) => self.slab = Some(h),
+                        None => s.echo("Select a slab."),
+                    }
+                    Ok(Step::Continue)
+                }
+                Input::Cancel | Input::Enter => Ok(Step::Cancel),
+                _ => Ok(Step::Continue),
+            };
+        };
+        let finish = |me: &mut SlabHoleM, s: &mut Session| -> Result<Step> {
+            let d = s.doc_mut()?;
+            if !d.slab_contains(slab, &me.pts) {
+                s.echo("The opening is inside the slab.");
+                return Ok(Step::Continue);
+            }
+            d.add_slab_hole(slab, &me.pts).map_err(doc_err)?;
+            s.echo("Slab opening added.");
+            Ok(Step::Done)
+        };
+        match i {
+            Input::Keyword(k) => match k.as_str() {
+                "Risers" => {
+                    let n = add_riser_holes(s.doc_mut()?, slab)?;
+                    s.echo(format!("Openings from the risers: {n}"));
+                    Ok(Step::Done)
+                }
+                "Undo" => {
+                    self.pts.pop();
+                    Ok(Step::Continue)
+                }
+                "Close" if self.pts.len() >= 3 => finish(self, s),
+                _ => Ok(Step::Continue),
+            },
+            Input::Point(p) => {
+                if self.pts.len() < MAX_SLAB_VERTICES && !self.pts.last().is_some_and(|l| l.near(p, 1e-9)) {
+                    self.pts.push(p);
+                }
+                Ok(Step::Continue)
+            }
+            Input::Enter if self.pts.len() >= 3 => finish(self, s),
+            Input::Enter | Input::Cancel => Ok(Step::Cancel),
+            _ => Ok(Step::Continue),
+        }
+    }
+    fn preview(&self, _s: &Session, c: Vec2) -> Vec<cadcraft_doc::EntityKind> {
+        let mut pts = self.pts.clone();
+        pts.push(c);
+        if let Some(first) = self.pts.first() {
+            pts.push(*first);
+        }
+        pts.windows(2)
+            .filter_map(|w| Some(cadcraft_doc::EntityKind::Line(cadcraft_doc::Line { a: w.first()?.to3(0.0), b: w.get(1)?.to3(0.0) })))
+            .collect()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

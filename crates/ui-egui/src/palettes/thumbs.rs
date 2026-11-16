@@ -493,6 +493,42 @@ pub(super) fn paint_slab(p: &Painter, r: Rect, kind: cadcraft_doc::SlabKind) {
     }
 }
 
+/// A slab seen in plan with an opening cut through it, crossed: Slab Opening.
+pub(super) fn paint_slab_opening(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.poly(&[(3.0, 4.0), (21.0, 4.0), (21.0, 20.0), (3.0, 20.0)], true, t.base);
+    t.poly(&[(9.0, 9.0), (15.0, 9.0), (15.0, 15.0), (9.0, 15.0)], true, t.acc);
+    t.l((9.0, 9.0), (15.0, 15.0), t.acc);
+    t.l((15.0, 9.0), (9.0, 15.0), t.acc);
+}
+
+/// A steel section and a table: Structure Takeoff.
+pub(super) fn paint_struct_takeoff(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.poly(
+        &[
+            (3.0, 4.0),
+            (11.0, 4.0),
+            (11.0, 6.0),
+            (8.0, 6.0),
+            (8.0, 14.0),
+            (11.0, 14.0),
+            (11.0, 16.0),
+            (3.0, 16.0),
+            (3.0, 14.0),
+            (6.0, 14.0),
+            (6.0, 6.0),
+            (3.0, 6.0),
+        ],
+        true,
+        t.base,
+    );
+    for y in [8.0, 12.0, 16.0, 20.0] {
+        t.l((13.0, y), (21.0, y), t.acc);
+    }
+    t.l((17.0, 6.0), (17.0, 20.0), t.acc);
+}
+
 /// A slab with a pencil: Edit Slab.
 pub(super) fn paint_edit_slab(p: &Painter, r: Rect) {
     let t = Th::new(p, r);

@@ -1466,6 +1466,11 @@
 	Column	Poteau
 	Beam	Poutre
 	Edit Structure	Modifier la structure
+	Structure Takeoff	Métré de la structure
+	Slab Opening	Trémie de dalle
+	Slope (%)	Pente (%)
+	Slope direction (degrees)	Sens de la pente (degrés)
+	Structure: {c} columns, {b} beams, {kg} kg of steel; {s} slabs, {a} m², {v} m³	Structure : {c} poteaux, {b} poutres, {kg} kg d'acier ; {s} dalles, {a} m², {v} m³
 	Structure Joints	Jonctions de la structure
 	Elevation of the foot (m)	Cote du pied (m)
 	Elevation of the underside (m)	Cote du dessous (m)
