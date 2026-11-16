@@ -271,3 +271,45 @@ fn the_single_line_diagram_is_drawn_from_the_circuits_and_follows_them() {
     assert!(s.running.is_none());
     assert_eq!(s.doc().unwrap().model.len(), n + 1);
 }
+
+#[test]
+fn a_board_fed_by_a_circuit_of_another_gives_it_its_load_its_short_circuit_current_and_its_voltage_drop() {
+    let mut s = metric();
+    // TGBT feeds TD1 by the circuit TGBT-D1 (35 mm², 40 m, 63 A); TD1 has one circuit of 3 kW of sockets.
+    s.execute("elecdeviceadd", &json!({"at": [-3000, 0], "kind": "distributionBoard", "name": "TGBT", "supply": 160})).unwrap();
+    s.execute("elecdeviceadd", &json!({"at": [-1000, 0], "kind": "distributionBoard", "name": "TD1", "supply": 32, "circuit": "TGBT-D1"})).unwrap();
+    s.execute("elecdeviceadd", &json!({"at": [0, 500], "kind": "socket", "circuit": "TD1-C1", "power": 3000})).unwrap();
+    s.execute("cableadd", &json!({"points": [[0, 0], [20000, 0]], "circuit": "TD1-C1", "usage": "power"})).unwrap();
+    s.execute("circuitedit", &json!({"name": "TD1-C1", "section": 2.5, "protection": 16})).unwrap();
+    s.execute("cableadd", &json!({"points": [[0, 3000], [40000, 3000]], "circuit": "TGBT-D1", "usage": "power"})).unwrap();
+    s.execute("circuitedit", &json!({"name": "TGBT-D1", "section": 16, "protection": 63})).unwrap();
+    let check = s.execute("circuitcheck", &json!({})).unwrap();
+    let feeder = circuit(&check, "TGBT-D1");
+    let branch = circuit(&check, "TD1-C1");
+    // The feeder carries the board's load, and says which board it feeds.
+    assert_eq!(feeder["powerW"].as_f64(), Some(3000.0), "{feeder}");
+    assert_eq!(feeder["feeds"], json!(["TD1"]));
+    // Its end is where TD1's circuits start: the short-circuit current there is lower than the origin's, and so the circuit's, below.
+    let at_board = feeder["ikMaxKa"].as_f64().unwrap();
+    assert!(at_board < 10.0 && at_board > 1.0, "{feeder}");
+    assert!(branch["ikMaxKa"].as_f64().unwrap() < at_board, "{branch}");
+    // The voltage drop of the feeder is counted in the drop of the circuits of the board.
+    assert!(
+        branch["upstreamDropPercent"].as_f64().unwrap() > 0.5
+            && (branch["upstreamDropPercent"].as_f64().unwrap() - feeder["dropPercent"].as_f64().unwrap()).abs() < 0.011,
+        "{branch} {feeder}"
+    );
+    assert!(feeder.get("upstreamDropPercent").is_none_or(Value::is_null), "the first level has nothing upstream: {feeder}");
+    // The feeder's breaker (63 A) is twice the board's main one (32 A): enough; a 50 A one (1.56 times) is not.
+    assert!(feeder["warnings"].as_array().unwrap().is_empty(), "{feeder}");
+    s.execute("circuitedit", &json!({"name": "TGBT-D1", "protection": 50})).unwrap();
+    let again = s.execute("circuitcheck", &json!({})).unwrap();
+    assert!(
+        circuit(&again, "TGBT-D1")["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("main breaker of the board TD1")),
+        "{again}"
+    );
+    // A board fed by its own circuit (a loop) is cut after a few levels, with no hang and no panic.
+    s.execute("elecdeviceadd", &json!({"at": [-5000, 0], "kind": "distributionBoard", "name": "TGBT2", "circuit": "TGBT2-X"})).unwrap();
+    s.execute("elecdeviceadd", &json!({"at": [-6000, 0], "kind": "socket", "circuit": "TGBT2-X", "power": 1000})).unwrap();
+    assert!(s.execute("circuitcheck", &json!({})).is_ok());
+}

@@ -83,6 +83,13 @@ pub struct CircuitReport {
     /// The voltage drop with the section drawn (or the required one), percent, and the most it may be.
     pub drop_percent: Option<f64>,
     pub max_drop_percent: f64,
+    /// The voltage drop already taken along the circuits that feed this one's board (a board fed by another board's circuit), percent: the drop of
+    /// a circuit is counted from the origin of the installation.
+    #[serde(default)]
+    pub upstream_drop_percent: Option<f64>,
+    /// The boards this circuit feeds (a distribution board whose "circuit" is this one): the power of their circuits is its load.
+    #[serde(default)]
+    pub feeds: Vec<String>,
     /// The greatest three-phase (or phase-neutral) short-circuit current at the end of the circuit, kA, and the smallest one (phase to protective
     /// conductor), A; the longest cable, m, the magnetic trip of the protection still sees the smallest one at the end of.
     #[serde(default)]
@@ -104,7 +111,7 @@ impl CircuitReport {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Acc {
     name: String,
     cables: Vec<(Handle, CableParams)>,
@@ -112,6 +119,8 @@ struct Acc {
     devices: usize,
     hvac: usize,
     lights_only: bool,
+    /// The boards this circuit feeds.
+    fed: Vec<String>,
 }
 
 fn grouping(laying: ElecLaying) -> calc::Grouping {
@@ -151,6 +160,13 @@ impl crate::Drawing {
                 add(&c.circuit.clone(), &mut |a| a.cables.push((h, c.clone())));
             } else if let Some(d) = device_of(e) {
                 if d.kind == DeviceKind::Panel {
+                    // A board fed by a circuit (of another board): that circuit carries the load of the board's circuits.
+                    if !d.circuit.trim().is_empty() && !d.name.trim().is_empty() {
+                        add(&d.circuit.clone(), &mut |a| {
+                            a.fed.push(d.name.trim().to_string());
+                            a.lights_only = false;
+                        });
+                    }
                     continue;
                 }
                 add(&d.circuit.clone(), &mut |a| {
@@ -180,7 +196,52 @@ impl crate::Drawing {
             .filter_map(|e| device_of(e).filter(|d| d.kind == DeviceKind::Panel))
             .filter_map(|d| Some((d.name.trim().to_lowercase(), d.supply_a?)))
             .collect();
-        circuits.into_values().map(|a| circuit_report(a, &panels, &supplies, diversity, opts)).collect()
+        // The load of a circuit that feeds boards: its own, and the circuits of those boards, down the chain (not more than six levels: a loop is cut).
+        let own: BTreeMap<String, f64> = circuits.iter().map(|(k, a)| (k.clone(), a.power_w)).collect();
+        fn total(key: &str, depth: usize, circuits: &BTreeMap<String, Acc>, own: &BTreeMap<String, f64>) -> f64 {
+            let Some(a) = circuits.get(key) else { return 0.0 };
+            let mut sum = own.get(key).copied().unwrap_or(0.0);
+            if depth < 6 {
+                for panel in &a.fed {
+                    for (k, _) in circuits.iter().filter(|(k, c)| k.as_str() != key && same_network(circuit_panel(&c.name), panel)) {
+                        sum += total(k, depth + 1, circuits, own);
+                    }
+                }
+            }
+            sum
+        }
+        let totals: BTreeMap<String, f64> = circuits.keys().map(|k| (k.clone(), total(k, 0, &circuits, &own))).collect();
+        for (k, a) in circuits.iter_mut() {
+            a.power_w = totals.get(k).copied().unwrap_or(a.power_w);
+        }
+        // Where each board's circuits start: the origin's short-circuit current, or what is left at the end of the circuit that feeds the board, and the
+        // voltage drop already taken. Worked out until it stops changing, a level of boards at a time.
+        let feeders: Vec<(String, String)> =
+            circuits.values().flat_map(|a| a.fed.iter().map(|p| (p.to_lowercase(), a.name.to_lowercase()))).collect();
+        let mut origins: BTreeMap<String, (f64, f64)> = BTreeMap::new();
+        let mut reports = Vec::new();
+        for _ in 0..7 {
+            reports = circuits
+                .values()
+                .map(|a| {
+                    let origin = origins.get(&circuit_panel(&a.name).trim().to_lowercase()).copied().unwrap_or((opts.source_ka, 0.0));
+                    circuit_report(a.clone(), &panels, &supplies, diversity, opts, origin)
+                })
+                .collect::<Vec<_>>();
+            let mut next = origins.clone();
+            for (panel, feeder) in &feeders {
+                if let Some(r) = reports.iter().find(|r| r.name.to_lowercase() == *feeder) {
+                    let ik = r.ik_max_ka.unwrap_or(opts.source_ka);
+                    let drop = r.upstream_drop_percent.unwrap_or(0.0) + r.drop_percent.unwrap_or(0.0);
+                    next.insert(panel.clone(), (ik, drop));
+                }
+            }
+            if next == origins {
+                break;
+            }
+            origins = next;
+        }
+        reports
     }
 
     /// Gives every cable of circuit `name` the sizes the calculation found for the circuit: the section where there is none (or everywhere when
@@ -215,7 +276,15 @@ impl crate::Drawing {
     }
 }
 
-fn circuit_report(a: Acc, panels: &[String], supplies: &BTreeMap<String, f64>, diversity: f64, opts: &CircuitOptions) -> CircuitReport {
+/// `origin` is where the circuit's board gets its current: the short-circuit current there (kA) and the voltage drop already taken (percent).
+fn circuit_report(
+    a: Acc,
+    panels: &[String],
+    supplies: &BTreeMap<String, f64>,
+    diversity: f64,
+    opts: &CircuitOptions,
+    origin: (f64, f64),
+) -> CircuitReport {
     let first = a.cables.first().map(|(_, c)| c.clone());
     let usage = first.as_ref().map(|c| c.usage).unwrap_or(if a.lights_only { CableUsage::Lighting } else { CableUsage::Power });
     let phases = first.as_ref().map_or(ElecPhases::Single, |c| c.phases);
@@ -235,6 +304,8 @@ fn circuit_report(a: Acc, panels: &[String], supplies: &BTreeMap<String, f64>, d
         power_w: (a.power_w * diversity).round(),
         max_drop_percent: calc::max_voltage_drop_percent(usage.drop_usage(), opts.own_substation),
         cables: a.cables.iter().map(|(h, _)| h.hex()).collect(),
+        feeds: a.fed.clone(),
+        upstream_drop_percent: (origin.1 > 0.0).then_some((origin.1 * 100.0).round() / 100.0),
         ..CircuitReport::default()
     };
     let length_m: f64 = a.cables.iter().map(|(_, c)| c.length_m()).sum();
@@ -285,7 +356,7 @@ fn circuit_report(a: Acc, panels: &[String], supplies: &BTreeMap<String, f64>, d
     if length_m > 0.0 {
         r.drop_section_mm2 = calc::sections(conductor.calc()).into_iter().find(|s| {
             calc::voltage_drop(conductor.calc(), *s, length_m, ib, phases.calc(), cos_phi)
-                .is_ok_and(|du| calc::voltage_drop_percent(du, phases.calc()) <= r.max_drop_percent)
+                .is_ok_and(|du| calc::voltage_drop_percent(du, phases.calc()) + origin.1 <= r.max_drop_percent)
         });
         if r.drop_section_mm2.is_none() {
             r.warnings.push("no section of the table keeps the voltage drop within its limit: shorten the circuit or use cables in parallel".into());
@@ -302,11 +373,23 @@ fn circuit_report(a: Acc, panels: &[String], supplies: &BTreeMap<String, f64>, d
     {
         let pct = calc::voltage_drop_percent(du, phases.calc());
         r.drop_percent = Some((pct * 100.0).round() / 100.0);
-        if r.section_mm2.is_some() && pct > r.max_drop_percent {
-            r.warnings.push(format!("the voltage drop ({pct:.1} %) is above {:.0} %", r.max_drop_percent));
+        if r.section_mm2.is_some() && pct + origin.1 > r.max_drop_percent {
+            let upstream = if origin.1 > 0.0 { format!(" with the {:.1} % of the circuits upstream", origin.1) } else { String::new() };
+            r.warnings.push(format!("the voltage drop ({:.1} %{upstream}) is above {:.0} %", pct + origin.1, r.max_drop_percent));
         }
     }
-    short_circuit(&mut r, conductor, phases, judged, length_m, rating, supplies, opts);
+    short_circuit(&mut r, conductor, phases, judged, length_m, rating, supplies, opts, origin.0);
+    // A circuit that feeds a board has the main breaker of that board downstream of it.
+    for fed in &a.fed {
+        if let Some(supply) = supplies.get(&fed.trim().to_lowercase()).copied().filter(|v| *v > 0.0) {
+            let ratio = rating / supply;
+            if ratio < calc::SELECTIVITY_RATIO {
+                r.warnings.push(format!(
+                    "the protection of this circuit ({rating:.0} A) is only {ratio:.1} times the main breaker of the board {fed} it feeds ({supply:.0} A): no selectivity can be expected"
+                ));
+            }
+        }
+    }
     if let (Some(drawn), Some(thermal)) = (r.section_mm2, r.thermal_section_mm2)
         && drawn < thermal
     {
@@ -334,16 +417,17 @@ fn short_circuit(
     rating: f64,
     supplies: &BTreeMap<String, f64>,
     opts: &CircuitOptions,
+    source_ka: f64,
 ) {
     // The breaker is at the board, where the fault current is the origin's: it must be able to break it.
-    if opts.source_ka.is_finite() && opts.source_ka > opts.breaking_ka {
+    if source_ka.is_finite() && source_ka > opts.breaking_ka {
         r.warnings.push(format!(
-            "the breaking capacity of the breakers ({:.0} kA) is below the short-circuit current at the origin ({:.1} kA)",
-            opts.breaking_ka, opts.source_ka
+            "the breaking capacity of the breakers ({:.0} kA) is below the short-circuit current at the board ({source_ka:.1} kA)",
+            opts.breaking_ka
         ));
     }
     if let (Some(s), true) = (section, length_m > 0.0) {
-        if let Ok(ik) = calc::short_circuit_max_a(opts.source_ka, conductor.calc(), s, length_m, phases.calc()) {
+        if let Ok(ik) = calc::short_circuit_max_a(source_ka, conductor.calc(), s, length_m, phases.calc()) {
             r.ik_max_ka = Some((ik / 10.0).round() / 100.0);
         }
         if let Ok(ik) = calc::short_circuit_min_a(conductor.calc(), s, length_m) {
