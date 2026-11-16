@@ -244,8 +244,10 @@ pub(super) fn page_setup(t: &T) -> PageSetup {
         p.height_mm = w.max(h);
     }
     p.margins_mm = [mm(40, p.margins_mm[0]), mm(41, p.margins_mm[1]), mm(42, p.margins_mm[2]), mm(43, p.margins_mm[3])];
-    // Plot paper units 1: millimetres. 0 (inches) is left to MEASUREMENT: earlier CADCraft
-    // versions wrote 0 for every layout.
+    // The DXF flag (72: 0 inches, 1 millimetres) is ambiguous in older
+    // CADCraft files: they wrote 0 when units followed MEASUREMENT. A CADCraft
+    // xdata marker preserves the intended three-state setting on round trips.
+    // Keep the historical fallback for files with no marker.
     p.paper_mm = t.i(72) == Some(1);
     // Plot rotation 1 or 3 turns the media a quarter turn; media defined wider than tall is
     // already landscape.
@@ -295,9 +297,64 @@ pub(super) fn page_setup(t: &T) -> PageSetup {
     p
 }
 
+/// Read unit metadata from the whole object, including older files that placed
+/// it before AcDbLayout. Plot-setting fields still come from their own subclass.
+pub(super) fn apply_paper_units(p: &mut PageSetup, tags: &[Tag]) {
+    let units = crate::dxf_ext::xdata_list(crate::dxf_ext::xdata(tags, crate::dxf_ext::APP), "PAPERUNITS");
+    match units.iter().find(|tag| tag.code == 1070).map(Tag::i64) {
+        Some(0) => {
+            p.paper_mm = false;
+            p.paper_unit_mm_override = None;
+        }
+        Some(1) => {
+            p.paper_mm = true;
+            p.paper_unit_mm_override = Some(true);
+        }
+        Some(2) => {
+            p.paper_mm = false;
+            p.paper_unit_mm_override = Some(false);
+        }
+        Some(3) => {
+            p.paper_mm = true;
+            p.paper_unit_mm_override = None;
+        }
+        _ => {}
+    }
+}
+
 /// A layout's saved paper-space view (centre, height) from CADCraft xdata.
 fn layout_view(tags: &[Tag]) -> Option<(Vec2, f64)> {
-    let list = crate::dxf_ext::xdata_list(crate::dxf_ext::xdata(tags, crate::dxf_ext::APP), "PSVIEW");
-    let g = |c: i32| list.iter().find(|t| t.code == c).map(Tag::f64).filter(|v| v.is_finite());
-    Some((Vec2::new(g(1010)?, g(1020)?), g(1040)?))
+    // PAPERUNITS and PSVIEW can live in separate CADCRAFT xdata runs.
+    // The generic xdata() helper returns only the first run, which may be PAPERUNITS.
+    tags.iter().enumerate().filter(|(_, t)| t.code == 1001 && t.str().trim().eq_ignore_ascii_case(crate::dxf_ext::APP)).find_map(|(at, _)| {
+        let rest = tags.get(at + 1..)?;
+        let end = rest.iter().position(|t| t.code == 1001).unwrap_or(rest.len());
+        let list = crate::dxf_ext::xdata_list(rest.get(..end)?, "PSVIEW");
+        let g = |c: i32| list.iter().find(|t| t.code == c).map(Tag::f64).filter(|v| v.is_finite());
+        Some((Vec2::new(g(1010)?, g(1020)?), g(1040)?))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PageSetup, Tag, apply_paper_units};
+
+    #[test]
+    fn paper_units_accept_legacy_and_trailing_metadata() {
+        for before_subclass in [true, false] {
+            let mut tags = vec![Tag::i(72, 1)];
+            let units = vec![Tag::s(1001, "CADCRAFT"), Tag::s(1000, "PAPERUNITS"), Tag::s(1002, "{"), Tag::i(1070, 2), Tag::s(1002, "}")];
+            if before_subclass {
+                tags.extend(units.clone());
+            }
+            tags.push(Tag::s(100, "AcDbLayout"));
+            if !before_subclass {
+                tags.extend(units);
+            }
+            let mut page = PageSetup::default();
+            apply_paper_units(&mut page, &tags);
+            assert!(!page.paper_mm);
+            assert_eq!(page.paper_unit_mm_override, Some(false));
+        }
+    }
 }

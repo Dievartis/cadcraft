@@ -473,9 +473,20 @@ fn layout_obj(w: &mut W, context: LayoutWriteContext<'_>, data: LayoutWriteData<
     w.p(17, Vec3::new(0.0, 1.0, 0.0));
     w.i(76, 0);
     w.s(330, brh);
-    // The saved paper-space view (centre, height) as CADCraft xdata.
+    // Extended data follows all normal fields; one group per application keeps
+    // PAPERUNITS and the optional saved view together for external readers.
+    let units = match page.paper_unit_mm_override {
+        Some(true) => 1,
+        Some(false) => 2,
+        None if page.paper_mm => 3,
+        None => 0,
+    };
+    w.s(1001, dxf_ext::APP);
+    w.s(1000, "PAPERUNITS");
+    w.s(1002, "{");
+    w.i(1070, units);
+    w.s(1002, "}");
     if let Some((c, height)) = view.filter(|(c, v)| c.x.is_finite() && c.y.is_finite() && v.is_finite()) {
-        w.s(1001, dxf_ext::APP);
         w.s(1000, "PSVIEW");
         w.s(1002, "{");
         w.p(1010, c.to3(0.0));
