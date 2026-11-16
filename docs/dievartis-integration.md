@@ -8,8 +8,8 @@ It is a development integration, not a published release.
 | Contribution | Original source | Integrated commits / adaptation |
 | --- | --- | --- |
 | Preview baseline with dockable managers | [Dievartis fork](https://github.com/Dievartis/cadcraft/tree/d94ad4f792eeeda3d33e327ac8b39fc2529d02df) | `d94ad4f792eeeda3d33e327ac8b39fc2529d02df` |
-| Dimension Style Manager | Existing contribution [#1042](https://github.com/storytold/cadcraft/pull/1042); dockable integration [fork #2](https://github.com/Dievartis/cadcraft/pull/2) | Existing implementation retained; Dievartis adapts its content to a dockable panel. Original manager authorship is not claimed. |
-| Plot Style Manager | Existing contribution [#3142](https://github.com/storytold/cadcraft/pull/3142); integration context [fork #1](https://github.com/Dievartis/cadcraft/pull/1) | Included in baseline; original contributions retain their authorship. |
+| Dimension Style Manager | @Slopapalooza [#1042](https://github.com/storytold/cadcraft/pull/1042); dockable integration [fork #2](https://github.com/Dievartis/cadcraft/pull/2) | Existing implementation retained; Dievartis adapts its content to a dockable panel. Original manager authorship is not claimed. |
+| Plot Style Manager | @Dievartis [#3142](https://github.com/storytold/cadcraft/pull/3142); integration context [fork #1](https://github.com/Dievartis/cadcraft/pull/1) | Included in baseline; original contributions retain their authorship. |
 | Paper-space units | @aldozar [#1085](https://github.com/storytold/cadcraft/pull/1085), extended by @Dievartis [#3207](https://github.com/storytold/cadcraft/pull/3207) | `acf90b3a562eb31f46b11fd2043de742169352a4`, `bc5f4d3a8e14de19176b0be55699e2f10324f471` |
 
 This is a record of the integration above, not an exhaustive inventory of inherited
