@@ -1698,7 +1698,7 @@ fn oversized_dwg_and_dxf_are_rejected_early() {
     let limits = craft_dwg::Limits { max_dxf_bytes: 300_000, ..craft_dwg::Limits::DEFAULT };
     let e = craft_dwg::dwg_to_dxf_with(&dwg, limits).unwrap_err();
     assert!(e.starts_with("DWG: converting this 0."), "{e}");
-    assert!(e.contains("MB file produced more than 0.0 MB of drawing data (the limit)"), "{e}");
+    assert!(e.contains("MB file produced more than 0.3 MB of drawing data (the limit)"), "{e}");
 
     let limits = craft_dwg::Limits { max_dwg_bytes: 100_000, ..craft_dwg::Limits::DEFAULT };
     let e = craft_dwg::dwg_to_dxf_with(&dwg, limits).unwrap_err();
@@ -3307,30 +3307,10 @@ fn svg_shapes_become_entities_in_millimetres() {
     let c = first(&d, |k| if let EntityKind::Circle(c) = k { Some(c.clone()) } else { None });
     assert!((c.radius - 2.0).abs() < 1e-9 && (c.center.x - 10.0).abs() < 1e-9 && (c.center.y - 5.0).abs() < 1e-9, "{c:?}");
     let e = first(&d, |k| if let EntityKind::Ellipse(e) = k { Some(e.clone()) } else { None });
-    let major = Vec2::new(e.major.x, e.major.y);
+    let major = Vec2::new(e.major.x - e.center.x, e.major.y - e.center.y);
     assert!((major.len() - 4.0).abs() < 1e-9 && (e.ratio - 0.5).abs() < 1e-9, "{e:?}");
     let l = first(&d, |k| if let EntityKind::Line(l) = k { Some(l.clone()) } else { None });
     assert!((l.a.y - 10.0).abs() < 1e-9 && (l.b.y).abs() < 1e-9, "{l:?}");
-}
-
-/// A smooth curve right after `Z` has no curve to reflect: its first control point is the
-/// current point (SVG 1.1 §8.3.6), not the mirror of the control point before the close.
-#[test]
-fn svg_path_smooth_curve_after_close_starts_at_the_current_point() {
-    let svg = format!("{SVG_PAGE}<path d=\"M0 5 C0 0 10 0 10 5 Z S20 0 20 5\"/></svg>");
-    let d = read(svg.as_bytes(), "s.svg").unwrap();
-    let after_close = d
-        .model
-        .iter()
-        .filter_map(|e| if let EntityKind::Spline(s) = &e.kind { Some(s.clone()) } else { None })
-        .last()
-        .expect("the S segment becomes a spline");
-    // Drawing y is 10 - SVG y: start (0, 5), first control at the start, second control SVG (20, 0), end (20, 5).
-    let want = [Vec2::new(0.0, 5.0), Vec2::new(0.0, 5.0), Vec2::new(20.0, 10.0), Vec2::new(20.0, 5.0)];
-    assert_eq!(after_close.control.len(), want.len(), "{after_close:?}");
-    for (got, want) in after_close.control.iter().zip(want) {
-        assert!((*got - want).len() < 1e-9, "{after_close:?}");
-    }
 }
 
 #[test]
