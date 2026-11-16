@@ -15,6 +15,14 @@ fn hooks() {
         plot: None,
     });
     set_image_decoder(|b| cadcraft_io::raster::decode(b).map_err(|e| e.to_string()));
+    cadcraft_engine::cmd::underlay::set_pdf(cadcraft_engine::cmd::underlay::PdfHooks {
+        page: cadcraft_io::pdf_read::page_info,
+        render: cadcraft_io::pdf_read::render_page,
+        lines: cadcraft_io::pdf_read::page_lines,
+        region: cadcraft_io::pdf_read::render_page_region,
+        layers: cadcraft_io::pdf_layers::layer_list,
+        with_layers: cadcraft_io::pdf_layers::apply_layers,
+    });
 }
 
 /// A fresh folder for one test.
@@ -29,6 +37,123 @@ fn folder(tag: &str) -> PathBuf {
 fn png() -> Vec<u8> {
     let px: Vec<u8> = (0..8u8).flat_map(|i| [i * 30, 255 - i * 30, 7, 255]).collect();
     cadcraft_io::raster::encode_png(&Raster::new(4, 2, px).unwrap()).unwrap()
+}
+
+/// An original two-page PDF with red and blue rectangles, generated entirely in memory.
+fn pdf() -> Vec<u8> {
+    let content = "1 0 0 rg 0 0 72 36 re f\n";
+    let blue = "0 0 1 rg 0 0 72 36 re f\n";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 36] /Resources << >> /Contents 4 0 R >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{content}endstream", content.len()),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 36] /Resources << >> /Contents 6 0 R >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{blue}endstream", blue.len()),
+    ];
+    let mut bytes = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, object) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(format!("{} 0 obj\n{object}\nendobj\n", i + 1).as_bytes());
+    }
+    let xref = bytes.len();
+    bytes.extend_from_slice(b"xref\n0 7\n0000000000 65535 f \n");
+    for offset in offsets {
+        bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend_from_slice(format!("trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes());
+    bytes
+}
+
+#[test]
+fn test_pdfattach_page_occupies_world_rectangle() {
+    hooks();
+    let mut s = Session::new();
+    s.execute("line", &json!({ "points": [[0, 0], [1, 1]] })).unwrap();
+    s.execute(
+        "pdfattach",
+        &json!({ "name": "sheet.pdf", "data": base64_encode(&pdf()), "page": 1, "insertion": [10, 20, 3], "width": 100, "height": 80 }),
+    )
+    .unwrap();
+    let i = images(&s).pop().unwrap();
+    assert_eq!((i.insert.x, i.insert.y, i.insert.z), (10.0, 20.0, 3.0));
+    assert!((i.u.x * i.size.x - 100.0).abs() < 1e-10);
+    assert!((i.v.y * i.size.y - 80.0).abs() < 1e-10);
+    assert_eq!((i.u.y, i.u.z, i.v.x, i.v.z), (0.0, 0.0, 0.0, 0.0));
+    let d = s.doc().unwrap();
+    assert_eq!(d.model.len(), 2, "attaching keeps the existing drawing");
+    let raster = d.rasters.get(&i.path).unwrap();
+    assert!(raster.width() > 0 && raster.height() > 0);
+    let list = cadcraft_engine::render::build(d, &cadcraft_engine::doc::Space::Model, &cadcraft_engine::render::Options::default());
+    assert_eq!(list.images.len(), 1, "the page uses the existing image renderer");
+    s.execute("undo", &json!({})).unwrap();
+    assert!(images(&s).is_empty());
+    assert_eq!(s.doc().unwrap().model.len(), 1);
+    s.execute("redo", &json!({})).unwrap();
+    let restored = images(&s).pop().unwrap();
+    assert!(s.doc().unwrap().rasters.get(&restored.path).is_some(), "redo keeps the page pixels");
+}
+
+#[test]
+fn pdf_bytes_select_pages_and_keep_same_named_attachments_separate() {
+    hooks();
+    let mut s = Session::new();
+    let data = base64_encode(&pdf());
+    let first = s.execute("pdfattach", &json!({"data": data, "name": "sheet.pdf"})).unwrap();
+    let second = s.execute("pdfattach", &json!({"data": data, "name": "sheet.pdf", "page": 2})).unwrap();
+    let third = s.execute("pdfattach", &json!({"data": data, "name": "sheet.pdf"})).unwrap();
+    // Without `width`: the page at its size on paper, in the drawing's units (the fake page is 2:1).
+    let (_, w_mm, h_mm, _) = cadcraft_io::pdf_read::page_info(&pdf(), 1).unwrap();
+    let paper = w_mm / cadcraft_engine::cmd::underlay::mm_per_unit(s.doc().unwrap());
+    let size = first["size"].as_array().unwrap();
+    assert!((size[0].as_f64().unwrap() - paper).abs() < 1e-9 * paper, "{size:?} against {paper}");
+    assert!((size[1].as_f64().unwrap() - paper * h_mm / w_mm).abs() < 1e-9 * paper, "{size:?}");
+    assert_ne!(first["path"], second["path"]);
+    assert_ne!(first["path"], third["path"]);
+    let d = s.doc().unwrap();
+    let red = d.rasters.get(first["path"].as_str().unwrap()).unwrap();
+    let blue = d.rasters.get(second["path"].as_str().unwrap()).unwrap();
+    assert!(red.width() <= 4096 && red.height() <= 4096);
+    assert!(red.rgba().as_chunks::<4>().0.contains(&[255, 0, 0, 255]), "page one is red");
+    assert!(blue.rgba().as_chunks::<4>().0.contains(&[0, 0, 255, 255]), "page two is blue");
+    assert_eq!(d.model.len(), 3);
+}
+
+#[test]
+fn invalid_pdf_bytes_and_placement_leave_the_drawing_unchanged() {
+    hooks();
+    let mut s = Session::new();
+    s.execute("line", &json!({"points": [[0, 0], [1, 1]]})).unwrap();
+    let data = base64_encode(&pdf());
+    for fields in [
+        json!({"data": null}),
+        json!({"data": "!"}),
+        json!({"data": base64_encode(b"not a PDF")}),
+        json!({"page": 0}),
+        json!({"page": 3}),
+        json!({"page": 1.5}),
+        json!({"page": 4294967296_u64}),
+        json!({"insertion": [0, 0]}),
+        json!({"insertion": [0, "x", 0]}),
+        json!({"width": 0}),
+        json!({"width": -1}),
+        json!({"height": "80"}),
+        json!({"insertion": [1e308, 0, 0], "width": 1e308}),
+        json!({"name": "x".repeat(4097)}),
+        json!({"path": "sheet.pdf"}),
+        json!({"pages": [1, 2]}),
+        json!({"scale": 2}),
+    ] {
+        let mut params = json!({"data": data});
+        params.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+        assert!(s.execute("pdfattach", &params).is_err(), "{fields}");
+        assert!(images(&s).is_empty());
+        assert_eq!(s.doc().unwrap().model.len(), 1);
+    }
+    let oversized = "A".repeat(cadcraft_engine::cmd::MAX_PDF_BYTES.div_ceil(3) * 4 + 1);
+    assert!(s.execute("pdfattach", &json!({"data": oversized})).unwrap_err().to_string().contains("64 MiB"));
+    assert_eq!(s.doc().unwrap().model.len(), 1);
 }
 
 fn images(s: &Session) -> Vec<Image> {
@@ -407,4 +532,28 @@ fn many_files_are_loaded_together_and_reported_in_order() {
         assert!(!s.state().unwrap().is_dirty());
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Without `width` a PDF attached from bytes is its page at its size on paper in the drawing's units: in a drawing in millimetres the page's
+/// millimetres, in metres a thousandth of that; with a `width` alone the height follows the page's proportions; with both, they are used.
+#[test]
+fn pdf_bytes_without_a_width_are_placed_at_their_size_on_paper() {
+    hooks();
+    let (_, w_mm, h_mm, _) = cadcraft_io::pdf_read::page_info(&pdf(), 1).unwrap();
+    let data = base64_encode(&pdf());
+    for (insunits, mm_per_unit) in [(4, 1.0), (6, 1000.0), (5, 10.0), (1, 25.4)] {
+        let mut s = Session::new();
+        s.doc_mut().unwrap().header.set_i64("INSUNITS", insunits);
+        let r = s.execute("pdfattach", &json!({"data": data, "name": "sheet.pdf"})).unwrap();
+        let size = r["size"].as_array().unwrap();
+        let (w, h) = (size[0].as_f64().unwrap(), size[1].as_f64().unwrap());
+        assert!((w - w_mm / mm_per_unit).abs() < 1e-9 * w, "INSUNITS {insunits}: {w} for {} expected", w_mm / mm_per_unit);
+        assert!((h - h_mm / mm_per_unit).abs() < 1e-9 * h, "INSUNITS {insunits}: {h}");
+    }
+    let mut s = Session::new();
+    let only_width = s.execute("pdfattach", &json!({"data": data, "width": 400})).unwrap();
+    let size = only_width["size"].as_array().unwrap();
+    assert!((size[0].as_f64().unwrap() - 400.0).abs() < 1e-9 && (size[1].as_f64().unwrap() - 400.0 * h_mm / w_mm).abs() < 1e-9, "{size:?}");
+    let both = s.execute("pdfattach", &json!({"data": data, "width": 400, "height": 90})).unwrap();
+    assert_eq!(both["size"], json!([400.0, 90.0]));
 }

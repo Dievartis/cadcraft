@@ -109,9 +109,10 @@ pub struct MeshData {
     pub lines: Vec<u8>,
     pub tris: Vec<u8>,
     pub quads: Vec<u8>,
-    /// Draw-order breaks, one before each wipeout mask and before each fill that overlaps lines
-    /// or points earlier in its group: the fill vertices, line vertices and quad instances drawn
-    /// before it. Each group is drawn fills, lines, quads in turn.
+    /// Draw-order breaks, one before each wipeout mask, before each fill that overlaps lines or
+    /// points earlier in its group, and at each PDF underlay (whose page the canvas draws between
+    /// two groups, see [`underlay_groups`]): the fill vertices, line vertices and quad instances
+    /// drawn before it. Each group is drawn fills, lines, quads in turn.
     pub breaks: Vec<[usize; 3]>,
     /// The vertex buffers already created from this data (see [`MeshData::upload_now`]); the
     /// paint callback then only swaps them in.
@@ -267,10 +268,15 @@ pub fn build_mesh(list: &DisplayList, origin: Vec2, bg: Rgb, lwdisplay: bool) ->
     };
     // The lines and points of the current group, so a fill over ones drawn before it starts a new
     // group and covers them (draw order). Only kept when the list has fills, and only for
-    // MAX_FILL_BREAKS breaks.
-    let mut strokes = list.prims.iter().any(|p| p.kind == Kind::Tris).then(|| StrokeGrid::new(&list.bounds));
+    // MAX_FILL_BREAKS breaks. Not with PDF underlays: [`underlay_groups`] places their pages by
+    // the mask and underlay breaks only, so a fill break would put a page in the wrong group.
+    let mut strokes = (list.underlays.is_empty() && list.prims.iter().any(|p| p.kind == Kind::Tris)).then(|| StrokeGrid::new(&list.bounds));
     let mut fill_breaks = 0usize;
-    for prim in &list.prims {
+    let mut underlays = list.underlays.iter().map(|u| u.at as usize).peekable();
+    for (i, prim) in list.prims.iter().enumerate() {
+        while underlays.next_if(|at| *at <= i).is_some() {
+            m.breaks.push([m.tri_vertices(), m.line_vertices(), m.quad_instances()]);
+        }
         let col = premultiplied(prim.display_rgb(bg), prim.alpha());
         let pts = list.points(prim);
         if let Some(s) = strokes.as_mut() {
@@ -336,7 +342,24 @@ pub fn build_mesh(list: &DisplayList, origin: Vec2, bg: Rgb, lwdisplay: bool) ->
             Kind::Image { .. } => {}
         }
     }
+    for _ in underlays {
+        m.breaks.push([m.tri_vertices(), m.line_vertices(), m.quad_instances()]);
+    }
     m
+}
+
+/// For each PDF underlay of `list` (in order), the first draw-order group of [`build_mesh`]'s
+/// data drawn over its page: the groups before it are drawn, then the page, then the rest.
+pub fn underlay_groups(list: &DisplayList) -> Vec<usize> {
+    let mut out = Vec::with_capacity(list.underlays.len());
+    let (mut masks, mut from) = (0usize, 0usize);
+    for (j, u) in list.underlays.iter().enumerate() {
+        let at = (u.at as usize).min(list.prims.len()).max(from);
+        masks += list.prims.get(from..at).map_or(0, |ps| ps.iter().filter(|p| p.kind == Kind::Mask).count());
+        from = at;
+        out.push(masks + j + 1);
+    }
+    out
 }
 
 /// Vertex data drawing primitives `prims` of `list` in `color` (the selection highlight), as on
@@ -435,7 +458,12 @@ pub struct CanvasCallback {
     pub dash: f32,
     /// How the draw uses the stencil buffer.
     pub stencil: Stencil,
+    /// The draw-order groups drawn ([`ALL_GROUPS`], or those between two PDF underlays).
+    pub groups: std::ops::Range<usize>,
 }
+
+/// [`CanvasCallback::groups`]: every group.
+pub const ALL_GROUPS: std::ops::Range<usize> = 0..usize::MAX;
 
 /// How a [`CanvasCallback`] uses the stencil buffer ([`GpuTarget::stencil`]): a clipped
 /// viewport's outline is drawn as a triangle fan that flips a stencil bit ([`Stencil::Mask`],
@@ -864,7 +892,11 @@ impl egui_wgpu::CallbackTrait for CanvasCallback {
         let total = |bs: &[Batch]| bs.iter().map(|b| b.count as usize).sum::<usize>();
         let all = [total(&res.tris), if mask { 0 } else { total(&res.lines) }, if mask { 0 } else { total(&res.quads) }];
         let mut from = [0usize; 3];
-        for to in res.breaks.iter().copied().chain(std::iter::once(all)) {
+        for (g, to) in res.breaks.iter().copied().chain(std::iter::once(all)).enumerate() {
+            if !self.groups.contains(&g) {
+                from = to;
+                continue;
+            }
             for (i, (pipeline, batches)) in [(tri, &res.tris), (line, &res.lines), (quad, &res.quads)].into_iter().enumerate() {
                 let parts = batch_ranges(batches.iter().map(|b| b.count), from[i]..to[i]);
                 if parts.is_empty() {
@@ -1171,6 +1203,65 @@ mod tests {
         let mut g = StrokeGrid::new(&Bounds2::EMPTY);
         g.add(&b(1.0, 1.0, 2.0, 2.0));
         assert!(g.hits(&b(100.0, 100.0, 101.0, 101.0)));
+    }
+
+    #[test]
+    fn pdf_underlays_split_the_draw_order_groups() {
+        let mut l = list();
+        if let Some(p) = l.prims.get_mut(1) {
+            p.kind = Kind::Mask;
+        }
+        let page = |h: u64, at: u32| cadcraft_render::ListUnderlay {
+            handle: Handle(h),
+            at,
+            origin: Vec2::ZERO,
+            u: Vec2::new(1.0, 0.0),
+            v: Vec2::new(0.0, 1.0),
+            clip: cadcraft_render::PageClip::None,
+            own: None,
+            inverted: false,
+        };
+        // Underlay 7 before the mask, underlay 8 after everything.
+        l.underlays = vec![page(7, 1), page(8, 4)];
+        let m = build_mesh(&l, Vec2::ZERO, Rgb(0, 0, 0), false);
+        // Underlay 7's break, the mask's (at the same place), then underlay 8's at the end.
+        assert_eq!(m.breaks, vec![[0, 4, 0], [0, 4, 0], [3, 4, 1]]);
+        // Underlay 7's page goes between groups 0 and 1, underlay 8's after group 2.
+        assert_eq!(underlay_groups(&l), vec![1, 3]);
+        // Hostile positions past the list end are clamped.
+        l.underlays = vec![page(9, u32::MAX)];
+        assert_eq!(underlay_groups(&l), vec![2]);
+        assert_eq!(build_mesh(&l, Vec2::ZERO, Rgb(0, 0, 0), false).breaks.len(), 2);
+    }
+
+    #[test]
+    fn pdf_underlays_keep_fills_from_breaking_the_groups() {
+        // A line, a fill over it (a fill break without underlays), and an underlay at the end:
+        // with the underlay, only its own break is made, so its page goes after the one group.
+        let mut l = DisplayList {
+            verts: vec![Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0)],
+            tris: vec![Vec2::new(4.0, -1.0), Vec2::new(6.0, -1.0), Vec2::new(6.0, 1.0)],
+            ..Default::default()
+        };
+        let p = |kind, start, len| DPrim { handle: Handle(1), color: Rgb(255, 255, 255), aci7: false, lw: 0.0, transparency: 0, kind, start, len };
+        for v in l.verts.clone() {
+            l.bounds.add(v);
+        }
+        l.prims = vec![p(Kind::Polyline, 0, 2), p(Kind::Tris, 0, 3)];
+        assert_eq!(build_mesh(&l, Vec2::ZERO, Rgb(0, 0, 0), false).breaks.len(), 1, "the fill breaks without underlays");
+        l.underlays = vec![cadcraft_render::ListUnderlay {
+            handle: Handle(7),
+            at: 2,
+            origin: Vec2::ZERO,
+            u: Vec2::new(1.0, 0.0),
+            v: Vec2::new(0.0, 1.0),
+            clip: cadcraft_render::PageClip::None,
+            own: None,
+            inverted: false,
+        }];
+        let m = build_mesh(&l, Vec2::ZERO, Rgb(0, 0, 0), false);
+        assert_eq!(m.breaks.len(), 1, "only the underlay's break");
+        assert_eq!(underlay_groups(&l), vec![m.breaks.len()]);
     }
 
     #[test]

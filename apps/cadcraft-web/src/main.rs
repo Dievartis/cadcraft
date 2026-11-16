@@ -186,6 +186,15 @@ mod web {
             log::error!("missing <canvas id=\"{CANVAS_ID}\">");
             return;
         };
+        // PDF underlays read their pages.
+        cadcraft_engine::cmd::underlay::set_pdf(cadcraft_engine::cmd::underlay::PdfHooks {
+            page: cadcraft_io::pdf_read::page_info,
+            render: cadcraft_io::pdf_read::render_page,
+            lines: cadcraft_io::pdf_read::page_lines,
+            region: cadcraft_io::pdf_read::render_page_region,
+            layers: cadcraft_io::pdf_layers::layer_list,
+            with_layers: cadcraft_io::pdf_layers::apply_layers,
+        });
         // `?host=parent`: a same-origin page framing CADCraft (such as a Nextcloud app) opens
         // drawings in it and stores what it saves. Otherwise `data-host="page"` on the canvas
         // opts in a page that runs CADCraft in its own document (no iframe) and talks over DOM
@@ -249,6 +258,12 @@ mod web {
                         let picker = inbox.clone();
                         app.services.pick_open = Some(Box::new(move || {
                             picker.pick();
+                            None
+                        }));
+                        // PDFATTACH asks for a PDF: the same picker, limited to .pdf; the file is attached as a backdrop when it arrives.
+                        let pdf_picker = inbox.clone();
+                        app.services.pick_pdf = Some(Box::new(move || {
+                            pdf_picker.pick_pdf();
                             None
                         }));
                         let host = app_bridge.inspect(|bridge| {
