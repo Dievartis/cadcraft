@@ -64,6 +64,12 @@ fn paint_device(p: &egui::Painter, r: Rect, kind: DeviceKind) {
             line(c + vec2(-d, -d), c + vec2(d, d));
             line(c + vec2(-d, d), c + vec2(d, -d));
         }
+        DeviceKind::Recessed => {
+            let q = Rect::from_center_size(c, vec2(h * 1.8, h * 1.8));
+            p.rect_stroke(q, 0.0, s, egui::StrokeKind::Inside);
+            line(q.left_top(), q.right_bottom());
+            line(q.left_bottom(), q.right_top());
+        }
         DeviceKind::DownLight => {
             p.circle_stroke(c, h, s);
             p.circle_stroke(c, h * 0.4, s);
@@ -169,7 +175,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
                     DeviceKind::DataOutlet,
                 ],
             ),
-            ("Luminaires", &[DeviceKind::Light, DeviceKind::DownLight, DeviceKind::WallLight, DeviceKind::StripLight]),
+            ("Luminaires", &[DeviceKind::Light, DeviceKind::Recessed, DeviceKind::DownLight, DeviceKind::WallLight, DeviceKind::StripLight]),
             ("Safety", &[DeviceKind::Emergency, DeviceKind::ExitSign]),
             ("Distribution", &[DeviceKind::Panel]),
         ];

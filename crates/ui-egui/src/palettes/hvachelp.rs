@@ -291,7 +291,7 @@ fn riser(p: &Painter, r: Rect) {
     p.rect_stroke(shaft, 0.0, stroke(), egui::StrokeKind::Inside);
     p.circle_stroke(c, 16.0, stroke());
     p.line_segment([c, c + vec2(70.0, -45.0)], Stroke::new(1.0, DUCT));
-    text(p, c + vec2(72.0, -45.0), "Riser 1  Ø500  7000 m³/h", DUCT);
+    text(p, c + vec2(72.0, -45.0), "Riser 1-Ø0500-7000 m³/h", DUCT);
     p.arrow(c + vec2(-30.0, 28.0), vec2(0.0, -20.0), Stroke::new(1.2, DUCT));
 }
 

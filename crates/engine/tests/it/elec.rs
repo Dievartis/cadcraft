@@ -154,3 +154,36 @@ fn the_circuit_legend_follows_the_circuits_and_the_emergency_check_tells_where_n
     assert!(e["warnings"][0].as_str().unwrap().starts_with("Couloir:"), "{e}");
     assert!(e["note"].as_str().unwrap().contains("2011"));
 }
+
+#[test]
+fn a_recessed_light_and_a_board_of_a_given_size_and_underside_are_drawn_and_edited_by_command() {
+    let mut s = metric();
+    let r = s.execute("elecdeviceadd", &json!({"at": [0, 0], "kind": "recessedLight600x600"})).unwrap();
+    let light = device_of(s.doc().unwrap().entity(hd(&r["handles"][0])).unwrap()).unwrap();
+    assert_eq!((light.kind.name(), light.power_w, light.flux_lm, light.height_mm), ("Recessed light 600x600", 40.0, Some(4000.0), 2600.0));
+    let r = s.execute("elecdeviceadd", &json!({"at": [3000, 0], "kind": "distributionBoard", "name": "TD1", "boardHeight": 1800, "boardWidth": 800, "boardDepth": 300, "height": 200})).unwrap();
+    let board = hd(&r["handles"][0]);
+    let p = device_of(s.doc().unwrap().entity(board).unwrap()).unwrap();
+    assert_eq!((p.board_mm(), p.height_mm), ((1800.0, 800.0, 300.0), 200.0));
+    // Editing keeps what is not changed; the plan follows the new width.
+    s.execute("elecedit", &json!({"handle": board.hex(), "boardWidth": 1200, "height": 0})).unwrap();
+    let p = device_of(s.doc().unwrap().entity(board).unwrap()).unwrap();
+    assert_eq!((p.board_mm(), p.height_mm), ((1800.0, 1200.0, 300.0), 0.0));
+    // A size that a board cannot have, or a size given to another object, changes nothing and says so.
+    for (cmd, params) in [
+        ("elecedit", json!({"handle": board.hex(), "boardDepth": 5})),
+        ("elecedit", json!({"handle": board.hex(), "boardHeight": "tall"})),
+        ("elecedit", json!({"handle": hd(&r["handles"][0]).hex(), "boardWidth": 100000})),
+        ("elecdeviceadd", json!({"at": [0, 5000], "kind": "socket", "boardWidth": 800})),
+    ] {
+        assert!(s.execute(cmd, &params).is_err(), "{params}");
+    }
+    assert_eq!(device_of(s.doc().unwrap().entity(board).unwrap()).unwrap().board_mm(), (1800.0, 1200.0, 300.0));
+    let e = s.execute("elecedit", &json!({"handle": hd(&json!(light_handle(&s))).hex(), "boardWidth": 800})).unwrap_err().to_string();
+    assert!(e.contains("distribution board"), "{e}");
+}
+
+/// The handle of the recessed light of the drawing.
+fn light_handle(s: &Session) -> String {
+    s.doc().unwrap().model.iter().find(|e| device_of(e).is_some_and(|d| d.kind == cadcraft_doc::DeviceKind::Recessed)).unwrap().handle.hex()
+}

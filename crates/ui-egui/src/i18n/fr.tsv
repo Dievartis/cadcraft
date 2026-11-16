@@ -1638,6 +1638,13 @@
 	Ducts are sized by velocity and pressure loss (Darcy-Weisbach, Colebrook). A rectangular duct is replaced by the round duct of the same friction.	Les gaines sont dimensionnées par la vitesse et la perte de charge (Darcy-Weisbach, Colebrook). Une gaine rectangulaire est remplacée par la gaine ronde de même frottement.
 	The table gives the flow of each round size at 3, 5 and 8 m/s.	Le tableau donne le débit de chaque diamètre rond à 3, 5 et 8 m/s.
 	Round ducts	Gaines rondes
+	Rectangular ducts	Gaines rectangulaires
+	Most used rectangular ducts	Gaines rectangulaires les plus utilisées
+	Equivalent ⌀ (mm)	⌀ équivalent (mm)
+	m³/h at 4 m/s	m³/h à 4 m/s
+	m³/h at 6 m/s	m³/h à 6 m/s
+	The rectangular sizes most used, with the flow each one carries at 3, 4, 5, 6 and 8 m/s: read across to see which size takes a flow at the velocity you accept.	Les dimensions rectangulaires les plus utilisées, avec le débit de chacune à 3, 4, 5, 6 et 8 m/s : lisez la ligne pour voir quelle dimension passe un débit à la vitesse que vous acceptez.
+	Low velocities (3 to 5 m/s) suit offices and quiet rooms; 6 to 8 m/s suits main runs above the ceiling. The equivalent diameter is the round duct that loses the same pressure per metre.	Les vitesses faibles (3 à 5 m/s) conviennent aux bureaux et aux pièces calmes ; 6 à 8 m/s aux réseaux principaux en faux plafond. Le diamètre équivalent est celui de la gaine ronde qui perd la même pression par mètre.
 	⌀ (mm)	⌀ (mm)
 	m³/h at 3 m/s	m³/h à 3 m/s
 	m³/h at 5 m/s	m³/h à 5 m/s
@@ -1706,6 +1713,7 @@
 	Presence detector	Détecteur de présence
 	Data outlet	Prise RJ45
 	Ceiling light	Plafonnier
+	Recessed light 600x600	Plafonnier encastré 600×600 (faux plafond)
 	Downlight	Spot encastré
 	Wall light	Applique
 	Strip light	Réglette
@@ -1730,6 +1738,10 @@
 	Electrical power (kW)	Puissance électrique (kW)
 	HVAC loads	Charges CVC
 	Main breaker (A)	Disjoncteur général (A)
+	Underside height (mm)	Hauteur du dessous (mm)
+	Board height (mm)	Hauteur du tableau (mm)
+	Board width (mm)	Largeur du tableau (mm)
+	Board depth (mm)	Profondeur du tableau (mm)
 	Phases	Phases
 	Laying (B, C, E, F)	Pose (B, C, E, F)
 	Section (mm²)	Section (mm²)

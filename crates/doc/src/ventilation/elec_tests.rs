@@ -1,7 +1,7 @@
 use cadcraft_geom::Vec2;
 
 use super::*;
-use crate::{Common, Drawing, Space};
+use crate::{Common, Drawing, EntityKind, Space};
 
 fn cable(d: &mut Drawing, circuit: &str, a: (f64, f64), b: (f64, f64)) -> crate::Handle {
     let p = CableParams::new(circuit, CableUsage::Power, HvacUnits { mm_per_unit: 1.0 });
@@ -78,4 +78,56 @@ fn equipment_on_a_circuit_adds_its_power_and_hostile_values_are_refused() {
     assert!(DeviceParams { power_w: f64::NAN, ..DeviceParams::new(DeviceKind::Socket, "P1", HvacUnits::default()) }.validate().is_err());
     assert!(CableParams { cos_phi: 0.0, ..CableParams::new("C", CableUsage::Power, HvacUnits::default()) }.validate().is_err());
     assert!(CableParams { section_mm2: Some(f64::INFINITY), ..CableParams::new("C", CableUsage::Power, HvacUnits::default()) }.validate().is_err());
+}
+
+/// The width and the height of the first outline (a closed polyline) a device's symbol draws, in millimetres.
+fn outline_mm(p: &DeviceParams) -> (f64, f64) {
+    let pieces = p.generate().unwrap();
+    let EntityKind::LwPolyline(l) = &pieces[0].kind else { panic!("the first piece is the outline") };
+    let xs = l.vertices.iter().map(|v| v.p.x);
+    let ys = l.vertices.iter().map(|v| v.p.y);
+    let span = |it: &mut dyn Iterator<Item = f64>| {
+        let v: Vec<f64> = it.collect();
+        v.iter().cloned().fold(f64::MIN, f64::max) - v.iter().cloned().fold(f64::MAX, f64::min)
+    };
+    (span(&mut xs.clone()), span(&mut ys.clone()))
+}
+
+#[test]
+fn a_recessed_light_is_a_luminaire_of_600_by_600_for_a_false_ceiling() {
+    let units = HvacUnits { mm_per_unit: 1.0 };
+    let (ceiling, recessed) = (DeviceParams::new(DeviceKind::Light, "", units), DeviceParams::new(DeviceKind::Recessed, "", units));
+    // The same properties as the ceiling light: lighting, the same power, flux, height, tag and layer.
+    assert!(recessed.kind.is_light() && !recessed.kind.is_emergency());
+    assert_eq!((recessed.power_w, recessed.flux_lm, recessed.height_mm), (ceiling.power_w, ceiling.flux_lm, ceiling.height_mm));
+    assert_eq!((recessed.kind.tag_prefix(), recessed.layer()), (ceiling.kind.tag_prefix(), ceiling.layer()));
+    assert_eq!(outline_mm(&recessed), (600.0, 600.0));
+    assert_eq!(DeviceKind::parse("recessedLight600x600"), Some(DeviceKind::Recessed));
+    assert_eq!(DeviceKind::parse("Recessed light 600x600"), Some(DeviceKind::Recessed));
+    assert_eq!(DeviceKind::ALL.iter().filter(|k| **k == DeviceKind::Recessed).count(), 1);
+    // It survives the block reference's data.
+    let back = DeviceParams::from_xdata(&recessed.to_xdata().unwrap()).unwrap();
+    assert_eq!(back, recessed);
+}
+
+#[test]
+fn a_distribution_board_has_the_size_and_the_underside_that_are_given() {
+    let units = HvacUnits { mm_per_unit: 1.0 };
+    let mut board = DeviceParams::new(DeviceKind::Panel, "TD1", units);
+    // Without a size, the board is the usual 1000 x 600 x 400 and its plan is 600 x 400 as it was before the sizes could be given.
+    assert_eq!((board.board_mm(), outline_mm(&board)), ((1000.0, 600.0, 400.0), (600.0, 400.0)));
+    (board.board_height_mm, board.board_width_mm, board.board_depth_mm, board.height_mm) = (Some(2000.0), Some(800.0), Some(250.0), 0.0);
+    assert_eq!((board.board_mm(), outline_mm(&board), board.height_mm), ((2000.0, 800.0, 250.0), (800.0, 250.0), 0.0));
+    // The size and the underside are kept with the object.
+    assert_eq!(DeviceParams::from_xdata(&board.to_xdata().unwrap()).unwrap(), board);
+    // A size out of what a board can be is refused.
+    for bad in [0.0, 10.0, 6000.0, f64::NAN, f64::INFINITY] {
+        let sets: [fn(&mut DeviceParams, f64); 3] =
+            [|b, v| b.board_height_mm = Some(v), |b, v| b.board_width_mm = Some(v), |b, v| b.board_depth_mm = Some(v)];
+        for set in sets {
+            let mut b = board.clone();
+            set(&mut b, bad);
+            assert!(b.validate().is_err() && b.generate().is_err(), "{bad} mm");
+        }
+    }
 }

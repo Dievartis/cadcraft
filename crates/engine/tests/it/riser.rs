@@ -30,7 +30,7 @@ fn riseradd_takes_a_shaft_by_points_by_a_centre_and_size_or_by_a_polyline() {
         .unwrap();
     let p = riser(&s, hd(&r["handle"]));
     assert_eq!((p.name.as_str(), p.air, p.up, p.shaft_mm()), ("VMC 3", AirDirection::Extract, true, (600.0, 400.0)));
-    assert_eq!((p.size, p.flow_m3h, p.text().as_str()), (Some(RiserSize::Round { diameter_mm: 200.0 }), Some(240.0), "VMC 3 Ø200-240 m³/h"));
+    assert_eq!((p.size, p.flow_m3h, p.text().as_str()), (Some(RiserSize::Round { diameter_mm: 200.0 }), Some(240.0), "VMC 3-Ø0200-240 m³/h"));
     // A centre and a size make a rectangle around it; the way is given.
     let r = s.execute("riseradd", &json!({"at": [5000, 5000], "width": 800, "depth": 500, "direction": "down", "air": "fresh"})).unwrap();
     let q = riser(&s, hd(&r["handle"]));
@@ -53,7 +53,7 @@ fn riseredit_changes_the_way_the_flows_the_size_and_the_shaft_and_clears_what_is
     let p = riser(&s, hd(&h));
     assert_eq!((p.up, p.air, p.incoming_flow_m3h, p.shaft_mm()), (false, AirDirection::Supply, Some(660.0), (800.0, 400.0)));
     assert_eq!(p.size, Some(RiserSize::Rectangular { width_mm: 400.0, height_mm: 250.0 }));
-    assert_eq!(p.text(), "Riser 1 400×250-660 m³/h");
+    assert_eq!(p.text(), "Riser 1-0400×0250-660 m³/h");
     s.execute("riseredit", &json!({"handle": h, "incomingFlow": null, "size": "auto"})).unwrap();
     let p = riser(&s, hd(&h));
     assert_eq!((p.incoming_flow_m3h, p.size), (None, None));

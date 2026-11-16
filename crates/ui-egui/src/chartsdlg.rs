@@ -3,8 +3,9 @@
 //! comes from `cadcraft-hvac` (the tables, or the same functions the tools call), never from a copy.
 
 use cadcraft_hvac::{
-    BOX_LINK, DRAIN_PIPES, HP_BRANCH, HP_MAIN, HR_BRANCH, HR_MAIN, MIN_WALL, PipeCriteria, ROUND_DIAMETERS_MM, STEEL_PIPES, UNIT_LINK,
-    WaterTemperature, drain_capacity_lph, max_flow_m3h, max_velocity_ms, round_area_m2, steel_inner_diameter_mm,
+    BOX_LINK, COMMON_RECT_MM, DRAIN_PIPES, HP_BRANCH, HP_MAIN, HR_BRANCH, HR_MAIN, MIN_WALL, PipeCriteria, ROUND_DIAMETERS_MM, STEEL_PIPES,
+    UNIT_LINK, WaterTemperature, drain_capacity_lph, equivalent_diameter_mm, flow_at_velocity_m3h, max_flow_m3h, max_velocity_ms, rect_area_m2,
+    round_area_m2, steel_inner_diameter_mm,
 };
 use egui::{RichText, vec2};
 
@@ -153,7 +154,7 @@ fn air_page() -> Page {
         .map(|d| {
             let area = round_area_m2(*d);
             // The flow that gives 3, 5 and 8 m/s in a round duct.
-            let q = |v: f64| format!("{:.0}", v * area * 3600.0);
+            let q = |v: f64| format!("{:.0}", flow_at_velocity_m3h(area, v));
             vec![mm(*d), format!("{area:.3}"), q(3.0), q(5.0), q(8.0)]
         })
         .collect();
@@ -165,6 +166,32 @@ fn air_page() -> Page {
             "The table gives the flow of each round size at 3, 5 and 8 m/s.",
         ],
         tables: vec![table("Round ducts", &["⌀ (mm)", "Area (m²)", "m³/h at 3 m/s", "m³/h at 5 m/s", "m³/h at 8 m/s"], rows)],
+    }
+}
+
+/// The rectangular duct sizes most used, with the flow each carries at the usual velocities: to see at a glance which size takes a flow.
+fn rect_page() -> Page {
+    const VELOCITIES: [f64; 5] = [3.0, 4.0, 5.0, 6.0, 8.0];
+    let rows = COMMON_RECT_MM
+        .iter()
+        .map(|(w, h)| {
+            let area = rect_area_m2(*w, *h);
+            let mut row = vec![format!("{w:.0} × {h:.0}"), format!("{area:.3}"), format!("{:.0}", equivalent_diameter_mm(*w, *h))];
+            row.extend(VELOCITIES.iter().map(|v| format!("{:.0}", flow_at_velocity_m3h(area, *v))));
+            row
+        })
+        .collect();
+    Page {
+        name: "Rectangular ducts",
+        intro: &[
+            "The rectangular sizes most used, with the flow each one carries at 3, 4, 5, 6 and 8 m/s: read across to see which size takes a flow at the velocity you accept.",
+            "Low velocities (3 to 5 m/s) suit offices and quiet rooms; 6 to 8 m/s suits main runs above the ceiling. The equivalent diameter is the round duct that loses the same pressure per metre.",
+        ],
+        tables: vec![table(
+            "Most used rectangular ducts",
+            &["Size (mm)", "Area (m²)", "Equivalent ⌀ (mm)", "m³/h at 3 m/s", "m³/h at 4 m/s", "m³/h at 5 m/s", "m³/h at 6 m/s", "m³/h at 8 m/s"],
+            rows,
+        )],
     }
 }
 
@@ -270,6 +297,7 @@ pub fn pages() -> Vec<Page> {
     v.push(water_page());
     v.push(condensate_page());
     v.push(air_page());
+    v.push(rect_page());
     v.extend(electrical_pages());
     v
 }
@@ -337,6 +365,24 @@ mod tests {
                 assert!(t.rows.iter().all(|r| r.len() == t.head.len()), "{}: {}", p.name, t.title);
             }
         }
+    }
+
+    /// The rectangular chart lists the most used sizes with the flow of each at the usual velocities, from the same functions the sizing tools call.
+    #[test]
+    fn the_rectangular_chart_gives_the_flow_of_each_size() {
+        let page = pages().into_iter().find(|p| p.name == "Rectangular ducts").expect("the chart is there");
+        let rows = &page.tables[0].rows;
+        assert_eq!(rows.len(), COMMON_RECT_MM.len());
+        // 400 x 200 mm is 0.08 m²: 0.08 x 5 m/s x 3600 = 1440 m³/h at 5 m/s, 864 at 3 m/s and 2304 at 8 m/s.
+        let r = rows.iter().find(|r| r[0] == "400 × 200").expect("400 x 200 is listed");
+        assert_eq!((r[1].as_str(), r[3].as_str(), r[5].as_str(), r[7].as_str()), ("0.080", "864", "1440", "2304"), "{r:?}");
+        // The flow grows with the size at a given velocity, and with the velocity along a row.
+        for r in rows {
+            let q: Vec<f64> = r[3..].iter().map(|c| c.parse().unwrap()).collect();
+            assert!(q.windows(2).all(|w| w[0] < w[1]), "{r:?}");
+        }
+        // The charts are on the HVAC tab only (a row elsewhere would be a second way in to the same window).
+        assert!(pages().iter().filter(|p| p.name == "Rectangular ducts").count() == 1);
     }
 
     #[test]

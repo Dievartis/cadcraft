@@ -26,13 +26,13 @@ fn a_riser_is_its_shaft_a_symbol_with_a_leader_and_a_label_that_reads_like_the_p
     assert_eq!(p.text(), "VMC 3");
     p.size = Some(RiserSize::Round { diameter_mm: 200.0 });
     p.flow_m3h = Some(240.0);
-    assert_eq!(p.text(), "VMC 3 Ø200-240 m³/h");
+    assert_eq!(p.text(), "VMC 3-Ø0200-240 m³/h");
     p.size = Some(RiserSize::Rectangular { width_mm: 400.0, height_mm: 250.0 });
-    assert_eq!(p.text(), "VMC 3 400×250-240 m³/h");
+    assert_eq!(p.text(), "VMC 3-0400×0250-240 m³/h");
     // Flow typed from the other floors shows until the riser carries its own.
     p.flow_m3h = None;
     p.incoming_flow_m3h = Some(660.0);
-    assert_eq!(p.text(), "VMC 3 400×250-660 m³/h");
+    assert_eq!(p.text(), "VMC 3-0400×0250-660 m³/h");
     let pieces = p.generate().unwrap();
     assert!(pieces.iter().any(|x| x.layer == RISER_LAYER && matches!(x.kind, EntityKind::LwPolyline(_))));
     assert!(pieces.iter().any(|x| x.layer == AIR_EXTRACT_LAYER && matches!(x.kind, EntityKind::Text(_))));
@@ -86,11 +86,11 @@ fn a_riser_that_goes_on_to_another_floor_has_an_arrow_and_a_text_at_each_end_of_
     };
     let t = texts(&p);
     assert_eq!(t.len(), 2, "{t:?}");
-    assert!(t.iter().any(|x| x == "VMC 3 Ø400-2620 m³/h"), "{t:?}");
-    assert!(t.iter().any(|x| x.ends_with("-660 m³/h") && x.starts_with("VMC 3 Ø")), "the lower end is sized for 660 m³/h: {t:?}");
+    assert!(t.iter().any(|x| x == "VMC 3-Ø0400-2620 m³/h"), "{t:?}");
+    assert!(t.iter().any(|x| x.ends_with("-660 m³/h") && x.starts_with("VMC 3-Ø")), "the lower end is sized for 660 m³/h: {t:?}");
     // A size typed for that part is the one written.
     p.incoming_size = Some(RiserSize::Round { diameter_mm: 250.0 });
-    assert!(texts(&p).iter().any(|x| x == "VMC 3 Ø250-660 m³/h"));
+    assert!(texts(&p).iter().any(|x| x == "VMC 3-Ø0250-660 m³/h"));
     // Arrow heads: two lines for each end.
     let lines = p.generate().unwrap().iter().filter(|x| matches!(x.kind, EntityKind::Line(_))).count();
     assert_eq!(lines, 6, "two leaders and four heads");

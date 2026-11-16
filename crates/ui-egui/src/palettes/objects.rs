@@ -333,7 +333,7 @@ fn control_section(ui: &mut egui::Ui, sel: &[Handle], cs: &[cadcraft_doc::Contro
     action
 }
 
-/// The Properties group of electrical devices: tag, circuit, power, flux, height and, for a board, its main breaker.
+/// The Properties group of electrical devices: tag, circuit, power, flux, height and, for a board, its underside, its size and its main breaker.
 fn device_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[cadcraft_doc::DeviceParams], bad: &mut Option<String>) -> Action {
     let ids = handles(sel);
     let mut action: Action = None;
@@ -348,8 +348,17 @@ fn device_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[cadcraft_doc::DeviceP
     if ds.iter().all(|d| d.kind.is_light()) {
         elec_number(ui, ("elecedit", "Flux (lm)", "flux", true), &ids, ds.iter().map(|d| d.flux_lm).collect(), bad, &mut action);
     }
-    elec_number(ui, ("elecedit", "Height (mm)", "height", false), &ids, ds.iter().map(|d| Some(d.height_mm)).collect(), bad, &mut action);
-    if ds.iter().all(|d| d.kind == cadcraft_doc::DeviceKind::Panel) {
+    let board = ds.iter().all(|d| d.kind == cadcraft_doc::DeviceKind::Panel);
+    let height = if board { "Underside height (mm)" } else { "Height (mm)" };
+    elec_number(ui, ("elecedit", height, "height", false), &ids, ds.iter().map(|d| Some(d.height_mm)).collect(), bad, &mut action);
+    if board {
+        for (label, key, get) in [
+            ("Board height (mm)", "boardHeight", (|d: &cadcraft_doc::DeviceParams| d.board_mm().0) as fn(&cadcraft_doc::DeviceParams) -> f64),
+            ("Board width (mm)", "boardWidth", |d| d.board_mm().1),
+            ("Board depth (mm)", "boardDepth", |d| d.board_mm().2),
+        ] {
+            elec_number(ui, ("elecedit", label, key, false), &ids, ds.iter().map(|d| Some(get(d))).collect(), bad, &mut action);
+        }
         elec_number(ui, ("elecedit", "Main breaker (A)", "supply", true), &ids, ds.iter().map(|d| d.supply_a).collect(), bad, &mut action);
     }
     action

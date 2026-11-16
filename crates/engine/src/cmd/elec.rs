@@ -22,8 +22,8 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["Draw", "Electricity", "Device"])
             .params(
                 "{at ([x, y]) | points ([[x, y]…]: one device at each), kind? (socket, dedicatedSocket, switch, doubleSwitch, twoWaySwitch, pushButton, dimmer, presenceDetector, dataOutlet, \
-                 ceilingLight, downlight, wallLight, stripLight, emergencyLight, exitSign, distributionBoard), name? (the tag; default P1, I2, L3…), circuit?, address? (on its KNX or DALI line, written beside it), power? (W), flux? (lm, a luminaire), \
-                 height? (mm above the floor), supply? (A, a board's main breaker), rotation? (degrees), labelHeight? (mm)} → {handles}",
+                 ceilingLight, recessedLight600x600 (for a false ceiling), downlight, wallLight, stripLight, emergencyLight, exitSign, distributionBoard), name? (the tag; default P1, I2, L3…), circuit?, address? (on its KNX or DALI line, written beside it), power? (W), flux? (lm, a luminaire), \
+                 height? (mm above the floor; a board's underside), boardHeight? / boardWidth? / boardDepth? (mm, a board; the plan shows its width by its depth), supply? (A, a board's main breaker), rotation? (degrees), labelHeight? (mm)} → {handles}",
             )
             .interactive(|s| Ok(Box::new(DeviceAddM::new(s)))),
         CommandSpec::new("cableadd", "Cable", run_cable_add)
@@ -35,7 +35,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
             .interactive(|s| Ok(Box::new(CableAddM::new(s)))),
         CommandSpec::new("elecedit", "Edit Electrical Object", run_edit).params(
-            "{handle | handles, for a device: name?, circuit?, address? (on its KNX or DALI line), power? (W), flux? (lm or null), height? (mm), supply? (A or null); for a cable: circuit?, usage?, phases?, conductor?, insulation?, laying?, \
+            "{handle | handles, for a device: name?, circuit?, address? (on its KNX or DALI line), power? (W), flux? (lm or null), height? (mm; a board's underside), boardHeight? / boardWidth? / boardDepth? (mm, a board), supply? (A or null); for a cable: circuit?, usage?, phases?, conductor?, insulation?, laying?, \
              section? (mm² or null), protection? (A or null), cosPhi?, ambient?, grouped?, extra?} → {changed}",
         ),
         CommandSpec::new("circuitedit", "Edit Circuit", run_circuit_edit).params(
@@ -219,6 +219,19 @@ fn put_device(s: &mut Session, p: &DeviceParams, at: Vec2, rotation: f64) -> Res
     Ok(h)
 }
 
+/// The size of a distribution board typed as `boardHeight`, `boardWidth` and `boardDepth` (mm); a board only.
+fn board_size(cmd: &str, p: &Value, d: &mut DeviceParams) -> Result<()> {
+    for (key, field) in [("boardHeight", &mut d.board_height_mm), ("boardWidth", &mut d.board_width_mm), ("boardDepth", &mut d.board_depth_mm)] {
+        if let Some(v) = number(cmd, p, key)? {
+            if d.kind != DeviceKind::Panel {
+                return Err(bad(cmd, format!("`{key}` is for a distribution board")));
+            }
+            *field = Some(v);
+        }
+    }
+    Ok(())
+}
+
 fn run_device_add(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "elecdeviceadd";
     let mut pts = super::points_param(p, "points").unwrap_or_default();
@@ -246,6 +259,7 @@ fn run_device_add(s: &mut Session, p: &Value) -> Result<Value> {
         if let Some(h) = number(CMD, p, "height")? {
             dp.height_mm = h;
         }
+        board_size(CMD, p, &mut dp)?;
         if let Some(a) = clearable(CMD, p, "supply")? {
             dp.supply_a = a;
         }
@@ -334,6 +348,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
             if let Some(v) = number(CMD, p, "height")? {
                 d.height_mm = v;
             }
+            board_size(CMD, p, &mut d)?;
             if let Some(a) = clearable(CMD, p, "supply")? {
                 d.supply_a = a;
             }

@@ -39,7 +39,7 @@ pub use refrigerant::{
     BOX_LINK, HP_BRANCH, HP_MAIN, HR_BRANCH, HR_MAIN, LinkSize, MIN_WALL, UNIT_LINK, VrvSystem, box_link, branch_link, liquid_size_up, main_link,
     min_wall_mm, unit_link,
 };
-pub use sizes::{ROUND_DIAMETERS_MM, equivalent_diameter_mm, rect_area_m2, round_area_m2};
+pub use sizes::{COMMON_RECT_MM, ROUND_DIAMETERS_MM, equivalent_diameter_mm, flow_at_velocity_m3h, rect_area_m2, round_area_m2};
 
 /// What a calculation refuses, with the reason in words a user can act on.
 #[derive(Clone, Debug, PartialEq)]

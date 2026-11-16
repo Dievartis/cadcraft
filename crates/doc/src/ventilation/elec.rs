@@ -18,6 +18,8 @@ pub const CABLE_APP: &str = "CADCRAFT_CABLE";
 pub const DEVICE_APP: &str = "CADCRAFT_ELECDEVICE";
 const CABLE_FORMAT: &str = "CABLE1";
 const DEVICE_FORMAT: &str = "ELECDEVICE1";
+/// The sizes a distribution board is given, mm (its height, width and depth).
+const BOARD_MM: (f64, f64) = (50.0, 5000.0);
 
 /// The layers of the cables by use, of the devices and of the luminaires, of the distribution boards and of the safety devices.
 pub const CABLE_POWER_LAYER: &str = "E-CABLE-POWER";
@@ -334,6 +336,7 @@ pub enum DeviceKind {
     Presence,
     DataOutlet,
     Light,
+    Recessed,
     DownLight,
     WallLight,
     StripLight,
@@ -343,7 +346,7 @@ pub enum DeviceKind {
 }
 
 impl DeviceKind {
-    pub const ALL: [DeviceKind; 16] = [
+    pub const ALL: [DeviceKind; 17] = [
         DeviceKind::Socket,
         DeviceKind::SocketSpecial,
         DeviceKind::Switch,
@@ -354,6 +357,7 @@ impl DeviceKind {
         DeviceKind::Presence,
         DeviceKind::DataOutlet,
         DeviceKind::Light,
+        DeviceKind::Recessed,
         DeviceKind::DownLight,
         DeviceKind::WallLight,
         DeviceKind::StripLight,
@@ -374,6 +378,7 @@ impl DeviceKind {
             DeviceKind::Presence => "Presence detector",
             DeviceKind::DataOutlet => "Data outlet",
             DeviceKind::Light => "Ceiling light",
+            DeviceKind::Recessed => "Recessed light 600x600",
             DeviceKind::DownLight => "Downlight",
             DeviceKind::WallLight => "Wall light",
             DeviceKind::StripLight => "Strip light",
@@ -396,14 +401,14 @@ impl DeviceKind {
             DeviceKind::Switch | DeviceKind::SwitchDouble | DeviceKind::SwitchTwoWay | DeviceKind::PushButton | DeviceKind::Dimmer => "I",
             DeviceKind::Presence => "D",
             DeviceKind::DataOutlet => "RJ",
-            DeviceKind::Light | DeviceKind::DownLight | DeviceKind::WallLight | DeviceKind::StripLight => "L",
+            DeviceKind::Light | DeviceKind::Recessed | DeviceKind::DownLight | DeviceKind::WallLight | DeviceKind::StripLight => "L",
             DeviceKind::Emergency | DeviceKind::ExitSign => "S",
             DeviceKind::Panel => "TD",
         }
     }
 
     pub fn is_light(self) -> bool {
-        matches!(self, DeviceKind::Light | DeviceKind::DownLight | DeviceKind::WallLight | DeviceKind::StripLight)
+        matches!(self, DeviceKind::Light | DeviceKind::Recessed | DeviceKind::DownLight | DeviceKind::WallLight | DeviceKind::StripLight)
     }
 
     pub fn is_emergency(self) -> bool {
@@ -420,17 +425,17 @@ impl DeviceKind {
     }
 
     /// The height a new device is put at, mm above the floor: sockets low, controls at a height within the 0.90 m to 1.30 m of the accessibility rules,
-    /// luminaires at the ceiling.
+    /// luminaires at the ceiling; a distribution board, the height of its underside.
     pub fn default_height_mm(self) -> f64 {
         match self {
             DeviceKind::Socket | DeviceKind::SocketSpecial | DeviceKind::DataOutlet => 300.0,
             DeviceKind::Switch | DeviceKind::SwitchDouble | DeviceKind::SwitchTwoWay | DeviceKind::PushButton | DeviceKind::Dimmer => 1100.0,
             DeviceKind::Presence => 2500.0,
-            DeviceKind::Light | DeviceKind::DownLight | DeviceKind::StripLight => 2600.0,
+            DeviceKind::Light | DeviceKind::Recessed | DeviceKind::DownLight | DeviceKind::StripLight => 2600.0,
             DeviceKind::WallLight => 2000.0,
             DeviceKind::Emergency => 2200.0,
             DeviceKind::ExitSign => 2200.0,
-            DeviceKind::Panel => 1500.0,
+            DeviceKind::Panel => 1000.0,
         }
     }
 
@@ -439,7 +444,7 @@ impl DeviceKind {
         match self {
             DeviceKind::Socket => 500.0,
             DeviceKind::SocketSpecial => 3000.0,
-            DeviceKind::Light => 40.0,
+            DeviceKind::Light | DeviceKind::Recessed => 40.0,
             DeviceKind::DownLight => 20.0,
             DeviceKind::WallLight => 20.0,
             DeviceKind::StripLight => 36.0,
@@ -452,7 +457,7 @@ impl DeviceKind {
     /// The luminous flux a new luminaire is given, lumen.
     pub fn default_flux_lm(self) -> Option<f64> {
         match self {
-            DeviceKind::Light => Some(4000.0),
+            DeviceKind::Light | DeviceKind::Recessed => Some(4000.0),
             DeviceKind::DownLight => Some(2000.0),
             DeviceKind::WallLight => Some(1500.0),
             DeviceKind::StripLight => Some(4000.0),
@@ -478,8 +483,15 @@ pub struct DeviceParams {
     /// The luminous flux of a luminaire, lumen.
     #[serde(default)]
     pub flux_lm: Option<f64>,
-    /// The height it is fitted at, mm above the floor.
+    /// The height it is fitted at, mm above the floor; for a distribution board, the height of its underside.
     pub height_mm: f64,
+    /// A distribution board's own size, mm: its height, its width and its depth (the plan shows the width by the depth). `None` for the usual 1000 x 600 x 400.
+    #[serde(default)]
+    pub board_height_mm: Option<f64>,
+    #[serde(default)]
+    pub board_width_mm: Option<f64>,
+    #[serde(default)]
+    pub board_depth_mm: Option<f64>,
     /// The rating of the main breaker of a distribution board, A.
     #[serde(default)]
     pub supply_a: Option<f64>,
@@ -503,6 +515,9 @@ impl DeviceParams {
             power_w: kind.default_power_w(),
             flux_lm: kind.default_flux_lm(),
             height_mm: kind.default_height_mm(),
+            board_height_mm: None,
+            board_width_mm: None,
+            board_depth_mm: None,
             supply_a: (kind == DeviceKind::Panel).then_some(63.0),
             address: String::new(),
             show_address: true,
@@ -524,6 +539,11 @@ impl DeviceParams {
         if !(self.height_mm.is_finite() && (0.0..=50_000.0).contains(&self.height_mm)) {
             return Err(invalid("The height of a device is 0 to 50000 mm."));
         }
+        for (v, what) in [(self.board_height_mm, "height"), (self.board_width_mm, "width"), (self.board_depth_mm, "depth")] {
+            if v.is_some_and(|v| !(v.is_finite() && (BOARD_MM.0..=BOARD_MM.1).contains(&v))) {
+                return Err(invalid(format!("The {what} of a distribution board is {} to {} mm.", BOARD_MM.0, BOARD_MM.1)));
+            }
+        }
         if self.supply_a.is_some_and(|a| !(a.is_finite() && (1.0..=10_000.0).contains(&a))) {
             return Err(invalid("The rating of a board's supply is 1 to 10000 A."));
         }
@@ -533,6 +553,11 @@ impl DeviceParams {
 
     pub fn layer(&self) -> &'static str {
         self.kind.layer()
+    }
+
+    /// A distribution board's height, width and depth, mm.
+    pub fn board_mm(&self) -> (f64, f64, f64) {
+        (self.board_height_mm.unwrap_or(1000.0), self.board_width_mm.unwrap_or(600.0), self.board_depth_mm.unwrap_or(400.0))
     }
 
     /// The text beside the symbol: its tag, and its circuit when it has one.
@@ -584,6 +609,13 @@ impl DeviceParams {
                 shapes.push(line((-120.0, 120.0), (120.0, -120.0)));
                 half_height = 170.0;
             }
+            // A 600 x 600 luminaire for a false ceiling: its square, crossed.
+            DeviceKind::Recessed => {
+                shapes.push(rect(0.0, 0.0, 300.0, 300.0));
+                shapes.push(line((-300.0, -300.0), (300.0, 300.0)));
+                shapes.push(line((-300.0, 300.0), (300.0, -300.0)));
+                half_height = 300.0;
+            }
             DeviceKind::DownLight => {
                 shapes.push(circle((0.0, 0.0), 120.0));
                 shapes.push(circle((0.0, 0.0), 45.0));
@@ -611,9 +643,11 @@ impl DeviceParams {
                 half_height = 100.0;
             }
             DeviceKind::Panel => {
-                shapes.push(rect(0.0, 0.0, 300.0, 200.0));
-                shapes.push(line((-300.0, 200.0), (300.0, -200.0)));
-                half_height = 200.0;
+                // Its width by its depth in plan.
+                let (_, w, d) = self.board_mm();
+                shapes.push(rect(0.0, 0.0, w / 2.0, d / 2.0));
+                shapes.push(line((-w / 2.0, d / 2.0), (w / 2.0, -d / 2.0)));
+                half_height = d / 2.0;
             }
         }
         let mut pieces: Vec<HvacPiece> = shapes

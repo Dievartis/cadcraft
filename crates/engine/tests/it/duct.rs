@@ -1226,7 +1226,7 @@ fn a_riser_with_a_part_for_another_floor_says_it_at_the_lower_end_and_its_sectio
     };
     assert_eq!(texts(&s).len(), 2, "{:?}", texts(&s));
     s.execute("riseredit", &json!({"handle": h.hex(), "incomingSize": "250"})).unwrap();
-    assert!(texts(&s).iter().any(|t| t.ends_with("Ø250-660 m³/h")), "{:?}", texts(&s));
+    assert!(texts(&s).iter().any(|t| t.ends_with("Ø0250-660 m³/h")), "{:?}", texts(&s));
     assert_eq!(riser_of(s.doc().unwrap().entity(h).unwrap()).unwrap().incoming_size.map(|x| x.width_mm()), Some(250.0));
     s.execute("riseredit", &json!({"handle": h.hex(), "incomingSize": null})).unwrap();
     assert!(riser_of(s.doc().unwrap().entity(h).unwrap()).unwrap().incoming_size.is_none());

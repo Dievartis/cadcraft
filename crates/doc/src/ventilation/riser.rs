@@ -1,6 +1,6 @@
 //! Risers (colonnes): where a network goes up or down through the floors. A riser is its shaft
 //! outline (the trémie), a circle that shows the way (a dot: the air comes up to this level; a
-//! cross: it goes down), a leader arrow and a label "name Ø200-240 m³/h". Each floor is its own
+//! cross: it goes down), a leader arrow and a label "name-Ø0200-240 m³/h". Each floor is its own
 //! drawing, so the risers of two floors meet by their name. Like the other ventilation objects it
 //! is a block reference, its parameters in extended data and its text written out for other programs.
 
@@ -50,11 +50,11 @@ impl RiserSize {
         }
     }
 
-    /// The size as written on the plan: "Ø200" or "400×250".
+    /// The size as written on the plan, on four digits so that the labels line up: "Ø0200" or "0400×0250".
     pub fn label(self) -> String {
         match self {
-            RiserSize::Round { diameter_mm } => format!("Ø{diameter_mm:.0}"),
-            RiserSize::Rectangular { width_mm, height_mm } => format!("{width_mm:.0}×{height_mm:.0}"),
+            RiserSize::Round { diameter_mm } => format!("Ø{diameter_mm:04.0}"),
+            RiserSize::Rectangular { width_mm, height_mm } => format!("{width_mm:04.0}×{height_mm:04.0}"),
         }
     }
 
@@ -157,27 +157,18 @@ impl RiserParams {
         polygon_centroid(&self.outline).or_else(|| self.outline.first().copied()).unwrap_or(Vec2::ZERO)
     }
 
-    /// The text written at the end of the arrow, readable by any program: "VMC 3 Ø200-240 m³/h".
+    /// The text written at the end of the arrow, readable by any program: "VMC 3-Ø0200-240 m³/h" (the name, the section on four digits, the flow).
     pub fn text(&self) -> String {
-        let size = self.size.map(RiserSize::label);
-        let flow = self.flow_m3h.or(self.incoming_flow_m3h).map(|f| format!("{f:.0}"));
-        let mut t = self.name.clone();
-        match (size, flow) {
-            (Some(s), Some(f)) => t.push_str(&format!(" {s}-{f} m³/h")),
-            (Some(s), None) => t.push_str(&format!(" {s}")),
-            (None, Some(f)) => t.push_str(&format!(" {f} m³/h")),
-            (None, None) => {}
-        }
-        t
+        self.end_text(self.size, self.flow_m3h.or(self.incoming_flow_m3h))
     }
 
-    /// The text of an end of the leader: "VMC 3 Ø200-240 m³/h".
+    /// The text of an end of the leader: "VMC 3-Ø0200-240 m³/h". Missing parts are left out, with their hyphen.
     fn end_text(&self, size: Option<RiserSize>, flow: Option<f64>) -> String {
         let mut t = self.name.clone();
         match (size.map(RiserSize::label), flow.map(|f| format!("{f:.0}"))) {
-            (Some(s), Some(f)) => t.push_str(&format!(" {s}-{f} m³/h")),
-            (Some(s), None) => t.push_str(&format!(" {s}")),
-            (None, Some(f)) => t.push_str(&format!(" {f} m³/h")),
+            (Some(s), Some(f)) => t.push_str(&format!("-{s}-{f} m³/h")),
+            (Some(s), None) => t.push_str(&format!("-{s}")),
+            (None, Some(f)) => t.push_str(&format!("-{f} m³/h")),
             (None, None) => {}
         }
         t
