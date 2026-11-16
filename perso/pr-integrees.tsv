@@ -313,7 +313,7 @@
 1888	tracking: prove POLARMODE bit 8 reaches the tracker and gates dwelling	écartée	conflit avec main
 1891	docs: document the functions touched by #1609	intégrée	
 1892	render: harden viewport block culling (#1719)	écartée	conflit avec main
-1896	docs: document the functions touched by #1181	écartée	conflit avec main
+1896	docs: document the functions touched by #1181	intégrée	16 novembre, branche perso-pdf (CALIBRATE) ; seul conflit : la liste des use de modify.rs
 1897	docs: leave the parity tables to the maintainers	écartée	conflit avec main
 1898	fix(engine): restore BlockBoundsCache in spatial index and drop empty-window deselect	écartée	conflit avec les PR intégrées avant : crates/engine/src/select.rs crates/engine/tests/it/pick_text.rs
 1904	mcp: port the automation roots onto the clap CLI	écartée	conflit avec main
@@ -473,16 +473,16 @@
 2389	Contributors: add francescoBV (FraCiro)	écartée	conflit avec main
 2390	Merge branch 'main' into fix/svg-smooth-after-close	intégrée	
 2391	Merge remote-tracking branch 'upstream/main' into feat/getvar-cdate-date	intégrée	
-2394	PDF underlays: their frames drawn in one call, under the complexity limit after main's additions	écartée	conflit avec les PR intégrées avant : crates/doc/src/entity.rs crates/render/src/draw.rs
-2395	PDF underlays: a line drawn while there is room is one match arm (clippy::collapsible_match on Rust 1.95)	écartée	conflit avec les PR intégrées avant : crates/doc/src/entity.rs crates/fonts/src/ttf.rs crates/render/src/draw.rs
-2396	Merge branch 'pdf-underlay-display' into pdf-underlay-attach	écartée	conflit avec les PR intégrées avant : crates/doc/src/entity.rs crates/fonts/src/ttf.rs crates/render/src/draw.rs
+2394	PDF underlays: their frames drawn in one call, under the complexity limit after main's additions	intégrée	16 novembre, branche perso-pdf, avec #2420 (qui contient #2394 à #2419)
+2395	PDF underlays: a line drawn while there is room is one match arm (clippy::collapsible_match on Rust 1.95)	intégrée	16 novembre, branche perso-pdf, avec #2420
+2396	Merge branch 'pdf-underlay-display' into pdf-underlay-attach	intégrée	16 novembre, branche perso-pdf, avec #2420
 2401	Keep MCP stdio server serving after a non-UTF-8 input line	intégrée	
 2404	perf(io): set CLASS instance counts in one pass	intégrée	
 2405	Fix autocomplete suggestion execution and add keyboard tests	écartée	conflit avec main
 2409	Honor declared code pages in legacy ASCII DXF	écartée	conflit avec main
 2415	Preserve plot transparency in DWG layouts	intégrée	
-2419	Merge branch 'pdf-underlay-attach' into pdf-clip-frame-osnap	écartée	conflit avec les PR intégrées avant : crates/doc/src/entity.rs crates/fonts/src/ttf.rs crates/render/src/draw.rs
-2420	Merge branch 'pdf-clip-frame-osnap' into pdf-plot	écartée	conflit avec les PR intégrées avant : crates/doc/src/entity.rs crates/fonts/src/ttf.rs crates/render/src/draw.rs
+2419	Merge branch 'pdf-underlay-attach' into pdf-clip-frame-osnap	intégrée	16 novembre, branche perso-pdf, avec #2420
+2420	Merge branch 'pdf-clip-frame-osnap' into pdf-plot	intégrée	16 novembre, branche perso-pdf ; conflits résolus et adaptations dans le commit perso qui suit (craft_dxf, octets de police, pas de coupure des remplissages avec un fond PDF)
 2441	Merge remote-tracking branch 'upstream/main' into fix/dsettings-scroll	intégrée	
 2442	fix(dxf): measure an arc-length dimension after its kind is settled	écartée	conflit avec main
 2443	Merge remote-tracking branch 'upstream/main' into fix/refmanager-menu-closes	intégrée	
@@ -567,7 +567,7 @@
 2764	fix(engine): JOIN joins whole objects, never part of a polyline	écartée	conflit avec les PR intégrées avant : crates/engine/src/cmd/modify/break_join.rs crates/engine/tests/it/main.rs
 2765	Images: check the decoded size of data too	intégrée	
 2766	MINSERT: take a whole number as typed for the rows and columns	intégrée	
-2769	IMAGEATTACH: a scale too small to draw is asked again, not the end of the command	écartée	conflit avec les PR intégrées avant : crates/engine/src/cmd/image.rs
+2769	IMAGEATTACH: a scale too small to draw is asked again, not the end of the command	écartée	16 novembre : en conflit avec perso et avec main (code des images plus récent) ; inutile pour le PDF
 2770	fix(render): key block plans by definition, and lend them to clipped copies	écartée	conflit avec les PR intégrées avant : crates/render/src/blocks.rs
 2772	SPLINEDIT: take a whole number as typed for the polyline precision	intégrée	
 2774	ARRAYPATH: refuse a JSON count or spacing it can't use	intégrée	
@@ -648,7 +648,7 @@
 2963	Merge release 0.19.0 into main	intégrée	
 2965	test(ui): cover dynamic block names for several references	intégrée	
 2969	PR2969: document mirror fill policy and regression coverage	écartée	conflit avec les PR intégrées avant : crates/engine/src/cmd/modify.rs crates/engine/src/cmd/modify/transform.rs
-2971	cadcraft-web: pin craft-web-host to the companion that accepts PDF pages as bytes	écartée	plateforme/paquets/CI
+2971	cadcraft-web: pin craft-web-host to the companion that accepts PDF pages as bytes	intégrée	16 novembre, branche perso-pdf ; upload.rs réécrit sur la structure Upload de perso (signalement à la page parente gardé) ; non compilée en wasm dans la session
 2972	test: handle macOS rejection of non-Unicode filenames	écartée	plateforme
 2975	PR2975: document chain seed ownership and Undo regressions	intégrée	
 2977	PR2977: document dimension associativity policy and tests	intégrée	

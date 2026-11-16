@@ -194,7 +194,8 @@ impl Inbox {
     /// registered first, so drawings opened with them draw with them. A drawing the embedding page
     /// sent that doesn't open is reported to that page as well.
     pub fn drain(&self, app: &mut CadApp) {
-        let (fonts, files): (Vec<Upload>, Vec<Upload>) = self.files.take().into_iter().partition(|u| u.bytes.is_ok() && u.pdf.is_none() && is_shx(&u.name));
+        let (fonts, files): (Vec<Upload>, Vec<Upload>) =
+            self.files.take().into_iter().partition(|u| u.bytes.is_ok() && u.pdf.is_none() && is_shx(&u.name));
         let mut registered = false;
         for font in fonts {
             let Ok(bytes) = font.bytes else { continue };
