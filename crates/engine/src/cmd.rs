@@ -48,6 +48,7 @@ mod hvac;
 pub use hvac::TerminalLastUsed;
 pub(crate) mod hatch;
 mod image;
+pub use image::MAX_PDF_BYTES;
 mod inquiry;
 mod layer;
 mod layout;
