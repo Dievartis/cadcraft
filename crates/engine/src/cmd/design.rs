@@ -57,6 +57,8 @@ pub struct DesignLastUsed {
     pub width_mm: f64,
     /// A railing's height, mm.
     pub rail_height_mm: f64,
+    /// A curtain wall's height, mm.
+    pub curtain_height_mm: f64,
 }
 
 impl Default for DesignLastUsed {
@@ -69,26 +71,27 @@ impl Default for DesignLastUsed {
             going_mm: 280.0,
             width_mm: 1000.0,
             rail_height_mm: 1000.0,
+            curtain_height_mm: 3000.0,
         }
     }
 }
 
-fn other(m: impl Into<String>) -> EngineError {
+pub(super) fn other(m: impl Into<String>) -> EngineError {
     EngineError::Other(m.into())
 }
 
-fn doc_err(e: cadcraft_doc::DocError) -> EngineError {
+pub(super) fn doc_err(e: cadcraft_doc::DocError) -> EngineError {
     other(e.to_string())
 }
 
-fn number(cmd: &str, p: &Value, key: &str) -> Result<Option<f64>> {
+pub(super) fn number(cmd: &str, p: &Value, key: &str) -> Result<Option<f64>> {
     match p.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(v) => v.as_f64().filter(|x| x.is_finite()).map(Some).ok_or_else(|| bad(cmd, format!("`{key}` must be a number"))),
     }
 }
 
-fn flag(cmd: &str, p: &Value, key: &str) -> Result<Option<bool>> {
+pub(super) fn flag(cmd: &str, p: &Value, key: &str) -> Result<Option<bool>> {
     match p.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(v) => v.as_bool().map(Some).ok_or_else(|| bad(cmd, format!("`{key}` must be true or false"))),
@@ -117,7 +120,7 @@ fn tile_param(cmd: &str, p: &Value) -> Result<Option<(f64, f64)>> {
     }
 }
 
-fn next_name(s: &Session, prefix: &str, count: impl Fn(&cadcraft_doc::Entity) -> bool) -> Result<String> {
+pub(super) fn next_name(s: &Session, prefix: &str, count: impl Fn(&cadcraft_doc::Entity) -> bool) -> Result<String> {
     let n = s.doc()?.model.iter().filter(|e| count(e)).count() + 1;
     Ok(format!("{prefix}{n}"))
 }
@@ -324,7 +327,7 @@ fn run_designedit(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "changed": next.len() }))
 }
 
-fn parse_number(t: &str) -> Option<f64> {
+pub(super) fn parse_number(t: &str) -> Option<f64> {
     t.trim().replace(',', ".").parse::<f64>().ok().filter(|v| v.is_finite())
 }
 

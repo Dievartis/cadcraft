@@ -1474,6 +1474,12 @@
 	Ceiling Grid	Grille de plafond
 	Stair	Escalier
 	Railing	Garde-corps
+	Curtain Wall	Mur-rideau
+	Edit Curtain Wall	Modifier le mur-rideau
+	Mullion spacing (mm)	Entraxe des montants (mm)
+	Transom spacing (mm)	Entraxe des traverses (mm)
+	Frame depth (mm)	Épaisseur de l'ossature (mm)
+	Panels	Panneaux
 	Edit Design Object	Modifier l'objet de conception
 	Tile (mm)	Dalle de plafond (mm)
 	Grid angle (degrees)	Angle de la grille (degrés)

@@ -705,6 +705,16 @@ pub(super) fn paint_railing(p: &Painter, r: Rect) {
     }
 }
 
+/// A curtain wall seen in plan: a thin frame with a mullion across it at each division.
+pub(super) fn paint_curtain_wall(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.l((3.0, 12.0), (21.0, 12.0), t.acc);
+    t.l((3.0, 13.0), (21.0, 13.0), t.base);
+    for x in [3.0, 9.0, 15.0, 21.0] {
+        t.l((x, 9.5), (x, 15.5), t.base);
+    }
+}
+
 /// A column seen in plan: an I section, filled.
 pub(super) fn paint_column(p: &Painter, r: Rect) {
     let t = Th::new(p, r);

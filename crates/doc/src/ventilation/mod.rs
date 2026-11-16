@@ -13,6 +13,7 @@ mod control;
 mod control_report;
 mod control_schema;
 mod crossing;
+mod curtain;
 mod design;
 mod distribute;
 mod duct;
@@ -51,6 +52,7 @@ pub use control::*;
 pub use control_report::*;
 pub use control_schema::*;
 pub use crossing::DuctCrossing;
+pub use curtain::*;
 pub use design::*;
 pub use distribute::{Distribution, MAX_DISTRIBUTED, distribute_in_polygon};
 pub use duct::*;
@@ -117,6 +119,7 @@ fn hvac_layer_color(name: &str) -> Option<cadcraft_color::Color> {
             .or_else(|| slab::slab_layer_color(name))
             .or_else(|| structure::structure_layer_color(name))
             .or_else(|| design::design_layer_color(name))
+            .or_else(|| curtain::curtain_layer_color(name))
             .or_else(|| part::part_layer_color(name))
             .or_else(|| elec::elec_layer_color(name))
             .or_else(|| control::control_layer_color(name))

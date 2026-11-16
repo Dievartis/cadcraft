@@ -10,6 +10,7 @@ pub(crate) mod blocks;
 pub mod clipboard;
 pub mod constraints;
 mod control;
+mod curtain;
 mod design;
 mod draw;
 mod draw2;
@@ -240,6 +241,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(pipe_riser::specs());
         v.extend(slab::specs());
         v.extend(design::specs());
+        v.extend(curtain::specs());
         v.extend(structure::specs());
         v.extend(duct_acc::specs());
         v.extend(zone::specs());

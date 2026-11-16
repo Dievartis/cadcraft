@@ -643,6 +643,17 @@ pub struct StructTakeoff {
     pub railings: usize,
     #[serde(default)]
     pub railing_length_m: f64,
+    /// The curtain walls: how many, their panels, area (m²), and the length of mullions and transoms (m).
+    #[serde(default)]
+    pub curtain_walls: usize,
+    #[serde(default)]
+    pub curtain_panels: usize,
+    #[serde(default)]
+    pub curtain_area_m2: f64,
+    #[serde(default)]
+    pub curtain_mullion_m: f64,
+    #[serde(default)]
+    pub curtain_transom_m: f64,
     /// The mass of all the steel, kg.
     pub steel_kg: f64,
     pub slab_area_m2: f64,
@@ -685,6 +696,17 @@ impl StructTakeoff {
                 String::new(),
                 String::new(),
                 String::new(),
+                String::new(),
+            ]);
+        }
+        if self.curtain_walls > 0 {
+            rows.push([
+                "Curtain wall".into(),
+                format!("{} panels, mullions {} m, transoms {} m", self.curtain_panels, num(self.curtain_mullion_m), num(self.curtain_transom_m)),
+                self.curtain_walls.to_string(),
+                String::new(),
+                String::new(),
+                num(self.curtain_area_m2),
                 String::new(),
             ]);
         }
@@ -755,6 +777,21 @@ impl StructTakeoff {
                 vec![C::text("Railings"), C::Num(self.railings as f64), C::text(""), num(self.railing_length_m)],
             ],
         )?;
+        if self.curtain_walls > 0 {
+            wb.sheet(
+                "Curtain walls",
+                vec![
+                    head(&["Curtain walls", "Panels", "Area (m²)", "Mullions (m)", "Transoms (m)"]),
+                    vec![
+                        C::Num(self.curtain_walls as f64),
+                        C::Num(self.curtain_panels as f64),
+                        num(self.curtain_area_m2),
+                        num(self.curtain_mullion_m),
+                        num(self.curtain_transom_m),
+                    ],
+                ],
+            )?;
+        }
         wb.to_bytes()
     }
 }
@@ -791,6 +828,13 @@ impl crate::Drawing {
             } else if let Some(r) = super::rail_of(e) {
                 t.railings += 1;
                 t.railing_length_m += r.length_mm() / 1000.0;
+            } else if let Some(c) = super::curtain_of(e) {
+                let n = c.count();
+                t.curtain_walls += 1;
+                t.curtain_panels += n.panels;
+                t.curtain_area_m2 += n.area_m2;
+                t.curtain_mullion_m += n.mullion_m;
+                t.curtain_transom_m += n.transom_m;
             } else if let Some(p) = super::slab_of(e) {
                 let kind = p.kind.name().to_string();
                 let (area, volume, holes) = (p.area_m2(), p.volume_m3(), p.holes_area_m2());

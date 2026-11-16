@@ -1606,6 +1606,12 @@ menu	View	视图
 	Ceiling Grid	吊顶网格
 	Stair	楼梯
 	Railing	栏杆
+	Curtain Wall	幕墙
+	Edit Curtain Wall	编辑幕墙
+	Mullion spacing (mm)	竖框间距 (mm)
+	Transom spacing (mm)	横框间距 (mm)
+	Frame depth (mm)	框架厚度 (mm)
+	Panels	面板
 	Edit Design Object	编辑设计对象
 	Tile (mm)	板块 (mm)
 	Grid angle (degrees)	网格角度 (度)

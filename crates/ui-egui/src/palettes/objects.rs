@@ -116,6 +116,9 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
         if let Some(r) = rail_of(e) {
             return rail_section(ui, sel, &r, bad);
         }
+        if let Some(c) = cadcraft_doc::curtain_of(e) {
+            return curtain_section(ui, sel, &c, bad);
+        }
     }
     let structs: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| struct_of(e))).collect();
     if !structs.is_empty() && structs.len() == sel.len() {
@@ -571,6 +574,25 @@ fn rail_section(ui: &mut egui::Ui, sel: &[Handle], r: &cadcraft_doc::RailParams,
     action
 }
 
+/// The Properties group of a curtain wall: name, height, spacing of mullions and transoms, depth, foot, with its length, panels and area.
+fn curtain_section(ui: &mut egui::Ui, sel: &[Handle], c: &cadcraft_doc::CurtainParams, bad: &mut Option<String>) -> Action {
+    let ids = handles(sel);
+    let mut action: Action = None;
+    group(ui, "Curtain Wall");
+    const CMD: &str = "curtainedit";
+    elec_text(ui, CMD, "Tag", "name", &ids, vec![c.name.clone()], &mut action);
+    elec_number(ui, (CMD, "Height (mm)", "height", false), &ids, vec![Some(c.height_mm)], bad, &mut action);
+    elec_number(ui, (CMD, "Mullion spacing (mm)", "panel", false), &ids, vec![Some(c.panel_mm)], bad, &mut action);
+    elec_number(ui, (CMD, "Transom spacing (mm)", "transom", false), &ids, vec![Some(c.transom_mm)], bad, &mut action);
+    elec_number(ui, (CMD, "Frame depth (mm)", "depth", false), &ids, vec![Some(c.depth_mm)], bad, &mut action);
+    elec_number(ui, (CMD, "Elevation (m)", "elevation", true), &ids, vec![Some(c.elevation_mm / 1000.0)], bad, &mut action);
+    let n = c.count();
+    prop_row(ui, "Length (m)", |ui| read_only(ui, &format!("{:.3}", c.length_mm() / 1000.0)));
+    prop_row(ui, "Panels", |ui| read_only(ui, &n.panels.to_string()));
+    prop_row(ui, "Area (m²)", |ui| read_only(ui, &format!("{:.2}", n.area_m2)));
+    action
+}
+
 /// The Properties group of columns and beams: tag, section, height (a column), elevation, with the mass and the top.
 fn struct_section(ui: &mut egui::Ui, sel: &[Handle], ss: &[cadcraft_doc::StructParams], bad: &mut Option<String>) -> Action {
     use cadcraft_doc::StructKind;
@@ -676,6 +698,7 @@ pub(crate) fn is_parametric(d: &Drawing, h: Handle) -> bool {
             || ceiling_of(e).is_some()
             || stair_of(e).is_some()
             || rail_of(e).is_some()
+            || cadcraft_doc::curtain_of(e).is_some()
             || part_of(e).is_some()
             || pipe_riser_of(e).is_some()
             || accessory_of(e).is_some()

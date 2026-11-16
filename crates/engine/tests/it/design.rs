@@ -161,3 +161,32 @@ fn the_takeoff_counts_the_ceiling_tiles_the_stairs_and_the_railings_too() {
         "{t}"
     );
 }
+
+#[test]
+fn a_curtain_wall_is_drawn_counted_and_edited() {
+    use cadcraft_doc::curtain_of;
+    let mut s = metric();
+    let r = s.execute("curtainadd", &json!({"points": [[0, 0], [6000, 0], [6000, 3000]], "height": 3600, "panel": 1500})).unwrap();
+    // 9 m at 1500: 6 bays, 7 mullions; 3.6 m at 1200: 3 rows, 18 panels; 32.4 m².
+    assert_eq!((r["panels"].as_u64(), r["mullions"].as_u64(), r["transoms"].as_u64()), (Some(18), Some(7), Some(2)), "{r}");
+    assert!((r["area"].as_f64().unwrap() - 32.4).abs() < 1e-9);
+    let h = Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    s.execute("curtainedit", &json!({"handle": r["handle"], "panel": 3000, "name": "FAC"})).unwrap();
+    let c = curtain_of(s.doc().unwrap().entity(h).unwrap()).expect("a curtain wall");
+    assert_eq!((c.name.as_str(), c.panel_mm), ("FAC", 3000.0));
+    for bad in
+        [json!({"points": [[0, 0]]}), json!({"points": [[0, 0], [1000, 0]], "panel": 5}), json!({"points": [[0, 0], [1000, 0]], "height": "tall"})]
+    {
+        assert!(s.execute("curtainadd", &bad).is_err(), "{bad}");
+    }
+    assert!(s.execute("curtainedit", &json!({"handle": "FFFF", "panel": 1500})).is_err());
+    // The interactive form draws the same.
+    for t in ["curtainadd", "0,5000", "4000,5000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    assert!(s.doc().unwrap().model.iter().filter(|e| curtain_of(e).is_some()).count() == 2);
+    // The takeoff counts them: the first wall is now 3000 mm panels (3 bays, 4 mullions), 3.6 m high.
+    let t = s.execute("structtakeoff", &json!({})).unwrap();
+    assert_eq!(t["curtainWalls"].as_u64(), Some(2), "{t}");
+    assert!(t["curtainAreaM2"].as_f64().unwrap() > 32.0, "{t}");
+}
