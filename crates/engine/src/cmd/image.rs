@@ -278,7 +278,6 @@ pub(super) fn attach_pdf_bytes(s: &mut Session, p: &Value) -> Result<Value> {
         };
         if value.is_finite() && value > 0.0 { Ok(value) } else { Err(bad(PDF, format!("`{key}` must be finite and greater than zero"))) }
     };
-    let width = extent("width", 1.0)?;
     let name = str_param(p, "name").unwrap_or("document.pdf");
     if name.len() > MAX_PATH {
         return Err(bad(PDF, "`name` is too long"));
@@ -290,6 +289,8 @@ pub(super) fn attach_pdf_bytes(s: &mut Session, p: &Value) -> Result<Value> {
     if !(pw.is_finite() && ph.is_finite() && pw > 0.0 && ph > 0.0) {
         return Err(bad(PDF, "PDF page has no usable size"));
     }
+    // Without `width`, the page at its size on paper in drawing units, as PDFATTACH on the desktop at scale 1 (`pw` is in millimetres).
+    let width = extent("width", pw / super::underlay::mm_per_unit(s.doc()?))?;
     let height = extent("height", width * (ph / pw))?;
     if !(xyz[0] + width).is_finite() || !(xyz[1] + height).is_finite() {
         return Err(bad(PDF, "the page rectangle is too large"));

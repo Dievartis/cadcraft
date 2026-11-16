@@ -103,7 +103,12 @@ fn pdf_bytes_select_pages_and_keep_same_named_attachments_separate() {
     let first = s.execute("pdfattach", &json!({"data": data, "name": "sheet.pdf"})).unwrap();
     let second = s.execute("pdfattach", &json!({"data": data, "name": "sheet.pdf", "page": 2})).unwrap();
     let third = s.execute("pdfattach", &json!({"data": data, "name": "sheet.pdf"})).unwrap();
-    assert_eq!(first["size"], json!([1.0, 0.5]));
+    // Without `width`: the page at its size on paper, in the drawing's units (the fake page is 2:1).
+    let (_, w_mm, h_mm, _) = cadcraft_io::pdf_read::page_info(&pdf(), 1).unwrap();
+    let paper = w_mm / cadcraft_engine::cmd::underlay::mm_per_unit(s.doc().unwrap());
+    let size = first["size"].as_array().unwrap();
+    assert!((size[0].as_f64().unwrap() - paper).abs() < 1e-9 * paper, "{size:?} against {paper}");
+    assert!((size[1].as_f64().unwrap() - paper * h_mm / w_mm).abs() < 1e-9 * paper, "{size:?}");
     assert_ne!(first["path"], second["path"]);
     assert_ne!(first["path"], third["path"]);
     let d = s.doc().unwrap();
@@ -527,4 +532,28 @@ fn many_files_are_loaded_together_and_reported_in_order() {
         assert!(!s.state().unwrap().is_dirty());
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Without `width` a PDF attached from bytes is its page at its size on paper in the drawing's units: in a drawing in millimetres the page's
+/// millimetres, in metres a thousandth of that; with a `width` alone the height follows the page's proportions; with both, they are used.
+#[test]
+fn pdf_bytes_without_a_width_are_placed_at_their_size_on_paper() {
+    hooks();
+    let (_, w_mm, h_mm, _) = cadcraft_io::pdf_read::page_info(&pdf(), 1).unwrap();
+    let data = base64_encode(&pdf());
+    for (insunits, mm_per_unit) in [(4, 1.0), (6, 1000.0), (5, 10.0), (1, 25.4)] {
+        let mut s = Session::new();
+        s.doc_mut().unwrap().header.set_i64("INSUNITS", insunits);
+        let r = s.execute("pdfattach", &json!({"data": data, "name": "sheet.pdf"})).unwrap();
+        let size = r["size"].as_array().unwrap();
+        let (w, h) = (size[0].as_f64().unwrap(), size[1].as_f64().unwrap());
+        assert!((w - w_mm / mm_per_unit).abs() < 1e-9 * w, "INSUNITS {insunits}: {w} for {} expected", w_mm / mm_per_unit);
+        assert!((h - h_mm / mm_per_unit).abs() < 1e-9 * h, "INSUNITS {insunits}: {h}");
+    }
+    let mut s = Session::new();
+    let only_width = s.execute("pdfattach", &json!({"data": data, "width": 400})).unwrap();
+    let size = only_width["size"].as_array().unwrap();
+    assert!((size[0].as_f64().unwrap() - 400.0).abs() < 1e-9 && (size[1].as_f64().unwrap() - 400.0 * h_mm / w_mm).abs() < 1e-9, "{size:?}");
+    let both = s.execute("pdfattach", &json!({"data": data, "width": 400, "height": 90})).unwrap();
+    assert_eq!(both["size"], json!([400.0, 90.0]));
 }
