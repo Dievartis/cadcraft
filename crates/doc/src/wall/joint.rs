@@ -356,11 +356,17 @@ impl WallParams {
                 let d = (b.at - a.at).normalized();
                 let normal = d.perp();
                 let (p0, p1) = (a.at + d * o.from, a.at + d * o.to);
+                // Across an arc the wall leaves the straight cut by the sagitta of the opening's width: the cut is that much wider on both sides.
+                let sag = self.arc_span_of(o.segment).map_or(0.0, |arc| {
+                    let half = (o.to - o.from) / 2.0;
+                    arc.radius - (arc.radius * arc.radius - half * half).max(0.0).sqrt()
+                });
+                let reach = margin + sag;
                 Some(ccw(vec![
-                    p0 + normal * (bottom - margin),
-                    p1 + normal * (bottom - margin),
-                    p1 + normal * (top + margin),
-                    p0 + normal * (top + margin),
+                    p0 + normal * (bottom - reach),
+                    p1 + normal * (bottom - reach),
+                    p1 + normal * (top + reach),
+                    p0 + normal * (top + reach),
                 ]))
             })
             .collect()
@@ -521,14 +527,19 @@ impl Placed {
                 continue;
             }
             let d = (b - a) / len;
+            // On an arc the opening lies along the tangent at its centre, which is not quite the direction of the facet its centre is
+            // nearest to: within the angle one facet turns, and the cut is not kept to that facet.
+            let on_arc = self.params.arc_span_of(i).is_some();
             // Along the wall, within a degree.
-            if d.cross(Vec2::from_angle(rotation)).abs() > 0.0175 {
+            if d.cross(Vec2::from_angle(rotation)).abs() > if on_arc { 0.06 } else { 0.0175 } {
                 continue;
             }
             let (t, off) = ((centre - a).dot(d), (centre - a).cross(d).abs());
             let (from, to) = (t - width / 2.0, t + width / 2.0);
-            if off <= reach + tol && from >= -tol && to <= len + tol && best.as_ref().is_none_or(|x| off < x.1) {
-                best = Some((OpeningCut { segment: i, from: from.max(0.0), to: to.min(len) }, off));
+            let inside = if on_arc { t >= -tol && t <= len + tol } else { from >= -tol && to <= len + tol };
+            if off <= reach + tol && inside && best.as_ref().is_none_or(|x| off < x.1) {
+                let cut = if on_arc { OpeningCut { segment: i, from, to } } else { OpeningCut { segment: i, from: from.max(0.0), to: to.min(len) } };
+                best = Some((cut, off));
             }
         }
         best

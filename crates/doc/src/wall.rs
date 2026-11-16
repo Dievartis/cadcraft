@@ -341,6 +341,37 @@ pub fn arc_radius(a: Vec2, b: Vec2, bulge: f64) -> Option<f64> {
     (bulge != 0.0 && bulge.is_finite() && c > 0.0).then(|| c / (2.0 * (theta / 2.0).sin().abs())).filter(|r| r.is_finite())
 }
 
+/// The bulge of the arc from `start` to `end` that turns about `centre`, the short way round (half a circle at most), and the end on the circle:
+/// `None` when the centre is on the start or on the end, or the three points are on a line (the arc would be a half circle at most, but not defined).
+/// The end given need not be exactly on the circle: it only says in which direction from the centre the arc ends.
+pub fn bulge_from_centre(start: Vec2, centre: Vec2, end: Vec2) -> Option<(f64, Vec2)> {
+    let r = start.dist(centre);
+    let to_end = end - centre;
+    if !(r.is_finite() && r > 1e-9 && to_end.len() > 1e-9) {
+        return None;
+    }
+    let end_on = centre + to_end / to_end.len() * r;
+    // The turn counter-clockwise from the start to the end; more than half a circle that way is less than half the other way.
+    let ccw = (end_on - centre).angle() - (start - centre).angle();
+    let mut sweep = ccw.rem_euclid(std::f64::consts::TAU);
+    if sweep > std::f64::consts::PI {
+        sweep -= std::f64::consts::TAU;
+    }
+    (sweep.abs() > 1e-9).then(|| ((sweep / 4.0).tan(), end_on))
+}
+
+/// An arc segment of a wall, in terms of the facets of its centreline: see [`WallParams::arc_span_of`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ArcSpan {
+    /// The index of the arc's segment in the path.
+    pub segment: usize,
+    /// The first facet of the arc and the one after its last.
+    pub first: usize,
+    pub end: usize,
+    /// The arc's radius, in drawing units.
+    pub radius: f64,
+}
+
 /// The bulge of the arc from `a` to `b` that passes through `m`: `None` when the three points are
 /// on a line, or the arc is more than a half circle.
 pub fn bulge_through(a: Vec2, m: Vec2, b: Vec2) -> Option<f64> {
@@ -437,6 +468,30 @@ impl WallParams {
             }
         }
         out
+    }
+
+    /// The arc the facet `facet` of the centreline belongs to, when its segment is an arc: the facets it is drawn with (`first` to `end`, the
+    /// end excluded), the index of its segment in the path and its radius. `None` for a straight segment or a facet that is not there.
+    pub fn arc_span_of(&self, facet: usize) -> Option<ArcSpan> {
+        if self.bulges.iter().all(|b| *b == 0.0) {
+            return None;
+        }
+        let n = self.path.len();
+        let segs = if self.closed { n } else { n.saturating_sub(1) };
+        let mut start = 0usize;
+        for i in 0..segs {
+            let (a, b) = (*self.path.get(i)?, *self.path.get((i + 1) % n)?);
+            let bulge = self.bulges.get(i).copied().unwrap_or(0.0);
+            let m = arc_points(a, b, bulge).len();
+            if (start..=start + m).contains(&facet) {
+                return arc_radius(a, b, bulge).map(|radius| ArcSpan { segment: i, first: start, end: start + m + 1, radius });
+            }
+            start += m + 1;
+            if start > MAX_CENTRELINE_POINTS * 2 {
+                break;
+            }
+        }
+        None
     }
 
     /// The total thickness in drawing units.

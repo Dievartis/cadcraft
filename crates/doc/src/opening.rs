@@ -443,9 +443,81 @@ pub struct WallHit {
     /// distances to an opening are taken from these.
     pub start_face: f64,
     pub end_face: f64,
+    /// The arc the hit is on, when the wall's segment is an arc: then `length` and `along` are measured along the arc, `angle` is the tangent
+    /// at the foot, and [`WallHit::at`] gives the place and the direction at any distance along it.
+    pub arc: Option<HitArc>,
+}
+
+/// An arc of a wall seen from the drawing: its circle, where it starts on it and how far it turns (positive counter-clockwise).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HitArc {
+    pub centre: Vec2,
+    pub radius: f64,
+    pub start: f64,
+    pub sweep: f64,
+}
+
+impl HitArc {
+    /// The arc's length.
+    pub fn length(&self) -> f64 {
+        self.sweep.abs() * self.radius
+    }
+
+    /// The point `s` along the arc from its start, and the direction of the arc there.
+    pub fn at(&self, s: f64) -> (Vec2, f64) {
+        let turn = if self.sweep < 0.0 { -1.0 } else { 1.0 };
+        let ang = self.start + turn * s.clamp(0.0, self.length()) / self.radius;
+        (self.centre + Vec2::new(ang.cos(), ang.sin()) * self.radius, ang + turn * std::f64::consts::FRAC_PI_2)
+    }
+
+    /// The arc through `a`, `m` and `b` (the middle point `m` on it); `None` when the three points are on a line.
+    fn through(a: Vec2, m: Vec2, b: Vec2) -> Option<HitArc> {
+        let (u, v) = (m - a, b - a);
+        let d = 2.0 * u.cross(v);
+        if d.abs() < 1e-12 * v.dot(v).max(1e-300) {
+            return None;
+        }
+        let (uu, vv) = (u.dot(u), v.dot(v));
+        let centre = a + Vec2::new((v.y * uu - u.y * vv) / d, (u.x * vv - v.x * uu) / d);
+        let radius = centre.dist(a);
+        let turn = if (m - a).cross(b - m) < 0.0 { -1.0 } else { 1.0 };
+        let start = (a - centre).angle();
+        // The turn from `a` to `b` on the side of `m`, a half circle at most.
+        let mut sweep = ((b - centre).angle() - start).rem_euclid(std::f64::consts::TAU);
+        if turn < 0.0 {
+            sweep -= std::f64::consts::TAU;
+        }
+        if sweep.abs() > std::f64::consts::PI + 1e-9 {
+            sweep += if sweep > 0.0 { -1.0 } else { 1.0 } * std::f64::consts::TAU;
+        }
+        (radius.is_finite() && radius > 0.0 && sweep.is_finite()).then_some(HitArc { centre, radius, start, sweep })
+    }
+
+    /// Where `at` falls on the arc: the distance along it (kept between its two ends) and how far `at` is from the circle.
+    fn locate(&self, at: Vec2) -> (f64, f64) {
+        let turn = if self.sweep < 0.0 { -1.0 } else { 1.0 };
+        let mut d = (((at - self.centre).angle() - self.start) * turn).rem_euclid(std::f64::consts::TAU);
+        let span = self.sweep.abs();
+        if d > span {
+            d = if d - span < std::f64::consts::TAU - d { span } else { 0.0 };
+        }
+        (d * self.radius, ((at - self.centre).len() - self.radius).abs())
+    }
 }
 
 impl WallHit {
+    /// The place and the direction (radians) of the point `along` from the start of the segment or of the arc: what an opening placed there
+    /// takes.
+    pub fn at(&self, along: f64) -> (Vec2, f64) {
+        match self.arc {
+            Some(a) => a.at(along),
+            None => {
+                let d = Vec2::from_angle(self.angle);
+                (self.foot - d * self.along + d * along, self.angle)
+            }
+        }
+    }
+
     /// The part of the segment an opening may take: from the face at the start (never before the
     /// segment's start) to the face at the end (never past its end).
     pub fn room(&self) -> (f64, f64) {
@@ -498,11 +570,45 @@ impl crate::Drawing {
                         off,
                         start_face: 0.0,
                         end_face: length,
+                        arc: None,
                     });
                 }
             }
         }
+        // On an arc, the opening goes along the arc, not along the short facet the point happens to be nearest to.
+        let best = best.map(|h| self.on_arc(h, at).unwrap_or(h));
         best.map(|h| self.with_faces(h))
+    }
+
+    /// `hit` measured along its arc, when the segment it is on is one: the arc's length and the distance along it, the tangent at the foot.
+    fn on_arc(&self, hit: WallHit, at: Vec2) -> Option<WallHit> {
+        let (arc, span) = self.arc_of_facet(hit.wall, hit.segment)?;
+        let (along, off) = arc.locate(at);
+        let (foot, angle) = arc.at(along);
+        Some(WallHit { segment: span.first, foot, angle, along, length: arc.length(), off, arc: Some(arc), ..hit })
+    }
+
+    /// The arc, in the drawing, that facet `facet` of wall `wall` belongs to, with its span in the wall's facets.
+    fn arc_of_facet(&self, wall: crate::Handle, facet: usize) -> Option<(HitArc, crate::ArcSpan)> {
+        let e = self.entity(wall)?;
+        let (EntityKind::Insert(i), Some(w)) = (&e.kind, crate::wall_of(e)) else { return None };
+        let span = w.arc_span_of(facet)?;
+        let place = crate::Placement {
+            insert: Vec2::new(i.insert.x, i.insert.y),
+            rotation: i.rotation,
+            scale: Vec2::new(i.scale.x.signum(), i.scale.y.signum()),
+        };
+        let n = w.path.len();
+        let (a, b) = (*w.path.get(span.segment)?, *w.path.get((span.segment + 1) % n)?);
+        let bulge = w.bulges.get(span.segment).copied().unwrap_or(0.0);
+        let chord = a.dist(b);
+        if chord <= 0.0 {
+            return None;
+        }
+        // The middle of the arc, on the right of the chord for a positive bulge.
+        let m = (a + b) / 2.0 - (b - a).perp() * (bulge / 2.0);
+        let arc = HitArc::through(place.to_world(a), place.to_world(m), place.to_world(b))?;
+        Some((arc, span))
     }
 
     /// Segment `segment` of wall `wall` as a [`WallHit`] at its start: the base for placing an
@@ -525,21 +631,29 @@ impl crate::Drawing {
         }
         let (a, b) = (place.to_world(*path.get(segment)?), place.to_world(*path.get((segment + 1) % n)?));
         let length = a.dist(b);
-        (length > 1e-9)
-            .then(|| WallHit {
-                wall,
-                segment,
-                foot: a,
-                angle: (b - a).angle(),
-                along: 0.0,
-                length,
-                left_mm: left,
-                right_mm: right,
-                off: 0.0,
-                start_face: 0.0,
-                end_face: length,
-            })
-            .map(|h| self.with_faces(h))
+        let hit = (length > 1e-9).then(|| WallHit {
+            wall,
+            segment,
+            foot: a,
+            angle: (b - a).angle(),
+            along: 0.0,
+            length,
+            left_mm: left,
+            right_mm: right,
+            off: 0.0,
+            start_face: 0.0,
+            end_face: length,
+            arc: None,
+        })?;
+        // An arc segment is one segment, measured along the arc, whichever of its facets was asked for.
+        let hit = match self.arc_of_facet(wall, segment) {
+            Some((arc, span)) => {
+                let (foot, angle) = arc.at(0.0);
+                WallHit { segment: span.first, foot, angle, length: arc.length(), end_face: arc.length(), arc: Some(arc), ..hit }
+            }
+            None => hit,
+        };
+        Some(self.with_faces(hit))
     }
 
     /// `hit` with the faces of the walls its segment's ends meet: only the first and the last segment
@@ -547,15 +661,20 @@ impl crate::Drawing {
     fn with_faces(&self, mut hit: WallHit) -> WallHit {
         let Some(w) = self.entity(hit.wall).and_then(|e| crate::wall_of(e)) else { return hit };
         let segments = w.centreline().len().saturating_sub(1);
-        if w.closed || (hit.segment != 0 && hit.segment + 1 != segments) {
+        // The facets the hit covers: one, or the whole arc.
+        let (first, end) = match w.arc_span_of(hit.segment) {
+            Some(span) => (span.first, span.end),
+            None => (hit.segment, hit.segment + 1),
+        };
+        if w.closed || (first != 0 && end != segments) {
             return hit;
         }
-        let (start, end) = self.wall_end_faces(hit.wall);
-        if hit.segment == 0 {
+        let (start, finish) = self.wall_end_faces(hit.wall);
+        if first == 0 {
             hit.start_face = start.unwrap_or(0.0);
         }
-        if hit.segment + 1 == segments {
-            hit.end_face = hit.length - end.unwrap_or(0.0);
+        if end == segments {
+            hit.end_face = hit.length - finish.unwrap_or(0.0);
         }
         hit
     }

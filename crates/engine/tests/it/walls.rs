@@ -972,3 +972,108 @@ fn stretching_a_whole_wall_moves_it_and_stretching_into_a_point_is_refused_witho
     assert!(s.execute("stretch", &json!({"window": [[3500, 500], [4500, 1500]], "delta": [-4000, 0]})).is_err());
     assert_eq!((wall(&s, a).path[1] - wall(&s, a).path[0]).len(), 4000.0);
 }
+
+/// The opening's own rotation, radians.
+fn rotation_of(s: &Session, hd: Handle) -> f64 {
+    match &s.doc().unwrap().entity(hd).unwrap().kind {
+        EntityKind::Insert(i) => i.rotation,
+        k => panic!("{k:?}"),
+    }
+}
+
+#[test]
+fn a_door_and_a_window_go_on_an_arc_wall_along_the_arc_whatever_the_length_of_the_pieces_it_is_drawn_with() {
+    let mut s = metric();
+    // A quarter circle of 3000 mm radius, 4712 mm long: drawn in facets of a few degrees, 150 mm long, much shorter than a door.
+    let bulge = (std::f64::consts::FRAC_PI_2 / 4.0).tan();
+    let w = h(&s.execute("walladd", &json!({"points": [[0, 0], [3000, 3000]], "bulges": [-bulge], "style": BRICK})).unwrap());
+    let on_circle = |p: Vec2| [Vec2::new(3000.0, 0.0), Vec2::new(0.0, 3000.0)].into_iter().find(|c| (p.dist(*c) - 3000.0).abs() < 1e-6);
+    // A click near the middle of the arc: the door is 900 mm wide, six times the facet, and is accepted.
+    let q = 3000.0 * std::f64::consts::FRAC_1_SQRT_2;
+    let r = s.execute("openingadd", &json!({"at": [3000.0 - q, q + 40.0], "type": "door"}));
+    let (mid_centre, found) = match (&r, openings(&s).first()) {
+        (Ok(_), Some((_, _, at))) => (*at, on_circle(*at)),
+        other => panic!("the door is refused or missing: {other:?}"),
+    };
+    let circle = found.expect("the door's centre is on the arc, not on the chord or on the click");
+    // It lies along the tangent there: turned a quarter turn from the radius.
+    let door = openings(&s)[0].0;
+    let radius = mid_centre - circle;
+    let tangent = radius.perp().angle();
+    let turn = (rotation_of(&s, door) - tangent).rem_euclid(std::f64::consts::PI);
+    assert!(turn < 1e-6 || (std::f64::consts::PI - turn) < 1e-6, "turned along the tangent: {turn}");
+    // The wall keeps the cut and is still a wall of its own.
+    assert_eq!(wall(&s, w).joints.openings.len(), 1);
+    assert!(s.doc().unwrap().wall_is_intact(w));
+    // Too wide for the arc, and off the wall, are refused with nothing added.
+    assert!(s.execute("openingadd", &json!({"at": [2100.0, 2100.0], "type": "window", "width": 6000})).is_err());
+    assert!(s.execute("openingadd", &json!({"at": [-3000.0, -3000.0], "type": "door"})).is_err());
+    assert_eq!(openings(&s).len(), 1);
+    // A distance from the start of the arc is taken along the arc: the edge 300 mm from it, the centre 750 mm along it.
+    s.execute("openingadd", &json!({"wall": w.hex(), "distance": 300, "type": "window", "width": 900})).unwrap();
+    let window = openings(&s).into_iter().find(|(_, o, _)| o.kind == cadcraft_doc::OpeningKind::Window).expect("the window");
+    let c = on_circle(window.2).expect("on the arc");
+    let a = Vec2::new(0.0, 0.0);
+    let swept = ((a - c).angle() - (window.2 - c).angle()).abs();
+    assert!((swept * 3000.0 - 750.0).abs() < 1.0, "{} mm along the arc", swept * 3000.0);
+    // And from the end of the arc.
+    s.execute("openingadd", &json!({"wall": w.hex(), "distance": 300, "from": "end", "type": "window", "width": 900})).unwrap();
+    assert_eq!(wall(&s, w).joints.openings.len(), 3);
+}
+
+#[test]
+fn an_arc_wall_is_drawn_about_its_centre_closed_by_an_arc_and_its_bulge_is_edited_afterwards() {
+    let mut s = metric();
+    // From (0, 0) to (3000, 3000) about (3000, 0): a quarter circle of 3000 mm radius, turning the short way (counter-clockwise: positive).
+    let quarter = (std::f64::consts::FRAC_PI_2 / 4.0).tan();
+    let a = h(&s.execute("walladd", &json!({"points": [[0, 0], [3000, 3000]], "centres": [[3000, 0]], "style": BRICK})).unwrap());
+    assert!((wall(&s, a).bulges[0] - quarter).abs() < 1e-9 || (wall(&s, a).bulges[0] + quarter).abs() < 1e-9, "{:?}", wall(&s, a).bulges);
+    // The same centre the other way round turns the other way.
+    let b = h(&s.execute("walladd", &json!({"points": [[3000, 3000], [0, 0]], "centres": [[3000, 0]], "style": BRICK})).unwrap());
+    assert!((wall(&s, a).bulges[0] + wall(&s, b).bulges[0]).abs() < 1e-9, "opposite ways: {:?} {:?}", wall(&s, a).bulges, wall(&s, b).bulges);
+    // A centre that is not as far from both ends, on an end, and a mix with `bulges` are refused.
+    for bad in [
+        json!({"points": [[0, 0], [3000, 3000]], "centres": [[1000, 0]]}),
+        json!({"points": [[0, 0], [3000, 3000]], "centres": [[0, 0]]}),
+        json!({"points": [[0, 0], [3000, 3000]], "centres": [[3000, 0]], "bulges": [0.1]}),
+        json!({"points": [[0, 0], [3000, 3000]], "centres": ["x"]}),
+        json!({"points": [[0, 0], [3000, 3000]], "centres": [null, [0, 0]]}),
+    ] {
+        assert!(s.execute("walladd", &bad).is_err(), "{bad}");
+    }
+    // The bulge is changed afterwards, one segment at a time or as a list; the wall stays one wall and is joined again.
+    s.execute("walledit", &json!({"handle": a.hex(), "segment": 0, "bulge": 0.2})).unwrap();
+    assert_eq!(wall(&s, a).bulges, [0.2]);
+    s.execute("walledit", &json!({"handle": a.hex(), "bulges": [0.0]})).unwrap();
+    assert!(wall(&s, a).bulges.iter().all(|b| *b == 0.0), "straight again: {:?}", wall(&s, a).bulges);
+    assert!(s.doc().unwrap().wall_is_intact(a));
+    for bad in [
+        json!({"handle": a.hex(), "bulge": 3.0, "segment": 0}),
+        json!({"handle": a.hex(), "bulge": 0.2}),
+        json!({"handle": a.hex(), "bulges": [0.2, 0.3, 0.4]}),
+    ] {
+        assert!(s.execute("walledit", &bad).is_err(), "{bad}");
+    }
+    assert!(wall(&s, a).bulges.iter().all(|b| *b == 0.0), "a refused edit changes nothing");
+    // At the command line: a wall, then an arc about a centre, then an arc back to the first point that closes the outline by itself.
+    let before = walls(&s).len();
+    for t in ["walladd", "0,10000", "5000,10000", "ar", "2500,12500", "0,10000"] {
+        s.cmdline(t).unwrap();
+    }
+    assert!(s.running.is_none(), "the arc that comes back to the start ends the command");
+    assert_eq!(walls(&s).len() - before, 2);
+    // About a centre: from (0, 20000), centre (0, 22000), towards (2000, 22000): a quarter circle.
+    let before = walls(&s).len();
+    for t in ["walladd", "0,20000", "ce", "0,22000", "5000,22000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    let all = walls(&s);
+    assert_eq!(all.len() - before, 1, "{:?}", s.log);
+    let arc = all.last().expect("the arc").1.clone();
+    assert!((arc.bulges[0].abs() - quarter).abs() < 1e-6, "a quarter circle: {:?}", arc.bulges);
+    // The centre on the start is refused and the command goes on.
+    for t in ["walladd", "0,30000", "ce", "0,30000", "1000,30000"] {
+        s.cmdline(t).unwrap();
+    }
+    assert!(s.log.iter().any(|l| l.contains("The centre is on the start")), "{:?}", s.log);
+}

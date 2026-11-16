@@ -138,13 +138,13 @@ fn place(s: &mut Session, mut p: OpeningParams, hit: &WallHit, along: f64) -> Re
     let half = p.width() / 2.0;
     let (lo, hi) = hit.room();
     let along = along.clamp(half + lo, (hi - half).max(half + lo));
-    let d = Vec2::from_angle(hit.angle);
-    let centre = hit.foot - d * hit.along + d * along;
+    // On an arc wall the opening is turned along the tangent where it is.
+    let (centre, angle) = hit.at(along);
     (p.left_mm, p.right_mm) = (hit.left_mm, hit.right_mm);
     p.validate().map_err(doc_err)?;
     let space = s.space();
     let common = s.current_common();
-    let h = s.doc_mut()?.add_opening(&space, common, &p, centre, hit.angle).map_err(doc_err)?;
+    let h = s.doc_mut()?.add_opening(&space, common, &p, centre, angle).map_err(doc_err)?;
     super::arch::join_walls(s.doc_mut()?, &space);
     Ok(h)
 }
@@ -580,15 +580,15 @@ impl Interactive for OpeningAddM {
             return Vec::new();
         }
         let along = hit.along.clamp(half + lo, hi - half);
-        let dir = Vec2::from_angle(hit.angle);
+        let (at, angle) = hit.at(along);
         // The symbol, and the two dimensions from the faces at the ends of the wall to it.
-        let flip = dir.x < 0.0;
+        let flip = Vec2::from_angle(angle).x < 0.0;
         let to_start = along - half - hit.start_face;
         let to_end = hit.end_face - along - half;
         p.generate()
             .map(|mut pieces| {
                 pieces.extend(p.provisional_dimensions(to_start, to_end, flip));
-                preview_entities(pieces, hit.foot - dir * hit.along + dir * along, hit.angle)
+                preview_entities(pieces, at, angle)
             })
             .unwrap_or_default()
     }
@@ -603,6 +603,10 @@ fn corner_segments(d: &Drawing, at: Vec2, reach: f64) -> Option<[(Handle, usize,
         }
         for k in 0..MAX_SEGMENTS {
             let Some(hit) = d.wall_segment(e.handle, k) else { break };
+            // A corner window is for the straight walls that meet at a corner: an arc is measured along itself.
+            if hit.arc.is_some() {
+                continue;
+            }
             let (a, b) = (hit.foot, hit.foot + Vec2::from_angle(hit.angle) * hit.length);
             for (end, v) in [(false, a), (true, b)] {
                 let dist = v.dist(at);
