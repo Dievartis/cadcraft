@@ -1,8 +1,8 @@
-//! The Dimension Style Manager (#850): DIMSTYLE typed or from the menus opens it (JSON calls
-//! don't); Modify, New, Override, Set Current, Compare and Delete do what AutoCAD's do.
+//! The dockable Dimension Style Manager: bare DIMSTYLE and its aliases open the panel,
+//! while JSON calls edit styles; New, Modify, Override and Compare keep working.
 
 use cadcraft_engine::Session;
-use cadcraft_ui_egui::{CadApp, Services, dialogs, menus};
+use cadcraft_ui_egui::{CadApp, Services, docking, managers, menus};
 use egui::{Key, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable, by};
@@ -14,17 +14,22 @@ fn dimstyle_typed_or_from_the_menus_opens_the_manager() {
     for typed in ["DIMSTYLE", "dimstyle", "D", "DST", "DDIM"] {
         app.ui.dialog = None;
         assert!(app.cmdline(typed).is_none(), "bare {typed} is not an error");
-        assert_eq!(app.ui.dialog.as_deref(), Some("dimstyle"), "{typed}");
+        assert!(app.ui.docking.layout.contains(&docking::Panel::DimStyles), "{typed}");
+        assert!(app.ui.dialog.is_none(), "no legacy floating dialog for {typed}");
     }
     for item in ["dimstyle", "dimstyle.dimension"] {
         app.ui.dialog = None;
         menus::activate(&mut app, item);
-        assert_eq!(app.ui.dialog.as_deref(), Some("dimstyle"), "{item}");
+        assert!(app.ui.docking.layout.contains(&docking::Panel::DimStyles), "{item}");
+        assert!(app.ui.dialog.is_none(), "no legacy floating dialog for {item}");
     }
-    // Programmatic calls never open it.
-    app.ui.dialog = None;
+    // Programmatic calls still edit the engine, without opening a dialog or changing docking.
+    app.run("ui.dock.reset", json!({})).unwrap();
+    assert!(!app.ui.docking.layout.contains(&docking::Panel::DimStyles));
     app.run("dimstyle", json!({ "name": "Plan", "current": false })).unwrap();
     assert!(app.ui.dialog.is_none());
+    assert!(!app.ui.docking.layout.contains(&docking::Panel::DimStyles));
+    assert!(app.session.doc().unwrap().dim_style("Plan").is_some());
 }
 
 /// The manager open on a new drawing after `setup`.
@@ -36,7 +41,6 @@ fn manager(setup: impl FnOnce(&mut CadApp)) -> Harness<'static, CadApp> {
 fn harness(setup: impl FnOnce(&mut CadApp), render: bool) -> Harness<'static, CadApp> {
     let mut app = CadApp::new(Session::new(), Services::default());
     setup(&mut app);
-    app.ui.dialog = Some("dimstyle".into());
     let builder = Harness::builder().with_size(vec2(1000.0, 640.0));
     let builder = if render { builder.wgpu() } else { builder };
     let mut h = builder.build_ui_state(
@@ -45,7 +49,7 @@ fn harness(setup: impl FnOnce(&mut CadApp), render: bool) -> Harness<'static, Ca
                 cadcraft_ui_egui::theme::apply(ui.ctx(), egui::Theme::Dark, false);
             }
             app.logic(&ui.ctx().clone());
-            dialogs::show(app, ui.ctx());
+            managers::dimstyle_panel(app, ui);
         },
         app,
     );
@@ -92,7 +96,7 @@ fn modify_edits_the_style() {
     assert_eq!(text_height(&h, "Standard"), 0.18);
     click(&mut h, "OK");
     assert_eq!(text_height(&h, "Standard"), 0.25);
-    assert_eq!(h.state().ui.dialog.as_deref(), Some("dimstyle"), "back to the list");
+    h.get_by_label("Current dimension style: Standard");
 }
 
 #[test]
