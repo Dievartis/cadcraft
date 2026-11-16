@@ -1,5 +1,3 @@
-#[cfg(not(target_arch = "wasm32"))]
-use super::display::append;
 use super::display::{DImage, DPrim, DisplayList, Kind, ListUnderlay, NO_LAYER, PageClip, PlotText, VIEWPORT_CONTENT};
 use super::draw::entity;
 #[cfg(not(target_arch = "wasm32"))]

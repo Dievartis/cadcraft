@@ -237,7 +237,8 @@ fn font_for(query: &FontQuery) -> Option<(FontData, u32)> {
         }
     }?;
     let (bytes, index) = face.data();
-    Some((std::sync::Arc::clone(bytes), index))
+    let bytes: std::sync::Arc<Vec<u8>> = std::sync::Arc::clone(bytes);
+    Some((bytes, index))
 }
 
 /// Installed fonts with a standard font's widths and style, best first (file names).

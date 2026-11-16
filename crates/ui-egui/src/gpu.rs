@@ -1156,7 +1156,6 @@ mod tests {
         l.prims = (0..MAX_FILL_BREAKS + 50).flat_map(|_| [p(Kind::Polyline, 0, 2), p(Kind::Tris, 0, 3)]).collect();
         assert_eq!(build_mesh(&l, Vec2::ZERO, bg, false).breaks.len(), MAX_FILL_BREAKS);
     }
-    }
 
     #[test]
     fn fills_beside_wide_lines_keep_draw_order() {
@@ -1204,6 +1203,7 @@ mod tests {
         let mut g = StrokeGrid::new(&Bounds2::EMPTY);
         g.add(&b(1.0, 1.0, 2.0, 2.0));
         assert!(g.hits(&b(100.0, 100.0, 101.0, 101.0)));
+    }
 
     #[test]
     fn pdf_underlays_split_the_draw_order_groups() {

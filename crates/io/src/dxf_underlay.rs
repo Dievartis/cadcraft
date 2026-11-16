@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use cadcraft_doc::{Drawing, EntityKind, EntityStore, Handle, PdfUnderlay, UNDERLAY_MAX_FADE};
-use cadcraft_dxf::{Section, Tag};
+use craft_dxf::{Section, Tag};
 use cadcraft_geom::{Vec2, Vec3};
 
 use crate::dxf_image::{each_record, key};
