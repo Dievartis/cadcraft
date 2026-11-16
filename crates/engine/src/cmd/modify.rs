@@ -72,7 +72,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("calibrate", "Calibrate Scale", run_calibrate)
             .menu(&["Modify", "Calibrate Scale"])
             .alias(&["cali"])
-            .params("{p1, p2, length, apply?: \"all\"|\"selection\"|\"underlay\" (default: all, or selection with handles), handles?} → {factor, measured, length, apply, scaled}")
+            .params("{p1, p2, length, apply?: \"all\"|\"selection\"|\"underlay\" (the PDF underlays and raster images of the active space; default: all, or selection with handles), handles?} → {factor, measured, length, apply, scaled}")
             .interactive(|_| Ok(Box::new(CalibrateM::default()))),
         CommandSpec::new("mirror", "Mirror", run_mirror)
             .menu(&["Modify", "Mirror"])
