@@ -64,6 +64,7 @@ pub mod plotstyles;
 pub mod quick;
 pub mod save_loss;
 pub mod shortcut_menus;
+pub mod textstyles;
 pub mod theme;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod updates_ui;
@@ -381,6 +382,9 @@ pub struct CadApp {
 impl CadApp {
     /// Construct `CadApp` from a session and services with default UI state, options, canvas and command line; no control channel, capture geometry or pending shots are installed.
     pub fn new(session: Session, services: Services) -> Self {
+        if !services.no_file_system {
+            textstyles::initialize_fonts();
+        }
         CadApp {
             system_languages: Vec::new(),
             system_animations: None,

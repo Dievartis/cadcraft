@@ -33,11 +33,13 @@ pub fn route(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value,
     if matches!(id, "dimstyle" | "dimstyle.dimension" | "d" | "dst" | "ddim" | "dimstyle.panel" | "dimstylepanel") {
         return Some(crate::docking::command(app, false, &json!({"operation": "open", "panel": "dimStyles"})));
     }
+    if let Some(result) = crate::textstyles::route(app, id, params) {
+        return Some(result);
+    }
     let dialog = match id {
         "battman" => "battman",
         "linetype" | "lt" | "ltype" => "linetype",
         "ddptype" | "ptype" => "ptype",
-        "style" | "st" => "textstyle",
         "tablestyle" | "ts" => "tablestyle",
         "mleaderstyle" | "mls" => "mleaderstyle",
         "pagesetup" => "pagesetup",

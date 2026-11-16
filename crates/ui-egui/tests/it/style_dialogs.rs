@@ -1,5 +1,5 @@
-//! The style and settings dialogs (#126): typed or menu-invoked commands open them, JSON calls run
-//! the command without one.
+//! Style and settings tools: typed or menu-invoked commands open their UI;
+//! text styles use a dockable panel and JSON calls run without opening UI.
 
 use cadcraft_engine::Session;
 use cadcraft_ui_egui::{CadApp, Services, dialogs, menus};
@@ -12,7 +12,6 @@ fn menu_items_open_their_dialogs() {
     for (cmd, dialog) in [
         ("pagesetup", "pagesetup"),
         ("linetype", "linetype"),
-        ("style", "textstyle"),
         ("tablestyle", "tablestyle"),
         ("mleaderstyle", "mleaderstyle"),
         ("ddptype", "ptype"),
@@ -35,7 +34,8 @@ fn menu_items_open_their_dialogs() {
     for typed in ["style", "ST"] {
         app.ui.dialog = None;
         assert!(app.cmdline(typed).is_none(), "bare {typed} is not an error");
-        assert_eq!(app.ui.dialog.as_deref(), Some("textstyle"), "{typed}");
+        assert!(app.ui.dialog.is_none(), "{typed} uses the dockable manager");
+        assert!(app.ui.docking.layout.contains(&cadcraft_ui_egui::docking::Panel::TextStyles));
     }
 }
 
