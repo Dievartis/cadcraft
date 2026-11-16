@@ -314,6 +314,7 @@ fn control_section(ui: &mut egui::Ui, sel: &[Handle], cs: &[cadcraft_doc::Contro
     elec_text(ui, CMD, "Wired to controller", "controller", &ids, cs.iter().map(|c| c.controller.clone()).collect(), &mut action);
     elec_text(ui, CMD, "Serves", "served", &ids, cs.iter().map(|c| c.served.clone()).collect(), &mut action);
     elec_text(ui, CMD, "Circuit", "circuit", &ids, cs.iter().map(|c| c.circuit.clone()).collect(), &mut action);
+    elec_text(ui, CMD, "Address", "address", &ids, cs.iter().map(|c| c.address.clone()).collect(), &mut action);
     if cs.iter().all(|c| c.kind.is_automation()) {
         elec_text(ui, CMD, "Bus", "bus", &ids, cs.iter().map(|c| c.bus.clone()).collect(), &mut action);
     }
@@ -342,6 +343,7 @@ fn device_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[cadcraft_doc::DeviceP
     }
     elec_text(ui, "elecedit", "Tag", "name", &ids, ds.iter().map(|d| d.name.clone()).collect(), &mut action);
     elec_text(ui, "elecedit", "Circuit", "circuit", &ids, ds.iter().map(|d| d.circuit.clone()).collect(), &mut action);
+    elec_text(ui, "elecedit", "Address", "address", &ids, ds.iter().map(|d| d.address.clone()).collect(), &mut action);
     elec_number(ui, ("elecedit", "Power (W)", "power", false), &ids, ds.iter().map(|d| Some(d.power_w)).collect(), bad, &mut action);
     if ds.iter().all(|d| d.kind.is_light()) {
         elec_number(ui, ("elecedit", "Flux (lm)", "flux", true), &ids, ds.iter().map(|d| d.flux_lm).collect(), bad, &mut action);
@@ -1192,6 +1194,12 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
             action = edit("circuit", json!(c.trim()));
         }
     });
+    let addr = shared(&items.iter().map(|e| e.address.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Address", |ui| {
+        if let Some(c) = edit_field(ui, ui.scope_id().with(("equip_address", &ids)), addr).filter(|c| c != VARIES) {
+            action = edit("address", json!(c.trim()));
+        }
+    });
     // Numbers: empty clears a power or the weight. A VRV outdoor unit's power is in CV.
     let all_vrv = items.iter().all(|e| e.kind == EquipmentKind::VrfOutdoor);
     type Get = fn(&cadcraft_doc::EquipmentParams) -> Option<f64>;
@@ -1355,6 +1363,12 @@ fn ahu_section(ui: &mut egui::Ui, sel: &[Handle], units: &[AhuParams], bad: &mut
     prop_row(ui, "Circuit", |ui| {
         if let Some(c) = edit_field(ui, ui.scope_id().with(("ahu_circuit", &ids)), on).filter(|c| c != VARIES) {
             action = edit("circuit", json!(c.trim()));
+        }
+    });
+    let addr = shared(&units.iter().map(|e| e.address.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Address", |ui| {
+        if let Some(c) = edit_field(ui, ui.scope_id().with(("ahu_address", &ids)), addr).filter(|c| c != VARIES) {
+            action = edit("address", json!(c.trim()));
         }
     });
     let name = shared(&units.iter().map(|p| p.name.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());

@@ -222,6 +222,8 @@ fn run_ahuadd(s: &mut Session, p: &Value) -> Result<Value> {
         coils: coils_param(CMD, p, cadcraft_doc::AhuCoils::default())?,
         electric_kw: None,
         circuit: String::new(),
+        address: String::new(),
+        show_address: true,
         label_height_mm: positive(CMD, p, "labelHeight")?.unwrap_or(100.0),
         units: units_of(s)?,
     };
@@ -315,6 +317,9 @@ fn run_ahuedit(s: &mut Session, p: &Value) -> Result<Value> {
         if let Some(c) = str_param(p, "circuit") {
             a.circuit = c.trim().to_string();
         }
+        if let Some(t) = str_param(p, "address") {
+            a.address = t.trim().to_string();
+        }
         a.coils = coils_param(CMD, p, a.coils)?;
         if let Some(sizes) = &port_sizes {
             a.port_sizes = sizes.clone();
@@ -402,6 +407,8 @@ impl AhuAddM {
                     coils: Default::default(),
                     electric_kw: None,
                     circuit: String::new(),
+                    address: String::new(),
+                    show_address: true,
                     label_height_mm: 100.0,
                     units: units_of(s)?,
                 };
@@ -488,6 +495,8 @@ impl Interactive for AhuAddM {
             coils: Default::default(),
             electric_kw: None,
             circuit: String::new(),
+            address: String::new(),
+            show_address: true,
             label_height_mm: 100.0,
             units,
         };

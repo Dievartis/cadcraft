@@ -90,6 +90,8 @@ fn unit() -> AhuParams {
         coils: AhuCoils::default(),
         electric_kw: None,
         circuit: String::new(),
+        address: String::new(),
+        show_address: true,
         label_height_mm: 100.0,
         units: HvacUnits::default(),
     }

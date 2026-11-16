@@ -7,6 +7,7 @@
 //! The flow rates and sizes come from [`cadcraft_hvac`]; this module only draws and stores.
 
 mod accessory;
+mod addresses;
 mod circuit_legend;
 mod control;
 mod control_report;
@@ -40,6 +41,7 @@ mod xlsx;
 mod zone;
 
 pub use accessory::*;
+pub use addresses::*;
 pub use circuit_legend::*;
 pub use control::*;
 pub use control_report::*;

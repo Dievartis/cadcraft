@@ -1788,3 +1788,4 @@ menu	View	视图
 	Place the sensors, the thermostats and the actuators; in Properties type the controller each is wired to and the equipment it serves.	放置传感器、温控器和执行器；在属性中输入各自接线的控制器和所服务的设备。
 	Check Controls tells what is wrong: a device wired to nothing, a controller with more points than it offers, no circuit that feeds it, a bus with no cable.	“检查控制”会指出问题：设备未接线、控制器点位超出容量、没有回路供电、总线无电缆。
 	The Points List shows the load and the reserve of each controller and writes the workbook: one line for each point, with the room it is in.	点位表显示每个控制器的负载和余量，并写出工作簿：每个点位一行，注明所在房间。
+	Show Addresses	显示地址

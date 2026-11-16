@@ -1848,3 +1848,8 @@
 	Place the sensors, the thermostats and the actuators; in Properties type the controller each is wired to and the equipment it serves.	Place les sondes, les thermostats et les organes ; dans les Propriétés, tape l'automate où chacun est câblé et l'équipement qu'il dessert.
 	Check Controls tells what is wrong: a device wired to nothing, a controller with more points than it offers, no circuit that feeds it, a bus with no cable.	Contrôler la régulation dit ce qui ne va pas : un appareil câblé à rien, un automate avec plus de points qu'il n'en offre, aucun circuit qui l'alimente, un bus sans câble.
 	The Points List shows the load and the reserve of each controller and writes the workbook: one line for each point, with the room it is in.	La liste de points montre la charge et la réserve de chaque automate et écrit le classeur : une ligne par point, avec le local où il se trouve.
+	Show Addresses	Afficher les adresses
+	Hide Addresses	Masquer les adresses
+	Address	Adresse
+	Writes the address beside every object that has one: control devices, equipment, air handling units, electrical devices.	Écrit l'adresse à côté de chaque objet qui en a une : appareils de régulation, équipements, centrales de traitement d'air, appareillage électrique.
+	Addresses: {n} object(s) changed, {t} address(es) in the drawing	Adresses : {n} objet(s) modifié(s), {t} adresse(s) dans le dessin

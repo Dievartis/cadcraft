@@ -26,6 +26,9 @@ pub struct ControlPoint {
     pub space: String,
     pub served: String,
     pub setpoint: Option<f64>,
+    /// The address of the device on its bus or its controller.
+    #[serde(default)]
+    pub address: String,
 }
 
 /// A controller or a module with what it offers and what is wired to it.
@@ -63,6 +66,9 @@ pub struct ControlTakeoff {
     pub controllers: Vec<ControllerLoad>,
     pub points: Vec<ControlPoint>,
     pub warnings: Vec<String>,
+    /// The table of addresses: every object that has one.
+    #[serde(default)]
+    pub addresses: Vec<super::AddressRow>,
     #[serde(default)]
     pub costing: Option<Costing>,
 }
@@ -164,6 +170,7 @@ impl crate::Drawing {
                     space: space_of(*at),
                     served: p.served.clone(),
                     setpoint: if what == "Setpoint" || what == "Measure" { p.setpoint } else { None },
+                    address: p.address.clone(),
                 });
             }
         }
@@ -198,6 +205,8 @@ impl crate::Drawing {
                 warnings.push(format!("the tag {a} is on more than one device"));
             }
         }
+        warnings.extend(self.address_clashes());
+        t.addresses = self.address_rows();
         t.warnings = warnings;
         t
     }
@@ -287,12 +296,13 @@ impl ControlTakeoff {
             ]);
         }
         wb.sheet("Controllers", rows)?;
-        let mut rows = vec![head(&["Controller", "Device", "Type", "Description", "Point type", "Unit", "Space", "Serves", "Setpoint"])];
+        let mut rows = vec![head(&["Controller", "Device", "Type", "Address", "Description", "Point type", "Unit", "Space", "Serves", "Setpoint"])];
         for p in &self.points {
             rows.push(vec![
                 C::text(p.controller.clone()),
                 C::text(p.device.clone()),
                 C::text(p.kind.clone()),
+                C::text(p.address.clone()),
                 C::text(p.description.clone()),
                 C::text(p.point_type.clone()),
                 C::text(p.unit.clone()),
@@ -302,6 +312,18 @@ impl ControlTakeoff {
             ]);
         }
         wb.sheet("Points", rows)?;
+        let mut rows = vec![head(&["Bus or controller", "Address", "Device", "Type", "Space", "Shown on the plan"])];
+        rows.extend(self.addresses.iter().map(|a| {
+            vec![
+                C::text(a.bus.clone()),
+                C::text(a.address.clone()),
+                C::text(a.tag.clone()),
+                C::text(a.kind.clone()),
+                C::text(a.space.clone()),
+                C::text(if a.shown { "yes" } else { "no" }),
+            ]
+        }));
+        wb.sheet("Addresses", rows)?;
         let mut rows = vec![head(&["Device", "Count", "Points"])];
         rows.extend(self.devices.iter().map(|d| vec![C::text(d.name.clone()), C::Num(d.count as f64), C::Num(f64::from(d.points))]));
         wb.sheet("Devices", rows)?;
@@ -332,12 +354,13 @@ impl ControlTakeoff {
     pub fn points_csv(&self, decimal_comma: bool) -> String {
         let cell = |t: &str| if t.contains([';', '"', '\n']) { format!("\"{}\"", t.replace('"', "\"\"")) } else { t.to_string() };
         let num = |v: Option<f64>| v.map_or(String::new(), |x| if decimal_comma { format!("{x}").replace('.', ",") } else { format!("{x}") });
-        let mut out = String::from("Controller;Device;Type;Description;Point type;Unit;Space;Serves;Setpoint\n");
+        let mut out = String::from("Controller;Device;Type;Address;Description;Point type;Unit;Space;Serves;Setpoint\n");
         for p in &self.points {
             let row = [
                 cell(&p.controller),
                 cell(&p.device),
                 cell(&p.kind),
+                cell(&p.address),
                 cell(&p.description),
                 p.point_type.clone(),
                 cell(&p.unit),

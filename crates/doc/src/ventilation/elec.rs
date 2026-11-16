@@ -36,6 +36,16 @@ fn default_label_mm() -> f64 {
     80.0
 }
 
+pub(super) fn yes() -> bool {
+    true
+}
+
+/// What an address adds to the text beside an object: " @12" when the object has an address and it is shown, else nothing.
+pub fn address_suffix(address: &str, show: bool) -> String {
+    let a = address.trim();
+    if show && !a.is_empty() { format!(" @{a}") } else { String::new() }
+}
+
 fn default_cos_phi() -> f64 {
     0.9
 }
@@ -473,6 +483,11 @@ pub struct DeviceParams {
     /// The rating of the main breaker of a distribution board, A.
     #[serde(default)]
     pub supply_a: Option<f64>,
+    /// The address of the device on its bus (KNX, DALI…), written beside it when `show_address`.
+    #[serde(default)]
+    pub address: String,
+    #[serde(default = "yes")]
+    pub show_address: bool,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     #[serde(default)]
@@ -489,6 +504,8 @@ impl DeviceParams {
             flux_lm: kind.default_flux_lm(),
             height_mm: kind.default_height_mm(),
             supply_a: (kind == DeviceKind::Panel).then_some(63.0),
+            address: String::new(),
+            show_address: true,
             label_height_mm: default_label_mm(),
             units,
         }
@@ -497,6 +514,7 @@ impl DeviceParams {
     pub fn validate(&self) -> Result<()> {
         check_circuit_name(&self.name, true)?;
         check_circuit_name(&self.circuit, true)?;
+        check_circuit_name(&self.address, true)?;
         if !(self.power_w.is_finite() && (0.0..=1.0e7).contains(&self.power_w)) {
             return Err(invalid("The power of a device is 0 or more (W)."));
         }
@@ -519,7 +537,8 @@ impl DeviceParams {
 
     /// The text beside the symbol: its tag, and its circuit when it has one.
     pub fn label_text(&self) -> String {
-        [self.name.trim(), self.circuit.trim()].iter().filter(|t| !t.is_empty()).cloned().collect::<Vec<_>>().join(" ")
+        let t = [self.name.trim(), self.circuit.trim()].iter().filter(|t| !t.is_empty()).cloned().collect::<Vec<_>>().join(" ");
+        format!("{t}{}", address_suffix(&self.address, self.show_address))
     }
 
     /// The symbol drawn to scale, centred on the origin, and its label under it.

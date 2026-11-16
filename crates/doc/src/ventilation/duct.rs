@@ -293,6 +293,11 @@ pub struct AhuParams {
     pub electric_kw: Option<f64>,
     #[serde(default)]
     pub circuit: String,
+    /// The address of the unit on its network, written beside it when `show_address`.
+    #[serde(default)]
+    pub address: String,
+    #[serde(default = "super::yes")]
+    pub show_address: bool,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     #[serde(default)]
@@ -445,6 +450,7 @@ impl AhuParams {
         // The name and, for each direction sized, its flow and pressure: "S 1200 / E 1100 m³/h ...".
         // One prefix per direction tells them apart when there are several.
         let mut text = self.name.clone();
+        text.push_str(&super::address_suffix(&self.address, self.show_address));
         let known: Vec<(AirDirection, f64, Option<f64>)> =
             AirDirection::ALL.into_iter().filter_map(|a| self.figures(a).0.map(|f| (a, f, self.figures(a).1))).collect();
         let tagged = |a: AirDirection, v: f64| if known.len() > 1 { format!("{} {v:.0}", a.tag()) } else { format!("{v:.0}") };

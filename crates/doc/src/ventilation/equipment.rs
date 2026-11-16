@@ -160,6 +160,11 @@ pub struct EquipmentParams {
     pub electric_kw: Option<f64>,
     #[serde(default)]
     pub circuit: String,
+    /// The address of the unit (an indoor unit's address on its refrigerant or communication line), written beside it when `show_address`.
+    #[serde(default)]
+    pub address: String,
+    #[serde(default = "super::yes")]
+    pub show_address: bool,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     #[serde(default)]
@@ -189,6 +194,8 @@ impl EquipmentParams {
             connections: m.connections.clone(),
             electric_kw: None,
             circuit: String::new(),
+            address: String::new(),
+            show_address: true,
             label_height_mm: 100.0,
             units,
         }
@@ -203,6 +210,7 @@ impl EquipmentParams {
             return Err(invalid(format!("An equipment's sizes are 50 to {MAX_EQUIPMENT_MM} mm.")));
         }
         super::check_circuit_name(&self.circuit, true)?;
+        super::check_circuit_name(&self.address, true)?;
         if self.electric_kw.is_some_and(|v| !(v.is_finite() && (0.0..=1.0e5).contains(&v))) {
             return Err(invalid("An equipment's electrical power is 0 or more kW."));
         }
@@ -354,7 +362,14 @@ impl EquipmentParams {
         // A unit with an air outlet draws its arrow under it: the text goes below the arrow.
         let arrow =
             if matches!(self.kind, EquipmentKind::WallUnit | EquipmentKind::CeilingUnit | EquipmentKind::FloorUnit) { 1.1 * hw.max(h) } else { 0.0 };
-        pieces.push(HvacPiece { layer: EQUIPMENT_LAYER, kind: label(Vec2::new(0.0, -hw - zone - arrow - 1.2 * h), h, self.text()) });
+        pieces.push(HvacPiece {
+            layer: EQUIPMENT_LAYER,
+            kind: label(
+                Vec2::new(0.0, -hw - zone - arrow - 1.2 * h),
+                h,
+                format!("{}{}", self.text(), super::address_suffix(&self.address, self.show_address)),
+            ),
+        });
         let x = hl + zone + 2.0 * h;
         for (i, t) in self.spec_lines().into_iter().enumerate() {
             pieces.push(HvacPiece { layer: EQUIPMENT_LAYER, kind: label_left(Vec2::new(x, hw - (i as f64) * 1.6 * h - h), h, t) });

@@ -57,6 +57,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut chosen: Option<ControlKind> = None;
     let mut bus = false;
     let mut check = false;
+    let mut addresses: Option<bool> = None;
     let mut start: Option<&'static str> = None;
     let sections = std::mem::take(&mut app.ui.sections);
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
@@ -89,6 +90,21 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         }
         if row_tip(
             ui,
+            crate::i18n::t("Show Addresses"),
+            crate::i18n::t(
+                "Writes the address beside every object that has one: control devices, equipment, air handling units, electrical devices.",
+            ),
+            None,
+            false,
+            paint_address,
+        ) {
+            addresses = Some(true);
+        }
+        if row_button(ui, crate::i18n::t("Hide Addresses"), false, paint_address) {
+            addresses = Some(false);
+        }
+        if row_tip(
+            ui,
             crate::i18n::t("Points List"),
             crate::i18n::t(
                 "The points each device asks of its controller, the load of each controller and module, and a workbook for the controls package.",
@@ -115,11 +131,35 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         app.session.last_used.cable.usage = CableUsage::Bus;
         app.cmd.buffer.clear();
         app.start("cableadd");
+    } else if let Some(show) = addresses {
+        show_addresses(app, show);
     } else if check {
         say_controls(app);
     } else if let Some(id) = start {
         app.cmd.buffer.clear();
         app.start(id);
+    }
+}
+
+fn paint_address(p: &egui::Painter, r: Rect) {
+    let t = Tokens::get();
+    p.text(r.center(), egui::Align2::CENTER_CENTER, "@12", egui::FontId::proportional(10.0), t.icon_accent);
+}
+
+/// Shows or hides the addresses, and says how many objects changed and the clashes.
+fn show_addresses(app: &mut CadApp, show: bool) {
+    match app.run("addressdisplay", serde_json::json!({ "show": show })) {
+        Ok(r) => {
+            app.session.echo(crate::tf!(
+                "Addresses: {n} object(s) changed, {t} address(es) in the drawing",
+                n = r["changed"].as_u64().unwrap_or(0),
+                t = r["addresses"].as_array().map_or(0, Vec::len)
+            ));
+            for c in r["clashes"].as_array().into_iter().flatten().filter_map(|c| c.as_str()) {
+                app.session.echo(c.to_string());
+            }
+        }
+        Err(e) => app.session.echo(e),
     }
 }
 
@@ -185,5 +225,19 @@ mod tests {
         app.run("controltakeoff", serde_json::Value::Null).unwrap();
         assert_eq!(app.ui.dialog.as_deref(), Some("controlpoints"));
         assert!(app.ctrl_dlg.as_ref().is_some_and(|s| s.takeoff.is_some()));
+    }
+
+    #[test]
+    fn the_address_rows_show_and_hide_the_addresses_and_say_how_many_objects_changed() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        app.run("controladd", serde_json::json!({"at": [0, 0], "kind": "thermostat", "address": "12"})).unwrap();
+        let mut h = tab(app);
+        h.get_by_label("Hide Addresses").click();
+        h.run_steps(3);
+        assert!(h.state().session.log.iter().any(|l| l.contains("1 object(s) changed")), "{:?}", h.state().session.log);
+        h.get_by_label("Show Addresses").click();
+        h.run_steps(3);
+        let shown = h.state().session.doc().unwrap().model.iter().filter_map(|e| cadcraft_doc::control_of(e)).all(|c| c.show_address);
+        assert!(shown);
     }
 }

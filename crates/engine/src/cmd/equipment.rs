@@ -26,7 +26,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
             .interactive(|s| Ok(Box::new(EquipAddM::new(s)))),
         CommandSpec::new("equipmentedit", "Edit Equipment", run_edit).params(
-            "{handle | handles, model? (take that library model's values), kind?, name?, reference?, capacityKw? or null, heatingKw? or null, electricKw? (the electrical power it draws, or null), circuit? (the circuit that feeds it), length? width? height? (mm), \\
+            "{handle | handles, model? (take that library model's values), kind?, name?, reference?, capacityKw? or null, heatingKw? or null, electricKw? (the electrical power it draws, or null), circuit? (the circuit that feeds it), address? (its address, written beside it), length? width? height? (mm), \\
              weight? or null, fans?, clearance? (mm), connections?} → {changed}",
         ),
     ]
@@ -115,6 +115,9 @@ fn params_from(s: &Session, p: &Value, cmd: &str, last: &EquipmentLastUsed) -> R
     };
     if let Some(r) = str_param(p, "reference") {
         e.reference = r.to_string();
+    }
+    if let Some(a) = str_param(p, "address") {
+        e.address = a.trim().to_string();
     }
     for (key, slot) in [("length", &mut e.length_mm), ("width", &mut e.width_mm), ("height", &mut e.height_mm)] {
         if let Some(v) = number(cmd, p, key)? {
@@ -261,6 +264,9 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if let Some(c) = str_param(p, "circuit") {
             e.circuit = c.trim().to_string();
+        }
+        if let Some(a) = str_param(p, "address") {
+            e.address = a.trim().to_string();
         }
         for (v, slot) in sizes.iter().zip([&mut e.length_mm, &mut e.width_mm, &mut e.height_mm]) {
             if let Some(v) = v {

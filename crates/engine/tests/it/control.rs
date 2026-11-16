@@ -88,3 +88,48 @@ fn the_points_list_is_written_with_the_prices_and_the_device_is_placed_from_the_
     let _ = std::fs::remove_file(&csv);
     assert!(text.contains("Controller;Device;Type") && text.contains("Setpoint"), "{text}");
 }
+
+#[test]
+fn addresses_are_written_beside_the_objects_hidden_listed_and_two_on_one_bus_are_told() {
+    let mut s = metric();
+    s.execute("equipmentadd", &json!({"at": [10000, 0], "kind": "cassette", "name": "UI1", "address": "1-05"})).unwrap();
+    s.execute("controladd", &json!({"at": [0, 0], "kind": "controller", "name": "AU1", "bus": "BUS1", "address": "1", "circuit": "TD1-R1"})).unwrap();
+    s.execute("controladd", &json!({"at": [1000, 0], "kind": "thermostat", "controller": "AU1", "bus": "BUS1", "address": "12"})).unwrap();
+    s.execute("controladd", &json!({"at": [2000, 0], "kind": "roomTemperature", "controller": "AU1", "bus": "BUS1", "address": "12"})).unwrap();
+    s.execute("elecdeviceadd", &json!({"at": [3000, 0], "kind": "downlight", "address": "A3"})).unwrap();
+    let texts = |s: &Session| -> Vec<String> {
+        let d = s.doc().unwrap();
+        let mut out = Vec::new();
+        for e in d.model.iter() {
+            if let cadcraft_doc::EntityKind::Insert(i) = &e.kind
+                && let Some(b) = d.block(&i.block)
+            {
+                out.extend(
+                    b.entities.iter().filter_map(|x| if let cadcraft_doc::EntityKind::Text(t) = &x.kind { Some(t.value.clone()) } else { None }),
+                );
+            }
+        }
+        out
+    };
+    // Every kind of addressed object writes it beside itself.
+    let t = texts(&s);
+    for want in ["@1-05", "@12", "@A3"] {
+        assert!(t.iter().any(|x| x.contains(want)), "{want}: {t:?}");
+    }
+    let r = s.execute("addressdisplay", &json!({"list": true})).unwrap();
+    assert_eq!(r["addresses"].as_array().unwrap().len(), 5, "{r}");
+    assert_eq!(r["clashes"].as_array().unwrap().len(), 1, "two devices have 12 on BUS1: {r}");
+    // Hidden, then shown again.
+    let h = s.execute("addressdisplay", &json!({"show": false})).unwrap();
+    assert_eq!(h["changed"], 5);
+    assert!(!texts(&s).iter().any(|x| x.contains('@')), "{:?}", texts(&s));
+    assert_eq!(s.execute("addressdisplay", &json!({"show": true})).unwrap()["changed"], 5);
+    assert!(texts(&s).iter().any(|x| x.contains("@1-05")));
+    // The clash is in the controls' warnings, and the table is in the workbook (and the address in the list of points).
+    let c = s.execute("controlcheck", &json!({})).unwrap();
+    assert!(c["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("have the address 12 on BUS1")), "{c}");
+    assert!(c["points"].as_array().unwrap().iter().any(|p| p["address"] == "12"), "{c}");
+    assert_eq!(c["addresses"].as_array().unwrap().len(), 5);
+    assert!(s.execute("addressdisplay", &json!({"show": "yes"})).is_err());
+    assert!(s.execute("controladd", &json!({"at": [0, 0], "address": "x\u{7}"})).is_err());
+}

@@ -155,13 +155,14 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
                 ui,
                 "points",
                 "Points",
-                &["Controller", "Device", "Description", "Point type", "Unit", "Space", "Serves"],
+                &["Controller", "Device", "Address", "Description", "Point type", "Unit", "Space", "Serves"],
                 t.points
                     .iter()
                     .map(|p| {
                         vec![
                             p.controller.clone(),
                             p.device.clone(),
+                            p.address.clone(),
                             crate::i18n::t(&p.description).to_string(),
                             p.point_type.clone(),
                             p.unit.clone(),

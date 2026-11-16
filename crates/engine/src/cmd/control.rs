@@ -18,12 +18,17 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(
                 "{at ([x, y]) | points ([[x, y]…]: one at each), kind? (roomTemperature, ductTemperature, waterTemperature, outdoorTemperature, humidity, co2, voc, differentialPressure, flow, occupancy, thermostat, \
                  vrfRemote, valveActuator, damperActuator, frequencyDrive, energyMeter, controller, ioModule, gateway, controlCabinet, supervisor), name? (the tag; default TA1…), controller? (the name of the controller \
-                 or module it is wired to), served? (the equipment, unit or part it serves or measures), circuit? (the circuit that feeds it), bus? (the bus it is on), setpoint?, ai? ao? di? do? (the points a controller or a \
+                 or module it is wired to), served? (the equipment, unit or part it serves or measures), circuit? (the circuit that feeds it), bus? (the bus it is on), address? (on its bus or its controller: a Modbus number, a BACnet MAC, a KNX 1.1.5), showAddress? (write it beside the device), setpoint?, ai? ao? di? do? (the points a controller or a \
                  module offers), height? (mm), rotation? (degrees), labelHeight? (mm)} → {handles}",
             )
             .interactive(|s| Ok(Box::new(ControlAddM::new(s)))),
         CommandSpec::new("controledit", "Edit Control Device", run_edit).params(
-            "{handle | handles, name?, controller?, served?, circuit?, bus?, setpoint? (or null), ai? ao? di? do?, height?} → {changed}",
+            "{handle | handles, name?, controller?, served?, circuit?, bus?, address?, showAddress?, setpoint? (or null), ai? ao? di? do?, height?} → {changed}",
+        ),
+        CommandSpec::new("addressdisplay", "Show Addresses", run_addresses).menu(&["Draw", "Controls", "Show Addresses"]).params(
+            "{show? (true: write the address beside every object that has one, the default; false: hide them), list? (true: only list)} → {changed, addresses: [{handle, tag, kind, address, bus, space, shown}], clashes}: \
+             the objects that can have an address are the control devices, the equipment, the air handling units and the electrical devices; the table lists every address, and the clashes are the addresses \
+             used twice on one bus or on one controller",
         ),
         CommandSpec::new("controlcheck", "Check Controls", run_check).menu(&["Draw", "Controls", "Check Controls"]).params(
             "{} → {devices: [{name, count, points}], controllers: [{name, kind, extends, space, bus, circuit, capacity, used, reservePercent}], points: [{device, kind, description, type, unit, controller, space, served, setpoint}], \
@@ -93,15 +98,23 @@ fn put(s: &mut Session, p: &ControlParams, at: Vec2, rotation: f64) -> Result<Ha
 
 /// The fields of `p` that a call gives, over `c`.
 fn fill(cmd: &str, p: &Value, c: &mut ControlParams) -> Result<()> {
-    for (key, slot) in
-        [("name", &mut c.name), ("controller", &mut c.controller), ("served", &mut c.served), ("circuit", &mut c.circuit), ("bus", &mut c.bus)]
-    {
+    for (key, slot) in [
+        ("name", &mut c.name),
+        ("controller", &mut c.controller),
+        ("served", &mut c.served),
+        ("circuit", &mut c.circuit),
+        ("bus", &mut c.bus),
+        ("address", &mut c.address),
+    ] {
         if let Some(t) = str_param(p, key) {
             *slot = t.trim().to_string();
         }
     }
     if let Some(v) = clearable(cmd, p, "setpoint")? {
         c.setpoint = v;
+    }
+    if let Some(b) = p.get("showAddress").filter(|v| !v.is_null()) {
+        c.show_address = b.as_bool().ok_or_else(|| bad(cmd, "`showAddress` must be true or false"))?;
     }
     for (key, slot) in [("ai", &mut c.capacity.ai), ("ao", &mut c.capacity.ao), ("di", &mut c.capacity.di), ("do", &mut c.capacity.dout)] {
         if let Some(n) = count(cmd, p, key)? {
@@ -300,4 +313,16 @@ impl Interactive for ControlAddM {
         let p = ControlParams::new(self.kind, &next_tag(d, self.kind), HvacUnits::of(d));
         p.generate().map(|pieces| cadcraft_doc::preview_entities(pieces, c, 0.0)).unwrap_or_default()
     }
+}
+
+fn run_addresses(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "addressdisplay";
+    let show = match p.get("show").filter(|v| !v.is_null()) {
+        Some(v) => v.as_bool().ok_or_else(|| bad(CMD, "`show` must be true or false"))?,
+        None => true,
+    };
+    let list_only = p.get("list").and_then(Value::as_bool).unwrap_or(false);
+    let changed = if list_only { 0 } else { s.doc_mut()?.set_address_display(show).map_err(doc_err)? };
+    let d = s.doc()?;
+    Ok(json!({ "changed": changed, "addresses": d.address_rows(), "clashes": d.address_clashes() }))
 }

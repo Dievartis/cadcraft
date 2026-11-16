@@ -22,7 +22,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["Draw", "Electricity", "Device"])
             .params(
                 "{at ([x, y]) | points ([[x, y]…]: one device at each), kind? (socket, dedicatedSocket, switch, doubleSwitch, twoWaySwitch, pushButton, dimmer, presenceDetector, dataOutlet, \
-                 ceilingLight, downlight, wallLight, stripLight, emergencyLight, exitSign, distributionBoard), name? (the tag; default P1, I2, L3…), circuit?, power? (W), flux? (lm, a luminaire), \
+                 ceilingLight, downlight, wallLight, stripLight, emergencyLight, exitSign, distributionBoard), name? (the tag; default P1, I2, L3…), circuit?, address? (on its KNX or DALI line, written beside it), power? (W), flux? (lm, a luminaire), \
                  height? (mm above the floor), supply? (A, a board's main breaker), rotation? (degrees), labelHeight? (mm)} → {handles}",
             )
             .interactive(|s| Ok(Box::new(DeviceAddM::new(s)))),
@@ -35,7 +35,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
             .interactive(|s| Ok(Box::new(CableAddM::new(s)))),
         CommandSpec::new("elecedit", "Edit Electrical Object", run_edit).params(
-            "{handle | handles, for a device: name?, circuit?, power? (W), flux? (lm or null), height? (mm), supply? (A or null); for a cable: circuit?, usage?, phases?, conductor?, insulation?, laying?, \
+            "{handle | handles, for a device: name?, circuit?, address? (on its KNX or DALI line), power? (W), flux? (lm or null), height? (mm), supply? (A or null); for a cable: circuit?, usage?, phases?, conductor?, insulation?, laying?, \
              section? (mm² or null), protection? (A or null), cosPhi?, ambient?, grouped?, extra?} → {changed}",
         ),
         CommandSpec::new("circuitedit", "Edit Circuit", run_circuit_edit).params(
@@ -236,6 +236,7 @@ fn run_device_add(s: &mut Session, p: &Value) -> Result<Value> {
         let name = str_param(p, "name").map_or_else(|| next_tag(d, kind), str::to_string);
         let mut dp = DeviceParams::new(kind, &name, HvacUnits::of(d));
         dp.circuit = str_param(p, "circuit").unwrap_or("").trim().to_string();
+        dp.address = str_param(p, "address").unwrap_or("").trim().to_string();
         if let Some(w) = number(CMD, p, "power")? {
             dp.power_w = w;
         }
@@ -335,6 +336,9 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
             }
             if let Some(a) = clearable(CMD, p, "supply")? {
                 d.supply_a = a;
+            }
+            if let Some(a) = str_param(p, "address") {
+                d.address = a.trim().to_string();
             }
             d.validate().map_err(doc_err)?;
             done.push((h, None, Some(d)));

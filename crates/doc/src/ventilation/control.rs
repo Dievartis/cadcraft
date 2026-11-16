@@ -8,7 +8,7 @@ use cadcraft_geom::Vec2;
 use serde::{Deserialize, Serialize};
 
 use super::part::{circle, line, poly, rect, text_in};
-use super::{HvacPiece, HvacUnits, check_circuit_name, check_label_height, invalid, label, v3, xdata};
+use super::{HvacPiece, HvacUnits, address_suffix, check_circuit_name, check_label_height, invalid, label, v3, xdata};
 use crate::{EntityKind, RawTag, Result};
 
 /// The registered application name of a control device's extended data.
@@ -292,6 +292,11 @@ pub struct ControlParams {
     /// The bus the device is on (a name: "BUS1"), for gateways and controllers.
     #[serde(default)]
     pub bus: String,
+    /// The address of the device on its bus or on its controller (a Modbus number, a BACnet MAC, a KNX "1.1.5"), written beside it when `show_address`.
+    #[serde(default)]
+    pub address: String,
+    #[serde(default = "super::yes")]
+    pub show_address: bool,
     /// The setpoint or the working value, in the unit of the kind, when there is one.
     #[serde(default)]
     pub setpoint: Option<f64>,
@@ -315,6 +320,8 @@ impl ControlParams {
             served: String::new(),
             circuit: String::new(),
             bus: String::new(),
+            address: String::new(),
+            show_address: true,
             setpoint: None,
             capacity: kind.default_capacity(),
             height_mm: kind.default_height_mm(),
@@ -324,7 +331,7 @@ impl ControlParams {
     }
 
     pub fn validate(&self) -> Result<()> {
-        for t in [&self.name, &self.controller, &self.served, &self.circuit, &self.bus] {
+        for t in [&self.name, &self.controller, &self.served, &self.circuit, &self.bus, &self.address] {
             check_circuit_name(t, true)?;
         }
         if self.setpoint.is_some_and(|v| !(v.is_finite() && v.abs() <= 1.0e7)) {
@@ -350,6 +357,7 @@ impl ControlParams {
         if !self.controller.trim().is_empty() {
             t.push_str(&format!(" > {}", self.controller.trim()));
         }
+        t.push_str(&address_suffix(&self.address, self.show_address));
         t
     }
 
