@@ -51,6 +51,7 @@ pub mod gpu;
 pub mod grip_dyn;
 pub mod i18n;
 pub mod icons;
+pub mod images;
 pub mod keys;
 pub mod layers;
 pub mod managers;

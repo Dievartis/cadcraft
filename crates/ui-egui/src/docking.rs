@@ -18,6 +18,7 @@ pub enum Panel {
     PlotStyles,
     DimStyles,
     TextStyles,
+    Images,
     Layers,
     Properties,
     #[serde(rename = "externalReferences")]
@@ -34,6 +35,7 @@ impl Panel {
             Self::PlotStyles => "plotStyles",
             Self::DimStyles => "dimStyles",
             Self::TextStyles => "textStyles",
+            Self::Images => "images",
             Self::Layers => "layers",
             Self::Properties => "properties",
             Self::ExternalRefs => "externalReferences",
@@ -47,6 +49,7 @@ impl Panel {
             Self::PlotStyles => "Plot Style Manager",
             Self::DimStyles => "Dimension Style Manager",
             Self::TextStyles => "Text Style Manager",
+            Self::Images => "Image Manager",
             Self::Layers => "Layers",
             Self::Properties => "Properties",
             Self::ExternalRefs => "External References",
@@ -62,13 +65,14 @@ impl Panel {
             Self::PlotStyles => Some(Icon::Table),
             Self::DimStyles => Some(Icon::Table),
             Self::TextStyles => Some(Icon::Table),
+            Self::Images => Some(Icon::Attach),
             Self::Layers => Some(Icon::Layers),
             Self::Properties => Some(Icon::Properties),
             Self::ExternalRefs => Some(Icon::Attach),
         }
     }
     /// Palettes outside the default arrangement, opened on request (QUICKCALC).
-    pub const ON_DEMAND: &[Self] = &[Self::QuickCalc, Self::PlotStyles, Self::DimStyles, Self::TextStyles];
+    pub const ON_DEMAND: &[Self] = &[Self::QuickCalc, Self::PlotStyles, Self::DimStyles, Self::TextStyles, Self::Images];
 }
 
 /// The drawing view never moves, floats, closes or takes tabs; palettes dock beside it.
@@ -162,7 +166,7 @@ fn home_anchor(layout: &Layout<Panel>, panel: Panel) -> Option<(Panel, bool)> {
         Panel::ExternalRefs => &[(Panel::Properties, true), (Panel::Layers, true)],
         Panel::QuickCalc => &[(Panel::ExternalRefs, true), (Panel::Properties, true), (Panel::Layers, true)],
         Panel::PlotStyles => &[(Panel::ExternalRefs, true), (Panel::Properties, true), (Panel::Layers, true)],
-        Panel::DimStyles | Panel::TextStyles => &[(Panel::ExternalRefs, true), (Panel::Properties, true), (Panel::Layers, true)],
+        Panel::DimStyles | Panel::TextStyles | Panel::Images => &[(Panel::ExternalRefs, true), (Panel::Properties, true), (Panel::Layers, true)],
     };
     if let Some(found) = neighbours.iter().copied().find(|(neighbour, _)| docked(layout, *neighbour)) {
         return Some(found);
@@ -417,6 +421,7 @@ impl DockContent<Panel> for Panels<'_> {
             Panel::PlotStyles => crate::plotstyles::panel(app, ui),
             Panel::DimStyles => crate::managers::dimstyle_panel(app, ui),
             Panel::TextStyles => crate::textstyles::panel(app, ui),
+            Panel::Images => crate::images::panel(app, ui),
             Panel::Layers => {
                 egui::ScrollArea::vertical()
                     .id_salt("dock-layers")
@@ -460,6 +465,7 @@ fn panel_limits(panel: &Panel) -> PanelLimits {
         Panel::PlotStyles => (egui::vec2(420.0, 300.0), 1_000_000.0),
         Panel::DimStyles => (egui::vec2(420.0, 300.0), 1_000_000.0),
         Panel::TextStyles => (egui::vec2(340.0, 300.0), 1_000_000.0),
+        Panel::Images => (egui::vec2(420.0, 300.0), 1_000_000.0),
         Panel::ToolSets => (egui::vec2(220.0, 150.0), 480.0),
         Panel::Layers | Panel::Properties | Panel::ExternalRefs => (egui::vec2(220.0, 100.0), 720.0),
     };

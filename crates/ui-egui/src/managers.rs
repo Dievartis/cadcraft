@@ -36,6 +36,9 @@ pub fn route(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value,
     if let Some(result) = crate::textstyles::route(app, id, params) {
         return Some(result);
     }
+    if let Some(result) = crate::images::route(app, id, params) {
+        return Some(result);
+    }
     let dialog = match id {
         "battman" => "battman",
         "linetype" | "lt" | "ltype" => "linetype",
