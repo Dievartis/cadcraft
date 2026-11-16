@@ -19,7 +19,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("ceilingadd", "Ceiling Grid", run_ceilingadd)
             .menu(&["Draw", "Architecture", "Ceiling Grid"])
             .params(
-                "{points (3 or more) | handle (a closed polyline) | space (a room of the HVAC tab: its outline), tile? (\"600x600\", \"1200x600\"…, mm), angle? (degrees), \
+                "{points (3 or more) | handle (a closed polyline) | inside ([x, y]: a point in a room closed by walls) | space (a room of the HVAC tab: its outline), tile? (\"600x600\", \"1200x600\"…, mm), angle? (degrees), \
                  elevation? (m, the underside of the false ceiling), name?, labelHeight? (mm)} → {handle, tiles: {whole, cut}, areaM2}",
             )
             .interactive(|s| Ok(Box::new(CeilingAddM::new(s)))),
@@ -136,6 +136,8 @@ fn run_ceilingadd(s: &mut Session, p: &Value) -> Result<Value> {
         s.doc()?.space_outline_world(h).ok_or_else(|| other("Select a room of the HVAC tab (a space)."))?
     } else if let Some(h) = super::curves::handle_param(p, "handle") {
         super::hvac::polyline_outline(s.doc()?, h)?
+    } else if let Some(q) = p.get("inside").and_then(super::point_value) {
+        super::slab::room_outline_at(s, q)?
     } else if let Some(Value::Array(raw)) = p.get("points") {
         if raw.len() > MAX_POINTS + 1 {
             return Err(bad(CMD, format!("a ceiling has at most {MAX_POINTS} points")));
@@ -147,7 +149,10 @@ fn run_ceilingadd(s: &mut Session, p: &Value) -> Result<Value> {
         }
         v
     } else {
-        return Err(bad(CMD, "`points` (3 or more), `handle` (a closed polyline) or `space` (a room) is required"));
+        return Err(bad(
+            CMD,
+            "`points` (3 or more), `handle` (a closed polyline) or `space` (a room) or `inside` (a point in a room closed by walls) is required",
+        ));
     };
     let mut last = DesignLastUsed::default();
     if let Some(t) = tile_param(CMD, p)? {
@@ -332,6 +337,7 @@ enum CeilingAsk {
     Point,
     Object,
     Room,
+    Walls,
     Tile,
     Elevation,
 }
@@ -381,6 +387,7 @@ impl Interactive for CeilingAddM {
         match self.ask {
             CeilingAsk::Object => return Prompt::new("Select a closed polyline", Accept::SELECT),
             CeilingAsk::Room => return Prompt::new("Select a room (a space)", Accept::SELECT),
+            CeilingAsk::Walls => return Prompt::new("Click inside a room closed by walls", Accept::POINT),
             CeilingAsk::Tile => {
                 return Prompt::new("Enter the tile (mm, e.g. 600x600)", Accept::TEXT)
                     .default(format!("{:.0}x{:.0}", self.last.tile_mm.0, self.last.tile_mm.1));
@@ -392,7 +399,7 @@ impl Interactive for CeilingAddM {
         }
         let last = self.pts.last().copied();
         match self.pts.len() {
-            0 => Prompt::new("Specify first corner of the ceiling", Accept::POINT).kw(&["Room", "OBject", "Tile", "Elevation"]),
+            0 => Prompt::new("Specify first corner of the ceiling", Accept::POINT).kw(&["Room", "Walls", "OBject", "Tile", "Elevation"]),
             1 | 2 => Prompt::new("Specify next corner", Accept::POINT).kw(&["Undo"]).base_opt(last),
             _ => Prompt::new("Specify next corner", Accept::POINT).kw(&["Close", "Undo"]).base_opt(last),
         }
@@ -420,6 +427,15 @@ impl Interactive for CeilingAddM {
                 };
                 return self.finish(s, o);
             }
+            (CeilingAsk::Walls, Input::Point(q)) => {
+                return match super::slab::room_outline_at(s, *q) {
+                    Ok(o) => self.finish(s, o),
+                    Err(e) => {
+                        s.echo(e.to_string());
+                        Ok(Step::Continue)
+                    }
+                };
+            }
             (CeilingAsk::Tile, _) => {
                 match text.as_deref().and_then(parse_tile) {
                     Some(t) => self.last.tile_mm = t,
@@ -438,17 +454,18 @@ impl Interactive for CeilingAddM {
                 self.settings(s);
                 return Ok(Step::Continue);
             }
-            (CeilingAsk::Object | CeilingAsk::Room, Input::Enter | Input::Cancel) => {
+            (CeilingAsk::Object | CeilingAsk::Room | CeilingAsk::Walls, Input::Enter | Input::Cancel) => {
                 self.ask = CeilingAsk::Point;
                 return Ok(Step::Continue);
             }
-            (CeilingAsk::Object | CeilingAsk::Room, _) => return Ok(Step::Continue),
+            (CeilingAsk::Object | CeilingAsk::Room | CeilingAsk::Walls, _) => return Ok(Step::Continue),
             _ => {}
         }
         match i {
             Input::Keyword(k) => {
                 match k.as_str() {
                     "Room" => self.ask = CeilingAsk::Room,
+                    "Walls" => self.ask = CeilingAsk::Walls,
                     "OBject" => self.ask = CeilingAsk::Object,
                     "Tile" => self.ask = CeilingAsk::Tile,
                     "Elevation" => self.ask = CeilingAsk::Elevation,

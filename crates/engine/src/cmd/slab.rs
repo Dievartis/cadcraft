@@ -9,6 +9,41 @@ use super::{CommandSpec, bad, str_param};
 
 use crate::{Accept, EngineError, Input, Interactive, Prompt, Result, Session, Step};
 
+/// The outline of the room around `q`, bounded by walls (or any lines and polylines that close): the boundary the hatch finds at that point, with the
+/// vertices that only carry a wall opening or a hatch break taken out and arcs cut into chords.
+pub(super) fn room_outline_at(s: &Session, q: Vec2) -> Result<Vec<Vec2>> {
+    let loops = super::hatch::loops_at(s, q)?;
+    let outer = loops.into_iter().find(|l| l.outer).ok_or_else(|| other("No closed room around that point: the walls must close."))?;
+    let ext = s.doc()?.extents(&s.space());
+    let tol = ((ext.width() + ext.height()) * 1e-5).max(1e-6);
+    let pts = cadcraft_geom::Polyline { vertices: outer.vertices, closed: true }.tessellate(tol);
+    let mut out: Vec<Vec2> = Vec::new();
+    for p in pts {
+        if !out.last().is_some_and(|l| l.near(p, tol)) {
+            out.push(p);
+        }
+    }
+    if out.len() > 3 && out.first().zip(out.last()).is_some_and(|(a, b)| a.near(*b, tol)) {
+        out.pop();
+    }
+    // A vertex on the straight line between its neighbours carries nothing.
+    let mut i = 0;
+    while out.len() > 3 && i < out.len() {
+        let n = out.len();
+        let (a, b, c) = (out[(i + n - 1) % n], out[i], out[(i + 1) % n]);
+        let len = a.dist(c).max(tol);
+        if ((b - a).cross(c - a) / len).abs() <= tol {
+            out.remove(i);
+        } else {
+            i += 1;
+        }
+    }
+    if out.len() > MAX_SLAB_VERTICES {
+        return Err(bad("slabadd", format!("the room has more than {MAX_SLAB_VERTICES} corners")));
+    }
+    Ok(out)
+}
+
 /// Most slabs one SLABEDIT changes.
 const MAX_EDITED: usize = 10_000;
 
@@ -17,7 +52,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("slabadd", "Slab", run_slabadd)
             .menu(&["Draw", "Architecture", "Slab"])
             .params(
-                "{points (3 or more) | handle (closed polyline), kind?: floor|roof|foundation, name?, thickness? (mm), elevation? (m, the top), \
+                "{points (3 or more) | handle (closed polyline) | inside ([x, y]: a point in a room closed by walls, the slab takes the room's outline), kind?: floor|roof|foundation, name?, thickness? (mm), elevation? (m, the top), \
                  pattern? (hatch name, empty for none), labelHeight? (mm)} → {handle, area (m²), volume (m³)}",
             )
             .interactive(|s| Ok(Box::new(SlabAddM::new(s)))),
@@ -97,6 +132,10 @@ fn run_slabadd(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "slabadd";
     let mut outline = match (super::curves::handle_param(p, "handle"), p.get("points")) {
         (Some(h), _) => super::hvac::polyline_outline(s.doc()?, h)?,
+        (None, None) if p.get("inside").is_some() => {
+            let q = p.get("inside").and_then(super::point_value).ok_or_else(|| bad(CMD, "`inside` must be an [x, y] point"))?;
+            room_outline_at(s, q)?
+        }
         (None, Some(Value::Array(raw))) => {
             if raw.len() > MAX_SLAB_VERTICES + 1 {
                 return Err(bad(CMD, format!("a slab has at most {MAX_SLAB_VERTICES} points")));
@@ -104,7 +143,7 @@ fn run_slabadd(s: &mut Session, p: &Value) -> Result<Value> {
             let pts: Option<Vec<Vec2>> = raw.iter().map(super::point_value).collect();
             super::distinct_points(&pts.ok_or_else(|| bad(CMD, "`points` must be [x, y] points"))?)
         }
-        _ => return Err(bad(CMD, "`points` (3 or more) or `handle` (a closed polyline) is required")),
+        _ => return Err(bad(CMD, "`points` (3 or more), `handle` (a closed polyline) or `inside` (a point in a room closed by walls) is required")),
     };
     if outline.len() > 3 && outline.first().zip(outline.last()).is_some_and(|(a, b)| a.near(*b, 1e-12)) {
         outline.pop();
@@ -332,6 +371,7 @@ impl Interactive for SlabHoleM {
 enum Ask {
     Point,
     Object,
+    Walls,
     Kind,
     Thickness,
     Elevation,
@@ -394,7 +434,14 @@ impl SlabAddM {
                 self.last.elevation_mm =
                     t.parse::<f64>().ok().filter(|v| v.is_finite()).ok_or_else(|| other("Requires an elevation in metres."))? * 1000.0;
             }
-            (Ask::Object, Input::Enter | Input::Cancel, _) => {}
+            (Ask::Walls, Input::Point(q), _) => match room_outline_at(s, q) {
+                Ok(outline) => return self.finish(s, outline),
+                Err(e) => {
+                    s.echo(e.to_string());
+                    return Ok(Step::Continue);
+                }
+            },
+            (Ask::Object | Ask::Walls, Input::Enter | Input::Cancel, _) => {}
             _ => return Ok(Step::Continue),
         }
         self.ask = Ask::Point;
@@ -414,6 +461,7 @@ impl Interactive for SlabAddM {
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.ask {
             Ask::Object => return Prompt::new("Select a closed polyline", Accept::SELECT),
+            Ask::Walls => return Prompt::new("Click inside a room closed by walls", Accept::POINT),
             Ask::Kind => {
                 return Prompt::new("Enter slab kind", super::curves::KW).kw(&["Floor", "Roof", "Foundation"]).default(self.last.kind.name());
             }
@@ -428,7 +476,7 @@ impl Interactive for SlabAddM {
         }
         let last = self.pts.last().copied();
         match self.pts.len() {
-            0 => Prompt::new("Specify first point of slab", Accept::POINT).kw(&["OBject", "Kind", "Thickness", "Elevation"]),
+            0 => Prompt::new("Specify first point of slab", Accept::POINT).kw(&["Walls", "OBject", "Kind", "Thickness", "Elevation"]),
             1 | 2 => Prompt::new("Specify next point", Accept::POINT).kw(&["Undo"]).base_opt(last),
             _ => Prompt::new("Specify next point", Accept::POINT).kw(&["Close", "Undo"]).base_opt(last),
         }
@@ -441,6 +489,7 @@ impl Interactive for SlabAddM {
             Input::Keyword(k) => {
                 match k.as_str() {
                     "OBject" => self.ask = Ask::Object,
+                    "Walls" => self.ask = Ask::Walls,
                     "Kind" => self.ask = Ask::Kind,
                     "Thickness" => self.ask = Ask::Thickness,
                     "Elevation" => self.ask = Ask::Elevation,

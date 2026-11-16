@@ -1077,3 +1077,18 @@ fn an_arc_wall_is_drawn_about_its_centre_closed_by_an_arc_and_its_bulge_is_edite
     }
     assert!(s.log.iter().any(|l| l.contains("The centre is on the start")), "{:?}", s.log);
 }
+
+#[test]
+fn a_slab_and_a_ceiling_take_the_outline_of_a_room_closed_by_walls() {
+    let mut s = metric();
+    s.execute("walladd", &json!({"points": [[0, 0], [6000, 0], [6000, 4000], [0, 4000], [0, 0]], "thickness": 200})).unwrap();
+    let slab = s.execute("slabadd", &json!({"inside": [3000, 2000], "thickness": 150})).unwrap();
+    // The room inside a 200 mm wall on a 6 × 4 m centreline is about 5.8 × 3.8 m, 6 × 4 m or 6.2 × 4.2 m, whatever the side of the wall:
+    // never the whole drawing and never nothing.
+    let area = slab["area"].as_f64().unwrap();
+    assert!((20.0..27.0).contains(&area), "{area}");
+    let c = s.execute("ceilingadd", &json!({"inside": [3000, 2000], "tile": "600x600"})).unwrap();
+    assert!((c["areaM2"].as_f64().unwrap() - area).abs() < 0.5, "{c}");
+    // A point outside every closed loop has no room.
+    assert!(s.execute("slabadd", &json!({"inside": [9000, 9000]})).is_err());
+}
