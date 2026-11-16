@@ -272,6 +272,90 @@ impl ControlKind {
     }
 }
 
+/// The communication profile of a bus: the protocol and what it allows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BusProtocol {
+    /// Modbus RTU on an RS-485 line.
+    Modbus,
+    /// BACnet MS/TP on an RS-485 line.
+    BacnetMstp,
+    /// KNX twisted pair.
+    Knx,
+    /// M-Bus (meters).
+    MBus,
+}
+
+impl BusProtocol {
+    pub const ALL: [BusProtocol; 4] = [BusProtocol::Modbus, BusProtocol::BacnetMstp, BusProtocol::Knx, BusProtocol::MBus];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            BusProtocol::Modbus => "Modbus RTU",
+            BusProtocol::BacnetMstp => "BACnet MS/TP",
+            BusProtocol::Knx => "KNX TP",
+            BusProtocol::MBus => "M-Bus",
+        }
+    }
+
+    /// The protocol a text names: "modbus", "BACnet MS/TP", "knx", "mbus"…, whatever the case and the spaces.
+    pub fn parse(text: &str) -> Option<BusProtocol> {
+        let t: String = text.chars().filter(char::is_ascii_alphanumeric).collect::<String>().to_ascii_lowercase();
+        match t.as_str() {
+            "modbus" | "modbusrtu" | "rs485" => Some(BusProtocol::Modbus),
+            "bacnet" | "bacnetmstp" | "mstp" => Some(BusProtocol::BacnetMstp),
+            "knx" | "knxtp" | "eib" => Some(BusProtocol::Knx),
+            "mbus" | "mbusmeter" => Some(BusProtocol::MBus),
+            _ => None,
+        }
+    }
+
+    /// The most devices on one segment of the bus: 32 unit loads on an RS-485 line, 64 on a KNX line, 250 on an M-Bus.
+    pub fn max_devices(self) -> usize {
+        match self {
+            BusProtocol::Modbus | BusProtocol::BacnetMstp => 32,
+            BusProtocol::Knx => 64,
+            BusProtocol::MBus => 250,
+        }
+    }
+
+    /// The longest cable of a segment, m, at the usual speed (9600 baud for RS-485, 1000 m for a KNX line, 350 m of M-Bus at 2400 baud).
+    pub fn max_length_m(self) -> f64 {
+        match self {
+            BusProtocol::Modbus | BusProtocol::BacnetMstp => 1200.0,
+            BusProtocol::Knx => 1000.0,
+            BusProtocol::MBus => 350.0,
+        }
+    }
+
+    /// What is wrong with `address` for this protocol, or `None`: Modbus 1 to 247, BACnet MS/TP master 0 to 127, KNX `area.line.device` (0-15, 0-15, 0-255),
+    /// M-Bus primary 1 to 250.
+    pub fn address_problem(self, address: &str) -> Option<String> {
+        let t = address.trim();
+        if t.is_empty() {
+            return None;
+        }
+        let num = |s: &str| s.trim().parse::<u32>().ok();
+        let ok = match self {
+            BusProtocol::Modbus => num(t).is_some_and(|n| (1..=247).contains(&n)),
+            BusProtocol::BacnetMstp => num(t).is_some_and(|n| n <= 127),
+            BusProtocol::MBus => num(t).is_some_and(|n| (1..=250).contains(&n)),
+            BusProtocol::Knx => {
+                let parts: Vec<Option<u32>> = t.split('.').map(num).collect();
+                matches!(parts[..], [Some(a), Some(l), Some(d)] if a <= 15 && l <= 15 && d <= 255)
+            }
+        };
+        (!ok).then(|| {
+            match self {
+                BusProtocol::Modbus => "a Modbus address is 1 to 247",
+                BusProtocol::BacnetMstp => "a BACnet MS/TP address is 0 to 127",
+                BusProtocol::MBus => "an M-Bus primary address is 1 to 250",
+                BusProtocol::Knx => "a KNX address is area.line.device, like 1.1.5 (areas and lines 0 to 15, device 0 to 255)",
+            }
+            .to_string()
+        })
+    }
+}
+
 /// A control device: what its block reference keeps. Its place is the block's origin, turned by the reference's rotation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -292,6 +376,10 @@ pub struct ControlParams {
     /// The bus the device is on (a name: "BUS1"), for gateways and controllers.
     #[serde(default)]
     pub bus: String,
+    /// The protocol of the bus, for a controller or a gateway on it (a [`BusProtocol`] name; empty: not said): the addresses and the number of devices of the
+    /// bus are checked against it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub protocol: String,
     /// The address of the device on its bus or on its controller (a Modbus number, a BACnet MAC, a KNX "1.1.5"), written beside it when `show_address`.
     #[serde(default)]
     pub address: String,
@@ -320,6 +408,7 @@ impl ControlParams {
             served: String::new(),
             circuit: String::new(),
             bus: String::new(),
+            protocol: String::new(),
             address: String::new(),
             show_address: true,
             setpoint: None,
@@ -333,6 +422,9 @@ impl ControlParams {
     pub fn validate(&self) -> Result<()> {
         for t in [&self.name, &self.controller, &self.served, &self.circuit, &self.bus, &self.address] {
             check_circuit_name(t, true)?;
+        }
+        if !self.protocol.trim().is_empty() && BusProtocol::parse(&self.protocol).is_none() {
+            return Err(invalid("The protocol of a bus is Modbus RTU, BACnet MS/TP, KNX TP or M-Bus."));
         }
         if self.setpoint.is_some_and(|v| !(v.is_finite() && v.abs() <= 1.0e7)) {
             return Err(invalid("The setpoint of a device is a number."));

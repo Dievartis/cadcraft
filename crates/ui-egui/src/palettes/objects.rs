@@ -334,6 +334,7 @@ fn control_section(ui: &mut egui::Ui, sel: &[Handle], cs: &[cadcraft_doc::Contro
     elec_text(ui, CMD, "Address", "address", &ids, cs.iter().map(|c| c.address.clone()).collect(), &mut action);
     if cs.iter().all(|c| c.kind.is_automation()) {
         elec_text(ui, CMD, "Bus", "bus", &ids, cs.iter().map(|c| c.bus.clone()).collect(), &mut action);
+        elec_text(ui, CMD, "Bus protocol", "protocol", &ids, cs.iter().map(|c| c.protocol.clone()).collect(), &mut action);
     }
     elec_number(ui, (CMD, "Setpoint", "setpoint", true), &ids, cs.iter().map(|c| c.setpoint).collect(), bad, &mut action);
     elec_number(ui, (CMD, "Height (mm)", "height", false), &ids, cs.iter().map(|c| Some(c.height_mm)).collect(), bad, &mut action);

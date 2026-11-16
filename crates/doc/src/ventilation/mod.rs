@@ -11,6 +11,7 @@ mod addresses;
 mod circuit_legend;
 mod control;
 mod control_report;
+mod control_schema;
 mod crossing;
 mod design;
 mod distribute;
@@ -48,6 +49,7 @@ pub use addresses::*;
 pub use circuit_legend::*;
 pub use control::*;
 pub use control_report::*;
+pub use control_schema::*;
 pub use crossing::DuctCrossing;
 pub use design::*;
 pub use distribute::{Distribution, MAX_DISTRIBUTED, distribute_in_polygon};
@@ -319,6 +321,8 @@ impl crate::Drawing {
 
 #[cfg(test)]
 mod accessory_tests;
+#[cfg(test)]
+mod control_schema_tests;
 #[cfg(test)]
 mod design_tests;
 #[cfg(test)]

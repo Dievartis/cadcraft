@@ -6,8 +6,8 @@ use cadcraft_geom::Vec2;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ControlKind, ControlParams, CostLine, Costing, Points, SheetCell, TakeoffSettings, Workbook, ahu_of, cable_of, control_of, equipment_of, part_of,
-    same_network, usable_price,
+    BusProtocol, ControlKind, ControlParams, CostLine, Costing, Points, SheetCell, TakeoffSettings, Workbook, ahu_of, cable_of, control_of,
+    equipment_of, part_of, same_network, usable_price,
 };
 use crate::Result;
 
@@ -189,11 +189,12 @@ impl crate::Drawing {
                 buses.push(&p.bus);
             }
         }
-        for b in buses {
+        for b in &buses {
             if !bus_cables.iter().any(|c| same_network(c, b)) {
                 warnings.push(format!("bus {b}: no bus cable is drawn on a circuit of that name"));
             }
         }
+        warnings.extend(self.bus_profile_warnings(&devices, &buses));
         // The same tag twice.
         let mut tags: Vec<&str> = devices.iter().map(|(p, _)| p.name.trim()).filter(|n| !n.is_empty()).collect();
         tags.sort_unstable();
@@ -372,5 +373,56 @@ impl ControlTakeoff {
             out.push('\n');
         }
         out
+    }
+}
+
+impl crate::Drawing {
+    /// What is wrong with the buses that have a protocol: the addresses it does not take, too many devices for a segment, too much cable, devices that do not
+    /// all say the same protocol.
+    fn bus_profile_warnings(&self, devices: &[(ControlParams, Vec2)], buses: &[&str]) -> Vec<String> {
+        let mut warnings: Vec<String> = Vec::new();
+        // The communication profile of each bus: the protocol its controllers and gateways say, what it allows, and what is on it.
+        for b in buses {
+            let on_bus = |p: &ControlParams| {
+                same_network(&p.bus, b)
+                    || (!p.controller.trim().is_empty()
+                        && devices.iter().any(|(c, _)| same_network(&c.name, &p.controller) && same_network(&c.bus, b)))
+            };
+            let protocols: Vec<BusProtocol> =
+                devices.iter().filter(|(p, _)| same_network(&p.bus, b)).filter_map(|(p, _)| BusProtocol::parse(&p.protocol)).collect();
+            let Some(&protocol) = protocols.first() else { continue };
+            if protocols.iter().any(|x| *x != protocol) {
+                warnings.push(format!("bus {b}: its devices do not all say the same protocol"));
+            }
+            let members: Vec<&ControlParams> = devices.iter().map(|(p, _)| p).filter(|p| on_bus(p)).collect();
+            if members.len() > protocol.max_devices() {
+                warnings.push(format!(
+                    "bus {b} ({}): {} devices, at most {} on a segment: add a repeater or another bus",
+                    protocol.name(),
+                    members.len(),
+                    protocol.max_devices()
+                ));
+            }
+            for p in members.iter().filter(|p| !p.address.trim().is_empty()) {
+                if let Some(why) = protocol.address_problem(&p.address) {
+                    warnings.push(format!("{} on bus {b} ({}): address \"{}\": {why}", p.name, protocol.name(), p.address.trim()));
+                }
+            }
+            let length_m: f64 = self
+                .model
+                .iter()
+                .filter_map(|e| cable_of(e))
+                .filter(|c| c.usage == super::CableUsage::Bus && same_network(&c.circuit, b))
+                .map(|c| c.length_m())
+                .sum();
+            if length_m > protocol.max_length_m() {
+                warnings.push(format!(
+                    "bus {b} ({}): {length_m:.0} m of cable, at most {:.0} m on a segment",
+                    protocol.name(),
+                    protocol.max_length_m()
+                ));
+            }
+        }
+        warnings
     }
 }

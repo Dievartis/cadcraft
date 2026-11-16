@@ -18,7 +18,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(
                 "{at ([x, y]) | points ([[x, y]…]: one at each), kind? (roomTemperature, ductTemperature, waterTemperature, outdoorTemperature, humidity, co2, voc, differentialPressure, flow, occupancy, thermostat, \
                  vrfRemote, valveActuator, damperActuator, frequencyDrive, energyMeter, controller, ioModule, gateway, controlCabinet, supervisor), name? (the tag; default TA1…), controller? (the name of the controller \
-                 or module it is wired to), served? (the equipment, unit or part it serves or measures), circuit? (the circuit that feeds it), bus? (the bus it is on), address? (on its bus or its controller: a Modbus number, a BACnet MAC, a KNX 1.1.5), showAddress? (write it beside the device), setpoint?, ai? ao? di? do? (the points a controller or a \
+                 or module it is wired to), served? (the equipment, unit or part it serves or measures), circuit? (the circuit that feeds it), bus? (the bus it is on), protocol? (of the bus, on a controller or a gateway: modbus, bacnet, knx or mbus: the addresses, the number of devices and the length of the bus are checked), address? (on its bus or its controller: a Modbus number, a BACnet MAC, a KNX 1.1.5), showAddress? (write it beside the device), setpoint?, ai? ao? di? do? (the points a controller or a \
                  module offers), height? (mm), rotation? (degrees), labelHeight? (mm)} → {handles}",
             )
             .interactive(|s| Ok(Box::new(ControlAddM::new(s)))),
@@ -35,6 +35,13 @@ pub fn specs() -> Vec<CommandSpec> {
              warnings, problems}: what each device asks of its controller, the load of each controller and module against what it offers, and what is wrong (a device wired to nothing or to a controller that is not drawn, a \
              controller over its capacity, an automation device no circuit feeds, a bus with no cable, a device that serves an object that is not drawn)",
         ),
+        CommandSpec::new("controlschema", "Controls Principle Diagram", run_schema)
+            .menu(&["Draw", "Controls", "Principle Diagram"])
+            .params(
+                "{at ([x, y]: the upper left corner), bus? (one bus; default all), title?, labelHeight? (mm)} → {handle, controllers}: the buses with the controllers on them, each controller \
+                 and its modules with what they offer and use, and under it the points wired to it with their address and type; it is redrawn when control devices are added, changed or erased",
+            )
+            .interactive(|_| Ok(Box::new(SchemaM))),
         CommandSpec::new("controltakeoff", "Control Points", run_takeoff).menu(&["Draw", "Controls", "Points List"]).params(
             "{level?, path? (.xlsx: the controls package; else .csv: the list of points), prices? ({\"Control|Room thermostat\": euros each…}: adds `costing`), decimal?: comma|point} → {level, devices, controllers, points, \
              warnings, costing?, path?}",
@@ -104,6 +111,7 @@ fn fill(cmd: &str, p: &Value, c: &mut ControlParams) -> Result<()> {
         ("served", &mut c.served),
         ("circuit", &mut c.circuit),
         ("bus", &mut c.bus),
+        ("protocol", &mut c.protocol),
         ("address", &mut c.address),
     ] {
         if let Some(t) = str_param(p, key) {
@@ -158,6 +166,53 @@ fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
         handles.push(put(s, &c, at, rotation)?.hex());
     }
     Ok(json!({ "handles": handles }))
+}
+
+fn schema_at(s: &mut Session, at: Vec2, p: &Value) -> Result<Handle> {
+    const CMD: &str = "controlschema";
+    let mut params = cadcraft_doc::ControlSchemaParams::new(HvacUnits::of(s.doc()?));
+    if let Some(t) = str_param(p, "title") {
+        params.title = t.trim().to_string();
+    }
+    if let Some(b) = str_param(p, "bus") {
+        params.bus = b.trim().to_string();
+    }
+    if let Some(l) = clearable(CMD, p, "labelHeight")?.flatten() {
+        params.label_height_mm = l;
+    }
+    params.validate().map_err(doc_err)?;
+    let (space, common) = (s.space(), s.current_common());
+    s.doc_mut()?.add_control_schema(&space, common, &params, at).map_err(doc_err)
+}
+
+fn run_schema(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "controlschema";
+    let at = super::point_req(CMD, p, "at")?;
+    let h = schema_at(s, at, p)?;
+    let controllers = s.doc()?.control_takeoff("").controllers.len();
+    Ok(json!({ "handle": h.hex(), "controllers": controllers }))
+}
+
+/// CONTROLSCHEMA at the command line: a click puts the diagram there.
+struct SchemaM;
+
+impl Interactive for SchemaM {
+    fn name(&self) -> &'static str {
+        "CONTROLSCHEMA"
+    }
+    fn prompt(&self, _s: &Session) -> Prompt {
+        Prompt::new("Specify the upper left corner of the diagram", Accept::POINT)
+    }
+    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
+        match i {
+            Input::Point(at) => {
+                schema_at(s, at, &json!({}))?;
+                Ok(Step::Done)
+            }
+            Input::Enter | Input::Cancel => Ok(Step::Done),
+            _ => Ok(Step::Continue),
+        }
+    }
 }
 
 fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {

@@ -1827,6 +1827,10 @@ menu	View	视图
 	Bus cable	总线电缆
 	Check Controls	检查控制
 	Points List	点位表
+	Bus protocol	总线协议
+	Principle Diagram	原理图
+	Controls Principle Diagram	控制原理图
+	The buses with their controllers, and under each controller the points wired to it with their address and type; it follows the control devices.	总线及其控制器，每个控制器下为接线点位的地址和类型；随控制设备更新。
 	Control Device	控制设备
 	Edit Control Device	编辑控制设备
 	Control Points	控制点位

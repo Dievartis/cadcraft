@@ -133,3 +133,74 @@ fn addresses_are_written_beside_the_objects_hidden_listed_and_two_on_one_bus_are
     assert!(s.execute("addressdisplay", &json!({"show": "yes"})).is_err());
     assert!(s.execute("controladd", &json!({"at": [0, 0], "address": "x\u{7}"})).is_err());
 }
+
+#[test]
+fn the_controls_principle_diagram_is_drawn_and_follows_the_control_devices() {
+    let mut s = metric();
+    s.execute("controladd", &json!({"at": [0, 0], "kind": "controller", "name": "AUT1", "bus": "BUS1"})).unwrap();
+    s.execute("controladd", &json!({"at": [0, 1000], "kind": "roomTemperature", "name": "TA1", "controller": "AUT1", "address": "3"})).unwrap();
+    let r = s.execute("controlschema", &json!({"at": [0, -30000], "title": "GTB"})).unwrap();
+    assert_eq!(r["controllers"], 1, "{r}");
+    let h = cadcraft_doc::Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let texts = |s: &Session| -> Vec<String> {
+        match &s.doc().unwrap().entity(h).unwrap().kind {
+            cadcraft_doc::EntityKind::Insert(i) => s
+                .doc()
+                .unwrap()
+                .block(&i.block)
+                .unwrap()
+                .entities
+                .iter()
+                .filter_map(|e| if let cadcraft_doc::EntityKind::Text(t) = &e.kind { Some(t.value.clone()) } else { None })
+                .collect(),
+            k => panic!("{k:?}"),
+        }
+    };
+    assert!(texts(&s).iter().any(|x| x.starts_with("GTB")) && texts(&s).iter().any(|x| x.starts_with("@3  TA1")), "{:?}", texts(&s));
+    // A device added later is in the diagram without asking.
+    s.execute("controladd", &json!({"at": [500, 1000], "kind": "roomTemperature", "name": "TA2", "controller": "AUT1", "address": "9"})).unwrap();
+    assert!(texts(&s).iter().any(|x| x.starts_with("@9  TA2")), "{:?}", texts(&s));
+    // Bad input is refused; the command line puts a diagram at a click.
+    let n = s.doc().unwrap().model.len();
+    assert!(s.execute("controlschema", &json!({"title": "x"})).is_err());
+    assert!(s.execute("controlschema", &json!({"at": [0, -50000], "labelHeight": 0})).is_err());
+    assert_eq!(s.doc().unwrap().model.len(), n);
+    s.cmdline("controlschema").unwrap();
+    s.cmdline("0,-60000").unwrap();
+    assert!(s.running.is_none());
+    assert_eq!(s.doc().unwrap().model.len(), n + 1);
+}
+
+#[test]
+fn a_bus_with_a_protocol_has_its_addresses_its_devices_and_its_cable_checked() {
+    let mut s = metric();
+    s.execute("controladd", &json!({"at": [0, 0], "kind": "controller", "name": "AUT1", "bus": "BUS1", "protocol": "Modbus"})).unwrap();
+    s.execute("controladd", &json!({"at": [0, 1000], "kind": "roomTemperature", "name": "TA1", "controller": "AUT1", "address": "12"})).unwrap();
+    s.execute("controladd", &json!({"at": [500, 1000], "kind": "roomTemperature", "name": "TA2", "controller": "AUT1", "address": "300"})).unwrap();
+    s.execute("controladd", &json!({"at": [900, 1000], "kind": "roomTemperature", "name": "TA3", "controller": "AUT1", "address": "A5"})).unwrap();
+    s.execute("cableadd", &json!({"points": [[0, 3000], [1500000, 3000]], "circuit": "BUS1", "usage": "bus"})).unwrap();
+    let r = s.execute("controlcheck", &json!({})).unwrap();
+    let w: Vec<&str> = r["warnings"].as_array().unwrap().iter().filter_map(|x| x.as_str()).collect();
+    // 300 and A5 are not Modbus addresses; 12 is.
+    assert!(w.iter().any(|x| x.contains("TA2") && x.contains("Modbus address is 1 to 247")), "{w:?}");
+    assert!(w.iter().any(|x| x.contains("TA3") && x.contains("Modbus address is 1 to 247")), "{w:?}");
+    assert!(!w.iter().any(|x| x.contains("TA1") && x.contains("address")), "{w:?}");
+    // 1500 m of cable on a bus that takes 1200 m.
+    assert!(w.iter().any(|x| x.contains("bus BUS1 (Modbus RTU)") && x.contains("at most 1200 m")), "{w:?}");
+    // A protocol that does not exist is refused, on the device and at its creation.
+    assert!(s.execute("controladd", &json!({"at": [0, 5000], "kind": "controller", "name": "AUT2", "bus": "B2", "protocol": "telepathy"})).is_err());
+    // Too many devices for a segment: 33 meters on a bus of 32.
+    for i in 0..33 {
+        s.execute(
+            "controladd",
+            &json!({"at": [i * 100, 9000], "kind": "energyMeter", "name": format!("EN{i}"), "controller": "AUT9", "address": (i + 1).to_string()}),
+        )
+        .unwrap();
+    }
+    s.execute("controladd", &json!({"at": [0, 8000], "kind": "controller", "name": "AUT9", "bus": "RS", "protocol": "bacnet"})).unwrap();
+    let r = s.execute("controlcheck", &json!({})).unwrap();
+    let w: Vec<&str> = r["warnings"].as_array().unwrap().iter().filter_map(|x| x.as_str()).collect();
+    assert!(w.iter().any(|x| x.contains("bus RS (BACnet MS/TP)") && x.contains("at most 32")), "{w:?}");
+    // MAC 33 is a BACnet address (0 to 127): no address warning for the meters.
+    assert!(!w.iter().any(|x| x.contains("EN") && x.contains("address")), "{w:?}");
+}

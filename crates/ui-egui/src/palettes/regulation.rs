@@ -115,6 +115,16 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         ) {
             start = Some("controltakeoff");
         }
+        if row_tip(
+            ui,
+            crate::i18n::t("Principle Diagram"),
+            crate::i18n::t("The buses with their controllers, and under each controller the points wired to it with their address and type; it follows the control devices."),
+            Some("Principle Diagram"),
+            false,
+            paint_points,
+        ) {
+            start = Some("controlschema");
+        }
     });
     app.ui.sections = ui
         .data_mut(|d| {

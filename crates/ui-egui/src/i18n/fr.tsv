@@ -1856,6 +1856,10 @@
 	Bus cable	Câble de bus
 	Check Controls	Contrôler la régulation
 	Points List	Liste de points
+	Bus protocol	Protocole du bus
+	Principle Diagram	Schéma de principe
+	Controls Principle Diagram	Schéma de principe de la régulation
+	The buses with their controllers, and under each controller the points wired to it with their address and type; it follows the control devices.	Les bus avec leurs automates, et sous chaque automate les points câblés avec leur adresse et leur type ; il suit les appareils de régulation.
 	Control Device	Appareil de régulation
 	Edit Control Device	Modifier l'appareil de régulation
 	Control Points	Points de régulation
