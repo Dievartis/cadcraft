@@ -45,6 +45,23 @@ fn listed(s: &mut Session) -> Value {
 }
 
 #[test]
+fn image_edit_rotation_is_absolute_and_invalid_values_are_atomic() {
+    hooks();
+    let mut s = Session::new();
+    let result = s.execute("imageattach", &json!({"path":"edit.png", "data":base64_encode(&png()), "width":8})).unwrap();
+    let handle = result["handle"].clone();
+    s.execute("imageedit", &json!({"handle":handle, "rotation":90, "brightness":70, "width":16})).unwrap();
+    let first = images(&s).pop().unwrap();
+    s.execute("imageedit", &json!({"handle":handle, "rotation":90})).unwrap();
+    let second = images(&s).pop().unwrap();
+    assert!((first.u.x - second.u.x).abs() < 1e-10);
+    assert!((second.u.y * second.size.x - 16.0).abs() < 1e-10);
+    assert_eq!(second.brightness, 70);
+    assert!(s.execute("imageedit", &json!({"handle":handle, "brightness":20, "fade":101})).is_err());
+    assert_eq!(images(&s).pop().unwrap(), second);
+}
+
+#[test]
 fn attach_from_bytes_places_the_image() {
     hooks();
     let mut s = Session::new();

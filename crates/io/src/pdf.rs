@@ -912,11 +912,35 @@ fn draw_image(s: &mut Surface<'_>, image: &DImage, alpha: u8, map: &Map) {
     let (Some((a, b)), Some((c, d)), Some((e, f))) = (coord(right), coord(down), coord(origin)) else { return };
     let Some(size) = Size::from_wh(image.raster.width() as f32, image.raster.height() as f32) else { return };
     let Some(opacity) = NormalizedF32::new(image.opacity(alpha)) else { return };
+    let mut clips = Vec::new();
+    for outline in &image.clips {
+        if outline.len() < 3 {
+            return;
+        }
+        let mut builder = PathBuilder::new();
+        for (index, point) in outline.iter().enumerate() {
+            let Some((x, y)) = coord(map.pt(*point)) else { return };
+            if index == 0 {
+                builder.move_to(x, y);
+            } else {
+                builder.line_to(x, y);
+            }
+        }
+        builder.close();
+        let Some(path) = builder.finish() else { return };
+        clips.push(path);
+    }
+    for path in &clips {
+        s.push_clip_path(path, &FillRule::NonZero);
+    }
     s.push_transform(&Transform::from_row(a, b, c, d, e, f));
     s.push_opacity(opacity);
     s.draw_image(bitmap, size);
     s.pop();
     s.pop();
+    for _ in &clips {
+        s.pop();
+    }
 }
 
 /// How a primitive is painted: colour, transparency (percent) and lineweight (points).

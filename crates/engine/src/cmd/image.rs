@@ -39,7 +39,102 @@ pub fn specs() -> Vec<CommandSpec> {
             .alias(&["im"])
             .params("{} → {images: [{name, path, foundAt, status: Loaded|Not Found|Not loaded, references, pixels?: [w, h]}]}")
             .noundo(),
+        CommandSpec::new("imageedit", "Edit Raster Image", run_imageedit)
+            .params("{handle?, brightness?, contrast?, fade?, transparency?, clipping?, clip?, insert?, width?, height?, rotation?} → {handle}"),
+        CommandSpec::new("imagereload", "Reload Raster Image", run_imagereload).params("{handle?} → {handle}"),
     ]
+}
+
+fn run_imagereload(s: &mut Session, p: &Value) -> Result<Value> {
+    let h = image_handle(s, p)?;
+    let path = match s.doc()?.entity(h).map(|e| &e.kind) {
+        Some(EntityKind::Image(i)) => i.path.clone(),
+        _ => return Err(bad("imagereload", "object is not a raster image")),
+    };
+    let host = s.state()?.path.clone();
+    let raster = read_file(&path, host.as_deref()).and_then(|bytes| decode(&bytes)).map_err(|e| bad("imagereload", e))?;
+    if bytes_of(&raster) > MAX_LOADED_BYTES {
+        return Err(bad("imagereload", "image exceeds the memory limit"));
+    }
+    s.doc_mut()?.rasters.insert(&path, Arc::new(raster));
+    Ok(json!({"handle": h.hex()}))
+}
+
+fn image_handle(s: &Session, p: &Value) -> Result<cadcraft_doc::Handle> {
+    let explicit = p.get("handle").and_then(|v| v.as_str()).and_then(cadcraft_doc::Handle::parse_hex);
+    explicit
+        .or_else(|| {
+            s.selection().into_iter().find(|h| s.doc().ok().and_then(|d| d.entity(*h)).is_some_and(|e| matches!(e.kind, EntityKind::Image(_))))
+        })
+        .ok_or_else(|| bad("imageedit", "`handle` of an image is required"))
+}
+
+fn percent(p: &Value, key: &str, current: u8) -> Result<u8> {
+    let Some(v) = p.get(key) else { return Ok(current) };
+    let n = v.as_f64().ok_or_else(|| bad("imageedit", format!("`{key}` must be a number")))?;
+    if !n.is_finite() || !(0.0..=100.0).contains(&n) {
+        return Err(bad("imageedit", format!("`{key}` must be between 0 and 100")));
+    }
+    Ok(n.round() as u8)
+}
+
+fn run_imageedit(s: &mut Session, p: &Value) -> Result<Value> {
+    let h = image_handle(s, p)?;
+    let old = match s.doc()?.entity(h).map(|e| &e.kind) {
+        Some(EntityKind::Image(i)) => i.clone(),
+        _ => return Err(bad("imageedit", "object is not a raster image")),
+    };
+    let mut image = old;
+    image.brightness = percent(p, "brightness", image.brightness)?;
+    image.contrast = percent(p, "contrast", image.contrast)?;
+    image.fade = percent(p, "fade", image.fade)?;
+    if let Some(v) = p.get("transparency") {
+        let enabled = v.as_bool().ok_or_else(|| bad("imageedit", "`transparency` must be boolean"))?;
+        if enabled {
+            image.display |= 8;
+        } else {
+            image.display &= !8;
+        }
+    }
+    if let Some(v) = p.get("clipping") {
+        image.clipping = v.as_bool().ok_or_else(|| bad("imageedit", "`clipping` must be boolean"))?;
+    }
+    if let Some(v) = p.get("clip") {
+        image.clip = serde_json::from_value(v.clone()).map_err(|_| bad("imageedit", "`clip` must be an array of points"))?;
+    }
+    if let Some(v) = p.get("insert") {
+        image.insert = serde_json::from_value(v.clone()).map_err(|_| bad("imageedit", "`insert` must be [x,y]"))?;
+    }
+    if let Some(width) = p.get("width").and_then(Value::as_f64) {
+        if width <= 0.0 || !width.is_finite() {
+            return Err(bad("imageedit", "`width` must be positive"));
+        }
+        let factor = width / (image.size.x * image.u.xy().len()).max(f64::MIN_POSITIVE);
+        image.u = image.u * factor;
+        if p.get("height").is_none() {
+            image.v = image.v * factor;
+        }
+    }
+    if let Some(height) = p.get("height").and_then(Value::as_f64) {
+        if height <= 0.0 || !height.is_finite() {
+            return Err(bad("imageedit", "`height` must be positive"));
+        }
+        let factor = height / (image.size.y * image.v.xy().len()).max(f64::MIN_POSITIVE);
+        image.v = image.v * factor;
+    }
+    if let Some(deg) = p.get("rotation").and_then(Value::as_f64) {
+        if !deg.is_finite() {
+            return Err(bad("imageedit", "`rotation` must be finite"));
+        }
+        let angle = deg.to_radians() - image.u.y.atan2(image.u.x);
+        let (sin, cos) = angle.sin_cos();
+        let u = image.u.xy();
+        let v = image.v.xy();
+        image.u = Vec2::new(u.x * cos - u.y * sin, u.x * sin + u.y * cos).to3(0.0);
+        image.v = Vec2::new(v.x * cos - v.y * sin, v.x * sin + v.y * cos).to3(0.0);
+    }
+    s.doc_mut()?.modify_entity(h, |e| e.kind = EntityKind::Image(image))?;
+    Ok(json!({"handle": h.hex()}))
 }
 
 /// Whether `ext` (lower case, no dot) is an image file type IMAGEATTACH reads.
