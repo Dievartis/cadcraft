@@ -23,7 +23,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(
                 "{at ([x, y]) | points ([[x, y]…]: one device at each), kind? (socket, dedicatedSocket, switch, doubleSwitch, twoWaySwitch, pushButton, dimmer, presenceDetector, dataOutlet, \
                  ceilingLight, recessedLight600x600 (for a false ceiling), downlight, wallLight, stripLight, emergencyLight, exitSign, distributionBoard), name? (the tag; default P1, I2, L3…), circuit?, address? (on its KNX or DALI line, written beside it), power? (W), flux? (lm, a luminaire), \
-                 height? (mm above the floor; a board's underside), boardHeight? / boardWidth? / boardDepth? (mm, a board; the plan shows its width by its depth), supply? (A, a board's main breaker), rotation? (degrees), labelHeight? (mm)} → {handles}",
+                 ceilingSnap? (true: at the centre of the ceiling tile it is on, see CEILINGADD), height? (mm above the floor; a board's underside), boardHeight? / boardWidth? / boardDepth? (mm, a board; the plan shows its width by its depth), supply? (A, a board's main breaker), rotation? (degrees), labelHeight? (mm)} → {handles}",
             )
             .interactive(|s| Ok(Box::new(DeviceAddM::new(s)))),
         CommandSpec::new("cableadd", "Cable", run_cable_add)
@@ -244,8 +244,11 @@ fn run_device_add(s: &mut Session, p: &Value) -> Result<Value> {
     let kind = word(CMD, p, "kind", DeviceKind::parse)?.unwrap_or(DeviceKind::Socket);
     let rotation = number(CMD, p, "rotation")?.unwrap_or(0.0).to_radians();
     let mut handles = Vec::new();
+    let ceiling = p.get("ceilingSnap").and_then(Value::as_bool).unwrap_or(false);
     for at in pts {
         let d = s.doc()?;
+        // In a false ceiling the device is put at the centre of the tile it is on.
+        let at = if ceiling { d.ceiling_tile_centre(&s.space(), at).unwrap_or(at) } else { at };
         let name = str_param(p, "name").map_or_else(|| next_tag(d, kind), str::to_string);
         let mut dp = DeviceParams::new(kind, &name, HvacUnits::of(d));
         dp.circuit = str_param(p, "circuit").unwrap_or("").trim().to_string();

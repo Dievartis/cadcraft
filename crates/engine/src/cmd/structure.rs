@@ -40,7 +40,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["Draw", "Architecture", "Structure Takeoff"])
             .params(
                 "{path? (a .xlsx workbook, or a text file with `;` between the columns), decimal?: comma|point (the text file, default comma)} → {columns, beams, slabs, steelKg, \
-                 slabAreaM2, slabVolumeM3}: the steel columns and beams by section (count, length, mass) and the slabs by kind (count, net area and volume)",
+                 slabAreaM2, slabVolumeM3}: the steel columns and beams by section (count, length, mass), the slabs by kind (count, net area and volume), the false ceilings (tiles whole and cut), the stairs and the railings",
             ),
         CommandSpec::new("structcleanup", "Structure Joints", run_structcleanup)
             .menu(&["Draw", "Architecture", "Structure Joints"])

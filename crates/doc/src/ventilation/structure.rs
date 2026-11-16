@@ -614,6 +614,17 @@ pub struct SlabQuantity {
     pub holes_area_m2: f64,
 }
 
+/// A false ceiling's tiles.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CeilingQuantity {
+    pub name: String,
+    pub tile: String,
+    pub whole: usize,
+    pub cut: usize,
+    pub area_m2: f64,
+}
+
 /// The quantities of the structure of a space: the steel columns and beams by section, and the slabs by kind.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -621,6 +632,17 @@ pub struct StructTakeoff {
     pub columns: Vec<SectionQuantity>,
     pub beams: Vec<SectionQuantity>,
     pub slabs: Vec<SlabQuantity>,
+    /// The false ceilings, the stairs (how many, and how many risers they have) and the railings (how many, and how long they are, m).
+    #[serde(default)]
+    pub ceilings: Vec<CeilingQuantity>,
+    #[serde(default)]
+    pub stairs: usize,
+    #[serde(default)]
+    pub risers: usize,
+    #[serde(default)]
+    pub railings: usize,
+    #[serde(default)]
+    pub railing_length_m: f64,
     /// The mass of all the steel, kg.
     pub steel_kg: f64,
     pub slab_area_m2: f64,
@@ -643,6 +665,39 @@ impl StructTakeoff {
         }
         for q in &self.slabs {
             rows.push(["Slab".into(), q.kind.clone(), q.count.to_string(), String::new(), String::new(), num(q.area_m2), num(q.volume_m3)]);
+        }
+        for q in &self.ceilings {
+            rows.push([
+                "Ceiling".into(),
+                format!("{} {} ({}+{} tiles)", q.name, q.tile, q.whole, q.cut),
+                "1".into(),
+                String::new(),
+                String::new(),
+                num(q.area_m2),
+                String::new(),
+            ]);
+        }
+        if self.stairs > 0 {
+            rows.push([
+                "Stair".into(),
+                format!("{} risers", self.risers),
+                self.stairs.to_string(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ]);
+        }
+        if self.railings > 0 {
+            rows.push([
+                "Railing".into(),
+                String::new(),
+                self.railings.to_string(),
+                num(self.railing_length_m),
+                String::new(),
+                String::new(),
+                String::new(),
+            ]);
         }
         rows
     }
@@ -685,6 +740,21 @@ impl StructTakeoff {
             vec![C::text(q.kind.clone()), C::Num(q.count as f64), num(q.area_m2), num(q.volume_m3), C::Num(q.holes as f64), num(q.holes_area_m2)]
         }));
         wb.sheet("Slabs", rows)?;
+        let mut rows = vec![head(&["Ceiling", "Tile", "Whole tiles", "Cut tiles", "Area (m²)"])];
+        rows.extend(
+            self.ceilings
+                .iter()
+                .map(|q| vec![C::text(q.name.clone()), C::text(q.tile.clone()), C::Num(q.whole as f64), C::Num(q.cut as f64), num(q.area_m2)]),
+        );
+        wb.sheet("Ceilings", rows)?;
+        wb.sheet(
+            "Stairs and railings",
+            vec![
+                head(&["Item", "Count", "Risers", "Length (m)"]),
+                vec![C::text("Stairs"), C::Num(self.stairs as f64), C::Num(self.risers as f64), C::text("")],
+                vec![C::text("Railings"), C::Num(self.railings as f64), C::text(""), num(self.railing_length_m)],
+            ],
+        )?;
         wb.to_bytes()
     }
 }
@@ -706,6 +776,21 @@ impl crate::Drawing {
                     None => list.push(SectionQuantity { section: o.section.clone(), count: 1, length_m: metres, mass_kg: mass }),
                 }
                 t.steel_kg += mass;
+            } else if let Some(c) = super::ceiling_of(e) {
+                let n = c.tiles();
+                t.ceilings.push(CeilingQuantity {
+                    name: c.name.clone(),
+                    tile: format!("{:.0}x{:.0}", c.tile_x_mm, c.tile_y_mm),
+                    whole: n.whole,
+                    cut: n.cut,
+                    area_m2: n.area_m2,
+                });
+            } else if let Some(st) = super::stair_of(e) {
+                t.stairs += 1;
+                t.risers += st.risers();
+            } else if let Some(r) = super::rail_of(e) {
+                t.railings += 1;
+                t.railing_length_m += r.length_mm() / 1000.0;
             } else if let Some(p) = super::slab_of(e) {
                 let kind = p.kind.name().to_string();
                 let (area, volume, holes) = (p.area_m2(), p.volume_m3(), p.holes_area_m2());

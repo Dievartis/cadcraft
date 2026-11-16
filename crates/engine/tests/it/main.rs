@@ -39,6 +39,7 @@ mod dash_block;
 mod dash_parameters;
 mod dash_units;
 mod data_extraction;
+mod design;
 mod dim_baseline_spacing;
 mod dim_chain;
 mod dim_commands;

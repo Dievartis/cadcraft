@@ -673,6 +673,38 @@ pub(super) fn paint_network_legend(p: &Painter, r: Rect) {
     }
 }
 
+/// A false ceiling seen in plan: a room crossed by the lines between its tiles.
+pub(super) fn paint_ceiling_grid(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.poly(&[(3.0, 4.0), (21.0, 4.0), (21.0, 20.0), (3.0, 20.0)], true, t.base);
+    for v in [9.0, 15.0] {
+        t.l((v, 4.0), (v, 20.0), t.acc);
+        t.l((3.0, v - 1.0), (21.0, v - 1.0), t.acc);
+    }
+}
+
+/// A flight of stairs seen in plan: its treads and the arrow that goes up.
+pub(super) fn paint_stair(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.poly(&[(3.0, 6.0), (21.0, 6.0), (21.0, 18.0), (3.0, 18.0)], true, t.base);
+    for x in [7.5, 12.0, 16.5] {
+        t.l((x, 6.0), (x, 18.0), t.base);
+    }
+    t.l((5.0, 12.0), (19.0, 12.0), t.acc);
+    t.l((19.0, 12.0), (16.5, 10.0), t.acc);
+    t.l((19.0, 12.0), (16.5, 14.0), t.acc);
+}
+
+/// A railing seen in plan: a rail on its posts.
+pub(super) fn paint_railing(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.l((3.0, 12.0), (21.0, 12.0), t.base);
+    t.l((3.0, 13.0), (21.0, 13.0), t.base);
+    for x in [4.0, 9.0, 14.0, 20.0] {
+        t.poly(&[(x - 1.0, 10.5), (x + 1.0, 10.5), (x + 1.0, 14.5), (x - 1.0, 14.5)], true, t.acc);
+    }
+}
+
 /// A column seen in plan: an I section, filled.
 pub(super) fn paint_column(p: &Painter, r: Rect) {
     let t = Th::new(p, r);

@@ -1466,6 +1466,21 @@
 	Column	Poteau
 	Beam	Poutre
 	Edit Structure	Modifier la structure
+	Design	Conception
+	Ceiling Grid	Grille de plafond
+	Stair	Escalier
+	Railing	Garde-corps
+	Edit Design Object	Modifier l'objet de conception
+	Tile (mm)	Dalle de plafond (mm)
+	Grid angle (degrees)	Angle de la grille (degrés)
+	Tiles	Dalles de plafond
+	Rise (mm)	Hauteur à monter (mm)
+	Highest riser (mm)	Contremarche maximale (mm)
+	Tread (mm)	Giron (mm)
+	Run (mm)	Emprise (mm)
+	Comfort (2 riser + tread)	Confort (2 H + G)
+	Post spacing (mm)	Entraxe des poteaux (mm)
+	Posts	Poteaux
 	Structure Takeoff	Métré de la structure
 	Slab Opening	Trémie de dalle
 	Slope (%)	Pente (%)

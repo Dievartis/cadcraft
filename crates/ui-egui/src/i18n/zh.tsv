@@ -1598,6 +1598,23 @@ menu	View	视图
 	Column	柱
 	Beam	梁
 	Edit Structure	编辑结构
+	Design	设计
+	Ceiling Grid	吊顶网格
+	Stair	楼梯
+	Railing	栏杆
+	Edit Design Object	编辑设计对象
+	Tile (mm)	板块 (mm)
+	Grid angle (degrees)	网格角度 (度)
+	Tiles	板块数
+	Rise (mm)	提升高度 (mm)
+	Highest riser (mm)	最大踢面 (mm)
+	Tread (mm)	踏面 (mm)
+	Width (mm)	宽度 (mm)
+	Risers	踢面
+	Run (mm)	水平长度 (mm)
+	Comfort (2 riser + tread)	舒适度 (2 踢面 + 踏面)
+	Post spacing (mm)	立柱间距 (mm)
+	Posts	立柱
 	Structure Takeoff	结构工程量
 	Slab Opening	楼板洞口
 	Slope (%)	坡度 (%)

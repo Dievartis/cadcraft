@@ -5,8 +5,8 @@
 use cadcraft_doc::{
     AccessoryKind, AccessoryParams, AhuKind, AhuParams, AirDirection, Drawing, DuctKind, DuctParams, DuctShape, Handle, OpeningKind, OpeningParams,
     PartParams, PipeParams, PipeRiserParams, PipeService, RiserParams, SlabParams, SpaceParams, TerminalKind, TerminalParams, WallJustification,
-    ZoneParams, accessory_of, ahu_of, air_terminal_of, duct_of, opening_of, part_of, pipe_of, pipe_riser_of, riser_of, slab_of, space_of, struct_of,
-    wall_of, zone_of,
+    ZoneParams, accessory_of, ahu_of, air_terminal_of, ceiling_of, duct_of, opening_of, part_of, pipe_of, pipe_riser_of, rail_of, riser_of, slab_of,
+    space_of, stair_of, struct_of, wall_of, zone_of,
 };
 use cadcraft_hvac::RoomUse;
 use egui::{Sense, pos2, vec2};
@@ -103,6 +103,19 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     let slabs: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| slab_of(e))).collect();
     if !slabs.is_empty() && slabs.len() == sel.len() {
         return slab_section(ui, sel, &slabs, bad);
+    }
+    if let [h] = sel
+        && let Some(e) = d.entity(*h)
+    {
+        if let Some(c) = ceiling_of(e) {
+            return ceiling_section(ui, sel, &c, bad);
+        }
+        if let Some(st) = stair_of(e) {
+            return stair_section(ui, sel, &st, bad);
+        }
+        if let Some(r) = rail_of(e) {
+            return rail_section(ui, sel, &r, bad);
+        }
     }
     let structs: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| struct_of(e))).collect();
     if !structs.is_empty() && structs.len() == sel.len() {
@@ -500,6 +513,63 @@ fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], library: &
     action
 }
 
+/// The Properties group of a ceiling grid: name, tile, turn, height of the underside, and what it counts.
+fn ceiling_section(ui: &mut egui::Ui, sel: &[Handle], c: &cadcraft_doc::CeilingParams, bad: &mut Option<String>) -> Action {
+    let ids = handles(sel);
+    let mut action: Action = None;
+    group(ui, "Ceiling Grid");
+    elec_text(ui, "designedit", "Tag", "name", &ids, vec![c.name.clone()], &mut action);
+    elec_text(ui, "designedit", "Tile (mm)", "tile", &ids, vec![format!("{:.0}x{:.0}", c.tile_x_mm, c.tile_y_mm)], &mut action);
+    elec_number(ui, ("designedit", "Grid angle (degrees)", "angle", false), &ids, vec![Some(c.angle_deg)], bad, &mut action);
+    elec_number(
+        ui,
+        ("designedit", "Elevation of the underside (m)", "elevation", false),
+        &ids,
+        vec![Some(c.elevation_mm / 1000.0)],
+        bad,
+        &mut action,
+    );
+    let t = c.tiles();
+    prop_row(ui, "Tiles", |ui| read_only(ui, &format!("{} + {}", t.whole, t.cut)));
+    prop_row(ui, "Area", |ui| read_only(ui, &format!("{:.2} m²", t.area_m2)));
+    action
+}
+
+/// The Properties group of a stair: name, rise, riser, tread and width, with the risers it needs and whether it is comfortable.
+fn stair_section(ui: &mut egui::Ui, sel: &[Handle], st: &cadcraft_doc::StairParams, bad: &mut Option<String>) -> Action {
+    let ids = handles(sel);
+    let mut action: Action = None;
+    group(ui, "Stair");
+    elec_text(ui, "designedit", "Tag", "name", &ids, vec![st.name.clone()], &mut action);
+    for (label, key, v) in [
+        ("Rise (mm)", "rise", st.rise_mm),
+        ("Highest riser (mm)", "riserMax", st.riser_max_mm),
+        ("Tread (mm)", "going", st.going_mm),
+        ("Width (mm)", "width", st.width_mm),
+    ] {
+        elec_number(ui, ("designedit", label, key, false), &ids, vec![Some(v)], bad, &mut action);
+    }
+    prop_row(ui, "Risers", |ui| read_only(ui, &format!("{} x {:.0} mm", st.risers(), st.riser_mm())));
+    prop_row(ui, "Run (mm)", |ui| read_only(ui, &format!("{:.0}", st.run_mm())));
+    prop_row(ui, "Comfort (2 riser + tread)", |ui| {
+        read_only(ui, &format!("{:.0} mm {}", 2.0 * st.riser_mm() + st.going_mm, if st.comfortable() { "OK" } else { "!" }))
+    });
+    action
+}
+
+/// The Properties group of a railing: name, height, spacing of the posts, with its length and posts.
+fn rail_section(ui: &mut egui::Ui, sel: &[Handle], r: &cadcraft_doc::RailParams, bad: &mut Option<String>) -> Action {
+    let ids = handles(sel);
+    let mut action: Action = None;
+    group(ui, "Railing");
+    elec_text(ui, "designedit", "Tag", "name", &ids, vec![r.name.clone()], &mut action);
+    elec_number(ui, ("designedit", "Height (mm)", "height", false), &ids, vec![Some(r.height_mm)], bad, &mut action);
+    elec_number(ui, ("designedit", "Post spacing (mm)", "postSpacing", false), &ids, vec![Some(r.post_spacing_mm)], bad, &mut action);
+    prop_row(ui, "Length (m)", |ui| read_only(ui, &format!("{:.3}", r.length_mm() / 1000.0)));
+    prop_row(ui, "Posts", |ui| read_only(ui, &r.posts().len().to_string()));
+    action
+}
+
 /// The Properties group of columns and beams: tag, section, height (a column), elevation, with the mass and the top.
 fn struct_section(ui: &mut egui::Ui, sel: &[Handle], ss: &[cadcraft_doc::StructParams], bad: &mut Option<String>) -> Action {
     use cadcraft_doc::StructKind;
@@ -602,6 +672,9 @@ pub(crate) fn is_parametric(d: &Drawing, h: Handle) -> bool {
             || pipe_of(e).is_some()
             || slab_of(e).is_some()
             || struct_of(e).is_some()
+            || ceiling_of(e).is_some()
+            || stair_of(e).is_some()
+            || rail_of(e).is_some()
             || part_of(e).is_some()
             || pipe_riser_of(e).is_some()
             || accessory_of(e).is_some()
@@ -2055,6 +2128,33 @@ mod hvac_tests {
         type_into(&mut hn, "IPN 300", "XYZ 1");
         let p = cadcraft_doc::struct_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
         assert_eq!(p.section, "IPN 300");
+    }
+
+    #[test]
+    fn a_selected_stair_and_ceiling_show_what_they_count_and_take_a_typed_value() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        *app.session.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+        let r = app.run("stairadd", json!({ "at": [0, 0], "rise": 3000 })).unwrap();
+        let h = cadcraft_doc::Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+        app.session.set_selection(vec![h]);
+        let mut hn = palette(app);
+        for label in ["Rise (mm)", "Tread (mm)", "Risers", "Comfort (2 riser + tread)"] {
+            assert!(hn.query_by_label(label).is_some(), "{label} is shown");
+        }
+        type_into(&mut hn, "3000", "3400");
+        let st = cadcraft_doc::stair_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
+        assert_eq!((st.rise_mm, st.risers()), (3400.0, 19));
+        // A ceiling grid: its tile typed, and what it counts.
+        let mut app = CadApp::new(Session::new(), Services::default());
+        *app.session.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+        let c = app.run("ceilingadd", json!({ "points": [[0, 0], [3000, 0], [3000, 2400], [0, 2400]] })).unwrap();
+        let hc = cadcraft_doc::Handle::parse_hex(c["handle"].as_str().unwrap()).unwrap();
+        app.session.set_selection(vec![hc]);
+        let mut hn = palette(app);
+        assert!(hn.query_by_label("Tiles").is_some() && hn.query_by_label("Tile (mm)").is_some());
+        type_into(&mut hn, "600x600", "600x1200");
+        let cp = cadcraft_doc::ceiling_of(hn.state().session.doc().unwrap().entity(hc).unwrap()).unwrap();
+        assert_eq!((cp.tile_x_mm, cp.tile_y_mm), (600.0, 1200.0));
     }
 
     #[test]

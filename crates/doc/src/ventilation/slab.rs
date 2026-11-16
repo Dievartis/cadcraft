@@ -311,14 +311,14 @@ pub(super) fn slab_layer_color(name: &str) -> Option<cadcraft_color::Color> {
 }
 
 /// A point of a block reference's block in the drawing: scaled, turned and moved by the reference.
-fn block_to_world(i: &crate::Insert, p: Vec2) -> Vec2 {
+pub(super) fn block_to_world(i: &crate::Insert, p: Vec2) -> Vec2 {
     let (c, s) = (i.rotation.cos(), i.rotation.sin());
     let (x, y) = (p.x * i.scale.x, p.y * i.scale.y);
     Vec2::new(i.insert.x + x * c - y * s, i.insert.y + x * s + y * c)
 }
 
 /// A point of the drawing in a block reference's block: the inverse of [`block_to_world`]; `None` for a reference scaled to nothing.
-fn world_to_block(i: &crate::Insert, p: Vec2) -> Option<Vec2> {
+pub(super) fn world_to_block(i: &crate::Insert, p: Vec2) -> Option<Vec2> {
     if i.scale.x.abs() < 1e-12 || i.scale.y.abs() < 1e-12 {
         return None;
     }

@@ -639,6 +639,7 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut cleanup = false;
     let mut cleanup_structure = false;
     let mut takeoff_structure = false;
+    let mut design_start: Option<&'static str> = None;
     let last = app.session.last_used.opening.clone();
     let mut chosen: Option<Preset> = None;
     let mut sections = std::mem::take(&mut app.ui.sections);
@@ -685,6 +686,17 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
             for (label, kind) in SLABS {
                 if row_button(ui, crate::i18n::t(label), last == *kind, |p, r| thumbs::paint_slab(p, r, *kind)) {
                     slab_chosen = Some(*kind);
+                }
+            }
+        });
+        section(ui, "Design", true, &mut |ui| {
+            for (label, cmd, paint) in [
+                ("Ceiling Grid", "ceilingadd", thumbs::paint_ceiling_grid as fn(&egui::Painter, Rect)),
+                ("Stair", "stairadd", thumbs::paint_stair),
+                ("Railing", "railadd", thumbs::paint_railing),
+            ] {
+                if row_tip(ui, crate::i18n::t(label), "", Some(label), false, paint) {
+                    design_start = Some(cmd);
                 }
             }
         });
@@ -768,7 +780,10 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
             Err(e) => app.session.echo(e.to_string()),
         }
     }
-    if let Some(cmd) = struct_start {
+    if let Some(cmd) = design_start {
+        app.cmd.buffer.clear();
+        app.start(cmd);
+    } else if let Some(cmd) = struct_start {
         app.cmd.buffer.clear();
         app.start(cmd);
     } else if let Some(name) = draw {
@@ -1051,6 +1066,17 @@ mod tests {
         assert!(hn.state().session.running.is_some(), "the command is running");
         // The section new columns take is the one kept by the session.
         assert_eq!(hn.state().session.last_used.structure.section, "HEA 200");
+    }
+
+    #[test]
+    fn the_design_group_starts_the_ceiling_stair_and_railing_commands() {
+        let mut hn = tab(app(SectionsMode::Open), "Architecture");
+        for label in ["Design", "Ceiling Grid", "Stair", "Railing"] {
+            assert!(hn.query_by_label(label).is_some(), "{label}");
+        }
+        hn.get_by_label("Stair").click();
+        hn.run_steps(3);
+        assert!(hn.state().session.running.is_some(), "STAIRADD is running");
     }
 
     #[test]

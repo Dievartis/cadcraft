@@ -31,7 +31,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(
                 "{at | space (handle) with count? or rows?+cols?, model? | type?: squareCeiling|round|rectangular|linear|extract, \
                  flow? (m³/h per terminal; spread over a space: its flow shared), air?: supply|extract|fresh|exhaust, rotation? (degrees), \
-                 labelHeight? (mm)} → {handles, model, flow}",
+                 ceilingSnap? (true: at the centre of the ceiling tile it is on, see CEILINGADD), labelHeight? (mm)} → {handles, model, flow}",
             )
             .interactive(|s| Ok(Box::new(TerminalAddM::new(s)))),
         CommandSpec::new("spaceedit", "Edit Space", run_spaceedit)
@@ -460,6 +460,13 @@ fn run_airterminaladd(s: &mut Session, p: &Value) -> Result<Value> {
         }
         (None, Some(at)) => (vec![at], flow.unwrap_or(TerminalLastUsed::default().flow_m3h)),
         _ => return Err(bad(CMD, "`at` ([x, y]) or `space` (a space's handle) is required")),
+    };
+    // In a false ceiling the terminals are put at the centre of the tile they are on.
+    let points: Vec<Vec2> = if p.get("ceilingSnap").and_then(Value::as_bool).unwrap_or(false) {
+        let space = s.space();
+        points.into_iter().map(|q| s.doc().ok().and_then(|d| d.ceiling_tile_centre(&space, q)).unwrap_or(q)).collect()
+    } else {
+        points
     };
     let model = choose_model(s.doc()?, str_param(p, "model").unwrap_or(""), kind, each)?;
     let name = model.name.clone();

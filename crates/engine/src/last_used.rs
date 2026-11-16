@@ -46,6 +46,8 @@ pub struct LastUsed {
     /// CONTROLADD's type and controller.
     pub control: cmd::ControlLastUsed,
     pub slab: cmd::SlabLastUsed,
+    /// CEILINGADD, STAIRADD and RAILADD: the tile, the heights and the sizes.
+    pub design: cmd::DesignLastUsed,
     /// COLUMNADD and BEAMADD: the section and the elevations.
     pub structure: cmd::StructLastUsed,
     /// DUCTACCESSORYADD's type.
@@ -85,6 +87,7 @@ impl Default for LastUsed {
             device: cmd::DeviceLastUsed::default(),
             control: cmd::ControlLastUsed::default(),
             slab: cmd::SlabLastUsed::default(),
+            design: cmd::DesignLastUsed::default(),
             structure: cmd::StructLastUsed::default(),
             accessory: cmd::AccessoryLastUsed::default(),
             zone: cmd::ZoneLastUsed::default(),
