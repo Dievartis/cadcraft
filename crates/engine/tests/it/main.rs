@@ -25,6 +25,7 @@ mod break_trim_keep_handle;
 mod break_trim_polyline_rules;
 mod breakatpoint_command_line;
 mod burst;
+mod calibrate;
 mod change_command;
 mod chprop_command;
 mod classic_array;
