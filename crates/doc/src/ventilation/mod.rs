@@ -32,6 +32,7 @@ mod pipe_networks;
 mod pipe_riser;
 mod refrigerant;
 mod riser;
+mod single_line;
 mod slab;
 mod space;
 mod structure;
@@ -70,6 +71,7 @@ pub use pipe_networks::*;
 pub use pipe_riser::*;
 pub use refrigerant::{OutletReport, PartReport, RefrigerantNetwork, RefrigerantReport};
 pub use riser::*;
+pub use single_line::*;
 pub use slab::*;
 pub use space::*;
 pub use structure::*;
@@ -337,6 +339,8 @@ mod pipe_tests;
 mod refrigerant_tests;
 #[cfg(test)]
 mod riser_tests;
+#[cfg(test)]
+mod single_line_tests;
 #[cfg(test)]
 mod slab_tests;
 #[cfg(test)]

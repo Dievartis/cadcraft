@@ -47,9 +47,9 @@ pub fn specs() -> Vec<CommandSpec> {
             .params("{handles? (default: the selection), circuit (a name; empty puts them on none)} → {changed}: a device, a cable, an equipment or an air handling unit")
             .interactive(|s| Ok(Box::new(AssignM { circuit: s.last_used.device.circuit.clone() }))),
         CommandSpec::new("circuitcheck", "Check Circuits", run_check).menu(&["Draw", "Electricity", "Check Circuits"]).params(
-            "{ownSubstation? (the building owns its HV/LV substation: 6 % and 8 % of voltage drop, not 3 % and 5 %), diversity? (0 to 1, the share of the power that is on at once, default 1)} → \
+            "{ownSubstation? (the building owns its HV/LV substation: 6 % and 8 % of voltage drop, not 3 % and 5 %), diversity? (0 to 1, the share of the power that is on at once, default 1), sourceKa? (the three-phase short-circuit current at the origin, kA, default 10), breakingKa? (the breaking capacity of the breakers, kA, default 10), curve? (B, C or D: the magnetic trip of the breakers, default C)} → \
              {circuits: [{name, panel, panelDrawn, usage, phases, devices, hvac, powerW, currentA, cableLengthM, sectionMm2, thermalSectionMm2, dropSectionMm2, requiredSectionMm2, protectionA, ratingA, dropPercent, \
-             maxDropPercent, warnings, cables}], warnings, problems}: the current of each circuit, the rating of its breaker, the section it needs for the current and for the voltage drop, and what is wrong with the cable drawn",
+             maxDropPercent, ikMaxKa, ikMinA, maxLengthM, selectivityRatio, warnings, cables}], warnings, problems}: the current of each circuit, the rating of its breaker, the section it needs for the current and for the voltage drop, and what is wrong with the cable drawn",
         ),
         CommandSpec::new("circuitsize", "Size Circuits", run_size).menu(&["Draw", "Electricity", "Size Circuits"]).params(
             "{circuit? (one circuit; default all), overwrite? (also replace the sections already given), ownSubstation?, diversity?} → {circuits}: writes on the cables of each circuit the section it needs and, where there is none, \
@@ -70,6 +70,12 @@ pub fn specs() -> Vec<CommandSpec> {
              it is redrawn when a circuit is named, renamed, sized or restyled",
         )
         .interactive(|_| Ok(Box::new(LegendM { title: None, ask_title: false }))),
+        CommandSpec::new("singleline", "Single-Line Diagram", run_single_line).menu(&["Draw", "Electricity", "Single-Line Diagram"]).params(
+            "{at ([x, y]: the upper left corner), board? (one board; default all), title?, labelHeight? (mm), sourceKa? (the short-circuit current at the origin, kA, default 10), breakingKa?, curve? (B, C or D), \
+             ownSubstation?, diversity?} → {handle, boards, circuits}: a busbar for each board fed by its main breaker and a branch for each circuit with its breaker, cable, load and short-circuit current; \
+             it is redrawn when a circuit is named, renamed, sized or edited",
+        )
+        .interactive(|_| Ok(Box::new(SingleLineM))),
         CommandSpec::new("electakeoff", "Electrical Quantities", run_takeoff).menu(&["Draw", "Electricity", "Quantities"]).params(
             "{level? (the name of the floor), path? (a file to write: .xlsx for a workbook, else .csv of the circuits), prices? ({\"Cable|3G2.5\": euros per metre, \"Device|Socket\": euros each…}: adds `costing`), \
              decimal?: comma|point, ownSubstation?, diversity?} → {level, cables, devices, panels, hvac, circuits, cableLengthM, installedPowerW, costing?, path?}",
@@ -197,6 +203,18 @@ fn options_of(cmd: &str, p: &Value) -> Result<CircuitOptions> {
             return Err(bad(cmd, "`diversity` is 0 to 1"));
         }
         o.diversity = d;
+    }
+    for (key, slot) in [("sourceKa", &mut o.source_ka), ("breakingKa", &mut o.breaking_ka)] {
+        if let Some(v) = number(cmd, p, key)? {
+            if !(0.1..=1000.0).contains(&v) {
+                return Err(bad(cmd, format!("`{key}` is 0.1 to 1000 (kA)")));
+            }
+            *slot = v;
+        }
+    }
+    if let Some(c) = str_param(p, "curve") {
+        let curve = c.trim().chars().next().filter(|ch| cadcraft_hvac::magnetic_trip_multiple(*ch).is_some() && c.trim().chars().count() == 1);
+        o.curve = curve.ok_or_else(|| bad(cmd, "`curve` is B, C or D"))?.to_ascii_uppercase();
     }
     Ok(o)
 }
@@ -751,6 +769,53 @@ fn legend_at(s: &mut Session, at: Vec2, title: Option<&str>, label: Option<f64>)
     let space = s.space();
     let common = s.current_common();
     s.doc_mut()?.add_circuit_legend(&space, common, &params, at).map_err(doc_err)
+}
+
+fn single_line_at(s: &mut Session, at: Vec2, p: &Value) -> Result<Handle> {
+    const CMD: &str = "singleline";
+    let mut params = cadcraft_doc::SingleLineParams::new(HvacUnits::of(s.doc()?));
+    params.options = options_of(CMD, p)?;
+    if let Some(t) = str_param(p, "title") {
+        params.title = t.trim().to_string();
+    }
+    if let Some(b) = str_param(p, "board") {
+        params.board = b.trim().to_string();
+    }
+    params.label_height_mm = number(CMD, p, "labelHeight")?.unwrap_or(params.label_height_mm);
+    params.validate().map_err(doc_err)?;
+    let space = s.space();
+    let common = s.current_common();
+    s.doc_mut()?.add_single_line(&space, common, &params, at).map_err(doc_err)
+}
+
+fn run_single_line(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "singleline";
+    let at = super::point_req(CMD, p, "at")?;
+    let h = single_line_at(s, at, p)?;
+    let (boards, circuits) = (s.doc()?.panel_names().len(), s.doc()?.circuit_reports(&options_of(CMD, p)?).len());
+    Ok(json!({ "handle": h.hex(), "boards": boards, "circuits": circuits }))
+}
+
+/// SINGLELINE at the command line: a click puts the diagram there.
+struct SingleLineM;
+
+impl Interactive for SingleLineM {
+    fn name(&self) -> &'static str {
+        "SINGLELINE"
+    }
+    fn prompt(&self, _s: &Session) -> Prompt {
+        Prompt::new("Specify the upper left corner of the diagram", Accept::POINT)
+    }
+    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
+        match i {
+            Input::Point(at) => {
+                single_line_at(s, at, &json!({}))?;
+                Ok(Step::Done)
+            }
+            Input::Enter | Input::Cancel => Ok(Step::Done),
+            _ => Ok(Step::Continue),
+        }
+    }
 }
 
 fn run_legend(s: &mut Session, p: &Value) -> Result<Value> {

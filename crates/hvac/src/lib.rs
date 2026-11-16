@@ -23,10 +23,11 @@ mod sizes;
 mod steel;
 
 pub use air::Air;
+pub use electrical::{C_MAX, C_MIN, SELECTIVITY_RATIO, SOURCE_COS_PHI, magnetic_trip_multiple, resistivity_cold, resistivity_fault};
 pub use electrical::{
     CableChoice, Conductor, Grouping, Insulation, K_LOADED_NEUTRAL, Laying, PROTECTION_RATINGS, Phases, REACTANCE_OHM_KM, RoomLighting, Usage,
-    current_capacity, design_current, illuminance_lux, k1, k2, k3, max_voltage_drop_percent, minimum_illuminance, protection_rating, resistivity,
-    sections, size_cable, voltage_drop, voltage_drop_percent,
+    current_capacity, design_current, illuminance_lux, k1, k2, k3, max_length_for_magnetic_m, max_voltage_drop_percent, minimum_illuminance,
+    protection_rating, resistivity, sections, short_circuit_max_a, short_circuit_min_a, size_cable, voltage_drop, voltage_drop_percent,
 };
 pub use fittings::{Fitting, FittingCoefficients};
 pub use friction::{friction_factor, pressure_gradient, reynolds, velocity};

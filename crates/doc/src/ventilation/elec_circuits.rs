@@ -23,6 +23,24 @@ pub struct CircuitOptions {
     /// The share of the installed power that is on at once: 1 counts everything.
     #[serde(default = "one")]
     pub diversity: f64,
+    /// The short-circuit current at the origin of the installation (the secondary of the transformer, or the meter), kA, three-phase: the greatest the
+    /// boards can see. 10 kA by default, to be given by the supplier of the network.
+    #[serde(default = "ten")]
+    pub source_ka: f64,
+    /// The breaking capacity of the breakers, kA (10 kA by default).
+    #[serde(default = "ten")]
+    pub breaking_ka: f64,
+    /// The curve of the breakers' magnetic trip: B, C or D.
+    #[serde(default = "curve_c")]
+    pub curve: char,
+}
+
+fn ten() -> f64 {
+    10.0
+}
+
+fn curve_c() -> char {
+    'C'
 }
 
 fn one() -> f64 {
@@ -31,7 +49,7 @@ fn one() -> f64 {
 
 impl Default for CircuitOptions {
     fn default() -> Self {
-        CircuitOptions { own_substation: false, diversity: 1.0 }
+        CircuitOptions { own_substation: false, diversity: 1.0, source_ka: ten(), breaking_ka: ten(), curve: curve_c() }
     }
 }
 
@@ -65,6 +83,17 @@ pub struct CircuitReport {
     /// The voltage drop with the section drawn (or the required one), percent, and the most it may be.
     pub drop_percent: Option<f64>,
     pub max_drop_percent: f64,
+    /// The greatest three-phase (or phase-neutral) short-circuit current at the end of the circuit, kA, and the smallest one (phase to protective
+    /// conductor), A; the longest cable, m, the magnetic trip of the protection still sees the smallest one at the end of.
+    #[serde(default)]
+    pub ik_max_ka: Option<f64>,
+    #[serde(default)]
+    pub ik_min_a: Option<f64>,
+    #[serde(default)]
+    pub max_length_m: Option<f64>,
+    /// The rating of the main breaker of the board over the rating of this circuit's: 1.6 or more is a rule of thumb for some selectivity.
+    #[serde(default)]
+    pub selectivity_ratio: Option<f64>,
     pub warnings: Vec<String>,
     pub cables: Vec<String>,
 }
@@ -144,7 +173,14 @@ impl crate::Drawing {
             }
         }
         let panels = self.panel_names();
-        circuits.into_values().map(|a| circuit_report(a, &panels, diversity, opts)).collect()
+        // The rating of the main breaker of each board, by the board's name.
+        let supplies: BTreeMap<String, f64> = self
+            .model
+            .iter()
+            .filter_map(|e| device_of(e).filter(|d| d.kind == DeviceKind::Panel))
+            .filter_map(|d| Some((d.name.trim().to_lowercase(), d.supply_a?)))
+            .collect();
+        circuits.into_values().map(|a| circuit_report(a, &panels, &supplies, diversity, opts)).collect()
     }
 
     /// Gives every cable of circuit `name` the sizes the calculation found for the circuit: the section where there is none (or everywhere when
@@ -179,7 +215,7 @@ impl crate::Drawing {
     }
 }
 
-fn circuit_report(a: Acc, panels: &[String], diversity: f64, opts: &CircuitOptions) -> CircuitReport {
+fn circuit_report(a: Acc, panels: &[String], supplies: &BTreeMap<String, f64>, diversity: f64, opts: &CircuitOptions) -> CircuitReport {
     let first = a.cables.first().map(|(_, c)| c.clone());
     let usage = first.as_ref().map(|c| c.usage).unwrap_or(if a.lights_only { CableUsage::Lighting } else { CableUsage::Power });
     let phases = first.as_ref().map_or(ElecPhases::Single, |c| c.phases);
@@ -270,6 +306,7 @@ fn circuit_report(a: Acc, panels: &[String], diversity: f64, opts: &CircuitOptio
             r.warnings.push(format!("the voltage drop ({pct:.1} %) is above {:.0} %", r.max_drop_percent));
         }
     }
+    short_circuit(&mut r, conductor, phases, judged, length_m, rating, supplies, opts);
     if let (Some(drawn), Some(thermal)) = (r.section_mm2, r.thermal_section_mm2)
         && drawn < thermal
     {
@@ -283,6 +320,60 @@ fn circuit_report(a: Acc, panels: &[String], diversity: f64, opts: &CircuitOptio
         r.warnings.push(format!("the protection ({rating} A) is above what the cable carries ({:.0} A)", iz * k));
     }
     r
+}
+
+/// The short-circuit checks of a circuit: what a fault does at its end, whether the breaker breaks it and sees it, and whether the board's main breaker
+/// leaves room for the circuit's to trip first.
+#[allow(clippy::too_many_arguments)]
+fn short_circuit(
+    r: &mut CircuitReport,
+    conductor: ElecConductor,
+    phases: ElecPhases,
+    section: Option<f64>,
+    length_m: f64,
+    rating: f64,
+    supplies: &BTreeMap<String, f64>,
+    opts: &CircuitOptions,
+) {
+    // The breaker is at the board, where the fault current is the origin's: it must be able to break it.
+    if opts.source_ka.is_finite() && opts.source_ka > opts.breaking_ka {
+        r.warnings.push(format!(
+            "the breaking capacity of the breakers ({:.0} kA) is below the short-circuit current at the origin ({:.1} kA)",
+            opts.breaking_ka, opts.source_ka
+        ));
+    }
+    if let (Some(s), true) = (section, length_m > 0.0) {
+        if let Ok(ik) = calc::short_circuit_max_a(opts.source_ka, conductor.calc(), s, length_m, phases.calc()) {
+            r.ik_max_ka = Some((ik / 10.0).round() / 100.0);
+        }
+        if let Ok(ik) = calc::short_circuit_min_a(conductor.calc(), s, length_m) {
+            r.ik_min_a = Some(ik.round());
+            // The magnetic trip must see the smallest short circuit at the end of the cable.
+            if let Some(m) = calc::magnetic_trip_multiple(opts.curve) {
+                let trip = m * rating;
+                if let Ok(max) = calc::max_length_for_magnetic_m(conductor.calc(), s, trip) {
+                    r.max_length_m = Some(max.round());
+                }
+                if ik < trip {
+                    r.warnings.push(format!(
+                        "the smallest short-circuit current at the end of the cable ({ik:.0} A) is below the magnetic trip of the protection ({trip:.0} A, curve {}): the longest cable is {:.0} m, or use a larger section or a curve with a lower trip",
+                        opts.curve.to_ascii_uppercase(),
+                        r.max_length_m.unwrap_or(0.0)
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(supply) = supplies.get(&r.panel.trim().to_lowercase()).copied().filter(|a| *a > 0.0 && rating > 0.0) {
+        let ratio = supply / rating;
+        r.selectivity_ratio = Some((ratio * 100.0).round() / 100.0);
+        if ratio < calc::SELECTIVITY_RATIO {
+            r.warnings.push(format!(
+                "the main breaker of the board ({supply:.0} A) is only {ratio:.1} times the protection of the circuit ({rating:.0} A): no selectivity can be expected (a ratio of {} or more is a rule of thumb; the manufacturer's tables prove it)",
+                calc::SELECTIVITY_RATIO
+            ));
+        }
+    }
 }
 
 /// What to change on every cable of a circuit.

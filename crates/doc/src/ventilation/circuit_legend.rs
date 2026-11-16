@@ -129,5 +129,7 @@ impl crate::Drawing {
         for (h, p) in legends {
             let _ = self.regenerate_circuit_legend(h, &p);
         }
+        // The single-line diagrams read the same circuits.
+        self.refresh_single_lines();
     }
 }

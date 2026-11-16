@@ -294,6 +294,76 @@ pub fn voltage_drop(conductor: Conductor, section: f64, length_m: f64, current_a
     Ok(b * i * l * (r * c + x * sin))
 }
 
+/// The resistivity of the conductors in Ω·mm²/km at 20 °C, for the greatest short-circuit current (copper 18.5, aluminium 29.4: the values the
+/// guides round the standard ones to).
+pub fn resistivity_cold(conductor: Conductor) -> f64 {
+    match conductor {
+        Conductor::Copper => 18.5,
+        Conductor::Aluminium => 29.4,
+    }
+}
+
+/// The resistivity for the smallest short-circuit current, with the conductors hot after the fault starts: 1.25 times the working one
+/// (copper 28.1, aluminium 45 Ω·mm²/km).
+pub fn resistivity_fault(conductor: Conductor) -> f64 {
+    1.25 * resistivity(conductor)
+}
+
+/// The factor of the voltage for the greatest and for the smallest short-circuit current (IEC 60909: low voltage, 6 % tolerance).
+pub const C_MAX: f64 = 1.05;
+pub const C_MIN: f64 = 0.95;
+
+/// The power factor of the short circuit at the origin of a low-voltage installation, taken for 10 to 20 kA (IEC 60909 guide: 0.3).
+pub const SOURCE_COS_PHI: f64 = 0.3;
+
+/// The greatest short-circuit current at the end of a cable, A: the fault current at its origin `source_ka` (three-phase, kA) and the cable, a
+/// single-phase circuit counting its neutral in the loop. `Ik = c U0 / |Zs + Zc|` with the source impedance `Zs = c U0 / Ik_source` (per phase)
+/// split by `SOURCE_COS_PHI` and the cable `Zc = L (R + jX)` with R at 20 °C.
+pub fn short_circuit_max_a(source_ka: f64, conductor: Conductor, section: f64, length_m: f64, phases: Phases) -> Result<f64> {
+    let source = checked("short-circuit current at the origin (kA)", source_ka, 0.1, 1000.0)?;
+    let s = checked("section (mm²)", section, 0.5, 1000.0)?;
+    let l = checked("length (m)", length_m, 0.0, 100_000.0)? / 1000.0;
+    let u0 = 230.0;
+    let zs = C_MAX * u0 / (source * 1000.0);
+    let (rs, xs) = (zs * SOURCE_COS_PHI, zs * (1.0 - SOURCE_COS_PHI * SOURCE_COS_PHI).sqrt());
+    let loop_k = match phases {
+        Phases::Single => 2.0,
+        Phases::Three => 1.0,
+    };
+    let (rc, xc) = (loop_k * resistivity_cold(conductor) / s * l, loop_k * REACTANCE_OHM_KM * l);
+    let z = ((rs + rc).powi(2) + (xs + xc).powi(2)).sqrt();
+    Ok(C_MAX * u0 / z)
+}
+
+/// The smallest short-circuit current at the end of a cable, A, between a phase and the protective conductor of the same section (m = 1):
+/// `Ik = 0.8 U0 / (R phase + R pe)`, the conductors hot. The source impedance is left out, on the safe side.
+pub fn short_circuit_min_a(conductor: Conductor, section: f64, length_m: f64) -> Result<f64> {
+    let s = checked("section (mm²)", section, 0.5, 1000.0)?;
+    let l = checked("length (m)", length_m, 0.001, 100_000.0)? / 1000.0;
+    Ok(0.8 * 230.0 / (2.0 * resistivity_fault(conductor) / s * l))
+}
+
+/// The longest cable, m, the magnetic trip of a breaker still sees the smallest short circuit at the end of: `0.8 U0 S / (2 ρ Im)`.
+pub fn max_length_for_magnetic_m(conductor: Conductor, section: f64, trip_a: f64) -> Result<f64> {
+    let s = checked("section (mm²)", section, 0.5, 1000.0)?;
+    let im = checked("trip current (A)", trip_a, 1.0, 1.0e6)?;
+    Ok(0.8 * 230.0 * s / (2.0 * resistivity_fault(conductor) / 1000.0 * im))
+}
+
+/// The curve of the magnetic trip of a breaker: the multiple of its rating at which it trips for sure (IEC 60898: B 5, C 10, D 20).
+pub fn magnetic_trip_multiple(curve: char) -> Option<f64> {
+    match curve.to_ascii_uppercase() {
+        'B' => Some(5.0),
+        'C' => Some(10.0),
+        'D' => Some(20.0),
+        _ => None,
+    }
+}
+
+/// The ratio from which a breaker upstream is taken to protect with some selectivity a breaker downstream of it: a rule of thumb (1.6 for breakers of the
+/// same family), the manufacturer's selectivity tables being the only proof.
+pub const SELECTIVITY_RATIO: f64 = 1.6;
+
 /// The voltage drop in percent of the nominal voltage of `phases`.
 pub fn voltage_drop_percent(drop_v: f64, phases: Phases) -> f64 {
     100.0 * drop_v / phases.voltage()

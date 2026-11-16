@@ -301,3 +301,34 @@ fn the_aspect_ratio_limits_the_width_and_a_warning_says_when_it_is_not_enough() 
             .is_err()
     );
 }
+
+#[test]
+fn short_circuit_currents_follow_the_cable_and_the_origin() {
+    use crate::{Conductor, Phases, magnetic_trip_multiple, max_length_for_magnetic_m, short_circuit_max_a, short_circuit_min_a};
+    // 20 m of 2.5 mm² copper, single-phase, from an origin of 10 kA: the loop is 2 x 20 m. Zs = 1.05 x 230 / 10000 = 24.15 mΩ (cos 0.3),
+    // Rc = 2 x 18.5 / 2.5 x 0.02 = 296 mΩ, Xc = 3.2 mΩ: Ik = 241.5 / 0.3044 = 793 A.
+    let ik = short_circuit_max_a(10.0, Conductor::Copper, 2.5, 20.0, Phases::Single).unwrap();
+    assert!((ik - 793.0).abs() < 2.0, "{ik}");
+    // The smallest one, hot, between the phase and the protective conductor: 0.8 x 230 / (2 x 28.125 / 2.5 x 0.02) = 409 A.
+    let min = short_circuit_min_a(Conductor::Copper, 2.5, 20.0).unwrap();
+    assert!((min - 408.9).abs() < 0.5, "{min}");
+    // A C16 breaker trips for sure at 160 A: it sees 409 A at 20 m and no longer past 51 m.
+    assert_eq!(magnetic_trip_multiple('c'), Some(10.0));
+    let l = max_length_for_magnetic_m(Conductor::Copper, 2.5, 160.0).unwrap();
+    assert!((l - 51.1).abs() < 0.1, "{l}");
+    assert!((short_circuit_min_a(Conductor::Copper, 2.5, l).unwrap() - 160.0).abs() < 0.1);
+    // A longer cable, a smaller section, aluminium: less; a stronger origin: more, but not more than the origin.
+    assert!(short_circuit_max_a(10.0, Conductor::Copper, 2.5, 100.0, Phases::Single).unwrap() < ik);
+    assert!(short_circuit_max_a(10.0, Conductor::Aluminium, 2.5, 20.0, Phases::Single).unwrap() < ik);
+    let strong = short_circuit_max_a(50.0, Conductor::Copper, 2.5, 20.0, Phases::Single).unwrap();
+    assert!(strong > ik && strong < 50_000.0);
+    assert!(short_circuit_max_a(10.0, Conductor::Copper, 2.5, 0.0, Phases::Three).unwrap() < 10_000.0 * 1.1);
+    // Nonsense is refused, never a panic.
+    for bad in [f64::NAN, 0.0, -3.0, f64::INFINITY, 1.0e9] {
+        assert!(short_circuit_max_a(bad, Conductor::Copper, 2.5, 20.0, Phases::Single).is_err());
+        assert!(short_circuit_max_a(10.0, Conductor::Copper, bad, 20.0, Phases::Single).is_err());
+        assert!(short_circuit_min_a(Conductor::Copper, 2.5, bad).is_err());
+        assert!(max_length_for_magnetic_m(Conductor::Copper, bad, 160.0).is_err());
+    }
+    assert_eq!(magnetic_trip_multiple('x'), None);
+}

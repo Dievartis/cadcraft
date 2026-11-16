@@ -141,7 +141,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
                 egui::CollapsingHeader::new(RichText::new(crate::tl!("Circuits")).strong()).id_salt("elec_circuits").default_open(true).show(
                     ui,
                     |ui| {
-                        egui::Grid::new("elec_circuits_grid").striped(true).num_columns(9).show(ui, |ui| {
+                        egui::Grid::new("elec_circuits_grid").striped(true).num_columns(12).show(ui, |ui| {
                             for h in [
                                 "Circuit",
                                 "Board",
@@ -152,6 +152,9 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
                                 "Section drawn (mm²)",
                                 "Section required (mm²)",
                                 "Voltage drop (%)",
+                                "Isc max (kA)",
+                                "Isc min (A)",
+                                "Board / breaker",
                             ] {
                                 ui.strong(crate::i18n::t(h));
                             }
@@ -168,6 +171,9 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
                                     opt(c.section_mm2),
                                     opt(c.required_section_mm2),
                                     opt(c.drop_percent),
+                                    opt(c.ik_max_ka),
+                                    opt(c.ik_min_a),
+                                    opt(c.selectivity_ratio),
                                 ] {
                                     ui.label(v);
                                 }

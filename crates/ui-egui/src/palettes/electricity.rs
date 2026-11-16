@@ -221,6 +221,9 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         if row_button(ui, crate::i18n::t("Circuit Legend"), false, super::thumbs::paint_quantities) {
             start = Some("circuitlegend");
         }
+        if row_button(ui, crate::i18n::t("Single-Line Diagram"), false, super::thumbs::paint_quantities) {
+            start = Some("singleline");
+        }
         ui.add_space(6.0);
         separator(ui);
         header(ui, "Quantities");

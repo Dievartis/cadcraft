@@ -1466,6 +1466,10 @@
 	Column	Poteau
 	Beam	Poutre
 	Edit Structure	Modifier la structure
+	Single-Line Diagram	Schéma unifilaire
+	Isc max (kA)	Icc max (kA)
+	Isc min (A)	Icc min (A)
+	Board / breaker	Tableau / disjoncteur
 	Design	Conception
 	Ceiling Grid	Grille de plafond
 	Stair	Escalier

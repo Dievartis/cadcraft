@@ -355,6 +355,10 @@ impl ElecTakeoff {
             "Section required (mm²)",
             "Voltage drop (%)",
             "Limit (%)",
+            "Isc max at the end (kA)",
+            "Isc min at the end (A)",
+            "Longest cable for the trip (m)",
+            "Board breaker / breaker",
             "Remarks",
         ])];
         for c in &self.circuits {
@@ -373,6 +377,10 @@ impl ElecTakeoff {
                 C::opt(c.required_section_mm2),
                 C::opt(c.drop_percent),
                 num(c.max_drop_percent),
+                C::opt(c.ik_max_ka),
+                C::opt(c.ik_min_a),
+                C::opt(c.max_length_m),
+                C::opt(c.selectivity_ratio),
                 C::text(c.warnings.join("; ")),
             ]);
         }
@@ -409,7 +417,7 @@ impl ElecTakeoff {
         let opt = |v: Option<f64>| v.map_or(String::new(), num);
         let cell = |t: &str| if t.contains([';', '"', '\n']) { format!("\"{}\"", t.replace('"', "\"\"")) } else { t.to_string() };
         let mut out = String::from(
-            "Circuit;Board;Use;Phases;Power (W);Current (A);Breaker (A);Length (m);Section drawn (mm2);Section required (mm2);Voltage drop (%);Remarks\n",
+            "Circuit;Board;Use;Phases;Power (W);Current (A);Breaker (A);Length (m);Section drawn (mm2);Section required (mm2);Voltage drop (%);Isc max (kA);Isc min (A);Longest cable (m);Board breaker / breaker;Remarks\n",
         );
         for c in &self.circuits {
             let row = [
@@ -424,6 +432,10 @@ impl ElecTakeoff {
                 opt(c.section_mm2),
                 opt(c.required_section_mm2),
                 opt(c.drop_percent),
+                opt(c.ik_max_ka),
+                opt(c.ik_min_a),
+                opt(c.max_length_m),
+                opt(c.selectivity_ratio),
                 cell(&c.warnings.join("; ")),
             ];
             out.push_str(&row.join(";"));

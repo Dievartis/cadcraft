@@ -1598,6 +1598,10 @@ menu	View	视图
 	Column	柱
 	Beam	梁
 	Edit Structure	编辑结构
+	Single-Line Diagram	单线图
+	Isc max (kA)	最大短路电流 (kA)
+	Isc min (A)	最小短路电流 (A)
+	Board / breaker	配电箱 / 断路器
 	Design	设计
 	Ceiling Grid	吊顶网格
 	Stair	楼梯
