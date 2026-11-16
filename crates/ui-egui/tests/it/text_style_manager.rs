@@ -120,3 +120,60 @@ fn text_style_manager_keeps_pending_edits_with_their_drawing() {
     h.run_steps(3);
     assert_eq!(h.get(by().label("Style name").role(egui::accesskit::Role::TextInput)).value().as_deref(), Some("Pending in first"));
 }
+
+fn sfnt_with_names(family: &str, subfamily: &str) -> Vec<u8> {
+    let fam = family.as_bytes();
+    let sub = subfamily.as_bytes();
+    let mut name_tbl = Vec::new();
+    name_tbl.extend_from_slice(&0u16.to_be_bytes()); // format 0
+    name_tbl.extend_from_slice(&2u16.to_be_bytes()); // count = 2
+    name_tbl.extend_from_slice(&30u16.to_be_bytes()); // string_offset = 6 + 2 * 12
+    for (name_id, len, off) in [(1u16, fam.len() as u16, 0u16), (2u16, sub.len() as u16, fam.len() as u16)] {
+        name_tbl.extend_from_slice(&1u16.to_be_bytes()); // platform 1 (Macintosh)
+        name_tbl.extend_from_slice(&0u16.to_be_bytes()); // encoding 0 (Roman)
+        name_tbl.extend_from_slice(&0u16.to_be_bytes()); // language 0 (English)
+        name_tbl.extend_from_slice(&name_id.to_be_bytes());
+        name_tbl.extend_from_slice(&len.to_be_bytes());
+        name_tbl.extend_from_slice(&off.to_be_bytes());
+    }
+    name_tbl.extend_from_slice(fam);
+    name_tbl.extend_from_slice(sub);
+
+    let mut sfnt = vec![0, 1, 0, 0, 0, 1, 0, 16, 0, 0, 0, 0]; // 1 table
+    sfnt.extend_from_slice(b"name");
+    sfnt.extend_from_slice(&0u32.to_be_bytes()); // checksum
+    sfnt.extend_from_slice(&28u32.to_be_bytes()); // offset = 12 + 16
+    sfnt.extend_from_slice(&(name_tbl.len() as u32).to_be_bytes());
+    sfnt.extend_from_slice(&name_tbl);
+    sfnt
+}
+
+#[test]
+fn text_style_manager_selects_family_and_variant_without_early_document_edits() {
+    cadcraft_fonts::ttf::register("dock-picker-regular.ttf", sfnt_with_names("Dock Picker Test", "Regular"));
+    cadcraft_fonts::ttf::register("dock-picker-bold.ttf", sfnt_with_names("Dock Picker Test", "Bold"));
+    let mut h = manager();
+    let before = h.state().session.doc().unwrap().text_style("Standard").unwrap().font.clone();
+    h.get(by().label("Font").role(egui::accesskit::Role::ComboBox)).click();
+    h.run_steps(3);
+    h.get(by().label("Filter fonts").role(egui::accesskit::Role::TextInput)).focus();
+    h.run_steps(1);
+    h.get(by().label("Filter fonts").role(egui::accesskit::Role::TextInput)).type_text("Dock Picker Test");
+    h.run_steps(3);
+    h.get_by_label("Dock Picker Test").click();
+    h.run_steps(3);
+    h.get(by().label("Font style").role(egui::accesskit::Role::ComboBox)).click();
+    h.run_steps(3);
+    h.get_by_label("Bold").click();
+    h.run_steps(3);
+    assert_eq!(h.state().session.doc().unwrap().text_style("Standard").unwrap().font, before);
+    button(&mut h, "Apply properties");
+    assert_eq!(h.state().session.doc().unwrap().text_style("Standard").unwrap().font, "dock-picker-bold.ttf");
+    let dxf = cadcraft_io::write_dxf(h.state().session.doc().unwrap());
+    let reopened = cadcraft_io::read_dxf(dxf.as_bytes()).unwrap();
+    assert_eq!(reopened.text_style("Standard").unwrap().font, "dock-picker-bold.ttf");
+    cadcraft_fonts::ttf::rescan();
+    assert_eq!(cadcraft_fonts::ttf::describe_font(&reopened.text_style("Standard").unwrap().font).unwrap().1, "Bold");
+    h.state_mut().run("undo", json!({})).unwrap();
+    assert_eq!(h.state().session.doc().unwrap().text_style("Standard").unwrap().font, before);
+}

@@ -114,23 +114,22 @@ fn import_into(src: &Path, dir: &Path) -> Result<String, String> {
     Err("Too many imported fonts with the same name".into())
 }
 
-pub(super) fn available_fonts() -> Vec<(String, String)> {
-    let mut fonts: Vec<_> = ["CADCraft Stroke", "Arial", "Times New Roman", "Courier New", "Verdana", "Georgia", "Calibri", "Cheboygan"]
-        .into_iter()
-        .map(|n| (n.to_string(), n.to_string()))
-        .collect();
-    if let Some(entries) = managed_directory().and_then(|dir| std::fs::read_dir(dir).ok()) {
-        for entry in entries.take(10_000).filter_map(Result::ok) {
-            let path = entry.path();
-            if !path.is_file() || !super::font_file(&path) {
-                continue;
-            }
-            if let (Some(label), Some(name)) = (path.file_stem().and_then(|s| s.to_str()), path.file_name().and_then(|s| s.to_str())) {
-                fonts.push((label.to_string(), name.to_string()));
-            }
+pub(super) fn available_fonts(ctx: &egui::Context) -> Arc<Vec<String>> {
+    let id = egui::Id::unique("text-style-font-catalog");
+    let generation = (cadcraft_fonts::ttf::generation(), cadcraft_fonts::shx::generation());
+    type Catalog = ((u64, u64), Arc<Vec<String>>);
+    if let Some((_, fonts)) = ctx.data(|data| data.get_temp::<Catalog>(id)).filter(|(key, _)| *key == generation) {
+        return fonts;
+    }
+    let mut fonts = cadcraft_fonts::ttf::available_fonts();
+    for stem in cadcraft_fonts::shx::installed() {
+        let name = format!("{stem}.shx");
+        if !fonts.iter().any(|font| font.eq_ignore_ascii_case(&name)) {
+            fonts.push(name);
         }
     }
-    fonts.sort_by_key(|(label, _)| label.to_lowercase());
+    let fonts = Arc::new(fonts);
+    ctx.data_mut(|data| data.insert_temp(id, (generation, fonts.clone())));
     fonts
 }
 

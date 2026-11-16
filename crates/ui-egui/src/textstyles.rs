@@ -55,7 +55,9 @@ pub fn route(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value,
 }
 
 #[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 struct State {
+    font_filter: String,
     selected: String,
     original: Option<cadcraft_doc::TextStyle>,
     new_name: String,
@@ -89,41 +91,6 @@ fn sync(state: &mut State, style: &cadcraft_doc::TextStyle) {
     state.vertical = style.vertical;
     state.annotative = style.annotative;
     state.big_font = style.big_font.clone();
-}
-
-/// Detect styles referenced by the drawing, including blocks and annotation styles.
-fn used_style_names(d: &cadcraft_doc::Drawing) -> std::collections::HashSet<String> {
-    let mut names = std::collections::HashSet::new();
-    let mut add = |s: &str| {
-        if !s.is_empty() {
-            names.insert(s.to_ascii_lowercase());
-        }
-    };
-    for s in &d.dim_styles {
-        add(&s.text_style);
-    }
-    for s in &d.mleader_styles {
-        add(&s.text_style);
-    }
-    for s in &d.table_styles {
-        for c in &s.cell_styles {
-            add(&c.text_style);
-        }
-    }
-    for lt in &d.linetypes {
-        for el in &lt.pattern {
-            if let Some(st) = &el.style {
-                add(st);
-            }
-        }
-    }
-    let stores = std::iter::once(&d.model).chain(d.layouts.iter().map(|l| &l.entities)).chain(d.blocks.values().map(|b| &b.entities));
-    for store in stores {
-        for e in store.iter() {
-            entity_styles(&e.kind, &mut add);
-        }
-    }
-    names
 }
 
 /// Preview using CADCraft's own text shaping and glyph triangulation.
@@ -185,7 +152,18 @@ pub fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
     };
     let styles: Vec<cadcraft_doc::TextStyle> = doc.text_styles.to_vec();
     let current = doc.header.str("TEXTSTYLE", "Standard");
-    let used = used_style_names(doc);
+    let document_key = app.session.docs.get(app.session.active).map(|d| (d.uid, d.revision));
+    let used_id = egui::Id::unique("text-style-manager-used-styles");
+    type Used = (Option<(u64, u64)>, std::sync::Arc<std::collections::HashSet<String>>);
+    let cached = ui.ctx().data(|data| data.get_temp::<Used>(used_id));
+    let used = if let Some((_, used)) = cached.filter(|(key, _)| *key == document_key) {
+        used
+    } else {
+        let used: std::sync::Arc<std::collections::HashSet<String>> =
+            std::sync::Arc::new(cadcraft_engine::cmd::text_styles_in_use(doc).into_iter().map(|name| name.to_ascii_lowercase()).collect());
+        ui.ctx().data_mut(|data| data.insert_temp(used_id, (document_key, used.clone())));
+        used
+    };
     let document = app.session.docs.get(app.session.active).map(|d| d.uid);
     let id = egui::Id::unique(("text-style-manager-state", document));
     let mut state = ui.ctx().data_mut(|d| d.get_persisted::<State>(id)).unwrap_or_default();
@@ -319,15 +297,33 @@ fn style_actions(
     });
 }
 
+fn font_variant(ui: &mut egui::Ui, state: &mut State) {
+    let label = ui.label("Font style");
+    let description = cadcraft_fonts::ttf::describe_font(&state.font);
+    ui.add_enabled_ui(description.is_some(), |ui| {
+        let (family, selected, variants) = description.unwrap_or_default();
+        craft_ui::ComboBox::from_id_salt("text-style-font-variant")
+            .selected_text(if selected.is_empty() { "—" } else { &selected })
+            .width(240.0)
+            .show_ui(ui, |ui| {
+                for variant in variants {
+                    if ui.selectable_label(variant == selected, &variant).clicked() {
+                        state.font = cadcraft_fonts::ttf::compose_font(&family, &variant);
+                    }
+                }
+            })
+            .response
+            .labelled_by(label.id);
+    });
+    ui.end_row();
+}
+
 fn properties(ui: &mut egui::Ui, state: &mut State, commands: &mut Commands, allow_import: bool) {
     ui.separator();
     ui.label(RichText::new("Properties").strong());
-    let mut fonts = available_fonts();
-    if !state.font.is_empty() && !fonts.iter().any(|(_, path)| path.eq_ignore_ascii_case(&state.font)) {
-        fonts.push((state.font.clone(), state.font.clone()));
-    }
-    let display_font =
-        fonts.iter().find(|(_, path)| path.eq_ignore_ascii_case(&state.font)).map(|(name, _)| name.clone()).unwrap_or_else(|| state.font.clone());
+    let description = cadcraft_fonts::ttf::describe_font(&state.font);
+    let display_font = description.as_ref().map(|d| d.0.clone()).unwrap_or_else(|| state.font.clone());
+    let fonts = available_fonts(ui.ctx());
     egui::Grid::new("text-style-properties").num_columns(2).show(ui, |ui| {
         let font_label = ui.label("Font");
         craft_ui::ComboBox::from_id_salt("text-style-font-select")
@@ -345,9 +341,14 @@ fn properties(ui: &mut egui::Ui, state: &mut State, commands: &mut Commands, all
                 }
                 ui.separator();
                 egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
-                    for (name, path) in &fonts {
-                        if ui.selectable_label(state.font.eq_ignore_ascii_case(path), name).clicked() {
-                            state.font = path.clone();
+                    let filter_label = ui.label("Filter fonts");
+                    ui.add(TextEdit::singleline(&mut state.font_filter)).labelled_by(filter_label.id);
+                    for name in fonts.iter().filter(|name| name.to_lowercase().contains(&state.font_filter.to_lowercase())) {
+                        if ui.selectable_label(display_font.eq_ignore_ascii_case(name), name).clicked() {
+                            let variant = description.as_ref().map_or("", |d| d.1.as_str());
+                            let chosen = cadcraft_fonts::ttf::describe_font(name);
+                            let variant = chosen.as_ref().filter(|d| d.2.iter().any(|s| s == variant)).map_or("", |_| variant);
+                            state.font = cadcraft_fonts::ttf::compose_font(name, variant);
                         }
                     }
                 });
@@ -355,6 +356,7 @@ fn properties(ui: &mut egui::Ui, state: &mut State, commands: &mut Commands, all
             .response
             .labelled_by(font_label.id);
         ui.end_row();
+        font_variant(ui, state);
         property_input(ui, "Height (0 = variable)", &mut state.height, 100.0);
         property_input(ui, "Width factor", &mut state.width, 100.0);
         property_input(ui, "Oblique angle (degrees)", &mut state.oblique, 100.0);
@@ -513,35 +515,6 @@ fn font_browser(ui: &mut egui::Ui, state: &mut State) {
     }
     if !open || cancel {
         state.picker_open = false;
-    }
-}
-
-fn entity_styles(kind: &cadcraft_doc::EntityKind, add: &mut impl FnMut(&str)) {
-    use cadcraft_doc::EntityKind;
-    match kind {
-        EntityKind::Text(t) => add(&t.style),
-        EntityKind::MText(t) => add(&t.style),
-        EntityKind::AttDef(a) => add(&a.text.style),
-        EntityKind::Insert(i) => {
-            for a in &i.attribs {
-                add(&a.text.style);
-            }
-        }
-        EntityKind::MLeader(m) => {
-            if let Some(t) = &m.text {
-                add(&t.style);
-            }
-        }
-        EntityKind::Dimension(dm) => {
-            for (k, v) in &dm.overrides {
-                if cadcraft_doc::DimStyle::field_name(k) == Some("textStyle")
-                    && let Some(name) = v.as_str()
-                {
-                    add(name);
-                }
-            }
-        }
-        _ => {}
     }
 }
 

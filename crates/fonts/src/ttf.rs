@@ -35,6 +35,10 @@ use skrifa::{FontRef, GlyphId, MetadataProvider};
 
 use crate::{Run, Shaped};
 
+mod picker;
+use picker::FamilyEntry;
+pub use picker::{available_fonts, compose_font, describe_font};
+
 /// One face of a font file (a TrueType collection holds several).
 #[derive(Clone)]
 pub struct Face {
@@ -258,6 +262,10 @@ struct Db {
     registered: std::collections::HashSet<String>,
     /// Name lookups already answered, found or not.
     resolved: HashMap<String, Option<Face>>,
+    /// Discovered font families and their styles from each font's `name` table.
+    families: Option<Vec<FamilyEntry>>,
+    /// Cached list of font names offered by font pickers (`BUILTIN_FONT` first, then sorted).
+    names: Option<Vec<String>>,
     fallback: Fallback,
     /// Bytes of font files loaded from disk so far (bounded by `MAX_LOADED_BYTES`).
     loaded_bytes: usize,
@@ -472,6 +480,8 @@ pub fn rescan() {
     files.retain(|k, _| registered.contains(k) || !paths.contains_key(k));
     g.scanned = false;
     g.resolved.clear();
+    g.families = None;
+    g.names = None;
     g.fallback = Fallback::default();
     g.loaded_bytes = 0;
     g.user.clear();
@@ -581,10 +591,12 @@ pub fn available(name: &str) -> bool {
     k.is_empty() || stand_in || k == crate::BUILTIN_FONT.to_ascii_lowercase() || crate::shx::find(name).is_some() || find(name).is_some()
 }
 
+/// Font files larger than this are never read or offered in font pickers.
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_FILE_BYTES: u64 = 96 << 20;
+
 #[cfg(not(target_arch = "wasm32"))]
 fn read_file(path: &std::path::Path) -> Option<Vec<u8>> {
-    /// Font files larger than this are never read.
-    const MAX_FILE_BYTES: u64 = 96 << 20;
     if std::fs::metadata(path).ok()?.len() > MAX_FILE_BYTES {
         return None;
     }
@@ -666,20 +678,25 @@ impl Db {
     }
 
     /// A face whose family or full name is `k`, among files with a similar stem, then among the
-    /// files whose stem begins with the name's first word (`GOST.TTF` for "GOST type A").
+    /// files whose stem begins with the name's first word (`GOST.TTF` for "GOST type A"), or in
+    /// the scanned `name` table index (`AGENCYR.TTF` / `AGENCYB.TTF` for "Agency FB").
     fn by_family(&mut self, k: &str) -> Option<Face> {
-        let want = norm(k);
-        if want.len() < 5 {
-            return None;
+        // Resolve aliases through the same metadata index before filename heuristics,
+        // including after restart when a collection's Regular face is not face zero.
+        if let Some(face) = self.by_family_table(k) {
+            return Some(face);
         }
-        let stems: Vec<String> = self.paths.keys().chain(self.files.keys()).cloned().collect();
-        for stem in family_candidates(&stems, &want, &norm(k.split_whitespace().next().unwrap_or(""))) {
-            let Some(bytes) = self.file(&stem) else { continue };
-            if let Some(face) = faces(&bytes).into_iter().find(|f| f.names().iter().any(|n| *n == want || format!("{n}regular") == want)) {
-                return Some(face);
+        let want = norm(k);
+        if want.len() >= 5 {
+            let stems: Vec<String> = self.paths.keys().chain(self.files.keys()).cloned().collect();
+            for stem in family_candidates(&stems, &want, &norm(k.split_whitespace().next().unwrap_or(""))) {
+                let Some(bytes) = self.file(&stem) else { continue };
+                if let Some(face) = faces(&bytes).into_iter().find(|f| f.names().iter().any(|n| *n == want || format!("{n}regular") == want)) {
+                    return Some(face);
+                }
             }
         }
-        None
+        self.by_family_table(k)
     }
 
     /// Load the next fallback candidate file. False when none is left or a bound is reached.
@@ -814,7 +831,10 @@ pub fn register(name: &str, bytes: Vec<u8>) {
     g.files.insert(k.clone(), Arc::new(bytes));
     g.registered.insert(k);
     g.resolved.clear();
+    g.families = None;
+    g.names = None;
     g.fallback = Fallback::default();
+    GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Register font bytes that live for the whole process under a name; they are copied only when
@@ -827,7 +847,10 @@ pub(crate) fn register_static(name: &str, bytes: &'static [u8]) {
     g.registered.remove(&k);
     g.paths.insert(k, Source::Static(bytes));
     g.resolved.clear();
+    g.families = None;
+    g.names = None;
     g.fallback = Fallback::default();
+    GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Normalise a style font name ("arial.ttf", "Arial", "ARIALBD.TTF") to a lookup key.

@@ -12,7 +12,7 @@ It is a development integration, not a published release.
 | Dimension Style Manager | @Slopapalooza [#1042](https://github.com/storytold/cadcraft/pull/1042); dockable integration [fork #2](https://github.com/Dievartis/cadcraft/pull/2) | Existing implementation retained; Dievartis adapts its content to a dockable panel. Original manager authorship is not claimed. |
 | Plot Style Manager | @Dievartis [#3142](https://github.com/storytold/cadcraft/pull/3142); integration context [fork #1](https://github.com/Dievartis/cadcraft/pull/1) | Included in baseline; original contributions retain their authorship. |
 | Recovered Text Style Manager and font import | [Saved preview](https://github.com/Dievartis/cadcraft/commit/0cf789bea2029957abb546f2edfaae2bac75cd4d), recorded by Git as @Dievartis; development history supplied by the fork owner | The dockable UI was developed in the fork, then compared with the classic dialog in #2462. This restoration recovers `textstyles.rs`, its docking hooks and the saved MTEXT family choice. |
-| Classic Text Style dialog used for comparison | @davidhooey [#2462](https://github.com/storytold/cadcraft/pull/2462) | The fork owner identifies this contribution as the source compared with the dockable UI. The retained V8 step-1 discussion schedules font-family and variant integration as the next step; the recovered snapshot still uses a flat font list. Full integration of that later step is not established by the available source. |
+| Classic Text Style dialog used for comparison | @davidhooey [#2462](https://github.com/storytold/cadcraft/pull/2462) | The fork owner identifies this contribution as the source compared with the dockable UI. The retained V8 step-1 discussion schedules font-family and variant integration as the next step; the recovered snapshot still uses a flat font list. This branch now adapts family/variant discovery from head `dbb28a2884326f7ff16725224fb744830fed0ec0` into the fork's dockable panel, with bounded naming-table reads and cached discovery. The classic dialog container is not imported. |
 | Shared font-folder discovery APIs | @luminatiguy [#2316](https://github.com/storytold/cadcraft/pull/2316), landed in [#2803](https://github.com/storytold/cadcraft/pull/2803) | Existing font-folder registration and redraw-generation APIs, reused by this restoration. |
 | SHX font parsing | @francescoBV [#1944](https://github.com/storytold/cadcraft/pull/1944), landed in [#2751](https://github.com/storytold/cadcraft/pull/2751) | Existing SHX reader, reused for validation and rendering. |
 | Paper-space units | @aldozar [#1085](https://github.com/storytold/cadcraft/pull/1085), extended by @Dievartis [#3207](https://github.com/storytold/cadcraft/pull/3207) | `acf90b3a562eb31f46b11fd2043de742169352a4`, `bc5f4d3a8e14de19176b0be55699e2f10324f471` |
@@ -66,3 +66,22 @@ The current restored snapshot supports font-file import and selection from a fla
 it does not yet reproduce #2462's family / variant selectors. A later V8 revision or
 separate integration is needed to recover that behavior. Do not claim those selectors
 are already restored, or substitute unrelated PR #1083 for the identified source.
+
+## Font families and variants
+
+The dockable panel groups outline fonts by their naming-table family and offers a
+separate Font style selector. It preserves an existing file name until the user
+changes a selection and applies properties. Imported fonts remain in the managed
+folder; missing names, SHX and the built-in stroke font retain their existing
+values. Discovery is cached and invalidated by font registration or folder rescans.
+The engine change only exposes its existing used-style query to the panel.
+
+Source: @davidhooey, upstream PR #2462. The naming-table index and regression
+fixture are adapted from that contribution; docking, import and property editing
+remain the fork's implementation. No font binary or dependency is added.
+
+Validation for this adaptation covers the fonts unit suite, dockable-manager UI
+tests, font-import tests, DXF round trips, undo, a cold collection-name index,
+and a headless-rendered panel inspection. Formatting, Clippy for fonts/engine/UI
+(all targets), asset attribution, dependency layering and the wasm check pass.
+Full workspace CI and manual Windows acceptance remain required before release.
