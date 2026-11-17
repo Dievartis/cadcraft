@@ -2122,3 +2122,36 @@ fn the_size_written_at_a_collar_has_no_leading_zero_while_a_riser_label_keeps_it
     assert_eq!(super::RiserSize::Round { diameter_mm: 400.0 }.label_padded(), "Ø0400");
     assert_eq!(super::RiserSize::Rectangular { width_mm: 900.0, height_mm: 600.0 }.label_padded(), "0900×0600");
 }
+
+#[test]
+fn an_elbow_is_drawn_again_when_its_run_changes_size_or_becomes_rectangular() {
+    let mut d = Drawing::new_metric();
+    let hs = [add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0)), add_duct(&mut d, (3000.0, 0.0), (3000.0, 3000.0))];
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    let elbow = |d: &Drawing| hs.iter().find_map(|h| duct_of(d.entity(*h).unwrap()).and_then(|p| p.elbow.map(|e| (*h, e))));
+    let (holder, first) = elbow(&d).expect("an elbow");
+    assert_eq!(first.radius_mm, 200.0, "the width of the Ø200 run");
+    // The run is made Ø300, as a command that changes it does (the elbow it carried is the old one).
+    let mut p = duct_of(d.entity(holder).unwrap()).unwrap();
+    p.diameter_mm = 300.0;
+    d.regenerate_duct(holder, &p).unwrap();
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(elbow(&d).unwrap().1.radius_mm, 300.0);
+    let trim = |d: &Drawing| {
+        hs.map(|h| {
+            let p = duct_of(d.entity(h).unwrap()).unwrap();
+            (p.trim_start_mm, p.trim_end_mm)
+        })
+    };
+    // The two runs give up the tangent of the new bend: 300 mm at 90°.
+    assert!(trim(&d).iter().flat_map(|t| [t.0, t.1]).any(|t| (t - 300.0).abs() < 1e-6), "{:?}", trim(&d));
+    // Rectangular, 600 wide: the elbow follows the width again.
+    let mut p = duct_of(d.entity(holder).unwrap()).unwrap();
+    (p.shape, p.width_mm, p.height_mm) = (DuctShape::Rectangular, 600.0, 400.0);
+    d.regenerate_duct(holder, &p).unwrap();
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(elbow(&d).unwrap().1.radius_mm, 600.0);
+    assert!(trim(&d).iter().flat_map(|t| [t.0, t.1]).any(|t| (t - 600.0).abs() < 1e-6), "{:?}", trim(&d));
+    // Done once: nothing more to draw.
+    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
+}

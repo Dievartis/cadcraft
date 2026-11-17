@@ -1373,3 +1373,20 @@ fn several_round_ducts_become_rectangular_by_a_side_typed_or_by_the_shape_and_ba
     }
     assert!(hs.iter().all(|h| get(&s, h).shape == DuctShape::Rectangular));
 }
+
+#[test]
+fn the_elbow_follows_a_change_of_size_and_the_passage_from_round_to_rectangular_by_a_command() {
+    let mut s = metric();
+    let r = s.execute("ductadd", &json!({"points": [[0, 0], [4000, 0], [4000, 3000]], "diameter": 200})).unwrap();
+    let radius = |s: &Session| s.doc().unwrap().model.iter().filter_map(|e| duct_of(e)).find_map(|p| p.elbow.map(|e| e.radius_mm));
+    assert_eq!(radius(&s), Some(200.0));
+    s.execute("ductedit", &json!({"handles": r["handles"], "diameter": 315})).unwrap();
+    assert_eq!(radius(&s), Some(315.0), "the new diameter");
+    s.execute("ductedit", &json!({"handles": r["handles"], "shape": "rectangular"})).unwrap();
+    // The runs are 315 wide (and 250 high) now: the elbow is that wide.
+    assert_eq!(radius(&s), Some(315.0));
+    s.execute("ductedit", &json!({"handles": r["handles"], "width": 600})).unwrap();
+    assert_eq!(radius(&s), Some(600.0), "the width of the rectangular run");
+    s.execute("ductedit", &json!({"handles": r["handles"], "shape": "round"})).unwrap();
+    assert!(radius(&s).is_some_and(|r| r > 0.0 && r < 600.0), "{:?}", radius(&s));
+}

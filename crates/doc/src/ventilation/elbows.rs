@@ -40,6 +40,15 @@ fn turn_deg(parent: &Run, parent_end: bool, child: &Run, child_end: bool) -> f64
     ((child.away(child_end).angle() - into.angle()).to_degrees() + 540.0).rem_euclid(360.0) - 180.0
 }
 
+/// The radius of the elbow `child` makes where it turns `turn` degrees from `parent`: its width, or less where the runs are short; `None` when a bend that
+/// tight would not fit the width (the joint is left as a corner).
+fn elbow_radius(child: &Run, parent: &Run, turn: f64) -> Option<f64> {
+    let width = child.params.plan_width_mm();
+    let room = 0.4 * (child.params.length * child.params.units.mm_per_unit).min(parent.params.length * parent.params.units.mm_per_unit);
+    let radius = width.min(room / (turn.abs().to_radians() / 2.0).tan());
+    (radius.is_finite() && radius > 0.55 * width).then_some(radius)
+}
+
 fn near_segment(p: Vec2, a: Vec2, b: Vec2, tol: f64) -> bool {
     let ab = b - a;
     let len2 = ab.len2();
@@ -149,9 +158,12 @@ impl crate::Drawing {
             for (side, other) in [(0usize, 1usize), (1, 0)] {
                 let (Some(&(c, ce)), Some(&(p, pe))) = (j.get(side), j.get(other)) else { continue };
                 let (Some(child), Some(parent)) = (runs.get(c), runs.get(p)) else { continue };
+                // The elbow stays while the joint still turns that much and the run is still the size it was drawn for: a run that was made wider (or
+                // rectangular) gets its elbow drawn again at the radius of its new width.
                 if let Some(e) = child.params.elbow
                     && e.at_end == ce
                     && (turn_deg(parent, pe, child, ce).abs() - e.angle_deg.abs()).abs() < 0.5
+                    && elbow_radius(child, parent, turn_deg(parent, pe, child, ce)).is_some_and(|r| (r - e.radius_mm).abs() < 0.5)
                     && holder.get(n).is_some_and(Option::is_none)
                 {
                     holder[n] = Some(side);
@@ -181,10 +193,7 @@ impl crate::Drawing {
                 if !(MIN_TURN_DEG..=MAX_TURN_DEG).contains(&turn.abs()) {
                     break;
                 }
-                let width = child.params.plan_width_mm();
-                let room = 0.4 * (child.params.length * child.params.units.mm_per_unit).min(parent.params.length * parent.params.units.mm_per_unit);
-                let radius = width.min(room / (turn.abs().to_radians() / 2.0).tan());
-                if radius.is_finite() && radius > 0.55 * width {
+                if let Some(radius) = elbow_radius(child, parent, turn) {
                     next[c].0 = Some(DuctElbow { angle_deg: turn, radius_mm: radius, at_end: ce });
                     holder[n] = Some(side);
                 }
