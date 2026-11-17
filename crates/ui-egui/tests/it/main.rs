@@ -24,6 +24,7 @@ mod lisp_files;
 mod measure_distance_snapping;
 mod measure_dropdown;
 mod menubar_hover;
+mod middle_click_paste;
 mod mspace_viewport_view;
 mod named_viewports_dialog;
 mod native_menu_text_keys;
