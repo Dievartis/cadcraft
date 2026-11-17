@@ -1899,3 +1899,4 @@ menu	View	视图
 	The cut walls are drawn with their openings, with the slabs, steel columns and beams and false ceilings at their elevations, and the levels in the margin.	被剖切的墙连同洞口一起绘出，楼板、钢柱、钢梁和吊顶按其标高绘出，标高标注在边缘。
 	It is a picture made now: draw a new section after changing the plan. Slopes are not drawn.	这是当前生成的图像：修改平面后请重新绘制剖面。坡度不绘制。
 	Building Section	剖面图
+	Concrete (mm)	混凝土 (mm)

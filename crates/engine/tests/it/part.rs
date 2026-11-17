@@ -284,3 +284,24 @@ fn refrigerantcheck_counts_the_units_at_each_outlet_of_a_box() {
     let empty = metric().execute("refrigerantcheck", &json!({})).unwrap();
     assert!(empty["networks"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn a_branch_box_is_chosen_by_its_number_of_outlets_not_by_typing_a_model_name() {
+    let mut s = metric();
+    s.last_used.part.model = "Branch box, 6 outlets (R32 heat recovery)".into();
+    s.cmdline("pipepartadd").unwrap();
+    s.cmdline("Model").unwrap();
+    let prompt = s.current_prompt().map(|p| p.message).unwrap_or_default();
+    assert!(prompt.contains("number of outlets") && prompt.contains("12"), "{prompt}");
+    // A number picks the box of that size in the same refrigerant.
+    s.cmdline("8").unwrap();
+    s.cmdline("0,0").unwrap();
+    s.cmdline("").unwrap();
+    let placed = s.doc().unwrap().model.iter().filter_map(|e| part_of(e)).map(|p| p.model).collect::<Vec<_>>();
+    assert_eq!(placed, vec!["Branch box, 8 outlets (R32 heat recovery)".to_string()], "{:?}", s.log.iter().rev().take(4).collect::<Vec<_>>());
+    // A number nobody makes is refused, and the model stays.
+    s.cmdline("pipepartadd").unwrap();
+    s.cmdline("Model").unwrap();
+    s.cmdline("7").unwrap();
+    assert!(s.log.iter().any(|l| l.contains("No branch box with that number of outlets")), "{:?}", s.log.iter().rev().take(4).collect::<Vec<_>>());
+}

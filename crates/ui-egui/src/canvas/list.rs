@@ -145,6 +145,7 @@ pub(super) fn ensure_list(app: &mut CadApp, xf: &Xf, views: &[(Bounds2, f64)], c
         text: true,
         linetypes: true,
         fill: true,
+        patterns: true,
         lineweights: lwdisplay,
         view_height: st.paper_view().height,
         plot_style_table: None,

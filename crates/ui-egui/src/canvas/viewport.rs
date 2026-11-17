@@ -137,6 +137,7 @@ pub(super) fn ensure_vp_content(app: &mut CadApp, xf_paper: &Xf, ctx: &egui::Con
             text: true,
             linetypes: true,
             fill: true,
+            patterns: true,
             lineweights: lwdisplay,
             view_height: st.paper_view().height,
             plot_style_table: None,

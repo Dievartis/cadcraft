@@ -1915,3 +1915,83 @@ fn the_stretch_where_the_duct_over_has_straight_sides_is_read_from_its_trims_aft
     d.refresh_cover_straights().unwrap();
     assert_eq!(straight(&d), [650.0, 3350.0]);
 }
+
+fn elbows_of(d: &Drawing, hs: &[Handle]) -> Vec<Option<(f64, f64, f64)>> {
+    hs.iter().map(|h| duct_of(d.entity(*h).unwrap()).map(|p| (p.elbow.map_or(0.0, |e| e.angle_deg), p.trim_start_mm, p.trim_end_mm))).collect()
+}
+
+#[test]
+fn two_runs_that_turn_get_an_elbow_as_soon_as_they_are_laid_without_sizing() {
+    let mut d = Drawing::new_metric();
+    let a = add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0));
+    let b = add_duct(&mut d, (3000.0, 0.0), (3000.0, 3000.0));
+    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 2, "the run that holds the elbow and the one that gives up its length");
+    let (pa, pb) = (duct_of(d.entity(a).unwrap()).unwrap(), duct_of(d.entity(b).unwrap()).unwrap());
+    let holder = [&pa, &pb].into_iter().find(|p| p.elbow.is_some()).expect("one of them has the elbow");
+    let e = holder.elbow.unwrap();
+    assert!((e.angle_deg.abs() - 90.0).abs() < 1e-6 && e.radius_mm > 0.0, "{e:?}");
+    // The joint is at the end of the first run and the start of the second: each gives up the bend's tangent there.
+    assert!((pa.trim_end_mm - e.tangent_mm()).abs() < 1e-6 && (pb.trim_start_mm - e.tangent_mm()).abs() < 1e-6, "{pa:?} {pb:?}");
+    assert_eq!((pa.trim_start_mm, pb.trim_end_mm), (0.0, 0.0));
+    // Done once: nothing more to draw.
+    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
+    // A run that moves away from the joint loses its elbow and gives its length back.
+    d.modify_entity(b, |e| {
+        if let EntityKind::Insert(i) = &mut e.kind {
+            i.insert.x += 1000.0;
+        }
+    })
+    .unwrap();
+    assert!(d.draw_duct_elbows(&Space::Model).unwrap() >= 1);
+    assert_eq!(elbows_of(&d, &[a, b]), vec![Some((0.0, 0.0, 0.0)), Some((0.0, 0.0, 0.0))]);
+}
+
+#[test]
+fn a_straight_continuation_a_tee_and_a_flexible_run_get_no_elbow() {
+    // Straight on.
+    let mut d = Drawing::new_metric();
+    let hs = [add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0)), add_duct(&mut d, (3000.0, 0.0), (6000.0, 0.0))];
+    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
+    assert_eq!(elbows_of(&d, &hs), vec![Some((0.0, 0.0, 0.0)); 2]);
+    // A tee: a third run ends where the two meet.
+    let mut d = Drawing::new_metric();
+    let hs = [
+        add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0)),
+        add_duct(&mut d, (3000.0, 0.0), (3000.0, 3000.0)),
+        add_duct(&mut d, (3000.0, 0.0), (6000.0, 0.0)),
+    ];
+    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
+    assert_eq!(elbows_of(&d, &hs), vec![Some((0.0, 0.0, 0.0)); 3]);
+    // A run that goes through the joint: a tee as well.
+    let mut d = Drawing::new_metric();
+    let hs = [
+        add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0)),
+        add_duct(&mut d, (3000.0, 0.0), (3000.0, 3000.0)),
+        add_duct(&mut d, (3000.0, -2000.0), (3000.0, 1000.0)),
+    ];
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(elbows_of(&d, &hs[..2]), vec![Some((0.0, 0.0, 0.0)); 2]);
+    // A flexible run has no elbow.
+    let mut d = Drawing::new_metric();
+    let a = add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0));
+    let b = add_duct(&mut d, (3000.0, 0.0), (3000.0, 3000.0));
+    let mut p = duct_of(d.entity(b).unwrap()).unwrap();
+    p.flexible = true;
+    d.regenerate_duct(b, &p).unwrap();
+    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
+    assert_eq!(elbows_of(&d, &[a, b]), vec![Some((0.0, 0.0, 0.0)); 2]);
+}
+
+#[test]
+fn a_zigzag_gives_each_bend_its_own_elbow_on_a_different_run() {
+    let mut d = Drawing::new_metric();
+    let hs = [
+        add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0)),
+        add_duct(&mut d, (3000.0, 0.0), (3000.0, 3000.0)),
+        add_duct(&mut d, (3000.0, 3000.0), (6000.0, 3000.0)),
+        add_duct(&mut d, (6000.0, 3000.0), (6000.0, 0.0)),
+    ];
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    let with_elbow = hs.iter().filter(|h| duct_of(d.entity(**h).unwrap()).unwrap().elbow.is_some()).count();
+    assert_eq!(with_elbow, 3, "three bends, three elbows, each on its own run");
+}

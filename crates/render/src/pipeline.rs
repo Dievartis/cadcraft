@@ -21,6 +21,9 @@ pub struct Options {
     pub linetypes: bool,
     /// Highlighted (selected) handles are not special here; the canvas overlays them.
     pub fill: bool,
+    /// Draw the lines and dots of hatch patterns. Off, a hatch is only its fill (a solid one) and its background: what picking and boundary tracing
+    /// want, since a pattern's lines are not the object's own outline and a slab's diagonal hatch would cut the room it covers into pieces.
+    pub patterns: bool,
     pub lineweights: bool,
     /// Height of the visible area in world units of the space being built. Relative point
     /// sizes (`PDSIZE` <= 0) are a percentage of it; 0 = the height of the space's extents.
@@ -61,6 +64,7 @@ impl Default for Options {
             text: true,
             linetypes: true,
             fill: true,
+            patterns: true,
             lineweights: false,
             view_height: 0.0,
             plot_style_table: None,

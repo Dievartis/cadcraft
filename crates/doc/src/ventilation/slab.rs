@@ -30,6 +30,10 @@ fn default_label_mm() -> f64 {
     150.0
 }
 
+/// About how wide one repeat of a pattern is at scale 1, mm, and the most repeats a slab's hatch may have.
+const PATTERN_TILE_MM: f64 = 508.0;
+const MAX_PATTERN_TILES: f64 = 400.0;
+
 fn default_hatch_scale() -> f64 {
     1.0
 }
@@ -122,7 +126,8 @@ fn slope_is_flat(v: &f64) -> bool {
 }
 
 fn default_pattern() -> String {
-    "AR-CONC".into()
+    // Diagonal lines: light to draw. AR-CONC (random stones and dots) is tens of thousands of marks on a room-sized slab.
+    "ANSI31".into()
 }
 
 impl SlabParams {
@@ -190,6 +195,16 @@ impl SlabParams {
     }
 
     /// The area, m², without the openings.
+    /// The scale the pattern is drawn at: the slab's, made coarser when a big slab would hold more than [`MAX_PATTERN_TILES`] repeats of the pattern
+    /// (about 508 mm across at scale 1), which a web build cannot draw or hold.
+    pub fn pattern_scale(&self) -> f64 {
+        let k = self.units.mm_per_unit;
+        let area_mm2 = shoelace(&self.outline).abs() * k * k;
+        let tile_mm = PATTERN_TILE_MM * self.hatch_scale * k;
+        let tiles = if tile_mm > 0.0 { area_mm2 / (tile_mm * tile_mm) } else { 0.0 };
+        if tiles.is_finite() && tiles > MAX_PATTERN_TILES { self.hatch_scale * (tiles / MAX_PATTERN_TILES).sqrt() } else { self.hatch_scale }
+    }
+
     pub fn area_m2(&self) -> f64 {
         let holes: f64 = self.holes.iter().map(|h| shoelace(h).abs()).sum();
         self.units.area_m2((shoelace(&self.outline).abs() - holes).max(0.0))
@@ -232,7 +247,7 @@ impl SlabParams {
                 pattern: pattern.to_ascii_uppercase(),
                 solid,
                 loops,
-                scale: if solid { 1.0 } else { self.hatch_scale },
+                scale: if solid { 1.0 } else { self.pattern_scale() },
                 angle: 0.0,
                 associative: false,
                 style: 0,

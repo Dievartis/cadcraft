@@ -213,3 +213,25 @@ fn the_takeoff_adds_up_the_steel_by_section_and_the_slabs_by_kind_and_is_written
     assert_eq!((empty["steelKg"].as_f64(), empty["columns"].as_array().map(Vec::len)), (Some(0.0), Some(0)));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn concrete_columns_and_beams_of_any_size_are_drawn_edited_and_counted_in_cubic_metres() {
+    let mut s = metric();
+    let col = s.execute("columnadd", &json!({"at": [0, 0], "section": "BA 300x500", "height": 3000})).unwrap();
+    s.execute("columnadd", &json!({"at": [6000, 0], "section": "ba \u{d8}40", "height": 3000})).unwrap();
+    s.execute("beamadd", &json!({"points": [[0, 0], [6000, 0]], "section": "BA 25x60", "elevation": 2.4})).unwrap();
+    for bad in [json!({"at": [0, 0], "section": "BA 3x3"}), json!({"at": [0, 0], "section": "HEA 999"}), json!({"at": [0, 0], "section": "300x500"})]
+    {
+        assert!(s.execute("columnadd", &bad).is_err(), "{bad}");
+    }
+    let t = s.execute("structtakeoff", &json!({})).unwrap();
+    // 0.3 × 0.5 × 3 + π × 0.2² × 3 + 0.25 × 0.6 × 6 (the beam may be cut at the columns, so a little less).
+    let expected = 0.45 + std::f64::consts::PI * 0.04 * 3.0 + 0.9;
+    let m3 = t["concreteM3"].as_f64().unwrap();
+    assert!(m3 > 1.5 && m3 <= expected + 1e-6, "{m3} vs {expected}");
+    assert_eq!(t["steelKg"].as_f64(), Some(0.0));
+    // A concrete column becomes steel and back.
+    s.execute("structedit", &json!({"handle": col["handles"][0], "section": "HEA 200"})).unwrap();
+    s.execute("structedit", &json!({"handle": col["handles"][0], "section": "BA 40x40"})).unwrap();
+    assert!(s.execute("structedit", &json!({"handle": col["handles"][0], "section": "nonsense"})).is_err());
+}

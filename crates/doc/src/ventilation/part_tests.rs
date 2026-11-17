@@ -163,3 +163,31 @@ fn the_ports_of_a_refrigerant_part_are_the_ends_of_the_lines_its_symbol_draws() 
     }
     assert!(PartParams::new(PartKind::Pump, "P", units()).ports().is_empty());
 }
+
+#[test]
+fn a_refrigerant_joint_a_header_and_a_branch_box_show_no_index_and_no_refrigerant() {
+    let name = |n: &str, fr: bool| standard_part_model_named(n).unwrap().short_name(fr);
+    assert_eq!(name("Refrigerant Y joint, index below 200", false), "Refrigerant Y joint");
+    assert_eq!(name("Refrigerant Y joint, index 640 or more", true), "Piquage frigorifique Y");
+    assert_eq!(name("Refrigerant header, index below 290", true), "Nourrice frigorifique (clarinette)");
+    assert_eq!(name("Branch box, 6 outlets (R32 heat recovery)", false), "Branch box, 6 outlets");
+    assert_eq!(name("Branch box, 6 outlets (R32 heat recovery)", true), "Boîte de détente 6 sorties");
+    // Another part keeps its name.
+    assert_eq!(name("Check valve", false), "Check valve");
+}
+
+#[test]
+fn a_branch_box_is_chosen_by_its_number_of_outlets_in_the_refrigerant_of_the_last_one() {
+    let r32 = branch_box_outlet_counts("Branch box, 6 outlets (R32 heat recovery)");
+    assert!([4, 6, 8, 10, 12].iter().all(|n| r32.contains(n)), "{r32:?}");
+    assert!(r32.windows(2).all(|w| w[0] < w[1]) && !r32.contains(&16), "smallest first, once each: {r32:?}");
+    assert!(branch_box_outlet_counts("Branch box, 8 outlets (R410A heat recovery)").contains(&16));
+    assert_eq!(branch_box_with_outlets(8, "Branch box, 6 outlets (R32 heat recovery)").unwrap().name, "Branch box, 8 outlets (R32 heat recovery)");
+    assert_eq!(
+        branch_box_with_outlets(16, "Branch box, 6 outlets (R410A heat recovery)").unwrap().name,
+        "Branch box, 16 outlets (R410A heat recovery)"
+    );
+    // R32 is the default for a model that is not a box; a count nobody makes has none.
+    assert_eq!(branch_box_with_outlets(4, "Check valve").unwrap().name, "Branch box, 4 outlets (R32 heat recovery)");
+    assert!(branch_box_with_outlets(7, "Branch box, 6 outlets (R32 heat recovery)").is_none());
+}

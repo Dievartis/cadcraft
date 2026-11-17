@@ -17,6 +17,7 @@ mod curtain;
 mod design;
 mod distribute;
 mod duct;
+mod elbows;
 mod elec;
 mod elec_circuits;
 mod elec_report;
@@ -66,7 +67,8 @@ pub use network::{DEFAULT_MARGIN_MM, DuctNetwork, FLEX_ROUGHNESS_MM, MAX_DUCTS};
 pub use network_legend::*;
 pub use part::*;
 pub use part_library::{
-    MAX_USER_PART_MODELS, PartEntry, PartModel, PartTemplate, standard_part_model_named, standard_part_models, tag_prefix as part_tag_prefix,
+    MAX_USER_PART_MODELS, PartEntry, PartModel, PartTemplate, branch_box_outlet_counts, branch_box_with_outlets, short_part_name,
+    standard_part_model_named, standard_part_models, tag_prefix as part_tag_prefix,
 };
 pub use pipe::*;
 pub use pipe_fittings::{MAX_FITTING_PIPES, PipeFitting, PipeFittingKind};

@@ -247,3 +247,34 @@ fn a_column_finds_the_corner_and_the_junctions_of_the_walls() {
     .unwrap();
     assert_eq!(d.wall_corner_near(&Space::Model, Vec2::new(14_010.0, 10.0), 100.0), Some(Vec2::new(14_000.0, 0.0)));
 }
+
+#[test]
+fn a_concrete_section_of_any_size_is_read_drawn_weighed_and_counted_in_cubic_metres() {
+    // Read: width x height in mm, centimetres when both are small, a round one with Ø; refused outside 50 to 5000 mm or without a prefix.
+    assert_eq!(parse_concrete("BA 300x500").map(|c| (c.width_mm, c.height_mm, c.round)), Some((300.0, 500.0, false)));
+    assert_eq!(parse_concrete("ba 30 x 50").map(|c| (c.width_mm, c.height_mm)), Some((300.0, 500.0)));
+    assert_eq!(parse_concrete("BA \u{d8}400").map(|c| (c.width_mm, c.round)), Some((400.0, true)));
+    assert_eq!(parse_concrete("BA 300x500").map(|c| c.designation()).as_deref(), Some("BA 300x500"));
+    for bad in ["300x500", "BA", "BA 10x500", "BA 300x9000", "BA 300", "BA axb", "BA NaNx5", "HEA 200"] {
+        assert!(parse_concrete(bad).is_none(), "{bad}");
+    }
+    // A column of 300 x 500 mm, 3 m high: 0.15 m² × 3 m = 0.45 m³ of 2500 kg/m³.
+    let c = StructParams::column_of("C1", "BA 300x500".into(), units());
+    c.validate().unwrap();
+    assert!((c.mass_kg() - 0.15 * 3.0 * CONCRETE_KG_M3).abs() < 1e-6, "{}", c.mass_kg());
+    // Drawn: the outline and its two diagonals (a round one is a polygon), no hatch, and a label with the designation.
+    let pieces = c.generate(false).unwrap();
+    assert_eq!(pieces.iter().filter(|p| matches!(p.kind, EntityKind::Line(_))).count(), 2);
+    assert!(!pieces.iter().any(|p| matches!(p.kind, EntityKind::Hatch(_))));
+    assert!(c.label_text().contains("BA 300x500"));
+    let round = StructParams::column_of("C2", "BA \u{d8}400".into(), units());
+    assert!(round.generate(false).is_ok() && round.half_extent_mm() == Some((200.0, 200.0)));
+    // A beam: its band is its width, its height is the section's.
+    let mut b = StructParams::beam_of("B1", "BA 250x600".into(), 6000.0, units());
+    b.validate().unwrap();
+    assert_eq!(b.half_extent_mm(), Some((3000.0, 125.0)));
+    assert_eq!(b.top_mm(), b.elevation_mm + 600.0);
+    // A section that is neither is refused.
+    b.section = "BA 3x3".into();
+    assert!(b.validate().is_err());
+}

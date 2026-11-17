@@ -391,6 +391,16 @@ impl Interactive for PartAddM {
     }
     fn prompt(&self, _s: &Session) -> Prompt {
         if self.ask_model {
+            // A branch box is chosen by its number of outlets, not by typing the name of a model.
+            if cadcraft_doc::standard_part_model_named(&self.model).is_some_and(|m| m.kind == cadcraft_doc::PartKind::BranchBox) {
+                let counts = cadcraft_doc::branch_box_outlet_counts(&self.model);
+                let now = cadcraft_doc::standard_part_model_named(&self.model).map_or(0, |m| m.outlets);
+                return Prompt::new(
+                    format!("Enter the number of outlets ({})", counts.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")),
+                    Accept::TEXT,
+                )
+                .default(now.to_string());
+            }
             return Prompt::new("Enter the name of a model of the library", Accept::TEXT).default(self.model.clone());
         }
         if let Some((at, along)) = self.rotation_at {
@@ -402,6 +412,22 @@ impl Interactive for PartAddM {
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         if self.ask_model {
             if let Input::Text(t) | Input::Keyword(t) = &i {
+                let outlets = t.trim().parse::<u32>().ok();
+                let is_box = cadcraft_doc::standard_part_model_named(&self.model).is_some_and(|m| m.kind == cadcraft_doc::PartKind::BranchBox);
+                if let (true, Some(n)) = (is_box, outlets) {
+                    match cadcraft_doc::branch_box_with_outlets(n, &self.model) {
+                        Some(m) => {
+                            self.model = m.name.to_string();
+                            s.echo(format!("Current settings: Model = {}", m.short_name(false)));
+                        }
+                        None => s.echo(format!(
+                            "No branch box with that number of outlets: {}.",
+                            cadcraft_doc::branch_box_outlet_counts(&self.model).iter().map(u32::to_string).collect::<Vec<_>>().join(", ")
+                        )),
+                    }
+                    self.ask_model = false;
+                    return Ok(Step::Continue);
+                }
                 match s.doc().ok().and_then(|d| d.part_entry_named(t)) {
                     Some(m) => {
                         self.model = m.name.clone();

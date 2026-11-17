@@ -235,7 +235,7 @@ impl Drawing {
                     pic.rect(x0, x1, p.elevation_mm - p.thickness_mm, p.elevation_mm, true);
                 }
             } else if let Some(s) = struct_of(e) {
-                let Some(sec) = s.section() else { continue };
+                let Some(sec) = s.profile() else { continue };
                 let u = |mm: f64| s.units.to_units(mm);
                 let local: Vec<Vec2> = match s.kind {
                     // A column is drawn over its whole width, as seen, not just where the line goes through the web of its profile.

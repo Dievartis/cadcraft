@@ -46,6 +46,9 @@ pub(super) fn draw(b: &mut Builder, ctx: &Ctx, e: &Entity, h: &Hatch, rgb: Ink, 
     {
         b.tris(ctx, ink(bg, layer_color, ctx.block_color), &fill::triangulate_evenodd(&loops));
     }
+    if !b.opts.patterns {
+        return;
+    }
     // The area being looked at, in the hatch's units.
     let view = b.opts.view.and_then(|v| {
         let inv = ctx.xf.inverse()?;

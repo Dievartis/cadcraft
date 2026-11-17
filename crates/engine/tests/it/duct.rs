@@ -1232,3 +1232,22 @@ fn a_riser_with_a_part_for_another_floor_says_it_at_the_lower_end_and_its_sectio
     assert!(riser_of(s.doc().unwrap().entity(h).unwrap()).unwrap().incoming_size.is_none());
     assert!(s.execute("riseredit", &json!({"handle": h.hex(), "incomingSize": "huge"})).is_err());
 }
+
+#[test]
+fn the_elbows_are_drawn_when_the_runs_are_laid_and_follow_a_move_without_sizing() {
+    let mut s = metric();
+    s.execute("ductadd", &json!({"points": [[0, 0], [3000, 0], [3000, 3000], [6000, 3000]], "diameter": 200})).unwrap();
+    let ducts = |s: &Session| -> Vec<(Handle, cadcraft_doc::DuctParams)> {
+        s.doc().unwrap().model.iter().filter_map(|e| duct_of(e).map(|p| (e.handle, p))).collect()
+    };
+    let elbows = |s: &Session| ducts(s).iter().filter(|(_, p)| p.elbow.is_some()).count();
+    assert_eq!(ducts(&s).len(), 3);
+    assert_eq!(elbows(&s), 2, "two bends, two elbows, with no sizing");
+    // Moving the last run away takes its elbow off.
+    let last = ducts(&s).iter().find(|(_, p)| p.trim_end_mm == 0.0 && p.trim_start_mm > 0.0).map(|(h, _)| *h).expect("the last run");
+    s.execute("move", &json!({"handles": [last.hex()], "from": [0, 0], "to": [0, 2000]})).unwrap();
+    assert_eq!(elbows(&s), 1);
+    // An undo brings the elbow back.
+    s.execute("undo", &json!({})).ok();
+    assert_eq!(elbows(&s), 2);
+}

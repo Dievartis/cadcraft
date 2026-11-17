@@ -108,3 +108,17 @@ fn bad_openings_and_slopes_are_refused() {
         flat.iter().filter(|x| matches!(x.kind, EntityKind::Line(_))).count() + 3
     );
 }
+
+#[test]
+fn a_big_slab_has_a_coarser_pattern_so_the_hatch_stays_light() {
+    let square = |side_mm: f64| {
+        let outline = vec![Vec2::new(0.0, 0.0), Vec2::new(side_mm, 0.0), Vec2::new(side_mm, side_mm), Vec2::new(0.0, side_mm)];
+        SlabParams::new("S", SlabKind::Floor, outline, HvacUnits::default())
+    };
+    // A room: the pattern keeps its scale. A hall of 60 × 60 m: coarser, so no more than 400 repeats (the old default was AR-CONC, which hung the web build).
+    assert_eq!(square(5000.0).pattern_scale(), 1.0);
+    let big = square(60_000.0).pattern_scale();
+    assert!(big > 3.0 && big.is_finite(), "{big}");
+    // A new slab is hatched with diagonal lines.
+    assert_eq!(square(5000.0).pattern, "ANSI31");
+}

@@ -850,6 +850,21 @@ fn section_picker(ui: &mut egui::Ui, current: &str) -> Option<String> {
         });
         size_box.response.labelled_by(name.id);
     });
+    // A concrete column or beam of any size: "300x500" (width x height, mm) or "\u{d8}400", Enter to take it.
+    ui.horizontal(|ui| {
+        ui.add_space(12.0);
+        let label = ui.label(crate::i18n::t("Concrete (mm)"));
+        let id = ui.make_persistent_id("struct_concrete_text");
+        let from_current = cadcraft_doc::parse_concrete(current).map(|c| c.designation().trim_start_matches("BA ").to_string());
+        let mut text = ui.data_mut(|d| d.get_temp::<String>(id)).or(from_current).unwrap_or_default();
+        let field = ui.add(egui::TextEdit::singleline(&mut text).desired_width(110.0).hint_text("300x500")).labelled_by(label.id);
+        if field.changed() {
+            ui.data_mut(|d| d.insert_temp(id, text.clone()));
+        }
+        if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            chosen = cadcraft_doc::parse_concrete(&format!("BA {text}")).map(|c| c.designation());
+        }
+    });
     chosen
 }
 
@@ -867,9 +882,35 @@ fn parts_section(ui: &mut egui::Ui, part_now: &str, chosen_part: &mut Option<&'s
     for name in COMMON_PARTS {
         let Some(m) = cadcraft_doc::standard_part_model_named(name) else { continue };
         let params = m.params("T", cadcraft_doc::HvacUnits::default());
-        let selected = part_now == m.name;
-        if row_button(ui, if fr { m.name_fr } else { m.name }, selected, |p, r| thumbs::paint_part(p, r, &params)) {
-            *chosen_part = Some(m.name);
+        let is_box = m.kind == cadcraft_doc::PartKind::BranchBox;
+        // The box shown is the one of the last use, when that is a box; a joint, a header and a box show no index and no refrigerant.
+        let shown = if is_box {
+            cadcraft_doc::standard_part_model_named(part_now).filter(|b| b.kind == cadcraft_doc::PartKind::BranchBox).unwrap_or(m)
+        } else {
+            m
+        };
+        let selected = part_now == shown.name;
+        if row_button(ui, &shown.short_name(fr), selected, |p, r| thumbs::paint_part(p, r, &params)) {
+            *chosen_part = Some(shown.name);
+        }
+        // A branch box is chosen by its number of outlets.
+        if is_box {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                let label = ui.label(crate::i18n::t("Outlets"));
+                let combo =
+                    craft_ui::ComboBox::from_id_salt("branch_box_outlets").width(70.0).selected_text(shown.outlets.to_string()).show_ui(ui, |ui| {
+                        for n in cadcraft_doc::branch_box_outlet_counts(shown.name) {
+                            if ui.selectable_label(n == shown.outlets, n.to_string()).clicked()
+                                && n != shown.outlets
+                                && let Some(b) = cadcraft_doc::branch_box_with_outlets(n, shown.name)
+                            {
+                                *chosen_part = Some(b.name);
+                            }
+                        }
+                    });
+                combo.response.labelled_by(label.id);
+            });
         }
     }
     if row_tip(

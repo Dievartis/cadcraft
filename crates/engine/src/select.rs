@@ -29,7 +29,7 @@ pub fn hit_polylines(d: &Drawing, e: &Entity, tol: f64) -> Vec<Vec<Vec2>> {
                 let list = cadcraft_render::build_entities(
                     d,
                     std::iter::once(e),
-                    &cadcraft_render::Options { tolerance: tol, text: false, linetypes: false, ..Default::default() },
+                    &cadcraft_render::Options { tolerance: tol, text: false, linetypes: false, patterns: false, ..Default::default() },
                 );
                 // Picked on what they draw (their text inside its box, see `in_text`), not on their
                 // bounding box: its edges run through empty space, out to a dimension's definition

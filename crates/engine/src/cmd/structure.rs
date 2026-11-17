@@ -2,9 +2,10 @@
 //! what is drawn, STRUCTCLEANUP cuts the beams at the columns and beams they meet. A point lands on the centre of a column, the end of a beam or the
 //! corner of two walls when it is close to one.
 
+use cadcraft_doc::parse_concrete;
 use cadcraft_doc::{Handle, HvacUnits, StructKind, StructParams, struct_of};
 use cadcraft_geom::Vec2;
-use cadcraft_hvac::{SteelSection, parse_section};
+use cadcraft_hvac::parse_section;
 use serde_json::{Value, json};
 
 use super::{CommandSpec, bad, str_param};
@@ -81,10 +82,21 @@ fn number(cmd: &str, p: &Value, key: &str) -> Result<Option<f64>> {
     }
 }
 
-fn section_param(cmd: &str, p: &Value) -> Result<Option<&'static SteelSection>> {
+/// The designation of a section typed as a steel one (IPN, IPE, HEA, HEB or UPN with a size) or a concrete one ("BA 300x500", "BA Ø400"), or `None`.
+fn designation(text: &str) -> Option<String> {
+    parse_section(text).map(|s| s.designation()).or_else(|| parse_concrete(text).map(|c| c.designation()))
+}
+
+fn section_param(cmd: &str, p: &Value) -> Result<Option<String>> {
     match str_param(p, "section") {
-        Some(t) => parse_section(t).map(Some).ok_or_else(|| {
-            bad(cmd, format!("`section` \"{}\" is not in the table (IPN, IPE, HEA, HEB or UPN with a size)", t.chars().take(40).collect::<String>()))
+        Some(t) => designation(t).map(Some).ok_or_else(|| {
+            bad(
+                cmd,
+                format!(
+                    "`section` \"{}\" is not in the table (IPN, IPE, HEA, HEB or UPN with a size) nor a concrete section like \"BA 300x500\" or \"BA \u{d8}400\"",
+                    t.chars().take(40).collect::<String>()
+                ),
+            )
         }),
         None => Ok(None),
     }
@@ -113,8 +125,8 @@ fn next_tag(s: &Session, kind: StructKind) -> Result<String> {
     Ok(format!("{}{n}", kind.tag_prefix()))
 }
 
-fn section_of(text: &str) -> Result<&'static SteelSection> {
-    parse_section(text).ok_or_else(|| other(format!("There is no section \"{}\" in the table.", text.chars().take(40).collect::<String>())))
+fn section_of(text: &str) -> Result<String> {
+    designation(text).ok_or_else(|| other(format!("There is no section \"{}\" in the table.", text.chars().take(40).collect::<String>())))
 }
 
 fn add_column(s: &mut Session, last: &StructLastUsed, at: Vec2, rotation: f64, name: Option<&str>) -> Result<(Handle, String)> {
@@ -122,7 +134,7 @@ fn add_column(s: &mut Session, last: &StructLastUsed, at: Vec2, rotation: f64, n
         Some(n) => n.to_string(),
         None => next_tag(s, StructKind::Column)?,
     };
-    let mut p = StructParams::column(&tag, section_of(&last.section)?, HvacUnits::of(s.doc()?));
+    let mut p = StructParams::column_of(&tag, section_of(&last.section)?, HvacUnits::of(s.doc()?));
     p.height_mm = last.column_height_mm;
     p.elevation_mm = last.column_elevation_mm;
     p.validate().map_err(doc_err)?;
@@ -139,7 +151,7 @@ fn add_beam(s: &mut Session, last: &StructLastUsed, a: Vec2, b: Vec2, name: Opti
         Some(n) => n.to_string(),
         None => next_tag(s, StructKind::Beam)?,
     };
-    let mut p = StructParams::beam(&tag, section_of(&last.section)?, a.dist(b), HvacUnits::of(s.doc()?));
+    let mut p = StructParams::beam_of(&tag, section_of(&last.section)?, a.dist(b), HvacUnits::of(s.doc()?));
     p.elevation_mm = last.beam_elevation_mm;
     p.validate().map_err(doc_err)?;
     let (space, common) = (s.space(), s.current_common());
@@ -172,7 +184,7 @@ fn run_columnadd(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let mut last = StructLastUsed::default();
     if let Some(sec) = section_param(CMD, p)? {
-        last.section = sec.designation();
+        last.section = sec;
     }
     last.column_height_mm = number(CMD, p, "height")?.unwrap_or(last.column_height_mm);
     last.column_elevation_mm = number(CMD, p, "elevation")?.map_or(last.column_elevation_mm, |m| m * 1000.0);
@@ -207,7 +219,7 @@ fn run_beamadd(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let mut last = StructLastUsed::default();
     if let Some(sec) = section_param(CMD, p)? {
-        last.section = sec.designation();
+        last.section = sec;
     } else {
         last.section = "IPE 240".into();
     }
@@ -244,8 +256,8 @@ fn run_structedit(s: &mut Session, p: &Value) -> Result<Value> {
     let mut next: Vec<(Handle, StructParams)> = Vec::with_capacity(hs.len());
     for h in &hs {
         let mut o = s.doc()?.entity(*h).and_then(|e| struct_of(e)).ok_or_else(|| other("Select structural objects only."))?;
-        if let Some(sec) = section {
-            o.section = sec.designation();
+        if let Some(sec) = &section {
+            o.section = sec.clone();
         }
         if let Some(n) = str_param(p, "name") {
             o.name = n.trim().to_string();
@@ -329,6 +341,14 @@ enum Ask {
 fn echo_section(s: &mut Session, text: &str) {
     if let Some(x) = parse_section(text) {
         s.echo(format!("Section {}: {:.0} x {:.0} mm, {:.1} kg/m", x.designation(), x.h_mm, x.b_mm, x.kg_m));
+    } else if let Some(c) = parse_concrete(text) {
+        s.echo(format!(
+            "Section {}: {:.0} x {:.0} mm, {:.0} kg/m",
+            c.designation(),
+            c.height_mm,
+            c.width_mm,
+            c.area_m2() * cadcraft_doc::CONCRETE_KG_M3
+        ));
     }
 }
 
@@ -383,12 +403,12 @@ impl Interactive for ColumnAddM {
         };
         if self.ask != Ask::Point {
             match (self.ask, text.as_deref()) {
-                (Ask::Section, Some(t)) => match parse_section(t) {
-                    Some(x) => {
-                        self.last.section = x.designation();
+                (Ask::Section, Some(t)) => match designation(t) {
+                    Some(d) => {
+                        self.last.section = d;
                         echo_section(s, &self.last.section);
                     }
-                    None => s.echo("Enter a section of the table: IPN, IPE, HEA, HEB or UPN with a size (e.g. HEA 200)."),
+                    None => s.echo("Enter a section of the table (IPN, IPE, HEA, HEB or UPN with a size, e.g. HEA 200) or a concrete one (BA 300x500, BA \u{d8}400)."),
                 },
                 (Ask::Height, Some(t)) => match parse_number(t).filter(|v| *v >= 10.0) {
                     Some(v) => self.last.column_height_mm = v,
@@ -437,11 +457,18 @@ impl Interactive for ColumnAddM {
         }
     }
     fn preview(&self, s: &Session, c: Vec2) -> Vec<cadcraft_doc::EntityKind> {
-        let Some(x) = parse_section(&self.last.section) else { return Vec::new() };
+        let outline: Vec<(f64, f64)> = if let Some(x) = parse_section(&self.last.section) {
+            StructParams::section_outline_mm(x)
+        } else if let Some(c) = parse_concrete(&self.last.section) {
+            let (hx, hy) = (c.width_mm / 2.0, c.height_mm / 2.0);
+            vec![(-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy)]
+        } else {
+            return Vec::new();
+        };
         let Ok(d) = s.doc() else { return Vec::new() };
         let units = HvacUnits::of(d);
         let (c0, s0) = (self.rotation_deg.to_radians().cos(), self.rotation_deg.to_radians().sin());
-        let vertices = StructParams::section_outline_mm(x)
+        let vertices = outline
             .into_iter()
             .map(|(px, py)| {
                 let (u, v) = (units.to_units(px), units.to_units(py));
@@ -504,12 +531,12 @@ impl Interactive for BeamAddM {
         };
         if matches!(self.ask, Ask::Section | Ask::Elevation) {
             match (self.ask, text.as_deref()) {
-                (Ask::Section, Some(t)) => match parse_section(t) {
-                    Some(x) => {
-                        self.last.section = x.designation();
+                (Ask::Section, Some(t)) => match designation(t) {
+                    Some(d) => {
+                        self.last.section = d;
                         echo_section(s, &self.last.section);
                     }
-                    None => s.echo("Enter a section of the table: IPN, IPE, HEA, HEB or UPN with a size (e.g. IPE 240)."),
+                    None => s.echo("Enter a section of the table (IPN, IPE, HEA, HEB or UPN with a size, e.g. IPE 240) or a concrete one (BA 300x500, BA \u{d8}400)."),
                 },
                 (Ask::Elevation, Some(t)) => match parse_number(t) {
                     Some(v) => self.last.beam_elevation_mm = v * 1000.0,

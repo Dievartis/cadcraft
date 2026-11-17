@@ -15,12 +15,68 @@ use super::part::{line, poly};
 use super::{HvacPiece, HvacUnits, SheetCell, Workbook, check_label_height, check_name, invalid, label, v3, xdata};
 use crate::{EntityKind, Hatch, HatchLoop, RawTag, Result};
 
+/// The density of reinforced concrete used for its mass, kg/m³.
+pub const CONCRETE_KG_M3: f64 = 2500.0;
+/// The smallest and largest side of a concrete section, mm.
+const CONCRETE_SIDE_MM: (f64, f64) = (50.0, 5000.0);
+
+/// A reinforced-concrete section of any size, typed "BA 300x500" (width x height, mm; centimetres when both are under 100) or, for a column, "BA Ø400".
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConcreteSection {
+    pub width_mm: f64,
+    pub height_mm: f64,
+    pub round: bool,
+}
+
+impl ConcreteSection {
+    /// The designation, as it is kept and written: "BA 300x500" or "BA Ø400".
+    pub fn designation(&self) -> String {
+        if self.round { format!("BA \u{d8}{}", self.width_mm.round()) } else { format!("BA {}x{}", self.width_mm.round(), self.height_mm.round()) }
+    }
+
+    /// The area of the section, m².
+    pub fn area_m2(&self) -> f64 {
+        if self.round { std::f64::consts::PI * (self.width_mm / 2000.0).powi(2) } else { self.width_mm * self.height_mm / 1.0e6 }
+    }
+}
+
+/// The concrete section a text names ("BA 300x500", "ba 30x50", "BA Ø400", "RC 300 x 500"), when its sides are 50 to 5000 mm.
+pub fn parse_concrete(text: &str) -> Option<ConcreteSection> {
+    let t = text.trim();
+    let lower = t.to_lowercase();
+    let rest = ["ba", "rc", "béton", "beton", "concrete"].iter().find_map(|p| lower.strip_prefix(p)).map(str::trim)?;
+    let rest = rest.replace(',', ".");
+    let ok = |v: f64| v.is_finite() && (CONCRETE_SIDE_MM.0..=CONCRETE_SIDE_MM.1).contains(&v);
+    if let Some(d) = rest.strip_prefix(['\u{f8}', 'o', 'd', 'r']) {
+        let d: f64 = d.trim().parse().ok()?;
+        let d = if d < 100.0 { d * 10.0 } else { d };
+        return ok(d).then_some(ConcreteSection { width_mm: d, height_mm: d, round: true });
+    }
+    let (w, h) = rest.split_once(['x', '\u{d7}', '*'])?;
+    let (w, h): (f64, f64) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+    let k = if w < 100.0 && h < 100.0 { 10.0 } else { 1.0 };
+    let (w, h) = (w * k, h * k);
+    (ok(w) && ok(h)).then_some(ConcreteSection { width_mm: w, height_mm: h, round: false })
+}
+
+/// The shape and the mass of a section, steel or concrete: the width `b` (along x for a column), the height `h`, the mass per metre.
+#[derive(Clone, Copy, Debug)]
+pub struct Profile {
+    pub b_mm: f64,
+    pub h_mm: f64,
+    pub kg_m: f64,
+    pub steel: Option<&'static SteelSection>,
+    pub concrete: Option<ConcreteSection>,
+}
+
 /// The registered application name of a structural object's extended data.
 pub const STRUCT_APP: &str = "CADCRAFT_STRUCT";
 /// The layer of the columns and the layer of the beams.
 pub const COLUMN_LAYER: &str = "S-COLS";
 pub const BEAM_LAYER: &str = "S-BEAM";
 const XDATA_FORMAT: &str = "STRUCT1";
+/// The sides of the polygon that draws a round concrete column.
+const CIRCLE_STEPS: usize = 32;
 /// Largest height of a column, length of a beam and elevation, mm.
 pub const MAX_STRUCT_MM: f64 = 100_000.0;
 /// The tolerance when a beam's end is taken to be on a column or on another beam, mm.
@@ -121,10 +177,20 @@ fn yes() -> bool {
 impl StructParams {
     /// A column of section `section`, with a storey's height.
     pub fn column(name: &str, section: &SteelSection, units: HvacUnits) -> StructParams {
+        Self::column_of(name, section.designation(), units)
+    }
+
+    /// A beam of section `section`, as long as `length` drawing units, its underside at 3 m.
+    pub fn beam(name: &str, section: &SteelSection, length: f64, units: HvacUnits) -> StructParams {
+        Self::beam_of(name, section.designation(), length, units)
+    }
+
+    /// A column whose section is given by its designation, steel ("HEA 200") or concrete ("BA 300x500").
+    pub fn column_of(name: &str, designation: String, units: HvacUnits) -> StructParams {
         StructParams {
             kind: StructKind::Column,
             name: name.trim().to_string(),
-            section: section.designation(),
+            section: designation,
             elevation_mm: 0.0,
             height_mm: StructKind::Column.default_height_mm(),
             length: 0.0,
@@ -136,12 +202,12 @@ impl StructParams {
         }
     }
 
-    /// A beam of section `section`, as long as `length` drawing units, its underside at 3 m.
-    pub fn beam(name: &str, section: &SteelSection, length: f64, units: HvacUnits) -> StructParams {
+    /// A beam whose section is given by its designation, as long as `length` drawing units, its underside at 3 m.
+    pub fn beam_of(name: &str, designation: String, length: f64, units: HvacUnits) -> StructParams {
         StructParams {
             kind: StructKind::Beam,
             name: name.trim().to_string(),
-            section: section.designation(),
+            section: designation,
             elevation_mm: 3000.0,
             height_mm: 0.0,
             length,
@@ -153,17 +219,38 @@ impl StructParams {
         }
     }
 
-    /// The section; `None` when the table has no such one.
+    /// The steel section; `None` when the table has no such one (or the section is concrete).
     pub fn section(&self) -> Option<&'static SteelSection> {
         parse_section(&self.section)
     }
 
+    /// The concrete section; `None` for a steel one.
+    pub fn concrete(&self) -> Option<ConcreteSection> {
+        parse_concrete(&self.section)
+    }
+
+    /// The shape and the mass of the section, steel or concrete; `None` when it is neither.
+    pub fn profile(&self) -> Option<Profile> {
+        if let Some(s) = self.section() {
+            return Some(Profile { b_mm: s.b_mm, h_mm: s.h_mm, kg_m: s.kg_m, steel: Some(s), concrete: None });
+        }
+        let c = self.concrete()?;
+        Some(Profile { b_mm: c.width_mm, h_mm: c.height_mm, kg_m: c.area_m2() * CONCRETE_KG_M3, steel: None, concrete: Some(c) })
+    }
+
+    /// The designation as written beside the object: the table's for steel, "BA 300x500" for concrete.
+    pub fn designation(&self) -> String {
+        self.section().map(SteelSection::designation).or_else(|| self.concrete().map(|c| c.designation())).unwrap_or_default()
+    }
     pub fn validate(&self) -> Result<()> {
         check_name("structural object", &self.name)?;
         check_label_height(self.label_height_mm)?;
         self.units.validate()?;
-        if self.section().is_none() {
-            return Err(invalid(format!("There is no section \"{}\" in the table.", self.section.chars().take(40).collect::<String>())));
+        if self.profile().is_none() {
+            return Err(invalid(format!(
+                "There is no section \"{}\" in the table, nor a concrete one like BA 300x500 (50 to 5000 mm).",
+                self.section.chars().take(40).collect::<String>()
+            )));
         }
         if !(self.elevation_mm.is_finite() && self.elevation_mm.abs() <= MAX_STRUCT_MM) {
             return Err(invalid(format!("An elevation is within {MAX_STRUCT_MM} mm of the drawing's zero.")));
@@ -197,7 +284,7 @@ impl StructParams {
     pub fn top_mm(&self) -> f64 {
         match self.kind {
             StructKind::Column => self.elevation_mm + self.height_mm,
-            StructKind::Beam => self.elevation_mm + self.section().map_or(0.0, |s| s.h_mm),
+            StructKind::Beam => self.elevation_mm + self.profile().map_or(0.0, |s| s.h_mm),
         }
     }
 
@@ -207,12 +294,12 @@ impl StructParams {
             StructKind::Column => self.height_mm / 1000.0,
             StructKind::Beam => self.length_mm() / 1000.0,
         };
-        self.section().map_or(0.0, |s| s.kg_m * metres)
+        self.profile().map_or(0.0, |s| s.kg_m * metres)
     }
 
     /// The text beside it: the tag and the section, then the height and the foot of a column, or the underside of a beam.
     pub fn label_text(&self) -> String {
-        let section = self.section().map(SteelSection::designation).unwrap_or_default();
+        let section = self.designation();
         let head = [self.name.trim(), section.as_str()].iter().filter(|t| !t.is_empty()).cloned().collect::<Vec<_>>().join(" ");
         match self.kind {
             StructKind::Column => format!("{head} h={:.2} m ({:+.2} m)", self.height_mm / 1000.0, self.elevation_mm / 1000.0),
@@ -247,7 +334,7 @@ impl StructParams {
 
     /// The footprint of a column or the band of a beam, as a rectangle `(half length along x, half width along y)`, mm.
     pub fn half_extent_mm(&self) -> Option<(f64, f64)> {
-        let s = self.section()?;
+        let s = self.profile()?;
         match self.kind {
             StructKind::Column => Some((s.b_mm / 2.0, s.h_mm / 2.0)),
             StructKind::Beam => Some((self.length_mm() / 2.0, s.b_mm / 2.0)),
@@ -257,7 +344,7 @@ impl StructParams {
     /// The drawing: a column's section, filled; a beam's band with the lines of its web, and the label.
     pub fn generate(&self, flip_label: bool) -> Result<Vec<HvacPiece>> {
         self.validate()?;
-        let s = self.section().ok_or_else(|| invalid("The section is not in the table."))?;
+        let prof = self.profile().ok_or_else(|| invalid("The section is neither in the table nor a concrete one."))?;
         let layer = self.kind.layer();
         let u = |mm: f64| self.units.to_units(mm);
         let mut pieces = Vec::new();
@@ -265,20 +352,41 @@ impl StructParams {
         let text = if self.show_label { self.label_text() } else { String::new() };
         match self.kind {
             StructKind::Column => {
-                let pts: Vec<(f64, f64)> = Self::section_outline_mm(s).into_iter().map(|(x, y)| (u(x), u(y))).collect();
-                pieces.push(HvacPiece { layer, kind: poly(&pts, true) });
-                pieces.push(HvacPiece { layer, kind: EntityKind::Hatch(solid_hatch(&pts)) });
+                if let Some(c) = prof.concrete {
+                    // A concrete column: its outline (a rectangle or a circle) and the two diagonals, as a plan draws it.
+                    let (hx, hy) = (u(c.width_mm / 2.0), u(c.height_mm / 2.0));
+                    if c.round {
+                        let pts: Vec<(f64, f64)> = (0..CIRCLE_STEPS)
+                            .map(|k| {
+                                let a = std::f64::consts::TAU * k as f64 / CIRCLE_STEPS as f64;
+                                (hx * a.cos(), hx * a.sin())
+                            })
+                            .collect();
+                        pieces.push(HvacPiece { layer, kind: poly(&pts, true) });
+                        let d = hx * std::f64::consts::FRAC_1_SQRT_2;
+                        pieces.push(HvacPiece { layer, kind: line((-d, -d), (d, d)) });
+                        pieces.push(HvacPiece { layer, kind: line((-d, d), (d, -d)) });
+                    } else {
+                        pieces.push(HvacPiece { layer, kind: poly(&[(-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy)], true) });
+                        pieces.push(HvacPiece { layer, kind: line((-hx, -hy), (hx, hy)) });
+                        pieces.push(HvacPiece { layer, kind: line((-hx, hy), (hx, -hy)) });
+                    }
+                } else if let Some(s) = prof.steel {
+                    let pts: Vec<(f64, f64)> = Self::section_outline_mm(s).into_iter().map(|(x, y)| (u(x), u(y))).collect();
+                    pieces.push(HvacPiece { layer, kind: poly(&pts, true) });
+                    pieces.push(HvacPiece { layer, kind: EntityKind::Hatch(solid_hatch(&pts)) });
+                }
                 if !text.is_empty() {
-                    pieces.push(HvacPiece { layer, kind: label(Vec2::new(0.0, -(u(s.h_mm / 2.0) + 1.1 * label_h)), label_h, text) });
+                    pieces.push(HvacPiece { layer, kind: label(Vec2::new(0.0, -(u(prof.h_mm / 2.0) + 1.1 * label_h)), label_h, text) });
                 }
             }
             StructKind::Beam => {
                 let (x0, x1) = (u(self.trim_start_mm), self.length - u(self.trim_end_mm));
-                let half = u(s.b_mm / 2.0);
+                let half = u(prof.b_mm / 2.0);
                 pieces.push(HvacPiece { layer, kind: poly(&[(x0, -half), (x1, -half), (x1, half), (x0, half)], true) });
-                // The web seen from above, two lines along the beam, when the flange is wider than it.
-                let web = u(s.tw_mm / 2.0);
-                if web < half * 0.9 {
+                // The web seen from above, two lines along the beam, when the flange is wider than it (a steel beam only).
+                let web = u(prof.steel.map_or(prof.b_mm, |s| s.tw_mm) / 2.0);
+                if prof.steel.is_some() && web < half * 0.9 {
                     for y in [-web, web] {
                         pieces.push(HvacPiece { layer, kind: line((x0, y), (x1, y)) });
                     }
@@ -379,7 +487,7 @@ fn run_inside_column(col: &Placed, from_mm: Vec2, dir: Vec2) -> f64 {
 /// How far a beam end at `from_mm` going along `dir` is inside the band of `other` (a beam it meets side-on), mm: 0 when it is not on the
 /// other's span or runs along it.
 fn run_inside_beam(other: &Placed, from_mm: Vec2, dir: Vec2) -> f64 {
-    let Some(s) = other.p.section() else { return 0.0 };
+    let Some(s) = other.p.profile() else { return 0.0 };
     let m = other.p.units.mm_per_unit;
     let (a, b) = other.ends();
     let axis = (b - a) * m;
@@ -599,6 +707,9 @@ pub struct SectionQuantity {
     pub count: usize,
     pub length_m: f64,
     pub mass_kg: f64,
+    /// The volume, m³, of a concrete section (0 for steel).
+    #[serde(default)]
+    pub volume_m3: f64,
 }
 
 /// What the slabs of one kind add up to.
@@ -663,6 +774,9 @@ pub struct StructTakeoff {
     pub roof_area_m2: f64,
     /// The mass of all the steel, kg.
     pub steel_kg: f64,
+    /// The volume of the concrete columns and beams, m³.
+    #[serde(default)]
+    pub concrete_m3: f64,
     pub slab_area_m2: f64,
     pub slab_volume_m3: f64,
 }
@@ -678,7 +792,8 @@ impl StructTakeoff {
         let mut rows = Vec::new();
         for (what, list) in [("Column", &self.columns), ("Beam", &self.beams)] {
             for q in list {
-                rows.push([what.into(), q.section.clone(), q.count.to_string(), num(q.length_m), num(q.mass_kg), String::new(), String::new()]);
+                let (mass, volume) = if q.volume_m3 > 0.0 { (String::new(), num(q.volume_m3)) } else { (num(q.mass_kg), String::new()) };
+                rows.push([what.into(), q.section.clone(), q.count.to_string(), num(q.length_m), mass, String::new(), volume]);
             }
         }
         for q in &self.slabs {
@@ -765,14 +880,24 @@ impl StructTakeoff {
                 vec![C::head("Columns"), C::Num(self.columns.iter().map(|q| q.count).sum::<usize>() as f64)],
                 vec![C::head("Beams"), C::Num(self.beams.iter().map(|q| q.count).sum::<usize>() as f64)],
                 vec![C::head("Steel (kg)"), num(self.steel_kg)],
+                vec![C::head("Concrete (m³)"), num(self.concrete_m3)],
                 vec![C::head("Slabs"), C::Num(self.slabs.iter().map(|q| q.count).sum::<usize>() as f64)],
                 vec![C::head("Slab area (m²)"), num(self.slab_area_m2)],
                 vec![C::head("Slab volume (m³)"), num(self.slab_volume_m3)],
             ],
         )?;
         for (name, list) in [("Columns", &self.columns), ("Beams", &self.beams)] {
-            let mut rows = vec![head(&["Section", "Count", "Length (m)", "Mass (kg)"])];
-            rows.extend(list.iter().map(|q| vec![C::text(q.section.clone()), C::Num(q.count as f64), num(q.length_m), num(q.mass_kg)]));
+            let mut rows = vec![head(&["Section", "Count", "Length (m)", "Mass (kg)", "Volume (m³)"])];
+            rows.extend(list.iter().map(|q| {
+                let concrete = q.volume_m3 > 0.0;
+                vec![
+                    C::text(q.section.clone()),
+                    C::Num(q.count as f64),
+                    num(q.length_m),
+                    if concrete { C::text("") } else { num(q.mass_kg) },
+                    if concrete { num(q.volume_m3) } else { C::text("") },
+                ]
+            }));
             wb.sheet(name, rows)?;
         }
         let mut rows = vec![head(&["Kind", "Count", "Area (m²)", "Volume (m³)", "Openings", "Openings area (m²)"])];
@@ -835,11 +960,20 @@ impl crate::Drawing {
                     StructKind::Beam => (&mut t.beams, o.length_mm() / 1000.0),
                 };
                 let mass = o.mass_kg();
-                match list.iter_mut().find(|q| q.section == o.section) {
-                    Some(q) => (q.count, q.length_m, q.mass_kg) = (q.count + 1, q.length_m + metres, q.mass_kg + mass),
-                    None => list.push(SectionQuantity { section: o.section.clone(), count: 1, length_m: metres, mass_kg: mass }),
+                // A concrete section is counted in m³ (its mass is only its volume by the density), a steel one in kg.
+                let volume = o.concrete().map_or(0.0, |c| c.area_m2() * metres);
+                let designation = o.designation();
+                match list.iter_mut().find(|q| q.section == designation) {
+                    Some(q) => {
+                        (q.count, q.length_m, q.mass_kg, q.volume_m3) = (q.count + 1, q.length_m + metres, q.mass_kg + mass, q.volume_m3 + volume)
+                    }
+                    None => list.push(SectionQuantity { section: designation, count: 1, length_m: metres, mass_kg: mass, volume_m3: volume }),
                 }
-                t.steel_kg += mass;
+                if o.concrete().is_some() {
+                    t.concrete_m3 += volume;
+                } else {
+                    t.steel_kg += mass;
+                }
             } else if let Some(c) = super::ceiling_of(e) {
                 let n = c.tiles();
                 t.ceilings.push(CeilingQuantity {

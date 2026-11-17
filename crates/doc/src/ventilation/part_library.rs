@@ -31,7 +31,47 @@ pub struct PartModel {
     pub power_kw: Option<f64>,
 }
 
+/// The refrigerant a branch box's name says, R32 unless it says R410A.
+fn box_refrigerant(name: &str) -> &'static str {
+    if name.contains("R410A") { "R410A" } else { "R32" }
+}
+
+/// The name a palette shows for a part: a refrigerant joint or header without its capacity index (sizing picks the model by itself) and a branch box
+/// without its refrigerant, so a box is only its number of outlets.
+pub fn short_part_name(name: &str, kind: PartKind) -> String {
+    let cut = match kind {
+        PartKind::RefnetJoint | PartKind::RefnetHeader => name.find(", index").or_else(|| name.find(", indice")),
+        PartKind::BranchBox => name.find(" ("),
+        _ => None,
+    };
+    name[..cut.unwrap_or(name.len())].to_string()
+}
+
+/// The numbers of outlets the branch boxes of the same refrigerant as the model `like` come with (a box of several outlets), smallest first.
+pub fn branch_box_outlet_counts(like: &str) -> Vec<u32> {
+    let refrigerant = box_refrigerant(like);
+    let mut v: Vec<u32> = standard_part_models()
+        .iter()
+        .filter(|m| m.kind == PartKind::BranchBox && m.outlets >= 2 && box_refrigerant(m.name) == refrigerant)
+        .map(|m| m.outlets)
+        .collect();
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
+/// The branch box with `outlets` outlets of the same refrigerant as the model `like` (R32 for a model that is not a box).
+pub fn branch_box_with_outlets(outlets: u32, like: &str) -> Option<PartModel> {
+    let refrigerant = box_refrigerant(like);
+    standard_part_models().into_iter().find(|m| m.kind == PartKind::BranchBox && m.outlets == outlets && box_refrigerant(m.name) == refrigerant)
+}
+
 impl PartModel {
+    /// The name as the palette shows it, in English or French: see [`short_part_name`].
+    pub fn short_name(&self, french: bool) -> String {
+        short_part_name(if french { self.name_fr } else { self.name }, self.kind)
+    }
+
     fn new(name: &'static str, name_fr: &'static str, category: PartCategory, kind: PartKind) -> PartModel {
         let (length_mm, width_mm) = kind.default_size_mm();
         PartModel {
