@@ -572,6 +572,23 @@ impl Sink<'_> {
             return;
         }
         let at = |p: Vec2| xf.map_or(p, |m| m.apply(p));
+        if let EntityKind::Image(image) = kind {
+            let a = image.insert.xy();
+            let u = image.u.xy() * image.size.x;
+            let v = image.v.xy() * image.size.y;
+            let corners = [a, a + u, a + u + v, a + v];
+            if osmode & mode::END != 0 {
+                self.cands.extend(corners.iter().map(|p| (mode::END, at(*p))));
+            }
+            if osmode & mode::MID != 0 {
+                for (a, b) in corners.iter().zip(corners.iter().cycle().skip(1)).take(4) {
+                    self.cands.push((mode::MID, at((*a + *b) * 0.5)));
+                }
+            }
+            if osmode & mode::CEN != 0 {
+                self.cands.push((mode::CEN, at(a + (u + v) * 0.5)));
+            }
+        }
         if osmode & mode::END != 0
             && let EntityKind::Solid(s) | EntityKind::Trace(s) = kind
         {

@@ -419,9 +419,21 @@ pub(crate) fn run_imageattach(s: &mut Session, p: &Value) -> Result<Value> {
     if path.len() > MAX_PATH {
         return Err(bad(ID, "`path` is too long"));
     }
-    let place = placement(p)?;
+    let mut place = placement(p)?;
     let raster = pixels(s, p, &path)?;
     let (w, h) = (f64::from(raster.width()), f64::from(raster.height()));
+    if let Some(value) = p.get("dpi") {
+        let dpi = value.as_f64().filter(|x| x.is_finite() && *x > 0.0).ok_or_else(|| bad(ID, "`dpi` must be positive"))?;
+        let unit_mm = p
+            .get("unitMm")
+            .map_or(Some(1.0), Value::as_f64)
+            .filter(|x| x.is_finite() && *x > 0.0)
+            .ok_or_else(|| bad(ID, "`unitMm` must be positive"))?;
+        if p.get("width").is_some() || p.get("scale").is_some() {
+            return Err(bad(ID, "use dpi or width/scale, not both"));
+        }
+        place.width = w / dpi * 25.4 / unit_mm;
+    }
     // One pixel in drawing units, along the image's bottom edge (`u`) and its left edge (`v`).
     let pixel = place.width / w;
     let u = Vec2::from_angle(place.rotation) * pixel;

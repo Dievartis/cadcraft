@@ -45,6 +45,35 @@ fn listed(s: &mut Session) -> Value {
 }
 
 #[test]
+fn image_dpi_sizing_converts_physical_units() {
+    hooks();
+    let mut s = Session::new();
+    for unit_mm in [1.0, 25.4, 1000.0] {
+        let r = s.execute("imageattach", &json!({"path":"dpi.png", "data":base64_encode(&png()), "dpi":300, "unitMm":unit_mm})).unwrap();
+        let width = r["size"][0].as_f64().unwrap();
+        assert!((width * unit_mm - 4.0 / 300.0 * 25.4).abs() < 1e-10);
+    }
+    assert!(s.execute("imageattach", &json!({"path":"dpi.png", "dpi":0})).is_err());
+}
+
+#[test]
+fn image_snaps_include_corners_midpoints_and_center() {
+    use cadcraft_engine::{
+        doc::Space,
+        geom::Vec2,
+        snap::{mode, osnap},
+    };
+    hooks();
+    let mut s = Session::new();
+    s.execute("imageattach", &json!({"path":"snap.png", "data":base64_encode(&png()), "width":8})).unwrap();
+    for (flag, x, y) in [(mode::END, 8.0, 4.0), (mode::MID, 4.0, 4.0), (mode::CEN, 4.0, 2.0)] {
+        let p = Vec2::new(x, y);
+        let hit = osnap(s.doc().unwrap(), &Space::Model, p, 0.1, flag, None, false).unwrap();
+        assert!(hit.point.dist(p) < 1e-10);
+    }
+}
+
+#[test]
 fn image_edit_rotation_is_absolute_and_invalid_values_are_atomic() {
     hooks();
     let mut s = Session::new();

@@ -30,3 +30,12 @@ Personal fork preview based on CADCraft 0.20.1; not an upstream release.
 - Full workspace CI and manual Windows acceptance of the final snapshot remain pending.
 
 Contribution tracking and pending notifications: [integration notes](dievartis-integration.md).
+
+## Follow-up after the 0.3 tag
+
+The integration branch now adds manual DPI sizing before attachment (default 96 DPI),
+with explicit millimetres per drawing unit (1 for mm, 25.4 for inches, 1000 for metres).
+It does not yet read file DPI metadata. JSON IMAGEATTACH accepts `dpi` and `unitMm`
+instead of `width`/`scale`; legacy calls keep their existing sizing defaults.
+Placement editing has an aspect-ratio lock enabled by default. Image corners, edge
+midpoints and center provide END, MID and CEN object snaps, including after rotation.

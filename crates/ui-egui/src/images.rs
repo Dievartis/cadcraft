@@ -50,6 +50,26 @@ pub fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
 }
 
 fn panel_contents(app: &mut CadApp, ui: &mut egui::Ui) {
+    let dpi_id = egui::Id::unique("image-import-dpi");
+    let mut dpi: f64 = ui.ctx().data_mut(|d| d.get_persisted(dpi_id)).unwrap_or(96.0);
+    let unit_id = egui::Id::unique("image-import-unit-mm");
+    let mut unit_mm: f64 = ui.ctx().data_mut(|d| d.get_persisted(unit_id)).unwrap_or(1.0);
+    ui.collapsing("Import sizing", |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Resolution (DPI):");
+            ui.add(egui::DragValue::new(&mut dpi).range(1.0..=100000.0));
+        });
+        ui.horizontal(|ui| {
+            ui.label("Millimetres per drawing unit:");
+            ui.add(egui::DragValue::new(&mut unit_mm).range(0.000001..=1e12));
+        });
+        ui.label("Set before attaching. 1 for mm; 25.4 for inches; 1000 for metres.");
+        ui.label("Physical size = pixels / DPI × 25.4 mm. Proportions are preserved.");
+    });
+    ui.ctx().data_mut(|d| {
+        d.insert_persisted(dpi_id, dpi);
+        d.insert_persisted(unit_id, unit_mm);
+    });
     let t = crate::theme::Tokens::get();
     let rows = rows(app);
     let id = egui::Id::unique("image-manager-selected");
@@ -74,7 +94,9 @@ fn panel_contents(app: &mut CadApp, ui: &mut egui::Ui) {
         .unwrap_or_default();
     ui.horizontal(|ui| {
         if ui.button("Attach…").clicked() {
-            if let Some(result) = app.pick_then(Pick::Image, |app, path| app.run("imageattach", json!({"path": path}))) {
+            if let Some(result) =
+                app.pick_then(Pick::Image, move |app, path| app.run("imageattach", json!({"path": path, "dpi": dpi, "unitMm": unit_mm})))
+            {
                 if let Err(error) = result {
                     app.set_status(error);
                 }
@@ -157,14 +179,26 @@ fn panel_contents(app: &mut CadApp, ui: &mut egui::Ui) {
                 }
                 let mut width = image.size.x * image.u.xy().len();
                 let mut height = image.size.y * image.v.xy().len();
+                let lock_id = egui::Id::unique("image-aspect-lock");
+                let mut lock: bool = ui.ctx().data_mut(|d| d.get_persisted(lock_id)).unwrap_or(true);
+                ui.checkbox(&mut lock, "Lock aspect ratio");
+                ui.ctx().data_mut(|d| d.insert_persisted(lock_id, lock));
                 ui.horizontal(|ui| {
                     ui.label("Width:");
                     if ui.add(egui::DragValue::new(&mut width).range(0.000001..=1e12)).changed() {
                         params["width"] = json!(width);
+                        if !lock {
+                            params["height"] = json!(height);
+                        }
                     }
                     ui.label("Height:");
                     if ui.add(egui::DragValue::new(&mut height).range(0.000001..=1e12)).changed() {
                         params["height"] = json!(height);
+                        if lock && image.size.y * image.v.xy().len() > 0.0 {
+                            params["width"] = json!(image.size.x * image.u.xy().len() * height / (image.size.y * image.v.xy().len()));
+                        } else {
+                            params["width"] = json!(width);
+                        }
                     }
                 });
                 let mut angle = image.u.y.atan2(image.u.x).to_degrees();
