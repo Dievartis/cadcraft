@@ -5,6 +5,19 @@ use serde_json::{Value, json};
 use super::{GripMode, stretch_grip};
 use crate::Session;
 
+#[test]
+fn image_corner_and_edge_grips_resize() {
+    let image = cadcraft_doc::Image { size: Vec2::new(8.0, 4.0), ..Default::default() };
+    let original = EntityKind::Image(image);
+    assert_eq!(original.grips().len(), 9);
+    let EntityKind::Image(corner) = stretch_grip(&original, 2, Vec2::new(16.0, 8.0)).unwrap() else { panic!() };
+    assert_eq!(corner.u.x, 2.0);
+    assert_eq!(corner.v.y, 2.0);
+    let EntityKind::Image(edge) = stretch_grip(&original, 5, Vec2::new(12.0, 2.0)).unwrap() else { panic!() };
+    assert_eq!(edge.u.x, 1.5);
+    assert_eq!(edge.v.y, 1.0);
+}
+
 fn h(r: &Value) -> Handle {
     Handle::parse_hex(r["handle"].as_str().or_else(|| r["handles"][0].as_str()).unwrap()).unwrap()
 }

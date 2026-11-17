@@ -104,7 +104,41 @@ pub fn stretch_grip(kind: &EntityKind, index: usize, to: Vec2) -> Option<EntityK
             1 => return Some(translated(kind, delta)),
             _ => set_xy(&mut l.b, to),
         },
-        EntityKind::Point(_) | EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::AttDef(_) | EntityKind::Image(_) | EntityKind::Table(_) => {
+        EntityKind::Image(i) => {
+            if index == 8 {
+                return Some(translated(kind, delta));
+            }
+            if index < 4 {
+                let opposite = *grips.get((index + 2) % 4)?;
+                let diagonal = from - opposite;
+                let factor = (to - opposite).dot(diagonal) / diagonal.len2();
+                if !factor.is_finite() || factor <= EPS {
+                    return None;
+                }
+                let origin = opposite + (i.insert.xy() - opposite) * factor;
+                set_xy(&mut i.insert, origin);
+                i.u = i.u * factor;
+                i.v = i.v * factor;
+            } else {
+                let (axis, count) = if index == 4 || index == 6 { (i.v.xy(), i.size.y) } else { (i.u.xy(), i.size.x) };
+                let signed = delta.dot(axis) / axis.len2();
+                let low = index == 4 || index == 7;
+                let factor = 1.0 + if low { -signed / count } else { signed / count };
+                if !factor.is_finite() || factor <= EPS {
+                    return None;
+                }
+                if low {
+                    let origin = i.insert.xy() + axis * signed;
+                    set_xy(&mut i.insert, origin);
+                }
+                if index == 4 || index == 6 {
+                    i.v = i.v * factor;
+                } else {
+                    i.u = i.u * factor;
+                }
+            }
+        }
+        EntityKind::Point(_) | EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::AttDef(_) | EntityKind::Table(_) => {
             return Some(translated(kind, delta));
         }
         EntityKind::Hatch(_) | EntityKind::Tolerance(_) => return Some(translated(kind, delta)),

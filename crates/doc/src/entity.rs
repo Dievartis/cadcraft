@@ -635,7 +635,12 @@ impl EntityKind {
                 let h = Vec2::new(v.width / 2.0, v.height / 2.0);
                 Bounds2::new(c - h, c + h).corners().to_vec()
             }
-            EntityKind::Image(i) => vec![i.insert.xy()],
+            EntityKind::Image(i) => {
+                let a = i.insert.xy();
+                let u = i.u.xy() * i.size.x;
+                let v = i.v.xy() * i.size.y;
+                vec![a, a + u, a + u + v, a + v, a + u * 0.5, a + u + v * 0.5, a + v + u * 0.5, a + v * 0.5, a + (u + v) * 0.5]
+            }
             EntityKind::Wipeout(w) => w.vertices().to_vec(),
             EntityKind::Table(t) => vec![t.insert.xy()],
             EntityKind::Tolerance(t) => vec![t.insert.xy()],

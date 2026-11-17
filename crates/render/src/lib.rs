@@ -30,6 +30,30 @@ use cadcraft_doc::{Drawing, Entity, EntityKind, Handle, Lineweight, Prim, Space}
 use cadcraft_geom::{Bounds2, Mat3, Polyline, Vec2};
 use pen::Pen;
 
+/// Reuse adjustments while display lists reference them, without retaining image buffers
+/// after their drawings close. Bounded metadata avoids accumulating expired cache entries.
+fn adjusted_image(source: &std::sync::Arc<cadcraft_doc::Raster>, brightness: u8, contrast: u8) -> Option<std::sync::Arc<cadcraft_doc::Raster>> {
+    use std::sync::{Arc, Weak};
+    type Entry = (Weak<cadcraft_doc::Raster>, u8, u8, Weak<cadcraft_doc::Raster>);
+    thread_local! { static CACHE: std::cell::RefCell<Vec<Entry>> = const { std::cell::RefCell::new(Vec::new()) }; }
+    CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.retain(|(s, _, _, out)| s.strong_count() > 0 && out.strong_count() > 0);
+        if let Some(out) = cache
+            .iter()
+            .find_map(|(s, b, c, out)| (s.ptr_eq(&Arc::downgrade(source)) && *b == brightness && *c == contrast).then(|| out.upgrade()).flatten())
+        {
+            return Some(out);
+        }
+        let adjusted = Arc::new(source.adjusted(brightness, contrast)?);
+        if cache.len() >= 16 {
+            cache.remove(0);
+        }
+        cache.push((Arc::downgrade(source), brightness, contrast, Arc::downgrade(&adjusted)));
+        Some(adjusted)
+    })
+}
+
 pub use dim::{ArrowGeom, Arrowhead, DimGeometry, DimText, LineRole, arrowhead, dimension_geometry, dimension_geometry_with, format_linear_value};
 pub use fill::triangulate_evenodd;
 pub use hatch::{fill_loops as hatch_fill_loops, pattern_swatch};
@@ -188,6 +212,13 @@ impl<'a> Builder<'a> {
     }
     /// The pixels of image `i` over its rectangle, cut to its clip boundary.
     fn image(&mut self, ctx: &Ctx, color: Ink, i: &cadcraft_doc::Image, raster: &std::sync::Arc<cadcraft_doc::Raster>) {
+        let adjusted;
+        let raster = if i.brightness != 50 || i.contrast != 50 {
+            adjusted = adjusted_image(raster, i.brightness, i.contrast);
+            adjusted.as_ref().unwrap_or(raster)
+        } else {
+            raster
+        };
         // Where the entity puts its picture: the top-left corner, and one of its pixels to the
         // right and down.
         let top_left = ctx.xf.apply(i.insert.xy() + i.v.xy() * i.size.y);

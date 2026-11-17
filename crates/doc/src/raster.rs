@@ -15,6 +15,19 @@ pub struct Raster {
 }
 
 impl Raster {
+    /// Display adjustment; source pixels remain unchanged for subsequent edits.
+    pub fn adjusted(&self, brightness: u8, contrast: u8) -> Option<Self> {
+        let mut rgba = self.rgba.clone();
+        let brightness = (f64::from(brightness.min(100)) - 50.0) * 2.55;
+        let c = (f64::from(contrast.min(100)) - 50.0) / 50.0;
+        let gain = if c >= 0.0 { 1.0 / (1.0 - c * 0.99) } else { 1.0 + c };
+        for pixel in rgba.chunks_exact_mut(4) {
+            for channel in pixel.iter_mut().take(3) {
+                *channel = ((f64::from(*channel) - 127.5) * gain + 127.5 + brightness).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+        Self::new(self.width, self.height, rgba).map(|r| r.with_dpi(self.dpi))
+    }
     /// `None` unless both sides are at least one pixel and `rgba` holds exactly four bytes per pixel.
     pub fn new(width: u32, height: u32, rgba: Vec<u8>) -> Option<Raster> {
         let pixels = usize::try_from(width).ok()?.checked_mul(usize::try_from(height).ok()?)?;
@@ -97,5 +110,21 @@ impl PartialEq for Rasters {
 impl std::fmt::Debug for Rasters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Rasters({})", self.0.len())
+    }
+}
+
+#[cfg(test)]
+mod adjustment_tests {
+    use super::*;
+    #[test]
+    fn brightness_contrast_preserve_source_and_alpha() {
+        let raster = Raster::new(1, 1, vec![50, 100, 200, 128]).unwrap();
+        assert_eq!(raster.adjusted(50, 50).unwrap().rgba(), raster.rgba());
+        let bright = raster.adjusted(75, 50).unwrap();
+        assert!(bright.rgba()[0] > 50);
+        assert_eq!(bright.rgba()[3], 128);
+        let contrast = raster.adjusted(50, 75).unwrap();
+        assert!(contrast.rgba()[0] < 50 && contrast.rgba()[2] > 200);
+        assert_eq!(raster.rgba(), &[50, 100, 200, 128]);
     }
 }

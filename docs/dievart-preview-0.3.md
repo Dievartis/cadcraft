@@ -44,3 +44,14 @@ JSON IMAGEATTACH accepts `dpi`, `autoDpi` and `unitMm`
 instead of `width`/`scale`; legacy calls keep their existing sizing defaults.
 Placement editing has an aspect-ratio lock enabled by default. Image corners, edge
 midpoints and center provide END, MID and CEN object snaps, including after rotation.
+
+### Visual adjustments and grips follow-up
+
+Brightness and contrast now transform rendered pixels while preserving source pixels
+and alpha; the adjusted raster is shared by canvas, PNG and PDF rendering. Defaults
+50/50 are unchanged. A weak cache avoids keeping adjusted buffers after their display
+lists are dropped. Manual visual acceptance remains pending.
+
+Selected images expose nine visible grips: proportional corner resizing about the
+opposite corner, independent edge resizing from side midpoints, and center translation.
+These grips are separate from the END/MID/CEN object-snap points described above.
