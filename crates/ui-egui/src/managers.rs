@@ -108,7 +108,7 @@ fn set_temp<T: Clone + Send + Sync + 'static>(ctx: &egui::Context, id: &str, v: 
 
 fn no_drawing(ctx: &egui::Context, title: &str, open: &mut bool) {
     egui::Window::new(title).open(open).collapsible(false).resizable(false).show(ctx, |ui| {
-        ui.label("Open a drawing first.");
+        ui.label(crate::i18n::t("Open a drawing first."));
     });
 }
 
@@ -139,8 +139,8 @@ fn linetype(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
         ui.horizontal(|ui| {
             craft_ui::ComboBox::from_id_salt("ltmgr_load").selected_text("Load...").width(110.0).show_ui(ui, |ui| {
                 if library.is_empty() {
-                    ui.label("Every library linetype is loaded.");
-                } else if ui.selectable_label(false, "All").clicked() {
+                    ui.label(crate::i18n::t("Every library linetype is loaded."));
+                } else if ui.selectable_label(false, crate::i18n::t("All")).clicked() {
                     action = Some(("linetype", json!({ "load": "*" })));
                 }
                 for n in &library {
@@ -151,13 +151,17 @@ fn linetype(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                 // The user's own .lin file (where the host has a file picker).
                 if app.services.pick_open.is_some() {
                     ui.separator();
-                    if ui.selectable_label(false, "From File...").clicked() {
+                    if ui.selectable_label(false, crate::i18n::t("From File...")).clicked() {
                         pick_lin = true;
                     }
                 }
             });
             let is_current = sel.eq_ignore_ascii_case(&current);
-            if ui.add_enabled(!is_current, egui::Button::new("Current")).on_hover_text("Draw new objects with the selected linetype").clicked() {
+            if ui
+                .add_enabled(!is_current, egui::Button::new("Current"))
+                .on_hover_text(crate::i18n::t("Draw new objects with the selected linetype"))
+                .clicked()
+            {
                 action = Some(("linetype", json!({ "current": sel })));
             }
         });
@@ -192,7 +196,7 @@ fn linetype(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
         });
         ui.separator();
         ui.horizontal(|ui| {
-            let label = ui.label("Global scale factor");
+            let label = ui.label(crate::i18n::t("Global scale factor"));
             if let Some(v) = num_field(ui, "ltmgr_scale", ltscale, Some(label.id)).filter(|v| *v > 0.0) {
                 action = Some(("ltscale", json!({ "scale": v })));
             }
@@ -300,7 +304,7 @@ fn point_style(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action
         });
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            let label = ui.label("Point Size");
+            let label = ui.label(crate::i18n::t("Point Size"));
             if let Some(v) = num_field(ui, "ptype_size", size, Some(label.id)).filter(|v| *v > 0.0) {
                 action = set(mode, v, rel);
             }
@@ -512,7 +516,8 @@ fn style_manager(ctx: &egui::Context, open: &mut bool, title: &str, cmd: &'stati
                 err_msg = None;
             }
             left.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut new_name).hint_text("New style name").desired_width(120.0)).on_hover_text("New style name");
+                ui.add(egui::TextEdit::singleline(&mut new_name).hint_text("New style name").desired_width(120.0))
+                    .on_hover_text(crate::i18n::t("New style name"));
                 let name = new_name.trim().to_string();
                 let ok = !name.is_empty() && !styles.iter().any(|s| s.name.eq_ignore_ascii_case(&name));
                 if ui.add_enabled(ok, egui::Button::new("New")).clicked() {
@@ -614,7 +619,7 @@ fn page_setup(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action 
     let choices = PageChoices::new(ctx, d);
     egui::Window::new("Page Setup Manager").open(open).default_size(vec2(560.0, 300.0)).resizable(true).show(ctx, |ui| {
         if layouts.is_empty() {
-            ui.label("This drawing has no layouts.");
+            ui.label(crate::i18n::t("This drawing has no layouts."));
             return;
         }
         ui.columns(2, |cols| {
@@ -759,7 +764,7 @@ fn page_rows(
         });
         ui.horizontal(|ui| {
             craft_ui::ComboBox::from_id_salt(salt.with("device")).selected_text(device_label(page)).width(190.0).show_ui(ui, |ui| {
-                if ui.selectable_label(device_label(page) == "None", "None").on_hover_text("PDF on the paper chosen below").clicked()
+                if ui.selectable_label(device_label(page) == "None", "None").on_hover_text(crate::i18n::t("PDF on the paper chosen below")).clicked()
                     && device_label(page) != "None"
                 {
                     change = Some(("device", json!("None")));
@@ -777,7 +782,7 @@ fn page_rows(
                 }
             });
             if rows.device_properties {
-                ui.add_enabled(false, egui::Button::new("Properties…")).on_hover_text("Device properties are not configurable yet.");
+                ui.add_enabled(false, egui::Button::new("Properties…")).on_hover_text(crate::i18n::t("Device properties are not configurable yet."));
             }
         });
         ui.end_row();
@@ -785,7 +790,7 @@ fn page_rows(
     // The device's papers, else the standard sizes.
     if rows.paper {
         let device = choices.devices.iter().find(|dv| dv.name.eq_ignore_ascii_case(&page.device));
-        ui.label("Paper size");
+        ui.label(crate::i18n::t("Paper size"));
         ui.horizontal(|ui| {
             craft_ui::ComboBox::from_id_salt(salt.with("paper")).selected_text(page.paper.as_str()).width(190.0).show_ui(ui, |ui| match device {
                 Some(dev) => {
@@ -804,10 +809,10 @@ fn page_rows(
                 }
             });
             if rows.copies {
-                ui.label("Copies");
+                ui.label(crate::i18n::t("Copies"));
                 let mut copies = 1_u8;
                 ui.add_enabled(false, egui::DragValue::new(&mut copies).range(1..=1))
-                    .on_hover_text("File plotters produce one drawing per output file.");
+                    .on_hover_text(crate::i18n::t("File plotters produce one drawing per output file."));
             }
         });
         ui.end_row();
@@ -851,14 +856,14 @@ fn page_rows(
     if rows.fit {
         ui.label("");
         let mut fit = page.scale_to_fit;
-        if ui.checkbox(&mut fit, "Fit to paper").changed() {
+        if ui.checkbox(&mut fit, crate::i18n::t("Fit to paper")).changed() {
             change = Some(("scaleToFit", json!(fit)));
         }
         ui.end_row();
     }
     if let Some((center, offset_mm, supported)) = placement {
         ui.label("");
-        ui.add_enabled_ui(supported, |ui| ui.checkbox(center, "Center the plot")).response.on_hover_text(if supported {
+        ui.add_enabled_ui(supported, |ui| ui.checkbox(center, crate::i18n::t("Center the plot"))).response.on_hover_text(if supported {
             "Center the plotted model bounds on the printable area"
         } else {
             "Model-space offset placement is not supported by SVG"
@@ -872,7 +877,7 @@ fn page_rows(
                 }
             })
             .response
-            .on_hover_text("Distance from the printable area's lower-left corner; values range from −100000 to 100000 mm");
+            .on_hover_text(crate::i18n::t("Distance from the printable area's lower-left corner; values range from −100000 to 100000 mm"));
             ui.end_row();
         }
         if supported && !*center && offset_mm.iter().any(|v| !v.is_finite() || v.abs() > cadcraft_render::paper::MAX_PLOT_OFFSET_MM) {
@@ -882,20 +887,20 @@ fn page_rows(
         }
     }
     if rows.scale {
-        let label = ui.label("Scale");
+        let label = ui.label(crate::i18n::t("Scale"));
         ui.add_enabled_ui(!page.scale_to_fit, |ui| {
             if let Some(v) = expr_field(ui, salt.with("scale"), &fmt_num(page.scale), Some(label.id)).and_then(|t| parse_ratio(&t)) {
                 change = Some(("scale", json!(v)));
             }
         })
         .response
-        .on_hover_text("Paper units per drawing unit, or a ratio such as 1:50");
+        .on_hover_text(crate::i18n::t("Paper units per drawing unit, or a ratio such as 1:50"));
         ui.end_row();
     }
     if rows.center {
         ui.label("");
         let mut center = page.center;
-        if ui.checkbox(&mut center, "Center the plot").changed() {
+        if ui.checkbox(&mut center, crate::i18n::t("Center the plot")).changed() {
             change = Some(("center", json!(center)));
         }
         ui.end_row();
@@ -903,7 +908,7 @@ fn page_rows(
     if rows.lineweights {
         ui.label("");
         let mut lw = page.lineweights;
-        if ui.checkbox(&mut lw, "Plot object lineweights").changed() {
+        if ui.checkbox(&mut lw, crate::i18n::t("Plot object lineweights")).changed() {
             change = Some(("lineweights", json!(lw)));
         }
         ui.end_row();
@@ -913,7 +918,7 @@ fn page_rows(
         let mut transparency = page.plot_transparency;
         if ui
             .checkbox(&mut transparency, "Plot transparency")
-            .on_hover_text("Plot objects with their transparency (PLOTTRANSPARENCYOVERRIDE can override it)")
+            .on_hover_text(crate::i18n::t("Plot objects with their transparency (PLOTTRANSPARENCYOVERRIDE can override it)"))
             .changed()
         {
             change = Some(("plotTransparency", json!(transparency)));
@@ -938,7 +943,7 @@ fn page_rows(
                 }
             });
             if rows.plot_style_edit {
-                ui.add_enabled(false, egui::Button::new("Edit…")).on_hover_text("Plot style editing is not available yet.");
+                ui.add_enabled(false, egui::Button::new("Edit…")).on_hover_text(crate::i18n::t("Plot style editing is not available yet."));
             }
         });
         ui.end_row();
@@ -1239,7 +1244,7 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                         left.set_width(left_width);
                         plot_section(left, "Page setup", |ui| {
                             egui::Grid::new("plot_layout_grid").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-                                ui.label("Layout");
+                                ui.label(crate::i18n::t("Layout"));
                                 ui.horizontal(|ui| {
                                     craft_ui::ComboBox::from_id_salt("plot_layout").selected_text(st.target.as_str()).width(190.0).show_ui(
                                         ui,
@@ -1252,7 +1257,8 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                                             }
                                         },
                                     );
-                                    ui.add_enabled(false, egui::Button::new("Add…")).on_hover_text("Named page setups are not available yet.");
+                                    ui.add_enabled(false, egui::Button::new("Add…"))
+                                        .on_hover_text(crate::i18n::t("Named page setups are not available yet."));
                                 });
                                 ui.end_row();
                             });
@@ -1290,23 +1296,23 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                                     });
                                     let device = choices.devices.iter().find(|dv| dv.name.eq_ignore_ascii_case(&st.page.device));
                                     egui::Grid::new("plot_device_details").num_columns(2).spacing(vec2(10.0, 4.0)).show(ui, |ui| {
-                                        ui.label("Plotter");
+                                        ui.label(crate::i18n::t("Plotter"));
                                         ui.label(device.map_or("CADCraft PDF", |dv| dv.name.as_str()));
                                         ui.end_row();
-                                        ui.label("Where");
-                                        ui.label("File");
+                                        ui.label(crate::i18n::t("Where"));
+                                        ui.label(crate::i18n::t("File"));
                                         ui.end_row();
-                                        ui.label("Description");
+                                        ui.label(crate::i18n::t("Description"));
                                         ui.label(device.map_or("PDF output to selected paper", |dv| dv.description.as_str()));
                                         ui.end_row();
                                     });
                                     ui.horizontal(|ui| {
                                         let mut to_file = true;
                                         ui.add_enabled(false, egui::Checkbox::new(&mut to_file, "Plot to file"))
-                                            .on_hover_text("CADCraft writes each plot to a file selected after OK.");
+                                            .on_hover_text(crate::i18n::t("CADCraft writes each plot to a file selected after OK."));
                                         if device.is_none_or(|dv| dv.output.as_str() == "pdf") {
                                             ui.add_enabled(false, egui::Button::new("PDF Options…"))
-                                                .on_hover_text("PDF-specific output options are not available yet.");
+                                                .on_hover_text(crate::i18n::t("PDF-specific output options are not available yet."));
                                         }
                                     });
                                 });
@@ -1367,7 +1373,10 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                                         ui.end_row();
                                     }
                                     ui.label("");
-                                    pick = ui.button("Window <").on_hover_text("Pick the window's corners in the drawing").clicked();
+                                    pick = ui
+                                        .button(crate::i18n::t("Window <"))
+                                        .on_hover_text(crate::i18n::t("Pick the window's corners in the drawing"))
+                                        .clicked();
                                     ui.end_row();
                                 });
                             });
@@ -1454,7 +1463,7 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                                     ui.label("");
                                     let mut scale_lineweights = false;
                                     ui.add_enabled(false, egui::Checkbox::new(&mut scale_lineweights, "Scale lineweights"))
-                                        .on_hover_text("Scaling lineweights independently is not available yet.");
+                                        .on_hover_text(crate::i18n::t("Scaling lineweights independently is not available yet."));
                                     ui.end_row();
                                 });
                             });
@@ -1496,17 +1505,17 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                         plot_section(right, "Shaded viewport options", |ui| {
                             ui.label(RichText::new("Not available for the current 2D plot path.").color(t.text_dim));
                             egui::Grid::new("plot_shade_grid").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-                                ui.label("Shade plot");
+                                ui.label(crate::i18n::t("Shade plot"));
                                 ui.add_enabled_ui(false, |ui| {
                                     craft_ui::ComboBox::from_id_salt("plot_shade").selected_text("As displayed").show_ui(ui, |_| {});
                                 });
                                 ui.end_row();
-                                ui.label("Quality");
+                                ui.label(crate::i18n::t("Quality"));
                                 ui.add_enabled_ui(false, |ui| {
                                     craft_ui::ComboBox::from_id_salt("plot_quality").selected_text("Normal").show_ui(ui, |_| {});
                                 });
                                 ui.end_row();
-                                ui.label("DPI");
+                                ui.label(crate::i18n::t("DPI"));
                                 let mut dpi = 100_u32;
                                 ui.add_enabled(false, egui::DragValue::new(&mut dpi));
                                 ui.end_row();
@@ -1518,7 +1527,7 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                                 ui.label("");
                                 let mut background = false;
                                 ui.add_enabled(false, egui::Checkbox::new(&mut background, "Plot in background"))
-                                    .on_hover_text("Background plotting is not available yet.");
+                                    .on_hover_text(crate::i18n::t("Background plotting is not available yet."));
                                 ui.end_row();
                                 if let Some((k, v)) = page_rows(
                                     ui,
@@ -1548,7 +1557,7 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                                 let mut with_styles = style_label(&st.page) != "None";
                                 ui.label("");
                                 ui.add_enabled(false, egui::Checkbox::new(&mut with_styles, "Plot with plot styles"))
-                                    .on_hover_text("Choose a plot style table above to control this setting.");
+                                    .on_hover_text(crate::i18n::t("Choose a plot style table above to control this setting."));
                                 ui.end_row();
                                 for (id, label, tip) in [
                                     ("plot_paperspace_last", "Plot paperspace last", "Plot ordering is not configurable yet."),
@@ -1565,7 +1574,7 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                                 let mut save_layout = false;
                                 ui.label("");
                                 ui.add_enabled(false, egui::Checkbox::new(&mut save_layout, "Save changes to layout"))
-                                    .on_hover_text("Use Apply to Layout to save settings explicitly.");
+                                    .on_hover_text(crate::i18n::t("Use Apply to Layout to save settings explicitly."));
                                 ui.end_row();
                             });
                         });
@@ -1600,7 +1609,7 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                                 ui.label("");
                                 let mut upside_down = false;
                                 ui.add_enabled(false, egui::Checkbox::new(&mut upside_down, "Plot upside-down"))
-                                    .on_hover_text("Upside-down plotting is not available yet.");
+                                    .on_hover_text(crate::i18n::t("Upside-down plotting is not available yet."));
                                 ui.end_row();
                             });
                         });
@@ -1617,19 +1626,20 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
             ui.horizontal(|ui| {
                 preview = ui
                     .add_enabled(blocker.is_none(), egui::Button::new("Preview"))
-                    .on_hover_text("The sheet as these settings plot it")
+                    .on_hover_text(crate::i18n::t("The sheet as these settings plot it"))
                     .on_disabled_hover_text(blocker.unwrap_or_default())
                     .clicked();
                 let apply = ui
                     .add_enabled(!model, egui::Button::new("Apply to Layout"))
-                    .on_hover_text("Available for layouts; saves these settings in the layout's page setup.");
+                    .on_hover_text(crate::i18n::t("Available for layouts; saves these settings in the layout's page setup."));
                 if apply.clicked() {
                     action = Some(("pagesetup", apply_to_layout_params(&st)));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_enabled(false, egui::Button::new("More options")).on_hover_text("Additional plot options are not available yet.");
-                    ui.add_enabled(false, egui::Button::new("Help")).on_hover_text("Help for Plot is not available yet.");
-                    cancel = ui.button("Cancel").clicked();
+                    ui.add_enabled(false, egui::Button::new("More options"))
+                        .on_hover_text(crate::i18n::t("Additional plot options are not available yet."));
+                    ui.add_enabled(false, egui::Button::new("Help")).on_hover_text(crate::i18n::t("Help for Plot is not available yet."));
+                    cancel = ui.button(crate::i18n::t("Cancel")).clicked();
                     ok |= ui.add_enabled(blocker.is_none(), egui::Button::new("OK")).on_disabled_hover_text(blocker.unwrap_or_default()).clicked();
                 });
             });
@@ -1778,29 +1788,29 @@ fn constraint_settings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -
     let mut action = None;
     let set = |k: &str, v: Value| Some(("constraintsettings", json!({ k: v })));
     egui::Window::new("Constraint Settings").open(open).collapsible(false).resizable(false).show(ctx, |ui| {
-        ui.heading("Geometric");
+        ui.heading(crate::i18n::t("Geometric"));
         let mut infer = s.infer;
-        if ui.checkbox(&mut infer, "Infer geometric constraints").changed() {
+        if ui.checkbox(&mut infer, crate::i18n::t("Infer geometric constraints")).changed() {
             action = set("infer", json!(infer));
         }
         let mut bars = s.bars_visible;
-        if ui.checkbox(&mut bars, "Show constraint bars").changed() {
+        if ui.checkbox(&mut bars, crate::i18n::t("Show constraint bars")).changed() {
             action = set("barsVisible", json!(bars));
         }
         ui.horizontal(|ui| {
-            let label = ui.label("Constraint bar transparency (%)");
+            let label = ui.label(crate::i18n::t("Constraint bar transparency (%)"));
             if let Some(v) = num_field(ui, "csettings_transp", f64::from(s.bar_transparency), Some(label.id)) {
                 action = set("barTransparency", json!(v));
             }
         });
         ui.separator();
-        ui.heading("Dimensional");
+        ui.heading(crate::i18n::t("Dimensional"));
         let mut dims = s.dims_visible;
-        if ui.checkbox(&mut dims, "Show dynamic constraints").changed() {
+        if ui.checkbox(&mut dims, crate::i18n::t("Show dynamic constraints")).changed() {
             action = set("dimsVisible", json!(dims));
         }
         ui.separator();
-        ui.heading("AutoConstrain");
+        ui.heading(crate::i18n::t("AutoConstrain"));
         ui.label(RichText::new("Constraint types AUTOCONSTRAIN applies").color(t.text_dim));
         egui::Grid::new("csettings_types").num_columns(3).show(ui, |ui| {
             for (i, ty) in types.iter().enumerate() {
@@ -1816,12 +1826,12 @@ fn constraint_settings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -
             }
         });
         egui::Grid::new("csettings_tol").num_columns(2).show(ui, |ui| {
-            let label = ui.label("Distance tolerance");
+            let label = ui.label(crate::i18n::t("Distance tolerance"));
             if let Some(v) = num_field(ui, "csettings_dist", s.distance_tolerance, Some(label.id)) {
                 action = set("distanceTolerance", json!(v));
             }
             ui.end_row();
-            let label = ui.label("Angle tolerance (degrees)");
+            let label = ui.label(crate::i18n::t("Angle tolerance (degrees)"));
             if let Some(v) = num_field(ui, "csettings_angle", s.angle_tolerance, Some(label.id)) {
                 action = set("angleTolerance", json!(v));
             }

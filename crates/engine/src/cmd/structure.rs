@@ -387,7 +387,7 @@ impl Interactive for ColumnAddM {
     }
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.ask {
-            Ask::Section => Prompt::new("Enter the section (e.g. HEA 200)", Accept::TEXT).default(self.last.section.clone()),
+            Ask::Section => Prompt::new("Enter the section (e.g. HEA 200 or BA 300x500)", Accept::TEXT).default(self.last.section.clone()),
             Ask::Height => Prompt::new("Enter the height of the column (mm)", Accept::NUMBER).default(format!("{:.0}", self.last.column_height_mm)),
             Ask::Elevation => {
                 Prompt::new("Enter the elevation of the foot (m)", Accept::NUMBER).default(format!("{:.2}", self.last.column_elevation_mm / 1000.0))
@@ -515,7 +515,7 @@ impl Interactive for BeamAddM {
     }
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.ask {
-            Ask::Section => Prompt::new("Enter the section (e.g. IPE 240)", Accept::TEXT).default(self.last.section.clone()),
+            Ask::Section => Prompt::new("Enter the section (e.g. IPE 240 or BA 300x500)", Accept::TEXT).default(self.last.section.clone()),
             Ask::Elevation => Prompt::new("Enter the elevation of the underside (m)", Accept::NUMBER)
                 .default(format!("{:.2}", self.last.beam_elevation_mm / 1000.0)),
             _ => match self.pts.last().copied() {

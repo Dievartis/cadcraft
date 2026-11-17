@@ -289,23 +289,23 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
         egui::Grid::new("units_grid").num_columns(2).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
             ui.strong("Length");
             ui.end_row();
-            ui.label("Type");
+            ui.label(crate::i18n::t("Type"));
             pick(ui, "units_lunits", lu, &types(&LENGTH_TYPES));
             ui.end_row();
-            ui.label("Precision");
+            ui.label(crate::i18n::t("Precision"));
             pick(ui, "units_luprec", lp, &length_precisions(*lu));
             ui.end_row();
             ui.strong("Angle");
             ui.end_row();
-            ui.label("Type");
+            ui.label(crate::i18n::t("Type"));
             pick(ui, "units_aunits", au, &types(&ANGLE_TYPES));
             ui.end_row();
-            ui.label("Precision");
+            ui.label(crate::i18n::t("Precision"));
             pick(ui, "units_auprec", ap, &(0..=8).map(|p| (p, format_angle(45f64.to_radians(), *au, p))).collect::<Vec<_>>());
             ui.end_row();
             ui.strong("Insertion scale");
             ui.end_row();
-            ui.label("Units to scale inserted content");
+            ui.label(crate::i18n::t("Units to scale inserted content"));
             let names = INSERTION_UNITS.iter().enumerate().map(|(k, l)| (k as i64, l.to_string())).collect::<Vec<_>>();
             pick(ui, "units_insunits", ins, &names);
             ui.end_row();
@@ -321,7 +321,7 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
         ui.separator();
         ui.horizontal(|ui| {
             apply = ui.button("OK").clicked();
-            cancel = ui.button("Cancel").clicked();
+            cancel = ui.button(crate::i18n::t("Cancel")).clicked();
         });
     });
     if apply {
