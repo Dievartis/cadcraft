@@ -19,8 +19,8 @@ Published source preview: [Dievart preview 0.4](https://github.com/Dievartis/cad
 
 This is a record of the integration above, not an exhaustive inventory of inherited
 CADCraft contributions. Existing copyright notices and MIT / Apache-2.0 licenses
-remain applicable. No new dependency or asset is added. Authors have not been
-contacted through the fork's consolidated notification linked below.
+remain applicable. No new dependency or asset is added. Authors are mentioned
+in the fork's consolidated notification linked below.
 
 ## Scope
 
