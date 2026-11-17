@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
+# A patched copy of a craft-libs crate, built as a dependency only (see [patch] below).
+exclude = ["vendor/craft-dwg"]
 # default-members
 
 [workspace.package]
@@ -145,3 +147,8 @@ eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc79968157
 # storytold/winit a517b38 plus W30 (the launcher's activation token, storytold/winit#14); back to
 # storytold/winit once that merges.
 winit = { git = "https://github.com/bmh129/winit.git", rev = "78df1155809d1def666e0f31bd786f9b14732cf9" }
+
+# craft-libs' craft-dwg leaves wasm32 without a DWG bridge, so the web build could not open or save DWG. The copy in vendor/craft-dwg builds it there
+# too (CADCraft PR #2512). Remove this patch and the copy when craft-libs does the same.
+[patch."https://github.com/storytold/craft-libs"]
+craft-dwg = { path = "vendor/craft-dwg" }
