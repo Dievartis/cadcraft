@@ -1734,24 +1734,19 @@ fn duct_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[DuctParams], len: &dyn 
             }
         }
     });
-    if let [p] = ds {
-        // The section is chosen here: round, or rectangular (its sides start from the diameter), as sizing would size it.
-        prop_row(ui, "Section", |ui| {
-            let items = [("round", "Round"), ("rectangular", "Rectangular")];
-            let shown = format!("{} ({})", crate::i18n::t(if p.shape == DuctShape::Round { "Round" } else { "Rectangular" }), p.size_label());
-            match choice_text(ui, shown, &items) {
-                Some("round") if p.shape != DuctShape::Round => {
-                    action = edit("diameter", json!(p.diameter_mm));
-                }
-                Some("rectangular") if p.shape != DuctShape::Rectangular => {
-                    let w = p.diameter_mm;
-                    let h = ((w * 0.75 / 50.0).round() * 50.0).max(100.0);
-                    action = Some(("ductedit", json!({ "handles": ids, "width": w, "height": h })));
-                }
-                _ => {}
-            }
-        });
-    }
+    // The section is chosen here for every duct selected: round, or rectangular (its sides start from the diameter), as sizing would size it.
+    let shape = shared(&ds.iter().map(|p| p.shape).collect::<Vec<_>>());
+    prop_row(ui, "Section", |ui| {
+        let items = [("round", "Round"), ("rectangular", "Rectangular")];
+        let shown = match (shape, ds) {
+            (Some(s), [p]) => format!("{} ({})", crate::i18n::t(if s == DuctShape::Round { "Round" } else { "Rectangular" }), p.size_label()),
+            (Some(s), _) => crate::i18n::t(if s == DuctShape::Round { "Round" } else { "Rectangular" }).to_string(),
+            (None, _) => crate::i18n::t(VARIES).to_string(),
+        };
+        if let Some(c) = choice_text(ui, shown, &items) {
+            action = edit("shape", json!(c));
+        }
+    });
     // A diameter typed makes the duct round, a width or a height rectangular (the missing side is
     // the other one, else the diameter).
     let diameter =
@@ -1767,16 +1762,19 @@ fn duct_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[DuctParams], len: &dyn 
             .unwrap_or_else(|| VARIES.into())
     };
     let (width, height) = (side(|p| p.width_mm), side(|p| p.height_mm));
+    // A side typed changes that side of every duct selected (the other is the duct's own, or its diameter when it is round); an empty field left as
+    // it was changes nothing.
     prop_row(ui, "Width (mm)", |ui| {
-        if let (Some(w), [p]) = (number(edit_field(ui, ui.scope_id().with(("duct_width", &ids)), width), bad), ds) {
-            let h = if p.height_mm > 0.0 { p.height_mm } else { p.diameter_mm };
-            action = Some(("ductedit", json!({ "handles": ids, "width": w, "height": h })));
+        if let Some(w) = number(edit_field(ui, ui.scope_id().with(("duct_width", &ids)), width).filter(|t| !t.trim().is_empty() && t != VARIES), bad)
+        {
+            action = edit("width", json!(w));
         }
     });
     prop_row(ui, "Height (mm)", |ui| {
-        if let (Some(h), [p]) = (number(edit_field(ui, ui.scope_id().with(("duct_height", &ids)), height), bad), ds) {
-            let w = if p.width_mm > 0.0 { p.width_mm } else { p.diameter_mm };
-            action = Some(("ductedit", json!({ "handles": ids, "width": w, "height": h })));
+        if let Some(h) =
+            number(edit_field(ui, ui.scope_id().with(("duct_height", &ids)), height).filter(|t| !t.trim().is_empty() && t != VARIES), bad)
+        {
+            action = edit("height", json!(h));
         }
     });
     let kind = shared(&ds.iter().map(|p| p.kind).collect::<Vec<_>>());

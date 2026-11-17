@@ -38,7 +38,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
             .interactive(|s| Ok(Box::new(DuctAddM::new(s)))),
         CommandSpec::new("ductedit", "Edit Duct", run_ductedit)
-            .params("{handle | handles, diameter? (mm, or auto: sizing chooses the size) | width? + height? (mm; a rectangular section), kind?, air?, flexible? (true or false), insulation? (outside, inside or none), insulationThickness? (mm, default 30), flow? (m³/h: sizing keeps it and sizes the run for it; auto gives it back)} → {changed}"),
+            .params("{handle | handles, diameter? (mm, or auto: sizing chooses the size) | width? and/or height? (mm; a rectangular section: a side alone changes that side), kind?, air?, flexible? (true or false), shape? (round or rectangular: each duct keeps its size and takes the other shape), insulation? (outside, inside or none), insulationThickness? (mm, default 30), flow? (m³/h: sizing keeps it and sizes the run for it; auto gives it back)} → {changed}"),
         CommandSpec::new("ductconnect", "Connect Terminals", run_ductconnect).menu(&["Draw", "HVAC", "Connect Terminals"]).params(
             "{terminals? (handles; default every terminal no duct reaches), maxDistance? (mm, default 3000)} → {created (flexible ducts), skipped}",
         ),
@@ -841,14 +841,22 @@ fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
     }
     // A number imposes the diameter, `width` and `height` together a rectangular section; "auto" gives
     // the size back to sizing.
+    // `width` or `height` alone changes that side: the other is the duct's own (or its diameter when it is round), for each duct selected.
     let size: Option<Option<Imposed>> = match (p.get("diameter"), positive(CMD, p, "width")?, positive(CMD, p, "height")?) {
         (_, Some(w), Some(h)) => Some(Some(Imposed::Rect(w, h))),
-        (_, Some(_), None) | (_, None, Some(_)) => return Err(bad(CMD, "`width` and `height` go together")),
+        (_, Some(w), None) => Some(Some(Imposed::Rect(w, 0.0))),
+        (_, None, Some(h)) => Some(Some(Imposed::Rect(0.0, h))),
         (None | Some(Value::Null), None, None) => None,
         (Some(Value::String(t)), None, None) if t.trim().eq_ignore_ascii_case("auto") => Some(None),
         (Some(v), None, None) => Some(Some(Imposed::Round(
             v.as_f64().filter(|d| d.is_finite()).ok_or_else(|| bad(CMD, "`diameter` must be a number of millimetres or auto"))?,
         ))),
+    };
+    // The shape of the section: a round duct becomes rectangular (its diameter wide, three quarters of it high, to 50 mm) or the other way round.
+    let shape = match str_param(p, "shape").map(|t| t.trim().to_ascii_lowercase()) {
+        None => None,
+        Some(t) if t == "round" || t == "rectangular" => Some(t == "rectangular"),
+        Some(_) => return Err(bad(CMD, "`shape` is round or rectangular")),
     };
     let (kind, air) = (kind_param(CMD, p)?, duct_air_param(CMD, p)?);
     let flexible = bool_param(CMD, p, "flexible")?;
@@ -872,10 +880,23 @@ fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
     let mut next = Vec::with_capacity(hs.len());
     for h in &hs {
         let (mut dp, ..) = d.duct_ends(*h).ok_or_else(|| other("Select ducts only."))?;
+        let rectangular = dp.shape == DuctShape::Rectangular;
         match size {
+            Some(Some(Imposed::Rect(w, h))) => {
+                let (own_w, own_h) = if rectangular { (dp.width_mm, dp.height_mm) } else { (dp.diameter_mm, dp.diameter_mm) };
+                Imposed::Rect(if w > 0.0 { w } else { own_w }, if h > 0.0 { h } else { own_h }).apply(&mut dp);
+            }
             Some(Some(imposed)) => imposed.apply(&mut dp),
             Some(None) => dp.imposed = false,
             None => {}
+        }
+        match shape {
+            Some(true) if !rectangular => {
+                let w = dp.diameter_mm;
+                Imposed::Rect(w, ((w * 0.75 / 50.0).round() * 50.0).max(100.0)).apply(&mut dp);
+            }
+            Some(false) if rectangular => Imposed::Round(dp.diameter_mm).apply(&mut dp),
+            _ => {}
         }
         if let Some(k) = kind {
             (dp.kind, dp.kind_found) = (k, None);

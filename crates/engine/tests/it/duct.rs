@@ -636,7 +636,11 @@ fn a_rectangular_section_can_be_imposed_when_drawing_editing_or_typing_it() {
     assert_eq!((p.shape, p.diameter_mm, p.width_mm), (cadcraft_doc::DuctShape::Round, 315.0, 0.0));
     s.execute("ductedit", &json!({"handle": h, "width": 600, "height": 200})).unwrap();
     assert_eq!(sections(&s), [(cadcraft_doc::DuctShape::Rectangular, 600.0, 200.0)]);
-    assert!(s.execute("ductedit", &json!({"handle": h, "height": 200})).is_err());
+    // A side alone changes that side and keeps the other (a duct drawn with one side only is still refused, above).
+    s.execute("ductedit", &json!({"handle": h, "height": 250})).unwrap();
+    assert_eq!(sections(&s), [(cadcraft_doc::DuctShape::Rectangular, 600.0, 250.0)]);
+    s.execute("ductedit", &json!({"handle": h, "width": 500})).unwrap();
+    assert_eq!(sections(&s), [(cadcraft_doc::DuctShape::Rectangular, 500.0, 250.0)]);
     assert!(s.execute("ductedit", &json!({"handle": h, "width": 3, "height": 200})).is_err());
     s.execute("ductedit", &json!({"handle": h, "diameter": "auto"})).unwrap();
     assert!(!duct_of(s.doc().unwrap().entity(hd(&h)).unwrap()).unwrap().imposed);
@@ -1329,4 +1333,43 @@ fn a_flow_typed_on_a_unit_or_on_a_run_is_kept_by_sizing_and_auto_gives_it_back()
         p["handle"] = trunk["handles"][0].clone();
         assert!(s.execute("ductedit", &p).is_err(), "{bad}");
     }
+}
+
+#[test]
+fn several_round_ducts_become_rectangular_by_a_side_typed_or_by_the_shape_and_back() {
+    use cadcraft_doc::DuctShape;
+    let mut s = metric();
+    let r = s.execute("ductadd", &json!({"points": [[0, 0], [4000, 0], [4000, 3000], [0, 3000]], "diameter": 200})).unwrap();
+    let hs: Vec<Value> = r["handles"].as_array().unwrap().clone();
+    assert_eq!(hs.len(), 3);
+    let get = |s: &Session, h: &Value| duct_of(s.doc().unwrap().entity(hd(h)).unwrap()).unwrap();
+    // A width alone, on all three: rectangular, that wide, as high as the diameter was.
+    s.execute("ductedit", &json!({"handles": hs, "width": 400})).unwrap();
+    for h in &hs {
+        let p = get(&s, h);
+        assert_eq!((p.shape, p.width_mm, p.height_mm, p.imposed), (DuctShape::Rectangular, 400.0, 200.0, true));
+    }
+    // A height alone keeps the width.
+    s.execute("ductedit", &json!({"handles": hs, "height": 300})).unwrap();
+    assert!(hs.iter().all(|h| {
+        let p = get(&s, h);
+        (p.width_mm, p.height_mm) == (400.0, 300.0)
+    }));
+    // Back to round, then rectangular by the shape: the diameter wide, three quarters of it high to 50 mm.
+    s.execute("ductedit", &json!({"handles": hs, "shape": "round"})).unwrap();
+    assert!(hs.iter().all(|h| get(&s, h).shape == DuctShape::Round));
+    let d = get(&s, &hs[0]).diameter_mm;
+    s.execute("ductedit", &json!({"handles": hs, "shape": "rectangular"})).unwrap();
+    for h in &hs {
+        let p = get(&s, h);
+        assert_eq!((p.shape, p.width_mm), (DuctShape::Rectangular, d));
+        assert_eq!(p.height_mm, ((d * 0.75 / 50.0).round() * 50.0).max(100.0));
+    }
+    // Bad input is refused, and nothing changes.
+    for bad in [json!({"shape": "oval"}), json!({"width": -5}), json!({"height": 1.0e9})] {
+        let mut p = bad.clone();
+        p["handles"] = json!(hs);
+        assert!(s.execute("ductedit", &p).is_err(), "{bad}");
+    }
+    assert!(hs.iter().all(|h| get(&s, h).shape == DuctShape::Rectangular));
 }
