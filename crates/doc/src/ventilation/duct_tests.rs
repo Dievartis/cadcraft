@@ -55,6 +55,8 @@ fn duct(diameter_mm: f64) -> DuctParams {
         trim_end_mm: 0.0,
         flow_set: false,
         insulation: None,
+        cap_start: false,
+        cap_end: false,
         flow_forward: None,
         open_flow_m3h: None,
         gaps_mm: Vec::new(),
@@ -1955,7 +1957,7 @@ fn a_straight_continuation_a_tee_and_a_flexible_run_get_no_elbow() {
     // Straight on.
     let mut d = Drawing::new_metric();
     let hs = [add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0)), add_duct(&mut d, (3000.0, 0.0), (6000.0, 0.0))];
-    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
+    d.draw_duct_elbows(&Space::Model).unwrap();
     assert_eq!(elbows_of(&d, &hs), vec![Some((0.0, 0.0, 0.0)); 2]);
     // A tee: a third run ends where the two meet.
     let mut d = Drawing::new_metric();
@@ -1964,7 +1966,7 @@ fn a_straight_continuation_a_tee_and_a_flexible_run_get_no_elbow() {
         add_duct(&mut d, (3000.0, 0.0), (3000.0, 3000.0)),
         add_duct(&mut d, (3000.0, 0.0), (6000.0, 0.0)),
     ];
-    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
+    d.draw_duct_elbows(&Space::Model).unwrap();
     assert_eq!(elbows_of(&d, &hs), vec![Some((0.0, 0.0, 0.0)); 3]);
     // A run that goes through the joint: a tee as well.
     let mut d = Drawing::new_metric();
@@ -1982,7 +1984,7 @@ fn a_straight_continuation_a_tee_and_a_flexible_run_get_no_elbow() {
     let mut p = duct_of(d.entity(b).unwrap()).unwrap();
     p.flexible = true;
     d.regenerate_duct(b, &p).unwrap();
-    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
+    d.draw_duct_elbows(&Space::Model).unwrap();
     assert_eq!(elbows_of(&d, &[a, b]), vec![Some((0.0, 0.0, 0.0)); 2]);
 }
 
@@ -2046,4 +2048,77 @@ fn a_duct_insulation_is_drawn_on_its_own_layer_checked_and_counted_by_side_and_t
             && (i.volume_m3 - std::f64::consts::PI / 4.0 * (0.26f64.powi(2) - 0.04) * 3.0).abs() < 1e-6,
         "{i:?}"
     );
+}
+
+fn caps_of(d: &Drawing, hs: &[Handle]) -> Vec<(bool, bool)> {
+    hs.iter().map(|h| duct_of(d.entity(*h).unwrap()).map(|p| (p.cap_start, p.cap_end)).unwrap()).collect()
+}
+
+#[test]
+fn the_free_ends_of_the_runs_are_closed_by_a_line_so_a_midpoint_snap_gives_the_centre() {
+    // One run: both ends are free, and the drawing has a line across each, as wide as the run.
+    let mut d = Drawing::new_metric();
+    let a = add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0));
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(caps_of(&d, &[a]), vec![(true, true)]);
+    let p = duct_of(d.entity(a).unwrap()).unwrap();
+    let across = |p: &DuctParams| {
+        p.generate(false)
+            .unwrap()
+            .into_iter()
+            .filter_map(|x| match x.kind {
+                EntityKind::LwPolyline(l) if l.vertices.len() == 2 && (l.vertices[0].p.x - l.vertices[1].p.x).abs() < 1e-9 => {
+                    Some((l.vertices[0].p.x, l.vertices[0].p.y, l.vertices[1].p.y))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let lines = across(&p);
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines.iter().all(|(_, y0, y1)| (y0 + 100.0).abs() < 1e-9 && (y1 - 100.0).abs() < 1e-9), "as wide as the Ø200 run: {lines:?}");
+    // Two runs end to end: only the far ends are closed (the joint is not).
+    let mut d = Drawing::new_metric();
+    let hs = [add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0)), add_duct(&mut d, (3000.0, 0.0), (3000.0, 3000.0))];
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(caps_of(&d, &hs), vec![(true, false), (false, true)]);
+    // A tee: the three free ends are closed, the tee itself is not.
+    let mut d = Drawing::new_metric();
+    let hs = [
+        add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0)),
+        add_duct(&mut d, (3000.0, 0.0), (3000.0, 3000.0)),
+        add_duct(&mut d, (3000.0, 0.0), (6000.0, 0.0)),
+    ];
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(caps_of(&d, &hs), vec![(true, false), (false, true), (false, true)]);
+    // A terminal on the end: that end is not closed. A run moved off a joint is closed there.
+    let mut d = Drawing::new_metric();
+    let a = add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0));
+    add_terminal(&mut d, (3000.0, 0.0), 200.0);
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(caps_of(&d, &[a]), vec![(true, false)]);
+    // Done once: nothing more to draw.
+    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
+}
+
+#[test]
+fn the_size_written_at_a_collar_has_no_leading_zero_while_a_riser_label_keeps_its_four_digits() {
+    let mut u = ahu();
+    let n = u.kind.default_ports().len();
+    u.port_sizes = vec![Some(super::RiserSize::Rectangular { width_mm: 900.0, height_mm: 600.0 }); n];
+    let texts: Vec<String> = u
+        .generate()
+        .unwrap()
+        .into_iter()
+        .filter_map(|p| match p.kind {
+            EntityKind::Text(t) => Some(t.value),
+            _ => None,
+        })
+        .collect();
+    assert!(texts.iter().any(|t| t.contains("900×600")), "{texts:?}");
+    assert!(!texts.iter().any(|t| t.contains("0900")), "no leading zero on a collar: {texts:?}");
+    // A riser's label, as asked, is on four digits.
+    assert_eq!(super::RiserSize::Round { diameter_mm: 400.0 }.label(), "Ø400");
+    assert_eq!(super::RiserSize::Round { diameter_mm: 400.0 }.label_padded(), "Ø0400");
+    assert_eq!(super::RiserSize::Rectangular { width_mm: 900.0, height_mm: 600.0 }.label_padded(), "0900×0600");
 }

@@ -792,6 +792,12 @@ pub struct DuctParams {
     /// The insulation of the run, on its outside or its inside, and how thick.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub insulation: Option<DuctInsulation>,
+    /// The start (resp. end) of the run is closed by a line across it, because it is a free end (no other run, unit, terminal or riser is there):
+    /// a "midpoint" snap on that line gives the centre of the run, to carry on from.
+    #[serde(default)]
+    pub cap_start: bool,
+    #[serde(default)]
+    pub cap_end: bool,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     #[serde(default)]
@@ -1124,6 +1130,35 @@ impl DuctParams {
         self.length * self.units.mm_per_unit / 1000.0
     }
 
+    /// The lines that close the free ends of the run (across it, as wide as it is at that end).
+    fn cap_pieces(&self, r: f64) -> Vec<HvacPiece> {
+        let cone = self.cone(r);
+        let mut pieces = Vec::new();
+        for (on, x, at_end) in [(self.cap_start, 0.0, false), (self.cap_end, self.length, true)] {
+            if !on {
+                continue;
+            }
+            let half = match cone {
+                Some((r0, _, e)) if e == at_end => r0,
+                _ => r,
+            };
+            pieces.push(HvacPiece {
+                layer: self.layer(),
+                kind: EntityKind::LwPolyline(LwPolyline {
+                    vertices: [-half, half]
+                        .into_iter()
+                        .map(|y| PolyVertex { p: Vec2::new(x, y), bulge: 0.0, start_width: 0.0, end_width: 0.0 })
+                        .collect(),
+                    closed: false,
+                    const_width: 0.0,
+                    elevation: 0.0,
+                    plinegen: false,
+                }),
+            });
+        }
+        pieces
+    }
+
     /// The insulation: a line each side of the run, outside its sides or inside them (a thickness each way), along its straight stretch `(x0, x1)`.
     fn insulation_pieces(&self, r: f64, (x0, x1): (f64, f64)) -> Vec<HvacPiece> {
         let mut pieces = Vec::new();
@@ -1189,6 +1224,7 @@ impl DuctParams {
             }
         }
         pieces.extend(self.insulation_pieces(r, (x0, x1)));
+        pieces.extend(self.cap_pieces(r));
         // Each jog: four elbows across the run, each a shallow arc bulging toward the middle of the jog (as plans draw an elbow's
         // gores), the same for every size: a semicircle would read as rings on a wide duct.
         for j in &self.jogs {

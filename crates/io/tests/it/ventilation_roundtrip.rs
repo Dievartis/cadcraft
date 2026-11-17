@@ -109,6 +109,8 @@ fn ducted() -> Drawing {
         trim_end_mm: 0.0,
         flow_set: false,
         insulation: None,
+        cap_start: false,
+        cap_end: false,
         flow_forward: None,
         open_flow_m3h: None,
         gaps_mm: Vec::new(),

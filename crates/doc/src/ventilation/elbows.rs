@@ -6,7 +6,7 @@
 use cadcraft_geom::Vec2;
 
 use super::network::MAX_DUCTS;
-use super::{DuctElbow, DuctParams, HvacUnits, duct_of};
+use super::{DuctElbow, DuctParams, HvacUnits, ahu_of, air_terminal_of, duct_of, riser_of};
 use crate::{EntityKind, Handle, Result, Space};
 
 /// Distance, mm, within which two ends are one point.
@@ -81,6 +81,20 @@ fn joints(runs: &[Run], tol: f64) -> Vec<[(usize, bool); 2]> {
     out
 }
 
+/// Which ends of each run are free: no other run ends on it or goes through it, and `blocked` (a unit, a terminal, a riser) is not there.
+fn free_ends(runs: &[Run], tol: f64, blocked: &dyn Fn(Vec2) -> bool) -> Vec<[bool; 2]> {
+    runs.iter()
+        .enumerate()
+        .map(|(i, r)| {
+            [false, true].map(|at_end| {
+                let p = r.end(at_end);
+                !blocked(p)
+                    && !runs.iter().enumerate().any(|(k, o)| k != i && (o.a.dist(p) <= tol || o.b.dist(p) <= tol || near_segment(p, o.a, o.b, tol)))
+            })
+        })
+        .collect()
+}
+
 impl crate::Drawing {
     /// Whether a duct run of `space` was added, changed or removed since `before` (an older state of this drawing).
     pub fn ducts_touched_since(&self, before: &crate::Drawing, space: &Space) -> bool {
@@ -104,6 +118,28 @@ impl crate::Drawing {
         if runs.len() > MAX_DUCTS {
             return Ok(0);
         }
+        // The free ends are closed: unless a terminal, a unit or a riser is there.
+        let (mut terminals, mut units_at, mut risers): (Vec<Vec2>, Vec<(Vec2, f64)>, Vec<Vec<Vec2>>) = (Vec::new(), Vec::new(), Vec::new());
+        for e in self.space(space).into_iter().flat_map(|s| s.iter()) {
+            let EntityKind::Insert(i) = &e.kind else { continue };
+            let at = Vec2::new(i.insert.x, i.insert.y);
+            if air_terminal_of(e).is_some() {
+                terminals.push(at);
+            } else if let Some(a) = ahu_of(e) {
+                units_at.push((at, a.half().len() + units.to_units(200.0)));
+            } else if let Some(r) = riser_of(e) {
+                risers.push(r.outline.iter().map(|q| super::slab::block_to_world(i, *q)).collect());
+            }
+        }
+        let terminal_reach = units.to_units(150.0);
+        let blocked = |p: Vec2| {
+            terminals.iter().any(|t| t.dist(p) <= terminal_reach)
+                || units_at.iter().any(|(c, reach)| c.dist(p) <= *reach)
+                || risers.iter().any(|o| {
+                    cadcraft_geom::point_in_polygon(o, p) || o.iter().zip(o.iter().cycle().skip(1)).any(|(a, b)| near_segment(p, *a, *b, tol))
+                })
+        };
+        let caps = free_ends(&runs, tol, &blocked);
         let joints: Vec<[(usize, bool); 2]> =
             joints(&runs, tol).into_iter().filter(|j| j.iter().all(|(k, _)| runs.get(*k).is_some_and(|r| !r.params.flexible))).collect();
         let mut next: Vec<(Option<DuctElbow>, f64, f64)> = runs.iter().map(|r| (r.params.elbow, 0.0, 0.0)).collect();
@@ -167,13 +203,19 @@ impl crate::Drawing {
             }
         }
         let mut redrawn = 0;
-        for (r, (elbow, trim_start, trim_end)) in runs.iter().zip(next) {
+        for (k, (r, (elbow, trim_start, trim_end))) in runs.iter().zip(next).enumerate() {
             let same = |a: f64, b: f64| (a - b).abs() < 1e-6;
-            if r.params.elbow == elbow && same(r.params.trim_start_mm, trim_start) && same(r.params.trim_end_mm, trim_end) {
+            let [cap_start, cap_end] = caps.get(k).copied().unwrap_or([false, false]);
+            if r.params.elbow == elbow
+                && same(r.params.trim_start_mm, trim_start)
+                && same(r.params.trim_end_mm, trim_end)
+                && (r.params.cap_start, r.params.cap_end) == (cap_start, cap_end)
+            {
                 continue;
             }
             let mut p = r.params.clone();
             (p.elbow, p.trim_start_mm, p.trim_end_mm) = (elbow, trim_start, trim_end);
+            (p.cap_start, p.cap_end) = (cap_start, cap_end);
             self.regenerate_duct(r.handle, &p)?;
             redrawn += 1;
         }

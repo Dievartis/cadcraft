@@ -50,8 +50,16 @@ impl RiserSize {
         }
     }
 
-    /// The size as written on the plan, on four digits so that the labels line up: "Ø0200" or "0400×0250".
+    /// The size as written on the plan: "Ø200" or "400×250".
     pub fn label(self) -> String {
+        match self {
+            RiserSize::Round { diameter_mm } => format!("Ø{diameter_mm:.0}"),
+            RiserSize::Rectangular { width_mm, height_mm } => format!("{width_mm:.0}×{height_mm:.0}"),
+        }
+    }
+
+    /// The size as the label of a riser writes it, on four digits so that the labels line up: "Ø0200" or "0400×0250".
+    pub fn label_padded(self) -> String {
         match self {
             RiserSize::Round { diameter_mm } => format!("Ø{diameter_mm:04.0}"),
             RiserSize::Rectangular { width_mm, height_mm } => format!("{width_mm:04.0}×{height_mm:04.0}"),
@@ -168,7 +176,7 @@ impl RiserParams {
     /// The text of an end of the leader: "VMC 3-Ø0200-240 m³/h". Missing parts are left out, with their hyphen.
     fn end_text(&self, size: Option<RiserSize>, flow: Option<f64>) -> String {
         let mut t = self.name.clone();
-        match (size.map(RiserSize::label), flow.map(|f| format!("{f:.0}"))) {
+        match (size.map(RiserSize::label_padded), flow.map(|f| format!("{f:.0}"))) {
             (Some(s), Some(f)) => t.push_str(&format!("-{s}-{f} m³/h")),
             (Some(s), None) => t.push_str(&format!("-{s}")),
             (None, Some(f)) => t.push_str(&format!("-{f} m³/h")),
