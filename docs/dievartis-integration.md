@@ -2,7 +2,7 @@
 
 This branch integrates paper-space unit corrections into the dockable-manager preview.
 It also restores the dockable Text Style Manager and font import from the saved preview.
-It is a development integration, not a published release.
+Published source preview: [Dievart preview 0.4](https://github.com/Dievartis/cadcraft/releases/tag/dievart-preview-0.4), at commit `1a4f003`.
 
 ## Sources and attribution
 
@@ -20,7 +20,7 @@ It is a development integration, not a published release.
 This is a record of the integration above, not an exhaustive inventory of inherited
 CADCraft contributions. Existing copyright notices and MIT / Apache-2.0 licenses
 remain applicable. No new dependency or asset is added. Authors have not been
-contacted as part of this integration.
+contacted through the fork's consolidated notification linked below.
 
 ## Scope
 
@@ -103,7 +103,18 @@ The change stays in the image loader and preserves the fork's image-editing comm
 
 | Contributor | Contribution used | Notification status |
 | --- | --- | --- |
-| @dotCooCoo | #3151: concurrent image decoding budget and regression tests | Pending; no notification sent |
+| @dotCooCoo | #3151: concurrent image decoding budget and regression tests | Mentioned in the consolidated notification below |
+
+On 2026-11-17, the fork owner authorized publication and contributor notifications.
+A consolidated English notice mentions @Slopapalooza, @davidhooey, @luminatiguy,
+@francescoBV, @aldozar, @wovadi, @dotCooCoo and @graficaeusebio-cloud:
+https://github.com/Dievartis/cadcraft/pull/3#issuecomment-6956902581
+This records a posted mention, not proof of delivery or acknowledgment.
+The notice distinguishes adapted code, inherited work and reference-only proposals.
+The Windows ZIP upload was rejected by GitHub's asset endpoint (HTTP 401); the
+release notes mark the executable as pending. The supplied ZIP passed its archive
+integrity check and has SHA-256
+`d29fe65be94448d805b649d1df1991b7840531c350205699faeae0249f7c0647`.
 
 PR #1565 remains a separate clipping-module candidate. PR #1093 is excluded from
 this integration at the fork owner's request.
