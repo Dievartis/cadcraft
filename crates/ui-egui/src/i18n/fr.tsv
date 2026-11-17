@@ -1982,3 +1982,14 @@
 	It is a picture made now: draw a new section after changing the plan. Slopes are not drawn.	C'est une image faite maintenant : redessine une coupe après avoir changé le plan. Les pentes ne sont pas dessinées.
 	Building Section	Coupe
 	Concrete (mm)	Béton (mm)
+	Outside	Extérieur
+	Inside	Intérieur
+	Insulation thickness (mm)	Épaisseur d'isolant (mm)
+	Side	Côté
+	Volume (m³)	Volume (m³)
+	Supply flow (m³/h)	Débit de soufflage (m³/h)
+	Extract flow (m³/h)	Débit d'extraction (m³/h)
+	Fresh air flow (m³/h)	Débit d'air neuf (m³/h)
+	Exhaust air flow (m³/h)	Débit de rejet (m³/h)
+	Flow set by	Débit fixé par
+	Pressure (Pa)	Pression (Pa)

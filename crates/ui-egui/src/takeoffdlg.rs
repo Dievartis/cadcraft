@@ -358,6 +358,18 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
                 ]);
             }
             table(ui, "ducts", "Ducts", &["Air", "Material", "Section", "Altitude (m)", "Count", "Length (m)", "Area (m²)", "Weight (kg)"], ducts);
+            if !t.duct_insulation.is_empty() {
+                table(
+                    ui,
+                    "duct_insulation",
+                    "Duct insulation",
+                    &["Side", "Thickness (mm)", "Length (m)", "Area (m²)", "Volume (m³)"],
+                    t.duct_insulation
+                        .iter()
+                        .map(|q| vec![crate::i18n::t(&q.side).to_string(), num(q.thickness_mm), num(q.length_m), num(q.area_m2), num(q.volume_m3)])
+                        .collect(),
+                );
+            }
             prices_section(ui, &mut store.settings, t);
             let counts = |list: &[cadcraft_doc::CountQuantity]| -> Vec<Vec<String>> {
                 list.iter().map(|c| vec![crate::i18n::t(&c.name).to_string(), c.size.clone(), c.count.to_string(), opt(c.power)]).collect()

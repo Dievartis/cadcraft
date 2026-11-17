@@ -1251,3 +1251,82 @@ fn the_elbows_are_drawn_when_the_runs_are_laid_and_follow_a_move_without_sizing(
     s.execute("undo", &json!({})).ok();
     assert_eq!(elbows(&s), 2);
 }
+
+#[test]
+fn a_duct_is_insulated_outside_or_inside_with_a_thickness_at_creation_and_by_edit() {
+    let mut s = metric();
+    let r =
+        s.execute("ductadd", &json!({"points": [[0, 0], [4000, 0]], "diameter": 250, "insulation": "outside", "insulationThickness": 40})).unwrap();
+    let h = Handle::parse_hex(r["handles"][0].as_str().unwrap()).unwrap();
+    let ins = |s: &Session| duct_of(s.doc().unwrap().entity(h).unwrap()).unwrap().insulation.map(|i| (i.side.name(), i.thickness_mm));
+    assert_eq!(ins(&s), Some(("Outside", 40.0)));
+    // The side alone keeps the thickness; a thickness alone changes it; "none" takes it off.
+    s.execute("ductedit", &json!({"handle": r["handles"][0], "insulation": "inside"})).unwrap();
+    assert_eq!(ins(&s), Some(("Inside", 40.0)));
+    s.execute("ductedit", &json!({"handle": r["handles"][0], "insulationThickness": 25})).unwrap();
+    assert_eq!(ins(&s), Some(("Inside", 25.0)));
+    s.execute("ductedit", &json!({"handle": r["handles"][0], "insulation": "none"})).unwrap();
+    assert_eq!(ins(&s), None);
+    // A side that is neither, a thickness that is out of range or a lining that closes the duct is refused, and nothing changes.
+    for bad in [
+        json!({"insulation": "around"}),
+        json!({"insulation": "outside", "insulationThickness": 1}),
+        json!({"insulation": "inside", "insulationThickness": 150}),
+    ] {
+        let mut p = bad.clone();
+        p["handle"] = r["handles"][0].clone();
+        assert!(s.execute("ductedit", &p).is_err(), "{bad}");
+    }
+    assert_eq!(ins(&s), None);
+    // The takeoff counts it.
+    s.execute("ductedit", &json!({"handle": r["handles"][0], "insulation": "outside"})).unwrap();
+    let t = s.execute("hvactakeoff", &json!({"level": "R+1"})).unwrap();
+    assert!(t.to_string().contains("ductInsulation"), "{t}");
+}
+
+#[test]
+fn a_flow_typed_on_a_unit_or_on_a_run_is_kept_by_sizing_and_auto_gives_it_back() {
+    let mut s = metric();
+    let (unit, trunk) = network(&mut s);
+    let h = hd(&unit["handle"]);
+    let flow = |s: &Session| ahu_of(s.doc().unwrap().entity(h).unwrap()).unwrap().flow_m3h;
+    let trunk0 = hd(&trunk["handles"][0]);
+    let trunk_flow = |s: &Session| duct_of(s.doc().unwrap().entity(trunk0).unwrap()).unwrap().flow_m3h;
+    // The terminals add up to 500 m³/h; 800 typed on the unit is the flow of the run that leaves it, and of the unit.
+    s.execute("ahuedit", &json!({"handle": unit["handle"], "flow": 800})).unwrap();
+    let out = s.execute("ductsize", &json!({})).unwrap();
+    assert_eq!(out["networks"][0]["totalFlow"].as_f64(), Some(800.0), "{out}");
+    assert_eq!((flow(&s), trunk_flow(&s)), (Some(800.0), Some(800.0)));
+    let again = s.execute("ductsize", &json!({})).unwrap();
+    assert_eq!(again["networks"][0]["totalFlow"].as_f64(), Some(800.0), "sizing twice keeps it");
+    // Auto: the terminals decide again.
+    s.execute("ahuedit", &json!({"handle": unit["handle"], "flow": "auto"})).unwrap();
+    s.execute("ductsize", &json!({})).unwrap();
+    assert_eq!((flow(&s), trunk_flow(&s)), (Some(500.0), Some(500.0)));
+    // A flow typed on a run: the branch up (200 m³/h from its terminal) carries 350, and the run above it takes it in.
+    let branch = s
+        .doc()
+        .unwrap()
+        .model
+        .iter()
+        .filter_map(|e| duct_of(e).map(|p| (e.handle, p)))
+        .find(|(_, p)| (p.length - 3000.0).abs() < 1e-6 && p.flow_m3h == Some(200.0))
+        .map(|(h, _)| h)
+        .expect("the branch");
+    s.execute("ductedit", &json!({"handle": branch.hex(), "flow": 350})).unwrap();
+    let out = s.execute("ductsize", &json!({})).unwrap();
+    assert_eq!(out["networks"][0]["totalFlow"].as_f64(), Some(650.0), "300 + the 350 typed: {out}");
+    let b = duct_of(s.doc().unwrap().entity(branch).unwrap()).unwrap();
+    assert_eq!((b.flow_m3h, b.flow_set), (Some(350.0), true));
+    s.execute("ductedit", &json!({"handle": branch.hex(), "flow": "auto"})).unwrap();
+    s.execute("ductsize", &json!({})).unwrap();
+    assert_eq!(duct_of(s.doc().unwrap().entity(branch).unwrap()).unwrap().flow_m3h, Some(200.0));
+    // Bad flows are refused.
+    for bad in [json!({"flow": -5}), json!({"flow": 1.0e12}), json!({"flow": "lots"})] {
+        let mut p = bad.clone();
+        p["handle"] = unit["handle"].clone();
+        assert!(s.execute("ahuedit", &p).is_err(), "{bad}");
+        p["handle"] = trunk["handles"][0].clone();
+        assert!(s.execute("ductedit", &p).is_err(), "{bad}");
+    }
+}

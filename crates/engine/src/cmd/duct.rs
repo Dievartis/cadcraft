@@ -3,7 +3,10 @@
 //! changes runs already drawn and DUCTSIZE sizes every network from its terminals back to its unit.
 //! The network is read from the drawing each time (`Drawing::duct_networks`), never stored.
 
-use cadcraft_doc::{AhuKind, AhuParams, AirDirection, Drawing, DuctKind, DuctParams, DuctShape, EntityKind, Handle, HvacUnits, MAX_DUCTS};
+use cadcraft_doc::{
+    AhuKind, AhuParams, AirDirection, Drawing, DuctInsulation, DuctKind, DuctParams, DuctShape, EntityKind, Handle, HvacUnits, InsulationSide,
+    MAX_DUCTS,
+};
 use cadcraft_geom::Vec2;
 use cadcraft_hvac::{DesignCriteria, Governing, size_network};
 use serde_json::{Value, json};
@@ -24,17 +27,18 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("ahuedit", "Edit Air Handling Unit", run_ahuedit)
             .params(
                 "{handle | handles, name?, type?: doubleFlow|supplyUnit|extractUnit|vmcBox|stackedDoubleFlow, width? (mm), depth? (mm), height? (mm or null), model?, weight? (kg or null), coils? ({chilledWater?, hotWater?, changeOver?, directExpansion?}: the power of each coil, kW, or null for none; the water pipes that end at the unit take their load from it), portSizes? (one per collar: a diameter, 800x400 or null: the duct that starts on it takes that section), \
-                 ports? (the direction of the air at each collar, supply|extract|fresh|exhaust, one per collar: four for a double-flux unit or a box, two for a single-flux unit; [] restores the kind's)} → {changed}",
+                 ports? (the direction of the air at each collar, supply|extract|fresh|exhaust, one per collar: four for a double-flux unit or a box, two for a single-flux unit; [] restores the kind's), \
+                 flow? | extractFlow? | freshFlow? | exhaustFlow? (m³/h typed for that direction: sizing keeps it and sizes the run that leaves the unit for it; null or auto gives it back)} → {changed}",
             ),
         CommandSpec::new("ductadd", "Duct", run_ductadd)
             .menu(&["Draw", "HVAC", "Duct"])
             .params(
                 "{points (2 or more; one round duct per segment), diameter? (mm), kind?: auto|main|branch|connection, \
-                 width? + height? (mm; a rectangular duct), air?: auto|supply|extract|fresh|exhaust (auto: from the terminals it serves), flexible? (true: a flexible duct), labelHeight? (mm)} → {handles}",
+                 width? + height? (mm; a rectangular duct), air?: auto|supply|extract|fresh|exhaust (auto: from the terminals it serves), flexible? (true: a flexible duct), insulation? (outside, inside or none) + insulationThickness? (mm, default 30), labelHeight? (mm)} → {handles}",
             )
             .interactive(|s| Ok(Box::new(DuctAddM::new(s)))),
         CommandSpec::new("ductedit", "Edit Duct", run_ductedit)
-            .params("{handle | handles, diameter? (mm, or auto: sizing chooses the size) | width? + height? (mm; a rectangular section), kind?, air?, flexible? (true or false)} → {changed}"),
+            .params("{handle | handles, diameter? (mm, or auto: sizing chooses the size) | width? + height? (mm; a rectangular section), kind?, air?, flexible? (true or false), insulation? (outside, inside or none), insulationThickness? (mm, default 30), flow? (m³/h: sizing keeps it and sizes the run for it; auto gives it back)} → {changed}"),
         CommandSpec::new("ductconnect", "Connect Terminals", run_ductconnect).menu(&["Draw", "HVAC", "Connect Terminals"]).params(
             "{terminals? (handles; default every terminal no duct reaches), maxDistance? (mm, default 3000)} → {created (flexible ducts), skipped}",
         ),
@@ -215,6 +219,7 @@ fn run_ahuadd(s: &mut Session, p: &Value) -> Result<Value> {
         fresh_pressure_pa: None,
         exhaust_flow_m3h: None,
         exhaust_pressure_pa: None,
+        typed_flows: Vec::new(),
         port_sizes: Vec::new(),
         height_mm: positive(CMD, p, "height")?,
         model: str_param(p, "model").unwrap_or_default().to_string(),
@@ -321,6 +326,17 @@ fn run_ahuedit(s: &mut Session, p: &Value) -> Result<Value> {
             a.address = t.trim().to_string();
         }
         a.coils = coils_param(CMD, p, a.coils)?;
+        // The flow of each direction typed on the unit: sizing keeps it, and sizes the run that leaves the unit for it.
+        for (key, air) in [
+            ("flow", AirDirection::Supply),
+            ("extractFlow", AirDirection::Extract),
+            ("freshFlow", AirDirection::Fresh),
+            ("exhaustFlow", AirDirection::Exhaust),
+        ] {
+            if let Some(f) = typed_flow_param(CMD, p, key)? {
+                a.set_typed_flow(air, f);
+            }
+        }
         if let Some(sizes) = &port_sizes {
             a.port_sizes = sizes.clone();
         }
@@ -400,6 +416,7 @@ impl AhuAddM {
                     fresh_pressure_pa: None,
                     exhaust_flow_m3h: None,
                     exhaust_pressure_pa: None,
+                    typed_flows: Vec::new(),
                     port_sizes: Vec::new(),
                     height_mm: None,
                     model: String::new(),
@@ -488,6 +505,7 @@ impl Interactive for AhuAddM {
             fresh_pressure_pa: None,
             exhaust_flow_m3h: None,
             exhaust_pressure_pa: None,
+            typed_flows: Vec::new(),
             port_sizes: Vec::new(),
             height_mm: None,
             model: String::new(),
@@ -557,6 +575,8 @@ fn duct_params(s: &Session, last: &DuctLastUsed, label_mm: f64) -> Result<DuctPa
         elbow: None,
         trim_start_mm: 0.0,
         trim_end_mm: 0.0,
+        flow_set: false,
+        insulation: None,
         flow_forward: None,
         open_flow_m3h: None,
         gaps_mm: Vec::new(),
@@ -585,6 +605,7 @@ fn run_ductadd(s: &mut Session, p: &Value) -> Result<Value> {
     last.flexible = bool_param(CMD, p, "flexible")?.unwrap_or(last.flexible);
     let mut params = duct_params(s, &last, positive(CMD, p, "labelHeight")?.unwrap_or(100.0))?;
     params.imposed = p.get("diameter").is_some_and(|v| !v.is_null());
+    params.insulation = insulation_param(CMD, p, None)?.flatten();
     params.level_mm = match p.get("altitude") {
         None | Some(Value::Null) => None,
         Some(v) => Some(v.as_f64().filter(|x| x.is_finite()).ok_or_else(|| bad(CMD, "`altitude` must be a number of metres"))? * 1000.0),
@@ -777,6 +798,39 @@ impl Interactive for DuctAddM {
 // DUCTEDIT
 // =====================================================================================
 
+/// A flow a call types, m³/h: a number sets it, null or "auto" gives it back to sizing (`Some(None)`), nothing leaves it (`None`).
+fn typed_flow_param(cmd: &str, p: &Value, key: &str) -> Result<Option<Option<f64>>> {
+    match p.get(key) {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(Value::String(t)) if t.trim().eq_ignore_ascii_case("auto") => Ok(Some(None)),
+        Some(v) => v
+            .as_f64()
+            .filter(|f| f.is_finite() && *f > 0.0 && *f <= 10_000_000.0)
+            .map(|f| Some(Some(f)))
+            .ok_or_else(|| bad(cmd, format!("`{key}` must be a flow above 0 (m\u{b3}/h) or auto"))),
+    }
+}
+
+/// The insulation a call gives: `insulation` is "outside", "inside" or "none" (or null), `insulationThickness` its thickness in mm (the current one, else
+/// 30, when only the side is given). `None` when the call says nothing about it.
+fn insulation_param(cmd: &str, p: &Value, current: Option<DuctInsulation>) -> Result<Option<Option<DuctInsulation>>> {
+    let thickness = match p.get("insulationThickness") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(v.as_f64().filter(|t| t.is_finite()).ok_or_else(|| bad(cmd, "`insulationThickness` must be a number of millimetres"))?),
+    };
+    match p.get("insulation") {
+        None => Ok(thickness.zip(current).map(|(t, c)| Some(DuctInsulation { thickness_mm: t, ..c }))),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(Value::String(t)) if matches!(t.trim().to_ascii_lowercase().as_str(), "none" | "aucune" | "") => Ok(Some(None)),
+        Some(Value::String(t)) => {
+            let side = InsulationSide::parse(t).ok_or_else(|| bad(cmd, "`insulation` is outside, inside or none"))?;
+            Ok(Some(Some(DuctInsulation { side, thickness_mm: thickness.or(current.map(|c| c.thickness_mm)).unwrap_or(30.0) })))
+        }
+        Some(_) => Err(bad(cmd, "`insulation` is outside, inside or none")),
+    }
+}
+
 fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "ductedit";
     let hs = super::arch::handles_param(CMD, p)?;
@@ -831,6 +885,15 @@ fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         dp.flexible = flexible.unwrap_or(dp.flexible);
         dp.open_flow_m3h = open_flow.unwrap_or(dp.open_flow_m3h);
+        if let Some(ins) = insulation_param(CMD, p, dp.insulation)? {
+            dp.insulation = ins;
+        }
+        // A flow typed on the run: sizing keeps it and sizes the run for it; auto gives it back.
+        match typed_flow_param(CMD, p, "flow")? {
+            Some(Some(f)) => (dp.flow_m3h, dp.flow_set) = (Some(f), true),
+            Some(None) => dp.flow_set = false,
+            None => {}
+        }
         if let Some(a) = altitude {
             dp.level_mm = a;
         }
@@ -938,6 +1001,8 @@ fn run_ductconnect(s: &mut Session, p: &Value) -> Result<Value> {
             elbow: None,
             trim_start_mm: 0.0,
             trim_end_mm: 0.0,
+            flow_set: false,
+            insulation: None,
             flow_forward: None,
             open_flow_m3h: None,
             gaps_mm: Vec::new(),

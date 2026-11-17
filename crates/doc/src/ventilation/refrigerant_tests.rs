@@ -112,6 +112,7 @@ fn an_indoor_unit_reached_from_no_outdoor_unit_is_told_and_a_coil_counts_as_a_un
         fresh_pressure_pa: None,
         exhaust_flow_m3h: None,
         exhaust_pressure_pa: None,
+        typed_flows: Vec::new(),
         coils: AhuCoils::default(),
         electric_kw: None,
         circuit: String::new(),

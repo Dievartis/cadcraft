@@ -84,6 +84,11 @@ impl Takeoff {
         if insulated > 0.0 {
             push("Duct insulation", String::new(), "m²", insulated, "Duct insulation".into());
         }
+        // The insulation some runs carry by themselves, by side and thickness.
+        for q in &self.duct_insulation {
+            let label = format!("{} {:.0} mm", q.side, q.thickness_mm);
+            push("Duct insulation", label.clone(), "m²", q.area_m2, format!("Duct insulation|{label}"));
+        }
         // Pipes by service and size, whatever the network and the leg.
         let mut pipes: BTreeMap<(String, String), f64> = BTreeMap::new();
         for q in &self.pipes {
@@ -139,6 +144,16 @@ impl Takeoff {
                         x.weight_kg = (x.weight_kg * 10.0 + d.weight_kg * 10.0).round() / 10.0;
                     }
                     None => b.ducts.push(DuctQuantity { altitude_m: None, ..d.clone() }),
+                }
+            }
+            for q in &l.duct_insulation {
+                match b.duct_insulation.iter_mut().find(|x| x.side == q.side && (x.thickness_mm - q.thickness_mm).abs() < 0.5) {
+                    Some(x) => {
+                        x.length_m = round2(x.length_m + q.length_m);
+                        x.area_m2 = round2(x.area_m2 + q.area_m2);
+                        x.volume_m3 = round2(x.volume_m3 + q.volume_m3);
+                    }
+                    None => b.duct_insulation.push(q.clone()),
                 }
             }
             for p in &l.pipes {

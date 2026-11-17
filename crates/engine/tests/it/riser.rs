@@ -188,3 +188,26 @@ fn a_short_run_that_ends_on_a_riser_is_a_main_not_a_connection_and_is_not_sized_
         assert!(v > 3.0, "{name} run at {v} m/s: sized like a drop to a diffuser (2.5 m/s)");
     }
 }
+
+#[test]
+fn a_flow_typed_on_a_riser_is_kept_by_sizing_which_sizes_the_riser_and_its_run_for_it() {
+    let mut s = metric();
+    let r = s.execute("riseradd", &json!({"at": [300, 200], "width": 600, "depth": 400, "name": "A.R", "air": "extract"})).unwrap();
+    let run = s.execute("ductadd", &json!({"points": [[600, 200], [5000, 200]], "air": "extract"})).unwrap();
+    s.execute("airterminaladd", &json!({"at": [5000, 200], "flow": 250, "air": "extract", "type": "squareCeiling"})).unwrap();
+    s.execute("ductsize", &json!({})).unwrap();
+    assert_eq!(riser(&s, hd(&r["handle"])).flow_m3h, Some(250.0), "found by sizing");
+    // Typed: 900 m³/h. Sizing keeps it, and the run that leaves the riser carries it.
+    s.execute("riseredit", &json!({"handle": r["handle"], "flow": 900})).unwrap();
+    let out = s.execute("ductsize", &json!({})).unwrap();
+    let p = riser(&s, hd(&r["handle"]));
+    assert_eq!((p.flow_m3h, p.flow_set), (Some(900.0), true));
+    assert_eq!(out["networks"][0]["totalFlow"].as_f64(), Some(900.0), "{out}");
+    let d = cadcraft_doc::duct_of(s.doc().unwrap().entity(hd(&run["handles"][0])).unwrap()).unwrap();
+    assert_eq!(d.flow_m3h, Some(900.0));
+    // Null gives it back to sizing.
+    s.execute("riseredit", &json!({"handle": r["handle"], "flow": null})).unwrap();
+    s.execute("ductsize", &json!({})).unwrap();
+    let p = riser(&s, hd(&r["handle"]));
+    assert_eq!((p.flow_m3h, p.flow_set), (Some(250.0), false));
+}

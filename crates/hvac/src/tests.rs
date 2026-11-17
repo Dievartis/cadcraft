@@ -69,6 +69,7 @@ fn seg(parent: Option<usize>, length_m: f64, kind: SegmentKind, fittings: &[Fitt
         roughness_mm: None,
         max_height_mm: None,
         rect_mm: None,
+        imposed_flow_m3h: None,
     }
 }
 

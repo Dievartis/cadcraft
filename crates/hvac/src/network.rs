@@ -78,6 +78,9 @@ pub struct Segment {
     /// A rectangular section the user imposes: width and height, mm.
     #[serde(default)]
     pub rect_mm: Option<(f64, f64)>,
+    /// A flow the user imposes on this run, m³/h: it replaces what the terminals below it add up to, and the runs above it carry it.
+    #[serde(default)]
+    pub imposed_flow_m3h: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -272,6 +275,9 @@ fn flows(net: &Network, depth: &[usize]) -> Result<Vec<f64>> {
         if s.fittings.len() > MAX_FITTINGS {
             return Err(HvacError::BadValue(format!("segment {i} has more than {MAX_FITTINGS} fittings")));
         }
+        if let Some(f) = s.imposed_flow_m3h {
+            checked(&format!("imposed flow of segment {i} (m³/h)"), f, 0.0, MAX_FLOW_M3H)?;
+        }
         if let Some(t) = s.terminal {
             if let Some(f) = flow.get_mut(i) {
                 *f = checked(&format!("terminal flow of segment {i} (m³/h)"), t.flow_m3h, 0.0, MAX_FLOW_M3H)?;
@@ -283,6 +289,12 @@ fn flows(net: &Network, depth: &[usize]) -> Result<Vec<f64>> {
     let mut order: Vec<usize> = (0..net.segments.len()).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(depth.get(i).copied().unwrap_or(0)));
     for i in order {
+        // A flow imposed on a run replaces what its own terminal and the runs below it add up to.
+        if let Some(f) = net.segments.get(i).and_then(|s| s.imposed_flow_m3h).filter(|f| *f > 0.0)
+            && let Some(slot) = flow.get_mut(i)
+        {
+            *slot = f;
+        }
         let own = flow.get(i).copied().unwrap_or(0.0);
         if let Some(p) = net.segments.get(i).and_then(|s| s.parent)
             && let Some(f) = flow.get_mut(p)

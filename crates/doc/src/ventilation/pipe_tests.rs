@@ -272,6 +272,7 @@ fn the_coils_of_an_air_handling_unit_are_the_loads_of_the_water_pipes_that_end_a
         fresh_pressure_pa: None,
         exhaust_flow_m3h: None,
         exhaust_pressure_pa: None,
+        typed_flows: Vec::new(),
         coils: AhuCoils { chilled_kw: Some(45.0), hot_kw: Some(30.0), change_over_kw: None, direct_expansion_kw: Some(20.0) },
         electric_kw: None,
         circuit: String::new(),

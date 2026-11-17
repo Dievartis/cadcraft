@@ -1900,3 +1900,14 @@ menu	View	视图
 	It is a picture made now: draw a new section after changing the plan. Slopes are not drawn.	这是当前生成的图像：修改平面后请重新绘制剖面。坡度不绘制。
 	Building Section	剖面图
 	Concrete (mm)	混凝土 (mm)
+	Outside	外侧
+	Inside	内侧
+	Insulation thickness (mm)	保温厚度 (mm)
+	Side	位置
+	Volume (m³)	体积 (m³)
+	Supply flow (m³/h)	送风量 (m³/h)
+	Extract flow (m³/h)	排风量 (m³/h)
+	Fresh air flow (m³/h)	新风量 (m³/h)
+	Exhaust air flow (m³/h)	排出风量 (m³/h)
+	Flow set by	风量设定方式
+	Pressure (Pa)	压力 (Pa)

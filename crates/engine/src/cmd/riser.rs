@@ -142,6 +142,7 @@ fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
                 outline: vec![c; 4],
                 incoming_flow_m3h: None,
                 flow_m3h: None,
+                flow_set: false,
                 size: None,
                 incoming_size: None,
                 size_set: false,
@@ -163,6 +164,7 @@ fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
         outline,
         incoming_flow_m3h: number(CMD, p, "incomingFlow")?,
         flow_m3h: number(CMD, p, "flow")?,
+        flow_set: number(CMD, p, "flow")?.is_some(),
         size: size_param(CMD, p)?.flatten(),
         incoming_size: incoming_size_param(CMD, p)?.flatten(),
         size_set: size_param(CMD, p)?.flatten().is_some(),
@@ -198,8 +200,9 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         if let Some(v) = incoming {
             r.incoming_flow_m3h = v;
         }
+        // A flow typed on the riser is kept by sizing, which sizes the riser for it; null gives it back.
         if let Some(v) = flow {
-            r.flow_m3h = v;
+            (r.flow_m3h, r.flow_set) = (v, v.is_some());
         }
         if let Some(v) = incoming_size {
             r.incoming_size = v;
@@ -259,6 +262,7 @@ impl RiserAddM {
             outline,
             incoming_flow_m3h: None,
             flow_m3h: None,
+            flow_set: false,
             size: None,
             incoming_size: None,
             size_set: false,

@@ -87,6 +87,9 @@ pub struct RiserParams {
     /// The flow the riser carries at this level, m³/h, once it is set or sized.
     #[serde(default)]
     pub flow_m3h: Option<f64>,
+    /// The flow was typed, not found by sizing: sizing keeps it and sizes the riser for it.
+    #[serde(default)]
+    pub flow_set: bool,
     #[serde(default)]
     pub size: Option<RiserSize>,
     /// The section of the part that comes from, or goes to, the other floors (the flow typed as `incoming_flow_m3h`), when it is typed; else it is

@@ -19,6 +19,7 @@ fn ahu() -> AhuParams {
         fresh_pressure_pa: None,
         exhaust_flow_m3h: None,
         exhaust_pressure_pa: None,
+        typed_flows: Vec::new(),
         port_sizes: Vec::new(),
         height_mm: None,
         model: String::new(),
@@ -52,6 +53,8 @@ fn duct(diameter_mm: f64) -> DuctParams {
         elbow: None,
         trim_start_mm: 0.0,
         trim_end_mm: 0.0,
+        flow_set: false,
+        insulation: None,
         flow_forward: None,
         open_flow_m3h: None,
         gaps_mm: Vec::new(),
@@ -1209,6 +1212,7 @@ fn riser_at(d: &mut Drawing, at: (f64, f64), air: AirDirection, incoming: Option
         outline: vec![Vec2::new(0.0, 0.0), Vec2::new(600.0, 0.0), Vec2::new(600.0, 400.0), Vec2::new(0.0, 400.0)],
         incoming_flow_m3h: incoming,
         flow_m3h: None,
+        flow_set: false,
         size: None,
         incoming_size: None,
         size_set: false,
@@ -1994,4 +1998,52 @@ fn a_zigzag_gives_each_bend_its_own_elbow_on_a_different_run() {
     d.draw_duct_elbows(&Space::Model).unwrap();
     let with_elbow = hs.iter().filter(|h| duct_of(d.entity(**h).unwrap()).unwrap().elbow.is_some()).count();
     assert_eq!(with_elbow, 3, "three bends, three elbows, each on its own run");
+}
+
+#[test]
+fn a_duct_insulation_is_drawn_on_its_own_layer_checked_and_counted_by_side_and_thickness() {
+    let mut p = DuctParams { length: 3000.0, ..duct(200.0) };
+    // None: nothing on the insulation layer. Outside: a line each side, 30 mm beyond the sides. Inside: 30 mm within them.
+    let on_layer = |p: &DuctParams| p.generate(false).unwrap().into_iter().filter(|x| x.layer == DUCT_INSULATION_LAYER).collect::<Vec<_>>();
+    assert!(on_layer(&p).is_empty());
+    p.insulation = Some(DuctInsulation { side: InsulationSide::Outside, thickness_mm: 30.0 });
+    let ys = |pieces: Vec<HvacPiece>| -> Vec<f64> {
+        pieces
+            .into_iter()
+            .filter_map(|x| match x.kind {
+                EntityKind::LwPolyline(l) => l.vertices.first().map(|v| v.p.y),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut outside = ys(on_layer(&p));
+    outside.sort_by(f64::total_cmp);
+    assert_eq!(outside, vec![-130.0, 130.0]);
+    p.insulation = Some(DuctInsulation { side: InsulationSide::Inside, thickness_mm: 30.0 });
+    let mut inside = ys(on_layer(&p));
+    inside.sort_by(f64::total_cmp);
+    assert_eq!(inside, vec![-70.0, 70.0]);
+    // Refused: too thin, too thick, a lining that closes the duct, a number that is not one.
+    for bad in [1.0, 500.0, f64::NAN, 0.0] {
+        p.insulation = Some(DuctInsulation { side: InsulationSide::Outside, thickness_mm: bad });
+        assert!(p.validate().is_err(), "{bad}");
+    }
+    p.insulation = Some(DuctInsulation { side: InsulationSide::Inside, thickness_mm: 100.0 });
+    assert!(p.validate().is_err(), "a 100 mm lining closes a 200 mm duct");
+    // Counted by side and thickness: 3 m of Ø200 with 30 mm outside is π × 0.26 m × 3 m = 2.45 m² and π/4 × (0.26² - 0.2²) × 3 m = 0.0325 m³.
+    let mut d = Drawing::new_metric();
+    let h = add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0));
+    let mut q = duct_of(d.entity(h).unwrap()).unwrap();
+    q.insulation = Some(DuctInsulation { side: InsulationSide::Outside, thickness_mm: 30.0 });
+    d.regenerate_duct(h, &q).unwrap();
+    add_duct(&mut d, (0.0, 1000.0), (3000.0, 1000.0));
+    let t = d.takeoff("R+1").unwrap();
+    assert_eq!(t.duct_insulation.len(), 1, "{:?}", t.duct_insulation);
+    let i = &t.duct_insulation[0];
+    assert_eq!((i.side.as_str(), i.thickness_mm), ("Outside", 30.0));
+    assert!(
+        (i.area_m2 - std::f64::consts::PI * 0.26 * 3.0).abs() < 1e-6
+            && (i.volume_m3 - std::f64::consts::PI / 4.0 * (0.26f64.powi(2) - 0.04) * 3.0).abs() < 1e-6,
+        "{i:?}"
+    );
 }

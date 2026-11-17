@@ -10,7 +10,7 @@ use cadcraft_hvac::Fitting;
 use serde::{Deserialize, Serialize};
 
 use super::xlsx::{SheetCell, Workbook};
-use super::{AirDirection, DuctShape, accessory_of, ahu_of, air_terminal_of, equipment_of, part_of, riser_of};
+use super::{AirDirection, DuctShape, InsulationSide, accessory_of, ahu_of, air_terminal_of, equipment_of, part_of, riser_of};
 use crate::{EntityKind, Result};
 
 /// Weight of one square metre of steel sheet per millimetre of thickness, kg (7.85 kg/dm³).
@@ -51,6 +51,20 @@ pub struct DuctQuantity {
     /// The weight of the sheet steel, kg (0 for a flexible duct): the surface times the thickness of the section ([`sheet_thickness_mm`]).
     #[serde(default)]
     pub weight_kg: f64,
+}
+
+/// The insulation of the duct runs that carry their own, by side and thickness.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuctInsulationQuantity {
+    /// "Outside" or "Inside".
+    pub side: String,
+    pub thickness_mm: f64,
+    pub length_m: f64,
+    /// The surface of the insulation, m²: round the duct for an outside one (its outer perimeter), over the duct's inner surface for an inside one.
+    pub area_m2: f64,
+    /// The volume of the insulation, m³.
+    pub volume_m3: f64,
 }
 
 /// The pipes of one service and leg, one size and one insulation.
@@ -224,6 +238,8 @@ pub struct Totals {
 pub struct Takeoff {
     pub level: String,
     pub ducts: Vec<DuctQuantity>,
+    #[serde(default)]
+    pub duct_insulation: Vec<DuctInsulationQuantity>,
     pub pipes: Vec<PipeQuantity>,
     pub fittings: Vec<CountQuantity>,
     pub accessories: Vec<CountQuantity>,
@@ -285,6 +301,7 @@ impl crate::Drawing {
     pub fn takeoff(&self, level: &str) -> Result<Takeoff> {
         let mut t = Takeoff { level: level.to_string(), ..Takeoff::default() };
         t.ducts = self.duct_quantities(&mut t.fittings);
+        t.duct_insulation = self.duct_insulation_quantities();
         // Elbows and tees: those of each network as it is read, with the section of the run that carries them.
         for net in self.duct_networks()? {
             for (i, seg) in net.network.segments.iter().enumerate() {
@@ -426,6 +443,45 @@ impl crate::Drawing {
 
 impl crate::Drawing {
     /// The ducts of model space by direction, material, section and altitude; the reducers they carry go to `fittings`.
+    /// The insulation of the runs that have one: by side and thickness, its length, surface and volume.
+    fn duct_insulation_quantities(&self) -> Vec<DuctInsulationQuantity> {
+        let mut out: Vec<DuctInsulationQuantity> = Vec::new();
+        for e in self.model.iter() {
+            let Some((p, ..)) = self.duct_ends(e.handle) else { continue };
+            let Some(ins) = p.insulation else { continue };
+            let (length_m, t) = (p.length_m(), ins.thickness_mm);
+            // Sections in mm: the metal's, and the outer one for an insulation round the duct, the clear one for a lining.
+            let (metal_perimeter, metal_area, other_perimeter, other_area) = match p.shape {
+                DuctShape::Round => {
+                    let d = p.diameter_mm;
+                    let o = if ins.side == InsulationSide::Outside { d + 2.0 * t } else { d - 2.0 * t };
+                    (std::f64::consts::PI * d, std::f64::consts::PI * d * d / 4.0, std::f64::consts::PI * o, std::f64::consts::PI * o * o / 4.0)
+                }
+                DuctShape::Rectangular => {
+                    let (w, h) = (p.width_mm, p.height_mm);
+                    let k = if ins.side == InsulationSide::Outside { 2.0 * t } else { -2.0 * t };
+                    (2.0 * (w + h), w * h, 2.0 * (w + h + 2.0 * k), (w + k) * (h + k))
+                }
+            };
+            let (perimeter, volume_mm2) = match ins.side {
+                InsulationSide::Outside => (other_perimeter, other_area - metal_area),
+                InsulationSide::Inside => (metal_perimeter, metal_area - other_area),
+            };
+            let (area, volume) = (perimeter / 1000.0 * length_m, volume_mm2 / 1.0e6 * length_m);
+            let side = ins.side.name().to_string();
+            match out.iter_mut().find(|q| q.side == side && (q.thickness_mm - t).abs() < 0.5) {
+                Some(q) => {
+                    q.length_m += length_m;
+                    q.area_m2 += area;
+                    q.volume_m3 += volume;
+                }
+                None => out.push(DuctInsulationQuantity { side, thickness_mm: t, length_m, area_m2: area, volume_m3: volume }),
+            }
+        }
+        out.sort_by(|a, b| a.side.cmp(&b.side).then(a.thickness_mm.total_cmp(&b.thickness_mm)));
+        out
+    }
+
     fn duct_quantities(&self, fittings: &mut Vec<CountQuantity>) -> Vec<DuctQuantity> {
         // Ducts, by direction, material, section and altitude.
         let mut ducts = Vec::new();
@@ -675,6 +731,13 @@ impl Takeoff {
             num(self.totals.duct_weight_kg),
         ]);
         wb.sheet(&t("Ducts"), rows)?;
+        if !self.duct_insulation.is_empty() {
+            let mut rows = vec![head(&["Side", "Thickness (mm)", "Length (m)", "Area (m²)", "Volume (m³)"])];
+            for q in &self.duct_insulation {
+                rows.push(vec![C::text(t(&q.side)), num(q.thickness_mm), num(q.length_m), num(q.area_m2), num(q.volume_m3)]);
+            }
+            wb.sheet(&t("Duct insulation"), rows)?;
+        }
         // Pipes.
         let mut rows = vec![head(&["Network", "Service", "Leg", "Size", "Insulation (mm)", "Count", "Length (m)", "Insulation (m²)"])];
         for q in &self.pipes {
@@ -934,6 +997,14 @@ impl Takeoff {
             num(self.totals.duct_area_m2),
             num(self.totals.duct_weight_kg),
         ]);
+        if !self.duct_insulation.is_empty() {
+            row(&[]);
+            row(&["Duct insulation".into()]);
+            row(&["Side".into(), "Thickness (mm)".into(), "Length (m)".into(), "Area (m2)".into(), "Volume (m3)".into()]);
+            for q in &self.duct_insulation {
+                row(&[q.side.clone(), num(q.thickness_mm), num(q.length_m), num(q.area_m2), num(q.volume_m3)]);
+            }
+        }
         row(&[]);
         row(&["Pipes".into()]);
         row(&["Network".into(), "Service".into(), "Leg".into(), "Size".into(), "Insulation (mm)".into(), "Count".into(), "Length (m)".into()]);

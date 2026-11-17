@@ -11,6 +11,7 @@ fn riser() -> RiserParams {
         outline: vec![Vec2::new(0.0, 0.0), Vec2::new(600.0, 0.0), Vec2::new(600.0, 400.0), Vec2::new(0.0, 400.0)],
         incoming_flow_m3h: None,
         flow_m3h: None,
+        flow_set: false,
         size: None,
         incoming_size: None,
         size_set: false,

@@ -285,6 +285,9 @@ pub struct AhuParams {
     pub exhaust_flow_m3h: Option<f64>,
     #[serde(default)]
     pub exhaust_pressure_pa: Option<f64>,
+    /// The directions whose flow was typed, not found by sizing: sizing keeps those flows (and sizes the run that leaves the unit for them).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub typed_flows: Vec<AirDirection>,
     /// The coils the unit has, with their powers.
     #[serde(default)]
     pub coils: AhuCoils,
@@ -390,8 +393,40 @@ impl AhuParams {
         }
     }
 
-    /// Keeps the flow and the pressure sized for a direction.
+    /// The flow typed for a direction, m³/h, when it was typed.
+    pub fn typed_flow(&self, air: AirDirection) -> Option<f64> {
+        if !self.typed_flows.contains(&air) {
+            return None;
+        }
+        match air {
+            AirDirection::Supply => self.flow_m3h,
+            AirDirection::Extract => self.extract_flow_m3h,
+            AirDirection::Fresh => self.fresh_flow_m3h,
+            AirDirection::Exhaust => self.exhaust_flow_m3h,
+        }
+    }
+
+    /// Types the flow of a direction, m³/h (sizing keeps it), or gives it back to sizing (`None`: the figure stays until the next sizing).
+    pub fn set_typed_flow(&mut self, air: AirDirection, flow: Option<f64>) {
+        match flow {
+            Some(f) => {
+                match air {
+                    AirDirection::Supply => self.flow_m3h = Some(f),
+                    AirDirection::Extract => self.extract_flow_m3h = Some(f),
+                    AirDirection::Fresh => self.fresh_flow_m3h = Some(f),
+                    AirDirection::Exhaust => self.exhaust_flow_m3h = Some(f),
+                }
+                if !self.typed_flows.contains(&air) {
+                    self.typed_flows.push(air);
+                }
+            }
+            None => self.typed_flows.retain(|a| *a != air),
+        }
+    }
+
+    /// Keeps the flow and the pressure sized for a direction (the flow stays the typed one when it was typed).
     pub fn set_figures(&mut self, air: AirDirection, flow: f64, pressure: f64) {
+        let flow = self.typed_flow(air).unwrap_or(flow);
         let (f, p) = (Some(flow), Some(pressure));
         match air {
             AirDirection::Supply => (self.flow_m3h, self.pressure_pa) = (f, p),
@@ -408,6 +443,9 @@ impl AhuParams {
         }
         check_label_height(self.label_height_mm)?;
         self.units.validate()?;
+        if self.typed_flows.iter().any(|a| !self.typed_flow(*a).is_some_and(|f| f.is_finite() && f > 0.0 && f <= 10_000_000.0)) {
+            return Err(invalid("A unit's typed flow is more than 0 and at most 10 000 000 m\u{b3}/h."));
+        }
         let size = |v: f64| v.is_finite() && v > 0.0 && v <= MAX_AHU_SIZE_MM;
         if !size(self.width_mm) || !size(self.depth_mm) {
             return Err(invalid(format!("A unit's sizes are more than 0 and at most {MAX_AHU_SIZE_MM} mm.")));
@@ -748,11 +786,58 @@ pub struct DuctParams {
     pub trim_start_mm: f64,
     #[serde(default)]
     pub trim_end_mm: f64,
+    /// The run's flow was typed, not found by sizing: sizing keeps it and sizes the run for it (`flow_m3h` is then the typed value).
+    #[serde(default)]
+    pub flow_set: bool,
+    /// The insulation of the run, on its outside or its inside, and how thick.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insulation: Option<DuctInsulation>,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     #[serde(default)]
     pub units: HvacUnits,
 }
+
+/// Where the insulation of a duct is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InsulationSide {
+    /// Round the duct: the section is the duct's, and the insulation adds its thickness all round.
+    #[default]
+    Outside,
+    /// Lining the duct's inside: the duct keeps its outside size and the clear section is smaller by twice the thickness.
+    Inside,
+}
+
+impl InsulationSide {
+    pub fn name(self) -> &'static str {
+        match self {
+            InsulationSide::Outside => "Outside",
+            InsulationSide::Inside => "Inside",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<InsulationSide> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "outside" | "outer" | "exterior" | "ext\u{e9}rieur" | "exterieur" => Some(InsulationSide::Outside),
+            "inside" | "inner" | "interior" | "int\u{e9}rieur" | "interieur" => Some(InsulationSide::Inside),
+            _ => None,
+        }
+    }
+}
+
+/// The insulation of a duct run.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuctInsulation {
+    pub side: InsulationSide,
+    pub thickness_mm: f64,
+}
+
+/// The thinnest and the thickest insulation of a duct, mm.
+pub const DUCT_INSULATION_MM: (f64, f64) = (5.0, 200.0);
+/// The layer of the lines that show the insulation of a duct.
+pub const DUCT_INSULATION_LAYER: &str = "M-HVAC-DUCT-INSL";
 
 /// The shape of a duct's section.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -824,6 +909,20 @@ impl DuctParams {
         }
         if ![self.trim_start_mm, self.trim_end_mm].iter().all(|t| t.is_finite() && (0.0..=MAX_DUCT_LENGTH_M * 1000.0).contains(t)) {
             return Err(invalid("A trimmed length is 0 or more."));
+        }
+        if let Some(i) = self.insulation {
+            if !(i.thickness_mm.is_finite() && (DUCT_INSULATION_MM.0..=DUCT_INSULATION_MM.1).contains(&i.thickness_mm)) {
+                return Err(invalid(format!("A duct's insulation is {} to {} mm thick.", DUCT_INSULATION_MM.0, DUCT_INSULATION_MM.1)));
+            }
+            // Lining the inside must leave a clear section.
+            if i.side == InsulationSide::Inside
+                && 2.0 * i.thickness_mm >= self.plan_width_mm().min(if self.shape == DuctShape::Rectangular { self.height_mm } else { f64::MAX })
+            {
+                return Err(invalid("The insulation inside a duct leaves a clear section."));
+            }
+        }
+        if self.flow_set && !self.flow_m3h.is_some_and(|f| f.is_finite() && f > 0.0 && f <= 10_000_000.0) {
+            return Err(invalid("A duct's typed flow is more than 0 and at most 10 000 000 m\u{b3}/h."));
         }
         let metres = self.length * self.units.mm_per_unit / 1000.0;
         if !(self.length.is_finite() && self.length > 0.0 && metres <= MAX_DUCT_LENGTH_M) {
@@ -1025,6 +1124,36 @@ impl DuctParams {
         self.length * self.units.mm_per_unit / 1000.0
     }
 
+    /// The insulation: a line each side of the run, outside its sides or inside them (a thickness each way), along its straight stretch `(x0, x1)`.
+    fn insulation_pieces(&self, r: f64, (x0, x1): (f64, f64)) -> Vec<HvacPiece> {
+        let mut pieces = Vec::new();
+        if let Some(ins) = self.insulation {
+            let t = self.units.to_units(ins.thickness_mm);
+            let off = match ins.side {
+                InsulationSide::Outside => r + t,
+                InsulationSide::Inside => r - t,
+            };
+            if off > 0.0 && x1 > x0 {
+                for sign in [1.0, -1.0] {
+                    pieces.push(HvacPiece {
+                        layer: DUCT_INSULATION_LAYER,
+                        kind: EntityKind::LwPolyline(LwPolyline {
+                            vertices: [x0, x1]
+                                .into_iter()
+                                .map(|x| PolyVertex { p: Vec2::new(x, sign * off), bulge: 0.0, start_width: 0.0, end_width: 0.0 })
+                                .collect(),
+                            closed: false,
+                            const_width: 0.0,
+                            elevation: 0.0,
+                            plinegen: false,
+                        }),
+                    });
+                }
+            }
+        }
+        pieces
+    }
+
     /// The run drawn to scale: its two sides and a label (diameter, flow) on it. `flip_label`
     /// turns the label half a turn, so it reads upright on a run drawn leftwards.
     pub fn generate(&self, flip_label: bool) -> Result<Vec<HvacPiece>> {
@@ -1059,6 +1188,7 @@ impl DuctParams {
                 });
             }
         }
+        pieces.extend(self.insulation_pieces(r, (x0, x1)));
         // Each jog: four elbows across the run, each a shallow arc bulging toward the middle of the jog (as plans draw an elbow's
         // gores), the same for every size: a semicircle would read as rings on a wide duct.
         for j in &self.jogs {
@@ -1322,6 +1452,9 @@ impl crate::Drawing {
         common.layer = p.layer().into();
         let block = self.hvac_block(pieces);
         self.ensure_layer(p.layer());
+        if p.insulation.is_some() {
+            self.ensure_layer(DUCT_INSULATION_LAYER);
+        }
         let insert = crate::Insert { block, insert: v3(a), rotation, ..Default::default() };
         self.add(space, common, EntityKind::Insert(insert))
     }
@@ -1335,6 +1468,9 @@ impl crate::Drawing {
         let air_before = duct_of(e).map(|q| q.air);
         self.prepare_covers(p);
         self.regenerate_hvac(h, pieces, tags)?;
+        if p.insulation.is_some() {
+            self.ensure_layer(DUCT_INSULATION_LAYER);
+        }
         // The run's layer follows its air direction.
         let layer = p.layer();
         self.modify_entity(h, |e| e.common.layer = layer.into())?;

@@ -108,6 +108,13 @@ pub(crate) fn glyph(c: char) -> Option<(f64, &'static str)> {
         '~' => (4.0, "0g1h3f4g"),
         '°' => (2.0, "1i0h1g2h1i"),
         '±' => (4.0, "2e2i 0g4g 0d4d"),
+        // The signs the labels of the plans write ("900\u{d7}720", "m\u{b3}/h", "CO\u{2082}", "a \u{b7} b", "from \u{2192} to"): the web build has no system font to borrow them from.
+        '\u{00D7}' => (4.0, "0d4g 0g4d"),
+        '\u{00B2}' => (3.0, "0h1i2i3h3g0e3e"),
+        '\u{00B3}' => (3.0, "0i3i1h2h3g3f2e1e0f"),
+        '\u{00B7}' => (1.0, "0e0f"),
+        '\u{2082}' => (3.0, "0d1e2e3d3c0a3a"),
+        '\u{2192}' => (6.0, "0f6f 4h6f4d"),
         'Ø' | 'ø' | '⌀' => (4.0, "1c0d0h1i3i4h4d3c1c 0c4i"),
         '•' => (2.0, "1d0e1f2e1d 0e2e 1d1f"),
         // Original Latin diacritics, composed from our own letter bodies and marks.
@@ -184,4 +191,20 @@ pub(crate) fn strokes(spec: &str) -> Vec<Vec<(f64, f64)>> {
                 .collect()
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_signs_the_plans_labels_write_have_a_glyph_so_the_web_build_draws_them() {
+        for c in ['\u{d7}', '\u{b2}', '\u{b3}', '\u{b7}', '\u{2082}', '\u{2192}', '\u{b0}', '\u{b1}', '\u{d8}'] {
+            let g = glyph(c);
+            assert!(g.is_some(), "no glyph for {c:?}");
+            let (width, spec) = g.unwrap_or((0.0, ""));
+            let strokes = strokes(spec);
+            assert!(width > 0.0 && !strokes.is_empty() && strokes.iter().all(|s| s.iter().all(|(x, _)| (0.0..=width + 1e-9).contains(x))), "{c:?}");
+        }
+    }
 }

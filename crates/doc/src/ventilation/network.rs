@@ -235,6 +235,22 @@ impl crate::Drawing {
             first.isolated = ducts.iter().zip(&scan.taken).filter(|(_, t)| !**t).map(|(d, _)| d.handle).collect();
             first.duct_count = ducts.len();
         }
+        // The flow typed on a unit or on a riser is the one the run that leaves it carries, when one run does (with several the flow is not shared out).
+        for net in &mut out {
+            let typed = ahus
+                .iter()
+                .find(|(h, ..)| *h == net.ahu)
+                .and_then(|(_, p, ..)| p.typed_flow(net.air))
+                .or_else(|| risers.iter().find(|r| r.handle == net.ahu).and_then(|r| r.params.flow_set.then_some(r.params.flow_m3h).flatten()))
+                .filter(|f| f.is_finite() && *f > 0.0);
+            let roots: Vec<usize> = net.network.segments.iter().enumerate().filter(|(_, s)| s.parent.is_none()).map(|(i, _)| i).collect();
+            if let (Some(f), [root]) = (typed, &roots[..])
+                && let Some(seg) = net.network.segments.get_mut(*root)
+                && seg.imposed_flow_m3h.is_none()
+            {
+                seg.imposed_flow_m3h = Some(f);
+            }
+        }
         Ok(out)
     }
 
@@ -409,7 +425,11 @@ impl crate::Drawing {
         {
             // A riser carries what its floor draws and what comes from the other floors; unless its size
             // was typed, it is sized for that flow in the shaft.
-            let total = report.total_flow_m3h + r.incoming_flow_m3h.unwrap_or(0.0);
+            let mut total = report.total_flow_m3h + r.incoming_flow_m3h.unwrap_or(0.0);
+            // A flow typed on the riser stays, and is the one the riser is sized for.
+            if r.flow_set {
+                total = r.flow_m3h.unwrap_or(total);
+            }
             r.flow_m3h = Some(total);
             if !r.size_set {
                 r.size = size_riser(&r, total);
@@ -447,6 +467,7 @@ pub(super) fn size_riser(r: &RiserParams, flow_m3h: f64) -> Option<RiserSize> {
         max_height_mm: Some(lo),
         fixed_pa: 0.0,
         roughness_mm: None,
+        imposed_flow_m3h: None,
     };
     let report = size_network(&Network { segments: vec![segment] }, &criteria).ok()?;
     let s = report.segments.first()?;
@@ -966,6 +987,8 @@ impl Scan<'_> {
                 max_height_mm: self.height_available(d.a.mid(d.b)),
                 fixed_pa: 0.0,
                 roughness_mm: d.params.flexible.then_some(FLEX_ROUGHNESS_MM),
+                // A flow typed on the run: sizing sizes it for that, whatever the terminals below add up to.
+                imposed_flow_m3h: d.params.flow_set.then_some(d.params.flow_m3h).flatten().filter(|f| f.is_finite() && *f > 0.0),
             });
             entered_at_end.push(n.from == d.b && d.a != d.b);
             collar_widths_mm.push(n.parent.is_none().then(|| n.collar_size.map(RiserSize::width_mm)).flatten());

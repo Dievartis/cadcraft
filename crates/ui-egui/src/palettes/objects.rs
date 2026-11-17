@@ -1613,13 +1613,36 @@ fn ahu_section(ui: &mut egui::Ui, sel: &[Handle], units: &[AhuParams], bad: &mut
         });
     }
     if let [u] = units {
-        let flows = |f: Option<f64>, p: Option<f64>| match (f, p) {
-            (Some(f), Some(p)) => format!("{f:.0} m³/h, {p:.0} Pa"),
-            (Some(f), None) => format!("{f:.0} m³/h"),
-            _ => "—".to_string(),
-        };
-        prop_row(ui, "Supply", |ui| read_only(ui, &flows(u.flow_m3h, u.pressure_pa)));
-        prop_row(ui, "Extract", |ui| read_only(ui, &flows(u.extract_flow_m3h, u.extract_pressure_pa)));
+        // The flow of each direction the unit has: typed here it is kept by sizing (empty gives it back); the pressure is read-only.
+        let roles = u.roles();
+        let ids_u = ids.clone();
+        for (label, key, air, f, pa) in [
+            ("Supply flow (m³/h)", "flow", AirDirection::Supply, u.flow_m3h, u.pressure_pa),
+            ("Extract flow (m³/h)", "extractFlow", AirDirection::Extract, u.extract_flow_m3h, u.extract_pressure_pa),
+            ("Fresh air flow (m³/h)", "freshFlow", AirDirection::Fresh, u.fresh_flow_m3h, u.fresh_pressure_pa),
+            ("Exhaust air flow (m³/h)", "exhaustFlow", AirDirection::Exhaust, u.exhaust_flow_m3h, u.exhaust_pressure_pa),
+        ] {
+            if !roles.contains(&air) && f.is_none() {
+                continue;
+            }
+            let typed = u.typed_flows.contains(&air);
+            let shown = f.map_or(String::new(), |f| format!("{f:.0}"));
+            prop_row(ui, label, |ui| {
+                if let Some(t) = edit_field(ui, ui.scope_id().with(("ahu_flow", key, &ids_u)), shown).filter(|t| t != VARIES) {
+                    if t.trim().is_empty() {
+                        action = Some(("ahuedit", json!({ "handles": ids_u, key: "auto" })));
+                    } else if let Some(v) = number(Some(t), bad) {
+                        action = Some(("ahuedit", json!({ "handles": ids_u, key: v })));
+                    }
+                }
+            });
+            if typed {
+                prop_row(ui, "Flow set by", |ui| read_only(ui, crate::i18n::t("User")));
+            }
+            if let Some(p) = pa {
+                prop_row(ui, "Pressure (Pa)", |ui| read_only(ui, &format!("{p:.0} Pa")));
+            }
+        }
         // The direction of the air at each collar: the ducts that start there take it.
         let roles = u.roles();
         let items = [("supply", "Supply"), ("extract", "Extract"), ("fresh", "Fresh air"), ("exhaust", "Exhaust air")];
@@ -1800,6 +1823,28 @@ fn duct_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[DuctParams], len: &dyn 
             action = edit("air", json!(a));
         }
     });
+    // The insulation: none, round the duct (outside) or lining it (inside), and how thick.
+    let insulation = shared(&ds.iter().map(|p| p.insulation.map(|i| i.side)).collect::<Vec<_>>());
+    prop_row(ui, "Insulation", |ui| {
+        let shown = match insulation {
+            None => VARIES,
+            Some(None) => "None",
+            Some(Some(cadcraft_doc::InsulationSide::Outside)) => "Outside",
+            Some(Some(cadcraft_doc::InsulationSide::Inside)) => "Inside",
+        };
+        if let Some(c) = choice(ui, shown, &[("none", "None"), ("outside", "Outside"), ("inside", "Inside")]) {
+            action = edit("insulation", json!(c));
+        }
+    });
+    if ds.iter().all(|p| p.insulation.is_some()) {
+        let thickness = shared(&ds.iter().map(|p| p.insulation.map(|i| format!("{}", i.thickness_mm)).unwrap_or_default()).collect::<Vec<_>>())
+            .unwrap_or_else(|| VARIES.into());
+        prop_row(ui, "Insulation thickness (mm)", |ui| {
+            if let Some(mm) = number(edit_field(ui, ui.scope_id().with(("duct_insulation", &ids)), thickness), bad) {
+                action = edit("insulationThickness", json!(mm));
+            }
+        });
+    }
     // The altitude of the underside, metres: empty gives it back to the height zone. Where two joined runs
     // differ, sizing makes the step between them and, where two cross, the lower passes under.
     let altitude = shared(&ds.iter().map(|p| p.level_mm.map(|b| format!("{}", b / 1000.0)).unwrap_or_default()).collect::<Vec<_>>())
@@ -1815,8 +1860,20 @@ fn duct_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[DuctParams], len: &dyn 
     });
     if let [p] = ds {
         prop_row(ui, "Length", |ui| read_only(ui, &len(p.length)));
-        let flow = p.flow_m3h.map_or("—".to_string(), |f| format!("{f:.0} m³/h"));
-        prop_row(ui, "Flow", |ui| read_only(ui, &flow));
+        // The flow the run carries: typed here, sizing keeps it and sizes the run for it; empty gives it back to the terminals.
+        let flow = p.flow_m3h.map_or(String::new(), |f| format!("{f:.0}"));
+        prop_row(ui, "Flow (m³/h)", |ui| {
+            if let Some(t) = edit_field(ui, ui.scope_id().with(("duct_flow", &ids)), flow).filter(|t| t != VARIES) {
+                if t.trim().is_empty() {
+                    action = edit("flow", json!("auto"));
+                } else if let Some(v) = number(Some(t), bad) {
+                    action = edit("flow", json!(v));
+                }
+            }
+        });
+        if p.flow_set {
+            prop_row(ui, "Flow set by", |ui| read_only(ui, crate::i18n::t("User")));
+        }
         let velocity = p.velocity.map_or("—".to_string(), |v| format!("{v:.1} m/s"));
         prop_row(ui, "Velocity", |ui| read_only(ui, &velocity));
         if !p.gaps_mm.is_empty() {
