@@ -52,11 +52,14 @@ pub fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
 fn panel_contents(app: &mut CadApp, ui: &mut egui::Ui) {
     let dpi_id = egui::Id::unique("image-import-dpi");
     let mut dpi: f64 = ui.ctx().data_mut(|d| d.get_persisted(dpi_id)).unwrap_or(96.0);
+    let auto_id = egui::Id::unique("image-import-auto-dpi");
+    let mut auto_dpi: bool = ui.ctx().data_mut(|d| d.get_persisted(auto_id)).unwrap_or(true);
     let unit_id = egui::Id::unique("image-import-unit-mm");
     let mut unit_mm: f64 = ui.ctx().data_mut(|d| d.get_persisted(unit_id)).unwrap_or(1.0);
     ui.collapsing("Import sizing", |ui| {
+        ui.checkbox(&mut auto_dpi, "Read resolution from file");
         ui.horizontal(|ui| {
-            ui.label("Resolution (DPI):");
+            ui.label(if auto_dpi { "Fallback resolution (DPI):" } else { "Resolution (DPI):" });
             ui.add(egui::DragValue::new(&mut dpi).range(1.0..=100000.0));
         });
         ui.horizontal(|ui| {
@@ -68,6 +71,7 @@ fn panel_contents(app: &mut CadApp, ui: &mut egui::Ui) {
     });
     ui.ctx().data_mut(|d| {
         d.insert_persisted(dpi_id, dpi);
+        d.insert_persisted(auto_id, auto_dpi);
         d.insert_persisted(unit_id, unit_mm);
     });
     let t = crate::theme::Tokens::get();
@@ -94,9 +98,9 @@ fn panel_contents(app: &mut CadApp, ui: &mut egui::Ui) {
         .unwrap_or_default();
     ui.horizontal(|ui| {
         if ui.button("Attach…").clicked() {
-            if let Some(result) =
-                app.pick_then(Pick::Image, move |app, path| app.run("imageattach", json!({"path": path, "dpi": dpi, "unitMm": unit_mm})))
-            {
+            if let Some(result) = app.pick_then(Pick::Image, move |app, path| {
+                app.run("imageattach", json!({"path": path, "dpi": dpi, "unitMm": unit_mm, "autoDpi": auto_dpi}))
+            }) {
                 if let Err(error) = result {
                     app.set_status(error);
                 }

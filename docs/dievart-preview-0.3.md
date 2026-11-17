@@ -35,7 +35,12 @@ Contribution tracking and pending notifications: [integration notes](dievartis-i
 
 The integration branch now adds manual DPI sizing before attachment (default 96 DPI),
 with explicit millimetres per drawing unit (1 for mm, 25.4 for inches, 1000 for metres).
-It does not yet read file DPI metadata. JSON IMAGEATTACH accepts `dpi` and `unitMm`
+Automatic file resolution is enabled by default in the manager (PNG pHYs, JPEG
+JFIF/EXIF, BMP pixels-per-metre and TIFF resolution tags). Invalid or absent metadata
+uses the manual fallback. Disable "Read resolution from file" for a manual override.
+The horizontal density determines scale to preserve pixel aspect ratio; separate X/Y
+physical scaling is not applied. The console reports the chosen DPI and its source.
+JSON IMAGEATTACH accepts `dpi`, `autoDpi` and `unitMm`
 instead of `width`/`scale`; legacy calls keep their existing sizing defaults.
 Placement editing has an aspect-ratio lock enabled by default. Image corners, edge
 midpoints and center provide END, MID and CEN object snaps, including after rotation.

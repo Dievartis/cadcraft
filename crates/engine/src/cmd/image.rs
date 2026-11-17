@@ -423,7 +423,12 @@ pub(crate) fn run_imageattach(s: &mut Session, p: &Value) -> Result<Value> {
     let raster = pixels(s, p, &path)?;
     let (w, h) = (f64::from(raster.width()), f64::from(raster.height()));
     if let Some(value) = p.get("dpi") {
-        let dpi = value.as_f64().filter(|x| x.is_finite() && *x > 0.0).ok_or_else(|| bad(ID, "`dpi` must be positive"))?;
+        let fallback = value.as_f64().filter(|x| x.is_finite() && *x > 0.0).ok_or_else(|| bad(ID, "`dpi` must be positive"))?;
+        let auto = p.get("autoDpi").and_then(Value::as_bool).unwrap_or(false);
+        let dpi = if auto { raster.dpi().map_or(fallback, |v| v[0]) } else { fallback };
+        if auto {
+            s.echo(format!("Image resolution: {dpi:.2} DPI ({})", if raster.dpi().is_some() { "file metadata" } else { "fallback" }));
+        }
         let unit_mm = p
             .get("unitMm")
             .map_or(Some(1.0), Value::as_f64)

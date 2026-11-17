@@ -11,6 +11,7 @@ pub struct Raster {
     height: u32,
     rgba: Vec<u8>,
     opaque: bool,
+    dpi: Option<[f64; 2]>,
 }
 
 impl Raster {
@@ -21,7 +22,14 @@ impl Raster {
             return None;
         }
         let opaque = rgba.as_chunks::<4>().0.iter().all(|[_, _, _, alpha]| *alpha == u8::MAX);
-        Some(Raster { width, height, rgba, opaque })
+        Some(Raster { width, height, rgba, opaque, dpi: None })
+    }
+    pub fn dpi(&self) -> Option<[f64; 2]> {
+        self.dpi
+    }
+    pub fn with_dpi(mut self, dpi: Option<[f64; 2]>) -> Self {
+        self.dpi = dpi.filter(|v| v.iter().all(|n| n.is_finite() && *n > 0.0 && *n <= 1e6));
+        self
     }
     pub fn width(&self) -> u32 {
         self.width

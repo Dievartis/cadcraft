@@ -7,6 +7,7 @@ use std::io::Cursor;
 use cadcraft_doc::Raster;
 
 use crate::{IoError, Result};
+mod density;
 
 /// Largest image file read (bytes).
 pub const MAX_IMAGE_BYTES: usize = 256 << 20;
@@ -49,7 +50,7 @@ pub fn decode(bytes: &[u8]) -> Result<Raster> {
     let mut file = reader(bytes)?;
     file.limits(decode_limits(width, height));
     let pixels = file.decode().map_err(bad)?.into_rgba8();
-    Raster::new(pixels.width(), pixels.height(), pixels.into_raw()).ok_or_else(|| bad("the image is empty"))
+    Raster::new(pixels.width(), pixels.height(), pixels.into_raw()).map(|r| r.with_dpi(density::read(bytes))).ok_or_else(|| bad("the image is empty"))
 }
 
 /// What the decoder may allocate for an image of this size: the pixels themselves (up to 16
