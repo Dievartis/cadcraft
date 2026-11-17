@@ -890,6 +890,8 @@ fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
             Some(None) => dp.imposed = false,
             None => {}
         }
+        // (the size typed above may have made it rectangular already: it is kept as typed)
+        let rectangular = dp.shape == DuctShape::Rectangular;
         match shape {
             Some(true) if !rectangular => {
                 let w = dp.diameter_mm;

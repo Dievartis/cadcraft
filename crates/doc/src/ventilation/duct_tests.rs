@@ -2155,3 +2155,63 @@ fn an_elbow_is_drawn_again_when_its_run_changes_size_or_becomes_rectangular() {
     // Done once: nothing more to draw.
     assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
 }
+
+#[test]
+fn a_reducer_is_drawn_where_two_runs_of_another_width_meet_and_follows_their_sizes() {
+    let mut d = Drawing::new_metric();
+    let (first, second) = (add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0)), add_duct(&mut d, (3000.0, 0.0), (6000.0, 0.0)));
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    let reducer = |d: &Drawing, h| duct_of(d.entity(h).unwrap()).unwrap().reducer;
+    assert_eq!((reducer(&d, first), reducer(&d, second)), (None, None), "same size: no cone");
+    let resize = |d: &mut Drawing, h, diameter: f64| {
+        let mut p = duct_of(d.entity(h).unwrap()).unwrap();
+        p.diameter_mm = diameter;
+        d.regenerate_duct(h, &p).unwrap();
+        d.draw_duct_elbows(&Space::Model).unwrap();
+    };
+    // The later run is made Ø315: it joins the first by a cone from Ø200, at its start.
+    resize(&mut d, second, 315.0);
+    assert_eq!(reducer(&d, second), Some(DuctReducer { from_mm: 200.0, at_end: false }));
+    assert_eq!(reducer(&d, first), None);
+    // The first one is made Ø400: the cone is from 400 now.
+    resize(&mut d, first, 400.0);
+    assert_eq!(reducer(&d, second), Some(DuctReducer { from_mm: 400.0, at_end: false }));
+    // Rectangular, 600 wide (width in plan 600): from 600.
+    let mut p = duct_of(d.entity(first).unwrap()).unwrap();
+    (p.shape, p.width_mm, p.height_mm) = (DuctShape::Rectangular, 600.0, 300.0);
+    d.regenerate_duct(first, &p).unwrap();
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(reducer(&d, second), Some(DuctReducer { from_mm: 600.0, at_end: false }));
+    // The same widths again: the cone goes.
+    resize(&mut d, second, 600.0);
+    let mut p = duct_of(d.entity(second).unwrap()).unwrap();
+    (p.shape, p.width_mm, p.height_mm) = (DuctShape::Rectangular, 600.0, 300.0);
+    d.regenerate_duct(second, &p).unwrap();
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(reducer(&d, second), None);
+    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0, "done once");
+}
+
+#[test]
+fn a_run_ending_on_the_side_of_another_of_another_width_gets_a_reducer_and_an_elbow_takes_the_place_of_one() {
+    let mut d = Drawing::new_metric();
+    let trunk = add_duct(&mut d, (0.0, 0.0), (6000.0, 0.0));
+    let branch = add_duct(&mut d, (3000.0, 2000.0), (3000.0, 0.0));
+    let mut p = duct_of(d.entity(trunk).unwrap()).unwrap();
+    p.diameter_mm = 400.0;
+    d.regenerate_duct(trunk, &p).unwrap();
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    let got = duct_of(d.entity(branch).unwrap()).unwrap().reducer;
+    assert_eq!(got, Some(DuctReducer { from_mm: 400.0, at_end: true }), "the branch ends on the trunk");
+    assert_eq!(duct_of(d.entity(trunk).unwrap()).unwrap().reducer, None);
+    // Two runs turning where they meet have an elbow, not a cone.
+    let mut d = Drawing::new_metric();
+    let a = add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0));
+    let b = add_duct(&mut d, (3000.0, 0.0), (3000.0, 3000.0));
+    let mut p = duct_of(d.entity(b).unwrap()).unwrap();
+    p.diameter_mm = 315.0;
+    d.regenerate_duct(b, &p).unwrap();
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert!(duct_of(d.entity(a).unwrap()).unwrap().reducer.is_none() && duct_of(d.entity(b).unwrap()).unwrap().reducer.is_none());
+    assert!(duct_of(d.entity(b).unwrap()).unwrap().elbow.is_some());
+}

@@ -1390,3 +1390,20 @@ fn the_elbow_follows_a_change_of_size_and_the_passage_from_round_to_rectangular_
     s.execute("ductedit", &json!({"handles": r["handles"], "shape": "round"})).unwrap();
     assert!(radius(&s).is_some_and(|r| r > 0.0 && r < 600.0), "{:?}", radius(&s));
 }
+
+#[test]
+fn the_reducer_is_drawn_by_the_commands_that_lay_and_resize_the_runs() {
+    let mut s = metric();
+    let r = s.execute("ductadd", &json!({"points": [[0, 0], [4000, 0], [8000, 0]], "diameter": 200})).unwrap();
+    let reducers = |s: &Session| s.doc().unwrap().model.iter().filter_map(|e| duct_of(e)).filter_map(|p| p.reducer).collect::<Vec<_>>();
+    assert!(reducers(&s).is_empty(), "same size");
+    let last = r["handles"].as_array().unwrap().last().unwrap().clone();
+    s.execute("ductedit", &json!({"handles": [last], "diameter": 315})).unwrap();
+    assert_eq!(reducers(&s).iter().map(|r| r.from_mm).collect::<Vec<_>>(), vec![200.0], "a cone from the first run, as soon as the run is resized");
+    s.execute("ductedit", &json!({"handles": r["handles"], "diameter": 315})).unwrap();
+    assert!(reducers(&s).is_empty(), "equal again");
+    s.execute("ductedit", &json!({"handles": r["handles"], "shape": "rectangular", "width": 500, "height": 300})).unwrap();
+    assert!(reducers(&s).is_empty());
+    s.execute("ductedit", &json!({"handles": [last], "width": 800})).unwrap();
+    assert_eq!(reducers(&s).iter().map(|r| r.from_mm).collect::<Vec<_>>(), vec![500.0]);
+}

@@ -1,12 +1,16 @@
-//! The elbows of the duct runs, drawn as soon as the runs are laid: where exactly two runs meet end to end and turn, one of them gets the elbow (the
-//! arcs across the run, its radius and the length each run gives up to it), without waiting for the sizing, which draws the same elbows later from the
-//! network it reads. A joint that is a tee (a third run ends on it or goes through it) or that has a flexible run is not an elbow; a run that moved away
-//! loses its elbow. The sizing's own elbows are kept while they still fit the joint.
+//! The elbows and reducers of the duct runs, drawn as soon as the runs are laid: where exactly two runs meet end to end and turn, one of them gets the
+//! elbow (the arcs across the run, its radius and the length each run gives up to it), without waiting for the sizing, which draws the same elbows later
+//! from the network it reads. A joint that is a tee (a third run ends on it or goes through it) or that has a flexible run is not an elbow; a run that moved
+//! away loses its elbow. The sizing's own elbows are kept while they still fit the joint.
+//!
+//! Where two runs of another width meet (end to end, or a run ending on the side of another) the one that joins the other gets a reducer, the cone from the
+//! other's width; it is drawn again when either run changes size or shape, and taken away when the widths are equal again. A reducer the sizing drew stays on
+//! the run that has it. A joint that has an elbow draws no cone.
 
 use cadcraft_geom::Vec2;
 
 use super::network::MAX_DUCTS;
-use super::{DuctElbow, DuctParams, HvacUnits, ahu_of, air_terminal_of, duct_of, riser_of};
+use super::{DuctElbow, DuctParams, DuctReducer, HvacUnits, ahu_of, air_terminal_of, duct_of, riser_of};
 use crate::{EntityKind, Handle, Result, Space};
 
 /// Distance, mm, within which two ends are one point.
@@ -90,6 +94,74 @@ fn joints(runs: &[Run], tol: f64) -> Vec<[(usize, bool); 2]> {
     out
 }
 
+/// The reducer each run has once the elbows are decided (`next`: the elbow and the length each end gives up to it). See the module's text for the rules.
+fn reducers(runs: &[Run], joints: &[[(usize, bool); 2]], next: &[(Option<DuctElbow>, f64, f64)], tol: f64) -> Vec<Option<DuctReducer>> {
+    let width = |k: usize| runs.get(k).map_or(0.0, |r| r.params.plan_width_mm());
+    // A cone takes the end of a run only where no elbow does.
+    let open = |k: usize, at_end: bool| next.get(k).is_some_and(|n| (if at_end { n.2 } else { n.1 }) <= 0.0);
+    let mut out: Vec<Option<DuctReducer>> = runs.iter().map(|r| r.params.reducer).collect();
+    // Whether `k` can take a reducer at `at_end` (it has one reducer, at one end).
+    fn can_hold(out: &[Option<DuctReducer>], k: usize, at_end: bool) -> bool {
+        out.get(k).is_some_and(|r| r.is_none_or(|r| r.at_end == at_end))
+    }
+    fn has(out: &[Option<DuctReducer>], k: usize, at_end: bool) -> bool {
+        out.get(k).copied().flatten().is_some_and(|r| r.at_end == at_end)
+    }
+    fn set(out: &mut [Option<DuctReducer>], k: usize, at_end: bool, from_mm: f64, differs: bool) {
+        if let Some(slot) = out.get_mut(k) {
+            *slot = differs.then_some(DuctReducer { from_mm, at_end });
+        }
+    }
+    // Two runs end to end: the one that has a reducer there keeps it, else the later one takes it.
+    for j in joints {
+        let [(a, ae), (b, be)] = *j;
+        if !open(a, ae) || !open(b, be) {
+            continue;
+        }
+        let differs = (width(a) - width(b)).abs() > 0.5;
+        let (holder, other) = if has(&out, a, ae) && !has(&out, b, be) {
+            ((a, ae), (b, be))
+        } else if has(&out, b, be) || can_hold(&out, b, be) {
+            ((b, be), (a, ae))
+        } else {
+            ((a, ae), (b, be))
+        };
+        if can_hold(&out, holder.0, holder.1) {
+            set(&mut out, holder.0, holder.1, width(other.0), differs);
+            if has(&out, other.0, other.1) {
+                set(&mut out, other.0, other.1, 0.0, false);
+            }
+        }
+    }
+    // A run ending on the side of another: it joins it. An end where several runs meet only keeps (and renews) the reducer it has.
+    for (k, r) in runs.iter().enumerate() {
+        for at_end in [false, true] {
+            let p = r.end(at_end);
+            if !open(k, at_end) || joints.iter().any(|j| j.contains(&(k, at_end))) {
+                continue;
+            }
+            let others: Vec<usize> = runs
+                .iter()
+                .enumerate()
+                .filter(|(i, o)| *i != k && (near_segment(p, o.a, o.b, tol) || o.a.dist(p) <= tol || o.b.dist(p) <= tol))
+                .map(|(i, _)| i)
+                .collect();
+            let through: Vec<usize> =
+                others.iter().copied().filter(|i| runs.get(*i).is_some_and(|o| o.a.dist(p) > tol && o.b.dist(p) > tol)).collect();
+            let held = has(&out, k, at_end);
+            match (others.len(), through.first()) {
+                (1, Some(&t)) if can_hold(&out, k, at_end) => set(&mut out, k, at_end, width(t), (width(t) - width(k)).abs() > 0.5),
+                (n, _) if n > 1 && held => {
+                    let widest = others.iter().map(|i| width(*i)).fold(0.0, f64::max);
+                    set(&mut out, k, at_end, widest, (widest - width(k)).abs() > 0.5);
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
 /// Which ends of each run are free: no other run ends on it or goes through it, and `blocked` (a unit, a terminal, a riser) is not there.
 fn free_ends(runs: &[Run], tol: f64, blocked: &dyn Fn(Vec2) -> bool) -> Vec<[bool; 2]> {
     runs.iter()
@@ -149,8 +221,9 @@ impl crate::Drawing {
                 })
         };
         let caps = free_ends(&runs, tol, &blocked);
+        let all_joints = joints(&runs, tol);
         let joints: Vec<[(usize, bool); 2]> =
-            joints(&runs, tol).into_iter().filter(|j| j.iter().all(|(k, _)| runs.get(*k).is_some_and(|r| !r.params.flexible))).collect();
+            all_joints.iter().copied().filter(|j| j.iter().all(|(k, _)| runs.get(*k).is_some_and(|r| !r.params.flexible))).collect();
         let mut next: Vec<(Option<DuctElbow>, f64, f64)> = runs.iter().map(|r| (r.params.elbow, 0.0, 0.0)).collect();
         // The elbows already there stay while the joint they are at still turns that much.
         let mut holder: Vec<Option<usize>> = vec![None; joints.len()];
@@ -211,6 +284,7 @@ impl crate::Drawing {
                 }
             }
         }
+        let reducers = reducers(&runs, &all_joints, &next, tol);
         let mut redrawn = 0;
         for (k, (r, (elbow, trim_start, trim_end))) in runs.iter().zip(next).enumerate() {
             let same = |a: f64, b: f64| (a - b).abs() < 1e-6;
@@ -219,12 +293,14 @@ impl crate::Drawing {
                 && same(r.params.trim_start_mm, trim_start)
                 && same(r.params.trim_end_mm, trim_end)
                 && (r.params.cap_start, r.params.cap_end) == (cap_start, cap_end)
+                && r.params.reducer == reducers.get(k).copied().flatten()
             {
                 continue;
             }
             let mut p = r.params.clone();
             (p.elbow, p.trim_start_mm, p.trim_end_mm) = (elbow, trim_start, trim_end);
             (p.cap_start, p.cap_end) = (cap_start, cap_end);
+            p.reducer = reducers.get(k).copied().flatten();
             self.regenerate_duct(r.handle, &p)?;
             redrawn += 1;
         }
