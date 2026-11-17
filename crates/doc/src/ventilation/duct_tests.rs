@@ -1560,8 +1560,10 @@ fn the_takeoff_counts_fittings_accessories_risers_and_units_of_the_level() {
         q.fittings
     );
     assert_eq!((q.totals.duct_count, q.totals.terminals), (3, 2), "the trunk was cut where the branch starts");
-    assert_eq!(q.terminals.len(), 1, "one model, two terminals: one line");
-    assert_eq!((q.terminals[0].count, q.terminals[0].flow_m3h), (2, 350.0));
+    // One model but two flows: a line for each, with the flow of each terminal (not the sum of the two).
+    let mut lines: Vec<(usize, f64)> = q.terminals.iter().map(|t| (t.count, t.flow_m3h)).collect();
+    lines.sort_by(|a, b| a.1.total_cmp(&b.1));
+    assert_eq!(lines, vec![(1, 150.0), (1, 200.0)]);
     assert_eq!(q.units.len(), 1);
     assert_eq!(q.units[0].name, "CTA1");
     // A reducer is counted with the sizes it joins; an accessory by kind and diameter.

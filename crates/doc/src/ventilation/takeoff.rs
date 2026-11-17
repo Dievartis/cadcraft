@@ -89,7 +89,13 @@ pub struct TerminalQuantity {
     pub model: String,
     pub air: AirDirection,
     pub count: usize,
+    /// The flow of each of these terminals, m³/h: a model with several flows has a line for each.
     pub flow_m3h: f64,
+}
+
+/// Whether two terminal flows are the same line of a table (the nearest 0.5 m³/h).
+fn same_flow(a: f64, b: f64) -> bool {
+    (a - b).abs() < 0.5
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -307,11 +313,8 @@ impl crate::Drawing {
             if let Some(a) = accessory_of(e) {
                 add_count(&mut t.accessories, a.kind.name(), &format!("Ø{:.0}", a.diameter_mm), None);
             } else if let Some(x) = air_terminal_of(e) {
-                match t.terminals.iter_mut().find(|q| q.model == x.model.name && q.air == x.air) {
-                    Some(q) => {
-                        q.count += 1;
-                        q.flow_m3h += x.flow_m3h;
-                    }
+                match t.terminals.iter_mut().find(|q| q.model == x.model.name && q.air == x.air && same_flow(q.flow_m3h, x.flow_m3h)) {
+                    Some(q) => q.count += 1,
                     None => t.terminals.push(TerminalQuantity { model: x.model.name.clone(), air: x.air, count: 1, flow_m3h: x.flow_m3h }),
                 }
                 terminals.push((Vec2::new(i.insert.x, i.insert.y), x.air, x.flow_m3h, x.model.name.clone()));
@@ -360,8 +363,8 @@ impl crate::Drawing {
             let mut q = SpaceQuantity { name: sp.name.clone(), area_m2: sp.area_m2(), needed_m3h: sp.flow().ok(), ..SpaceQuantity::default() };
             for (at, air, flow, model) in &terminals {
                 if cadcraft_geom::point_in_polygon(&outline, *at) {
-                    match q.terminal_models.iter_mut().find(|m| m.model == *model && m.air == *air) {
-                        Some(m) => (m.count, m.flow_m3h) = (m.count + 1, m.flow_m3h + flow),
+                    match q.terminal_models.iter_mut().find(|m| m.model == *model && m.air == *air && same_flow(m.flow_m3h, *flow)) {
+                        Some(m) => m.count += 1,
                         None => q.terminal_models.push(TerminalQuantity { model: model.clone(), air: *air, count: 1, flow_m3h: *flow }),
                     }
                     match air {

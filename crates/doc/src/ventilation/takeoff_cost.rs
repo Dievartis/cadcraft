@@ -105,8 +105,16 @@ impl Takeoff {
                 push(group, label, "each", c.count as f64, format!("{group}|{}|{}", c.name, c.size));
             }
         }
+        // A model is priced once, whatever its flows.
+        let mut models: Vec<(&str, usize)> = Vec::new();
         for q in &self.terminals {
-            push("Terminal", q.model.clone(), "each", q.count as f64, format!("Terminal|{}", q.model));
+            match models.iter_mut().find(|m| m.0 == q.model) {
+                Some(m) => m.1 += q.count,
+                None => models.push((q.model.as_str(), q.count)),
+            }
+        }
+        for (model, count) in models {
+            push("Terminal", model.to_string(), "each", count as f64, format!("Terminal|{model}"));
         }
         for u in &self.units {
             push("Unit", u.name.clone(), "each", 1.0, format!("Unit|{}", u.name));
@@ -155,8 +163,8 @@ impl Takeoff {
                 merge_counts(dst, src);
             }
             for q in &l.terminals {
-                match b.terminals.iter_mut().find(|x| x.model == q.model && x.air == q.air) {
-                    Some(x) => (x.count, x.flow_m3h) = (x.count + q.count, x.flow_m3h + q.flow_m3h),
+                match b.terminals.iter_mut().find(|x| x.model == q.model && x.air == q.air && (x.flow_m3h - q.flow_m3h).abs() < 0.5) {
+                    Some(x) => x.count += q.count,
                     None => b.terminals.push(TerminalQuantity { ..q.clone() }),
                 }
             }
