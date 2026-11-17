@@ -2965,3 +2965,398 @@
 	Show dynamic constraints	Afficher les contraintes dynamiques
 	Invisible	Invisible
 	Apply changes to existing references	Appliquer les changements aux références existantes
+	*Cancel*	*Annuler*
+	Too many point modifiers.	Trop de modificateurs de point.
+	Invalid point.	Point non valide.
+	Invalid option keyword.	Mot-clé d'option non valide.
+	Enter a ratio such as 1:50.	Saisissez un rapport comme 1:50.
+	No annotative objects selected.	Aucun objet annotatif sélectionné.
+	No dimensions selected.	Aucune cote sélectionnée.
+	Requires a valid angle.	Un angle valide est requis.
+	Object selected is not a circle or arc.	L'objet sélectionné n'est pas un cercle ni un arc.
+	Select a linear or aligned dimension.	Sélectionnez une cote linéaire ou alignée.
+	Object selected is not a dimension.	L'objet sélectionné n'est pas une cote.
+	The three points are on a line, or the arc is more than a half circle.	Les trois points sont alignés, ou l'arc dépasse un demi-cercle.
+	The centre is on the start or on the end of the arc.	Le centre est sur le début ou sur la fin de l'arc.
+	Requires a positive height.	Une hauteur positive est requise.
+	Key points are not available yet; specify a point.	Les points clés ne sont pas encore disponibles ; spécifiez un point.
+	Row elevations need an associative array; the copies stay at the same elevation.	Les cotes par ligne demandent un réseau associatif ; les copies restent à la même cote.
+	A rotation axis (3D) is not available yet; specify the center point.	Un axe de rotation (3D) n'est pas encore disponible ; spécifiez le centre.
+	Invalid block name.	Nom de bloc non valide.
+	Enter attribute values	Saisissez les valeurs des attributs
+	Verify attribute values	Vérifiez les valeurs des attributs
+	*Invalid selection*	*Sélection non valide*
+	Requires an integer between 0 and 1.	Un entier entre 0 et 1 est requis.
+	Not a type of control device: see CONTROLADD.	Ce n'est pas un type d'appareil de régulation : voir CONTROLADD.
+	Requires a height of 300 to 100000 mm.	Une hauteur de 300 à 100000 mm est requise.
+	Select a room of the HVAC tab (a space).	Sélectionnez un local de l'onglet CVC.
+	Requires a tile like 600x600 or 600x1200 (mm).	Une dalle comme 600x600 ou 600x1200 (mm) est requise.
+	Requires a height in metres.	Une hauteur en mètres est requise.
+	Requires a number of millimetres.	Un nombre de millimètres est requis.
+	Specify a point away from the first riser.	Spécifiez un point éloigné de la première contremarche.
+	Requires a height of 300 to 3000 mm.	Une hauteur de 300 à 3000 mm est requise.
+	Select a duct.	Sélectionnez une gaine.
+	Clipboard is empty.	Le presse-papiers est vide.
+	Not a type of device: see ELECDEVICEADD.	Ce n'est pas un type d'appareil : voir ELECDEVICEADD.
+	Enter Power, Lighting, Data or Safety.	Saisissez Power, Lighting, Data ou Safety.
+	Requires a section in mm² or Auto.	Une section en mm² ou Auto est requise.
+	Requires a rating in A or Auto.	Un calibre en A ou Auto est requis.
+	Select the devices, cables and equipment first, then CIRCUITASSIGN.	Sélectionnez d'abord les appareils, câbles et équipements, puis CIRCUITASSIGN.
+	Select a space.	Sélectionnez un local.
+	Invalid option.	Option non valide.
+	Requires a whole number of occupants.	Un nombre entier d'occupants est requis.
+	Requires a flow in m³/h (0 for the labour code's).	Un débit en m³/h est requis (0 pour celui du Code du travail).
+	Requires a positive flow in m³/h.	Un débit positif en m³/h est requis.
+	Requires a distance.	Une distance est requise.
+	Requires a height.	Une hauteur est requise.
+	Requires a second point.	Un second point est requis.
+	Requires a point.	Un point est requis.
+	The selected object has no area.	L'objet sélectionné n'a pas de surface.
+	The volume is too large.	Le volume est trop grand.
+	The area is too large.	La surface est trop grande.
+	0 found	0 trouvé
+	Nothing to undo.	Rien à annuler.
+	Select a multileader.	Sélectionnez un repère multiple.
+	No leader to remove.	Aucun repère à retirer.
+	Requires a non-negative number.	Un nombre positif ou nul est requis.
+	Enter an option [Distribute/make segments Parallel/Specify spacing/Use current spacing]: type D, P, S or U.	Saisissez une option [Distribute/make segments Parallel/Specify spacing/Use current spacing] : tapez D, P, S ou U.
+	Requires a positive number.	Un nombre positif est requis.
+	No door or window block found on a wall.	Aucun bloc de porte ou de fenêtre trouvé sur un mur.
+	Place the point on a wall.	Placez le point sur un mur.
+	The opening does not fit there: the distance puts it off the wall.	L'ouverture ne tient pas là : la distance la met hors du mur.
+	Place the opening on a wall.	Placez l'ouverture sur un mur.
+	Not a model of the library: see PIPEPARTMODELS.	Ce n'est pas un modèle de la bibliothèque : voir PIPEPARTMODELS.
+	Requires an angle in degrees.	Un angle en degrés est requis.
+	Requires a value between -1e12 and 1e12.	Une valeur entre -1e12 et 1e12 est requise.
+	Requires a number.	Un nombre est requis.
+	Choose Shed, Gable or Hip.	Choisissez Shed, Gable ou Hip.
+	Requires a pitch of 1 to 80 degrees.	Une pente de 1 à 80 degrés est requise.
+	Specify a point away from the first.	Spécifiez un point éloigné du premier.
+	Select a slab.	Sélectionnez une dalle.
+	The opening is inside the slab.	La trémie est à l'intérieur de la dalle.
+	Slab opening added.	Trémie de dalle ajoutée.
+	1 object was on a locked layer.	1 objet était sur un calque verrouillé.
+	Enter a section of the table (IPN, IPE, HEA, HEB or UPN with a size, e.g. HEA 200) or a concrete one (BA 300x500, BA Ø400).	Saisissez une section du tableau (IPN, IPE, HEA, HEB ou UPN avec une taille, par ex. HEA 200) ou une section béton (BA 300x500, BA Ø400).
+	Requires a height in mm.	Une hauteur en mm est requise.
+	Requires an elevation in metres.	Une cote en mètres est requise.
+	Enter a section of the table (IPN, IPE, HEA, HEB or UPN with a size, e.g. IPE 240) or a concrete one (BA 300x500, BA Ø400).	Saisissez une section du tableau (IPN, IPE, HEA, HEB ou UPN avec une taille, par ex. IPE 240) ou une section béton (BA 300x500, BA Ø400).
+	The feature control frame is empty.	Le cadre de contrôle est vide.
+	Requires a geometric characteristic or None.	Une caractéristique géométrique ou None est requise.
+	No text objects selected.	Aucun objet texte sélectionné.
+	Requires a number of degrees.	Un nombre de degrés est requis.
+	No PDF underlay selected.	Aucun fond de plan PDF sélectionné.
+	Select an arc, circle or polyline arc.	Sélectionnez un arc, un cercle ou un arc de polyligne.
+	The lines are parallel.	Les lignes sont parallèles.
+	******** WARNING ********	******** AVERTISSEMENT ********
+	Do you wish to continue?	Voulez-vous continuer ?
+	Enter Yes or No.	Saisissez Yes ou No.
+	Color books are not available yet.	Les livres de couleurs ne sont pas encore disponibles.
+	Select an arc, circle or line.	Sélectionnez un arc, un cercle ou une ligne.
+	The two points must be different.	Les deux points doivent être différents.
+	Requires a non-negative number or Auto.	Un nombre positif ou nul, ou Auto, est requis.
+	Select a dimension.	Sélectionnez une cote.
+	The object is not text.	L'objet n'est pas un texte.
+	This option is not available here yet.	Cette option n'est pas encore disponible ici.
+	Requires a nonzero number.	Un nombre non nul est requis.
+	Object cannot be dimensioned this way.	L'objet ne peut pas être coté de cette façon.
+	No linear dimension to continue. Create one with DIMLINEAR first.	Aucune cote linéaire à poursuivre. Créez-en une d'abord avec DIMLINEAR.
+	A multileader needs a leader line or content; nothing was drawn.	Un repère multiple demande une ligne de repère ou un contenu ; rien n'a été dessiné.
+	Requires the name of a block defined in the drawing.	Le nom d'un bloc défini dans le dessin est requis.
+	The QLEADER Settings dialog is not available yet.	La boîte de dialogue des paramètres de QLEADER n'est pas encore disponible.
+	Edit the source objects, then enter ARRAYCLOSE to save or discard the changes.	Modifiez les objets sources, puis saisissez ARRAYCLOSE pour enregistrer ou abandonner les changements.
+	The changes to the array were discarded.	Les modifications du réseau ont été abandonnées.
+	The array no longer exists; the edited objects stay in the drawing.	Le réseau n'existe plus ; les objets modifiés restent dans le dessin.
+	Replaced items were restored.	Les éléments remplacés ont été rétablis.
+	Current attribute modes:	Modes d'attribut actuels :
+	Tag cannot be null	Le repère ne peut pas être vide
+	Align and Fit are not available here yet.	Align et Fit ne sont pas encore disponibles ici.
+	Requires an angle.	Un angle est requis.
+	Performing global editing of attribute values.	Modification globale des valeurs d'attribut en cours.
+	This is a dynamic block: its parameters and actions are kept but can't be edited in CADCraft yet.	C'est un bloc dynamique : ses paramètres et actions sont conservés mais ne peuvent pas encore être modifiés dans CADCraft.
+	** STRETCH **	** ÉTIRER **
+	Current settings: Object conversion=Delete	Paramètres actuels : Conversion des objets = Supprimer
+	Binary DXF output is not available.	La sortie DXF binaire n'est pas disponible.
+	Requires an integer between 0 and 16.	Un entier entre 0 et 16 est requis.
+	Point or option keyword required.	Un point ou un mot-clé d'option est requis.
+	Current DXF settings: Precision= 16 Format= ASCII Preview= No	Paramètres DXF actuels : Précision = 16 Format = ASCII Aperçu = Non
+	Requires an integer between 0 and 2.	Un entier entre 0 et 2 est requis.
+	No block or xref references selected.	Aucune référence de bloc ou de xref sélectionnée.
+	No clip boundary found.	Aucune frontière de détourage trouvée.
+	Clip depth does not apply to a 2D drawing: front and back clipping planes are ignored.	La profondeur de détourage ne s'applique pas à un dessin 2D : les plans de détourage avant et arrière sont ignorés.
+	A polygonal boundary needs at least three points.	Une frontière polygonale demande au moins trois points.
+	No xrefs are attached.	Aucune xref n'est attachée.
+	No matching parameters found.	Aucun paramètre correspondant trouvé.
+	No line or arc to continue.	Aucune ligne ni arc à poursuivre.
+	Revision cloud finished.	Nuage de révision terminé.
+	Circle does not exist.	Le cercle n'existe pas.
+	No command alias file is loaded; ALIASEDIT {file} loads one.	Aucun fichier d'alias de commandes n'est chargé ; ALIASEDIT {file} en charge un.
+	No matching groups found.	Aucun groupe correspondant trouvé.
+	Group reordered.	Groupe réordonné.
+	Requires an integer between 0 and 3.	Un entier entre 0 et 3 est requis.
+	No hatch selected.	Aucune hachure sélectionnée.
+	Choose one of the options.	Choisissez l'une des options.
+	Enter a positive boundary loop number.	Saisissez un numéro de boucle de frontière positif.
+	Select regions to subtract from ..	Sélectionnez les régions dont soustraire ..
+	Select regions to subtract ..	Sélectionnez les régions à soustraire ..
+	No viewport found there.	Aucune fenêtre trouvée à cet endroit.
+	** Command not allowed in Model Tab ** (switch to a layout first)	** Commande non autorisée dans l'onglet Objet ** (passez d'abord à une présentation)
+	Viewport created, zoomed to the model extents.	Fenêtre créée, zoomée sur l'étendue de l'espace objet.
+	No object found.	Aucun objet trouvé.
+	Clipping boundary deleted.	Frontière de détourage supprimée.
+	  (none)	  (aucun)
+	The object is on a locked layer.	L'objet est sur un calque verrouillé.
+	Nothing selected: nothing was scaled.	Rien de sélectionné : rien n'a été mis à l'échelle.
+	The object is minserted.	L'objet est inséré en réseau (minsert).
+	Cannot offset that object.	Impossible de décaler cet objet.
+	Rotating/scaling a copy of the selected objects.	Rotation/mise à l'échelle d'une copie des objets sélectionnés.
+	Third pair ignored (2D align).	Troisième paire ignorée (alignement 2D).
+	Cannot measure that object.	Impossible de mesurer cet objet.
+	Insert mode: Copy (nested objects are copied as independent objects).	Mode d'insertion : Copie (les objets imbriqués sont copiés comme objets indépendants).
+	No polylines, lines or arcs selected.	Aucune polyligne, ligne ni arc sélectionné.
+	No polylines to edit.	Aucune polyligne à modifier.
+	The spline has no fit data.	La spline n'a pas de données d'ajustement.
+	Cannot join to a closed spline.	Impossible de joindre à une spline fermée.
+	All edits have been undone.	Toutes les modifications ont été annulées.
+	A closed spline has no end tangents.	Une spline fermée n'a pas de tangentes d'extrémité.
+	This text is too long for the editor; enter the new text at the command line.	Ce texte est trop long pour l'éditeur ; saisissez le nouveau texte à la ligne de commande.
+	Everything has been undone	Tout a été annulé
+	No changeable object selected	Aucun objet modifiable sélectionné
+	Change point ignored	Point de modification ignoré
+	Cannot change elevation of objects with differing Z coordinates.	Impossible de changer la cote d'objets dont les coordonnées Z diffèrent.
+	Hatch boundary associativity removed.	Associativité de la frontière des hachures supprimée.
+	Invalid color number.	Numéro de couleur non valide.
+	Requires three integers from 0 to 255, separated by commas.	Trois entiers de 0 à 255, séparés par des virgules, sont requis.
+	Invalid lineweight.	Épaisseur de ligne non valide.
+	Requires ByLayer, ByBlock or an integer from 0 to 90.	ByLayer, ByBlock ou un entier de 0 à 90 est requis.
+	1 was on a locked layer.	1 était sur un calque verrouillé.
+	Invalid choice.	Choix non valide.
+	Loaded linetypes:	Types de ligne chargés :
+	The object is not a table.	L'objet n'est pas un tableau.
+	No table there.	Aucun tableau à cet endroit.
+	Requires a positive number or Off.	Un nombre positif ou Off est requis.
+	No table cell there.	Aucune cellule de tableau à cet endroit.
+	The PDF underlay is on a locked layer.	Le fond de plan PDF est sur un calque verrouillé.
+	The PDF underlay has no clip boundary.	Le fond de plan PDF n'a pas de frontière de détourage.
+	Select a polyline enclosing an area.	Sélectionnez une polyligne qui délimite une surface.
+	The rectangle covers none of the page.	Le rectangle ne couvre rien de la page.
+	A polygonal boundary needs at least 3 points enclosing an area.	Une frontière polygonale demande au moins 3 points délimitant une surface.
+	No closed area there.	Aucune zone fermée à cet endroit.
+	Orthographic views are not available yet: CADCraft views are 2D.	Les vues orthographiques ne sont pas encore disponibles : les vues de CADCraft sont en 2D.
+	A transparent command is already in progress.	Une commande transparente est déjà en cours.
+	Invalid group name.	Nom de groupe non valide.
+	MSPACE	MSPACE
+echo	{a} successfully loaded.	{a} chargé avec succès.
+echo	Angle Override: {a}	Angle forcé : {a}
+echo	No {a} found for specified point.	Aucun {a} trouvé pour le point indiqué.
+echo	{a} ({b}, {c}, {d} paper sizes)	{a} ({b}, {c}, {d} formats de papier)
+echo	Plotter "{a}" created.	Traceur « {a} » créé.
+echo	Plotter "{a}" deleted.	Traceur « {a} » supprimé.
+echo	Paper "{a}" added to "{b}".	Papier « {a} » ajouté à « {b} ».
+echo	A scale named "{a}" already exists.	Une échelle nommée « {a} » existe déjà.
+echo	Scales of the selected objects: {a}	Échelles des objets sélectionnés : {a}
+echo	{a} dimension(s) changed.	{a} cote(s) modifiée(s).
+echo	{a} dimension(s) created.	{a} cote(s) créée(s).
+echo	Current settings: Style = {a}, Justification = {b}, Height = {c}	Paramètres actuels : Style = {a}, Justification = {b}, Hauteur = {c}
+echo	Wall styles: {a}	Styles de murs : {a}
+echo	Seen from the {a}.	Vu de {a}.
+echo	{a} elevation(s) drawn.	{a} élévation(s) dessinée(s).
+echo	{a} wall(s) changed.	{a} mur(s) modifié(s).
+echo	Type = Rectangular  Associative = {a}	Type = Rectangulaire  Associatif = {a}
+echo	Type = Polar  Associative = {a}	Type = Polaire  Associatif = {a}
+echo	Defined blocks: {a}	Blocs définis : {a}
+echo	Block "{a}" defined with {b} object(s).	Bloc « {a} » défini avec {b} objet(s).
+echo	Block "{a}" not found.	Bloc « {a} » introuvable.
+echo	{a} constraint #{b} applied.	Contrainte {a} n° {b} appliquée.
+echo	Current settings: Type = {a}, Controller = {b}	Paramètres actuels : Type = {a}, Régulateur = {b}
+echo	Curtain wall {a}: {b} m, {c} panels, {d} m²	Mur-rideau {a} : {b} m, {c} panneaux, {d} m²
+echo	Current settings: Tile = {a} x {b} mm, Underside = {c} m	Paramètres actuels : Dalle = {a} x {b} mm, Sous-face = {c} m
+echo	Ceiling {a}: {b} whole tiles, {c} cut, {d} m²	Faux plafond {a} : {b} dalles entières, {c} coupées, {d} m²
+echo	Current settings: Rise = {a} mm, Riser = {b} mm at most, Tread = {c} mm, Width = {d} mm	Paramètres actuels : Hauteur à monter = {a} mm, Contremarche = {b} mm au plus, Giron = {c} mm, Largeur = {d} mm
+echo	Stair {a}: {b} risers of {c} mm{d}	Escalier {a} : {b} contremarches de {c} mm{d}
+echo	Railing {a}: {b} m, {c} posts	Garde-corps {a} : {b} m, {c} poteaux
+echo	Current settings: Type = {a}, Name = {b}, Width = {c}, Depth = {d}	Paramètres actuels : Type = {a}, Nom = {b}, Largeur = {c}, Profondeur = {d}
+echo	Current settings: Diameter = {a}, Kind = {b}, Air = {c}, Material = {d}	Paramètres actuels : Diamètre = {a}, Type = {b}, Air = {c}, Matériau = {d}
+echo	Current settings: Type = {a}, Length = {b}	Paramètres actuels : Type = {a}, Longueur = {b}
+echo	{a} crossing(s), {b} still to draw.	{a} croisement(s), {b} restant à dessiner.
+echo	Drawn broken over {a} mm.	Dessinée interrompue sur {a} mm.
+echo	Four 45° elbows, {a} mm {b}.	Quatre coudes à 45°, {a} mm {b}.
+echo	{a} duct(s) drawn whole.	{a} gaine(s) redessinée(s) entière(s).
+echo	Current settings: Type = {a}, Circuit = {b}	Paramètres actuels : Type = {a}, Circuit = {b}
+echo	Current settings: Circuit = {a}, Usage = {b}, Section = {c}, Protection = {d}	Paramètres actuels : Circuit = {a}, Usage = {b}, Section = {c}, Protection = {d}
+echo	{a} object(s) put on circuit {b}.	{a} objet(s) mis sur le circuit {b}.
+echo	Current settings: Type = {a}, Model = {b} ({c} x {d} x {e} mm), Name = {f}	Paramètres actuels : Type = {a}, Modèle = {b} ({c} x {d} x {e} mm), Nom = {f}
+echo	{a} unit(s) placed.	{a} unité(s) posée(s).
+echo	Created the folder {a}, which did not exist. Check the path if you did not mean to.	Dossier {a} créé, car il n'existait pas. Vérifiez le chemin si ce n'était pas voulu.
+echo	Unnamed group {a} created with {b} object(s).	Groupe sans nom {a} créé avec {b} objet(s).
+echo	Group "{a}" created with {b} object(s).	Groupe « {a} » créé avec {b} objet(s).
+echo	"{a}" is not a valid group name.	« {a} » n'est pas un nom de groupe valide.
+echo	A group named "{a}" already exists.	Un groupe nommé « {a} » existe déjà.
+echo	Group {a} ungrouped.	Groupe {a} dissocié.
+echo	No group named "{a}".	Aucun groupe nommé « {a} ».
+echo	{a} object(s) added to group {b}.	{a} objet(s) ajouté(s) au groupe {b}.
+echo	{a} object(s) removed from group {b}.	{a} objet(s) retiré(s) du groupe {b}.
+echo	Group {a} has no objects left and was deleted.	Le groupe {a} n'a plus d'objets et a été supprimé.
+echo	Group {a} renamed to {b}.	Groupe {a} renommé en {b}.
+echo	Unknown pattern {a}. Available: {b}	Motif {a} inconnu. Disponibles : {b}
+echo	Current pattern: {a}  Scale: {b}  Angle: {c}	Motif actuel : {a}  Échelle : {b}  Angle : {c}
+echo	Analyzing the selected data... {a} loop(s)	Analyse des données sélectionnées... {a} boucle(s)
+echo	{a} found	{a} trouvé(s)
+echo	BOUNDARY created {a} polyline(s)	BOUNDARY a créé {a} polyligne(s)
+echo	Current settings: Name = {a}, Use = {b}, Occupants = {c}, Flow = {d}	Paramètres actuels : Nom = {a}, Usage = {b}, Occupants = {c}, Débit = {d}
+echo	{a}: {b} m², {c} m³/h	{a} : {b} m², {c} m³/h
+echo	Current settings: Type = {a}, Size = {b}, Flow = {c} m³/h, Air = {d}	Paramètres actuels : Type = {a}, Taille = {b}, Débit = {c} m³/h, Air = {d}
+echo	{a} × {b}, {c} m³/h	{a} × {b}, {c} m³/h
+echo	Models: {a}	Modèles : {a}
+echo	{a} space(s) changed: {b}	{a} local(aux) modifié(s) : {b}
+echo	{a} air terminal(s) changed.	{a} bouche(s) modifiée(s).
+echo	Distance = {a}	Distance = {a}
+echo	{a}: not available yet	{a} : pas encore disponible
+echo	Total volume = {a}	Volume total = {a}
+echo	The {a} is too large.	{a} : valeur trop grande.
+echo	Total area = {a}	Surface totale = {a}
+echo	{a} found, {b} total	{a} trouvé(s), {b} au total
+echo	{a} total	{a} au total
+echo	{a} leader(s) {b}.	{a} repère(s) {b}.
+echo	{a} multileader(s) aligned.	{a} repère(s) multiple(s) aligné(s).
+echo	{a} multileader(s) collected.	{a} repère(s) multiple(s) regroupé(s).
+echo	Text styles: {a}	Styles de texte : {a}
+echo	{a} block(s) found on walls: {b} door(s), {c} double door(s), {d} window(s).	{a} bloc(s) trouvé(s) sur des murs : {b} porte(s), {c} porte(s) double(s), {d} fenêtre(s).
+echo	{a} opening(s) made, {b} left as they were.	{a} ouverture(s) créée(s), {b} laissée(s) telle(s) quelle(s).
+echo	Current settings: Type = {a}, Style = {b}, Width = {c}, Height = {d}, Sill = {e}, Swing = {f}, Hinge = {g}	Paramètres actuels : Type = {a}, Style = {b}, Largeur = {c}, Hauteur = {d}, Appui = {e}, Battant = {f}, Paumelle = {g}
+echo	Current settings: Model = {a}	Paramètres actuels : Modèle = {a}
+echo	No branch box with that number of outlets: {a}.	Aucune boîte de détente avec ce nombre de sorties : {a}.
+echo	Current settings: Service = {a}, Leg = {b}, {c} = {d}{e}, Insulation = {f}	Paramètres actuels : Service = {a}, Sens = {b}, {c} = {d}{e}, Isolation = {f}
+echo	Current settings: Name = {a}, Direction = {b}, Lines = {c}, Height = {d}	Paramètres actuels : Nom = {a}, Sens = {b}, Lignes = {c}, Hauteur = {d}
+echo	Pipe riser {a}: {b} line(s)	Colonne de tuyauterie {a} : {b} ligne(s)
+echo	Current settings: Name = {a}, Air = {b}, Direction = {c}	Paramètres actuels : Nom = {a}, Air = {b}, Sens = {c}
+echo	Roof {a}: {b} m² in plan, {c} m² of slopes, rise {d} m	Toit {a} : {b} m² en plan, {c} m² de pans, hauteur {d} m
+echo	Current settings: Kind = {a}, Pitch = {b}°	Paramètres actuels : Type = {a}, Pente = {b}°
+echo	Section: {a} walls, {b} openings, {c} slabs, {d} columns, {e} beams, {f} ceilings cut	Coupe : {a} murs, {b} ouvertures, {c} dalles, {d} poteaux, {e} poutres, {f} faux plafonds coupés
+echo	Unknown variable {a}. Type SETVAR ? to list variables.	Variable {a} inconnue. Tapez SETVAR ? pour lister les variables.
+echo	{a} = {b} (read only)	{a} = {b} (lecture seule)
+echo	Openings from the risers: {a}	Trémies des colonnes : {a}
+echo	Current settings: Kind = {a}, Thickness = {b} mm, Elevation = {c} m	Paramètres actuels : Type = {a}, Épaisseur = {b} mm, Cote = {c} m
+echo	Slab: {a} m², {b} m³	Dalle : {a} m², {b} m³
+echo	{a} object(s) converted to splines	{a} objet(s) converti(s) en splines
+echo	Object not converted: {a}.	Objet non converti : {a}.
+echo	Section {a}: {b} x {c} mm, {d} kg/m	Section {a} : {b} x {c} mm, {d} kg/m
+echo	Current settings: Section = {a}, Height = {b} mm, Elevation = {c} m, Rotation = {d}	Paramètres actuels : Section = {a}, Hauteur = {b} mm, Cote = {c} m, Rotation = {d}
+echo	Column {a} {b}	Poteau {a} {b}
+echo	Current settings: Section = {a}, Underside = {b} m	Paramètres actuels : Section = {a}, Sous-face = {b} m
+echo	Beam {a} {b}	Poutre {a} {b}
+echo	Requires an integer between 1 and {a}.	Un entier entre 1 et {a} est requis.
+echo	Current settings: Projection={a}, Edge={b}, Mode={c}	Paramètres actuels : Projection = {a}, Arête = {b}, Mode = {c}
+echo	Current settings: Combine= {a}, Sort top-down= {b}, Word-wrap= {c}	Paramètres actuels : Combiner = {a}, Tri de haut en bas = {b}, Retour à la ligne = {c}
+echo	Requires a page number from 1 to {a}.	Un numéro de page de 1 à {a} est requis.
+echo	Requires a number from 0 to {a}.	Un nombre de 0 à {a} est requis.
+echo	PDF underlays not shown: {a} more	Fonds de plan PDF non affichés : {a} de plus
+echo	Current settings: Name = {a}, Height = {b} mm, Altitude = {c}	Paramètres actuels : Nom = {a}, Hauteur = {b} mm, Altitude = {c}
+echo	Layer "{a}" not found.	Calque « {a} » introuvable.
+echo	Selected layers: {a}.	Calques sélectionnés : {a}.
+echo	Cannot merge into xref-dependent layer "{a}".	Impossible de fusionner dans le calque dépendant d'une xref « {a} ».
+echo	Cannot merge layer "{a}" into itself.	Impossible de fusionner le calque « {a} » avec lui-même.
+echo	You are about to merge {a} into layer "{b}".	Vous allez fusionner {a} dans le calque « {b} ».
+echo	You are about to delete {a} and every object on it from this drawing.	Vous allez supprimer {a} et tous ses objets de ce dessin.
+echo	Cannot find layer "{a}".	Calque « {a} » introuvable.
+echo	-LAYER {a} is not available yet.	-LAYER {a} n'est pas encore disponible.
+echo	Layer "{a}": {b}	Calque « {a} » : {b}
+echo	Cannot freeze layer "{a}". It is the CURRENT layer.	Impossible de geler le calque « {a} ». C'est le calque COURANT.
+echo	Loaded linetypes: {a}	Types de ligne chargés : {a}
+echo	Linetype "{a}" is not loaded. Load it with the LINETYPE command.	Le type de ligne « {a} » n'est pas chargé. Chargez-le avec la commande LINETYPE.
+echo	Current layer:  "{a}"	Calque courant :  « {a} »
+echo	{a} dimension(s) spaced.	{a} cote(s) espacée(s).
+echo	Unknown dimension variable "{a}".	Variable de cotation « {a} » inconnue.
+echo	Dimension text = {a}	Texte de cote = {a}
+echo	Requires an integer between 2 and {a}.	Un entier entre 2 et {a} est requis.
+echo	Current text style:  "{a}"  Text height:  {b}  Justify:  {c}	Style de texte courant :  « {a} »  Hauteur de texte :  {b}  Justification :  {c}
+echo	{a} attributes are not available yet.	Les attributs {a} ne sont pas encore disponibles.
+echo	Cannot find text style "{a}".	Style de texte « {a} » introuvable.
+echo	Block {a}: {b} reference{c} in the drawing.	Bloc {a} : {b} référence{c} dans le dessin.
+echo	The Block Editor is already editing "{a}".	L'éditeur de blocs modifie déjà « {a} ».
+echo	Block "{a}" saved.	Bloc « {a} » enregistré.
+echo	Block "{a}" saved; the Block Editor now edits it.	Bloc « {a} » enregistré ; l'éditeur de blocs le modifie maintenant.
+echo	Description of block "{a}" changed; BSAVE saves it into the drawing.	Description du bloc « {a} » modifiée ; BSAVE l'enregistre dans le dessin.
+echo	Description of block "{a}" changed.	Description du bloc « {a} » modifiée.
+echo	Written to {a}.	Écrit dans {a}.
+echo	{a} object(s) in the working set.	{a} objet(s) dans l'ensemble de travail.
+echo	-WBLOCK: {a}.	-WBLOCK : {a}.
+echo	A boundary has at most {a} points.	Une frontière a au plus {a} points.
+echo	Xref "{a}" unloaded.	Xref « {a} » déchargée.
+echo	Xref "{a}" detached.	Xref « {a} » détachée.
+echo	Xref "{a}" bound.	Xref « {a} » fusionnée.
+echo	{a} symbol(s) bound.	{a} symbole(s) fusionné(s).
+echo	No xref matches "{a}".	Aucune xref ne correspond à « {a} ».
+echo	Total xref(s): {a}	Total des xrefs : {a}
+echo	Parameter {a} deleted.	Paramètre {a} supprimé.
+echo	Parameter {a} renamed to {b}.	Paramètre {a} renommé en {b}.
+echo	Current line-width is {a}	L'épaisseur de ligne actuelle est {a}
+echo	Current point modes:  PDMODE={a}  PDSIZE={b}	Modes de point actuels :  PDMODE={a}  PDSIZE={b}
+echo	Current settings: Method=Fit   Knots={a}	Paramètres actuels : Méthode = Ajustement   Nœuds = {a}
+echo	Current text style:  "{a}"  Text height:  {b}  Annotative:  {c}	Style de texte courant :  « {a} »  Hauteur de texte :  {b}  Annotatif :  {c}
+echo	Block= {a}, Size= {b}, Extension= {c}	Bloc = {a}, Taille = {b}, Extension = {c}
+echo	Number of turns = {a}     Twist=CCW	Nombre de tours = {a}     Torsion = sens trigonométrique
+echo	Current settings: Method=CV   Degree={a}	Paramètres actuels : Méthode = Points de contrôle   Degré = {a}
+echo	{a}: use SPLINE for fit points.	{a} : utilisez SPLINE pour les points d'ajustement.
+echo	Current settings: Justification = {a}, Scale = {b}, Style = {c}	Paramètres actuels : Justification = {a}, Échelle = {b}, Style = {c}
+echo	Loaded multiline styles: {a}	Styles de multiligne chargés : {a}
+echo	Minimum arc length: {a}   Maximum arc length: {b}   Style: Normal   Type: {c}	Longueur d'arc minimale : {a}   Longueur d'arc maximale : {b}   Style : Normal   Type : {c}
+echo	{a} command alias(es) loaded.	{a} alias de commande chargé(s).
+echo	{a} command alias(es) loaded from {b}.	{a} alias de commande chargé(s) depuis {b}.
+echo	Requires a whole number between 0 and {a}.	Un nombre entier entre 0 et {a} est requis.
+echo	Requires a whole number between 1 and {a}.	Un nombre entier entre 1 et {a} est requis.
+echo	{a} object(s) created.	{a} objet(s) créé(s).
+echo	Unknown pattern {a}.	Motif {a} inconnu.
+echo	{a} pattern(s) loaded from {b}: {c}	{a} motif(s) chargé(s) depuis {b} : {c}
+echo	At most {a} picks.	Au plus {a} choix.
+echo	LAYOUT {a} is not available yet.	LAYOUT {a} n'est pas encore disponible.
+echo	Active Layout: {a}	Présentation active : {a}
+echo	No layout matches "{a}".	Aucune présentation ne correspond à « {a} ».
+echo	Layout: {a}	Présentation : {a}
+echo	Layout "{a}" copied to "{b}".	Présentation « {a} » copiée en « {b} ».
+echo	Layout "{a}" deleted.	Présentation « {a} » supprimée.
+echo	Layout "{a}" saved to template "{b}".	Présentation « {a} » enregistrée dans le modèle « {b} ».
+echo	{a} viewport(s) selected.	{a} fenêtre(s) sélectionnée(s).
+echo	{a} viewport(s) created, zoomed to the model extents.	{a} fenêtre(s) créée(s), zoomée(s) sur l'étendue de l'espace objet.
+echo	{a} viewport(s) restored from "{b}".	{a} fenêtre(s) restaurée(s) depuis « {b} ».
+echo	Layers currently frozen in viewport {a}:	Calques actuellement gelés dans la fenêtre {a} :
+echo	Calibrated {a} to {b} (scale {c}): {d} {e} scaled.	{a} étalonné à {b} (échelle {c}) : {d} {e} mis à l'échelle.
+echo	{a} lines were chamfered	{a} lignes ont été chanfreinées
+echo	{a} lines were filleted	{a} lignes ont été raccordées
+echo	Current settings: Erase source={a}  Layer={b}  OFFSETGAPTYPE={c}	Paramètres actuels : Effacer la source = {a}  Calque = {b}  OFFSETGAPTYPE = {c}
+echo	{a} objects joined into 1 {b}	{a} objets joints en 1 {b}
+echo	{a} constraint(s) of the broken or trimmed object removed.	{a} contrainte(s) de l'objet coupé ou ajusté retirée(s).
+echo	Continuity = {a}	Continuité = {a}
+echo	Current length: {a}, included angle: {b}	Longueur actuelle : {a}, angle inclus : {b}
+echo	Current length: {a}	Longueur actuelle : {a}
+echo	Nested object: {a}	Objet imbriqué : {a}
+echo	Type = Path  Associative = No ({a} items)	Type = Trajectoire  Associatif = Non ({a} éléments)
+echo	{a} segments added to polyline	{a} segments ajoutés à la polyligne
+echo	{a} object(s) direction has been reversed.	Le sens de {a} objet(s) a été inversé.
+echo	{a} object(s) flattened.	{a} objet(s) aplati(s).
+echo	{a} object(s) changed from {b} space to {c} space.	{a} objet(s) passé(s) de l'espace {b} à l'espace {c}.
+echo	{a} object(s) joined into the spline	{a} objet(s) joint(s) à la spline
+echo	Style "{a}" not defined - use STYLE command.	Style « {a} » non défini - utilisez la commande STYLE.
+echo	Cannot find linetype "{a}".	Type de ligne « {a} » introuvable.
+echo	Lineweight rounded to nearest valid value of {a} mm	Épaisseur de ligne arrondie à la valeur valide la plus proche de {a} mm
+echo	{a} were on a locked layer.	{a} étaient sur un calque verrouillé.
+echo	Direction for angle {a}:	Direction de l'angle {a} :
+echo	Linetype(s) {a} loaded.	Type(s) de ligne {a} chargé(s).
+echo	Linetype {a} is already loaded.	Le type de ligne {a} est déjà chargé.
+echo	No linetype matching {a} in {b}.	Aucun type de ligne correspondant à {a} dans {b}.
+echo	Linetype {a} loaded.	Type de ligne {a} chargé.
+echo	Current linetype: "{a}"	Type de ligne courant : « {a} »
+echo	Linetype {a} reloaded.	Type de ligne {a} rechargé.
+echo	Current active settings: {a}	Paramètres actifs actuels : {a}
+echo	Renaming a {a} is not available yet.	Renommer {a} n'est pas encore disponible.
+echo	Table in {a} part(s).	Tableau en {a} partie(s).
+echo	{a} field(s) found.  {b} object(s) updated.	{a} champ(s) trouvé(s).  {b} objet(s) mis à jour.
+echo	Spelling check complete. {a} word(s) changed.	Vérification orthographique terminée. {a} mot(s) modifié(s).
+echo	DVIEW {a} is not available yet.	DVIEW {a} n'est pas encore disponible.
+echo	Invalid input: {a}	Saisie non valide : {a}
+echo	Command: {a}	Commande : {a}
+echo	Internal error in {a}: {b}	Erreur interne dans {a} : {b}
+echo	Layout {a}: {b}	Présentation {a} : {b}
+echo	{a} attribute{b} selected.	{a} attribut{b} sélectionné(s).
+echo	{a} attribute{b} changed.	{a} attribut{b} modifié(s).
+echo	ATTSYNC block {a}: {b} reference{c} synchronized.	Bloc ATTSYNC {a} : {b} référence{c} synchronisée(s).
+echo	{a} row{b} extracted.	{a} ligne{b} extraite(s).

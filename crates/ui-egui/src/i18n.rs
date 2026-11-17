@@ -346,6 +346,128 @@ pub fn tr<'a>(language: &str, source: &'a str) -> &'a str {
     catalog(language).and_then(|c| c.get(&("", source))).copied().unwrap_or(source)
 }
 
+/// A line of the command-line history with values in it, translated by its pattern: the catalog's `echo` entries give the English pattern with its values
+/// as `{a}`, `{b}`… and the translation, which may place them in another order.
+struct EchoTemplate {
+    /// The text before the first value, between the values, and after the last: one more than the values.
+    parts: Vec<String>,
+    names: Vec<String>,
+    /// The translation split the same way: its text and, after each, the value it takes (an index in `names`).
+    target: Vec<(String, Option<usize>)>,
+    /// How much fixed text the pattern has: the most specific pattern that matches wins.
+    weight: usize,
+}
+
+/// Splits `text` at its `{name}` values: the literal pieces and the names.
+fn split_values(text: &str) -> (Vec<String>, Vec<String>) {
+    let (mut parts, mut names) = (vec![String::new()], Vec::new());
+    let mut rest = text;
+    while let Some(open) = rest.find('{') {
+        let after = &rest[open + 1..];
+        match after.find('}') {
+            Some(close) if after[..close].chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && close > 0 => {
+                if let Some(last) = parts.last_mut() {
+                    last.push_str(&rest[..open]);
+                }
+                names.push(after[..close].to_string());
+                parts.push(String::new());
+                rest = &after[close + 1..];
+            }
+            _ => {
+                if let Some(last) = parts.last_mut() {
+                    last.push_str(&rest[..=open]);
+                }
+                rest = after;
+            }
+        }
+    }
+    if let Some(last) = parts.last_mut() {
+        last.push_str(rest);
+    }
+    (parts, names)
+}
+
+fn echo_templates(language: &str) -> &'static [EchoTemplate] {
+    use std::sync::Mutex;
+    static CACHE: Mutex<Vec<(String, &'static [EchoTemplate])>> = Mutex::new(Vec::new());
+    let Ok(mut cache) = CACHE.lock() else { return &[] };
+    if let Some((_, t)) = cache.iter().find(|(l, _)| l == language) {
+        return t;
+    }
+    let mut out = Vec::new();
+    if let Some(c) = catalog(language) {
+        for (&(context, key), &value) in c {
+            if context != "echo" {
+                continue;
+            }
+            let (parts, names) = split_values(key);
+            // Two values side by side cannot be told apart: such a pattern is not used.
+            if names.is_empty() || parts.iter().enumerate().any(|(i, p)| p.is_empty() && i > 0 && i < parts.len() - 1) {
+                continue;
+            }
+            let (tparts, tnames) = split_values(value);
+            let target: Vec<(String, Option<usize>)> =
+                tparts.into_iter().enumerate().map(|(i, p)| (p, tnames.get(i).and_then(|n| names.iter().position(|x| x == n)))).collect();
+            let weight = parts.iter().map(String::len).sum();
+            out.push(EchoTemplate { parts, names, target, weight });
+        }
+    }
+    out.sort_by_key(|t| std::cmp::Reverse(t.weight));
+    let leaked: &'static [EchoTemplate] = Box::leak(out.into_boxed_slice());
+    cache.push((language.to_string(), leaked));
+    leaked
+}
+
+/// The values of `line` if it is the pattern `t`, in order.
+fn match_values<'a>(t: &EchoTemplate, line: &'a str) -> Option<Vec<&'a str>> {
+    let first = t.parts.first()?;
+    let mut rest = line.strip_prefix(first.as_str())?;
+    let mut values = Vec::with_capacity(t.names.len());
+    for (i, _) in t.names.iter().enumerate() {
+        let next = t.parts.get(i + 1)?;
+        if i + 1 == t.names.len() {
+            let value = rest.strip_suffix(next.as_str())?;
+            values.push(value);
+        } else {
+            let at = rest.find(next.as_str())?;
+            values.push(&rest[..at]);
+            rest = &rest[at + next.len()..];
+        }
+    }
+    values.iter().all(|v| !v.is_empty()).then_some(values)
+}
+
+/// A line of the command-line history or the status bar in the interface language: the catalog's text for the line, else the translation of the pattern it
+/// fits (`echo` entries), its values translated too where they are texts of the catalog. The line itself when nothing fits.
+pub fn echo(line: &str) -> std::borrow::Cow<'_, str> {
+    echo_depth(line, 0)
+}
+
+fn echo_depth(line: &str, depth: u8) -> std::borrow::Cow<'_, str> {
+    let language = CURRENT.get();
+    if language == "en" || line.is_empty() {
+        return line.into();
+    }
+    if let Some(v) = catalog(language).and_then(|c| c.get(&("", line))) {
+        return (*v).into();
+    }
+    if depth >= 3 {
+        return line.into();
+    }
+    for t in echo_templates(language) {
+        let Some(values) = match_values(t, line) else { continue };
+        let mut out = String::with_capacity(line.len() + 16);
+        for (text, value) in &t.target {
+            out.push_str(text);
+            if let Some(v) = value.and_then(|i| values.get(i)) {
+                out.push_str(&echo_depth(v, depth + 1));
+            }
+        }
+        return out.into();
+    }
+    line.into()
+}
+
 pub fn t(source: &str) -> &str {
     CURRENT.with(|l| tr(l.get(), source))
 }
