@@ -95,6 +95,28 @@ fn dist_to_polyline(pts: &[Vec2], p: Vec2) -> f64 {
 pub fn entity_distance(d: &Drawing, e: &Entity, p: Vec2, tol: f64) -> f64 {
     let polys = hit_polylines(d, e, tol);
     let mut best = polys.iter().map(|pl| dist_to_polyline(pl, p)).fold(f64::INFINITY, f64::min);
+    // Test the image's actual pixel rectangle, not its axis-aligned bounds: rotated
+    // images must not be selectable in the empty corners of their bounding box.
+    if let EntityKind::Image(image) = &e.kind {
+        let u = image.u.xy();
+        let v = image.v.xy();
+        let det = u.x * v.y - u.y * v.x;
+        if det.is_finite() && det != 0.0 {
+            let delta = p - image.insert.xy();
+            let x = (delta.x * v.y - delta.y * v.x) / det;
+            let y = (u.x * delta.y - u.y * delta.x) / det;
+            let pixel = Vec2::new(x - 0.5, image.size.y - y - 0.5);
+            let clipped = image.clipping && !image.clip.is_empty();
+            let inside_clip = !clipped
+                || match image.clip.as_slice() {
+                    [a, b] => Bounds2::new(a.min(*b), a.max(*b)).contains(pixel),
+                    outline => point_in_polygon(outline, pixel),
+                };
+            if x >= 0.0 && x <= image.size.x && y >= 0.0 && y <= image.size.y && inside_clip {
+                best = 0.0;
+            }
+        }
+    }
     let filled = matches!(e.kind, EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::AttDef(_) | EntityKind::Table(_))
         || matches!(e.kind, EntityKind::Tolerance(_));
     if (filled && entity_bounds(d, e, 0).contains(p)) || in_text(d, e, p) {
@@ -470,6 +492,20 @@ impl SelectMode {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn image_interior_is_pickable_after_rotation() {
+        use super::*;
+        let d = Drawing::default();
+        let image = cadcraft_doc::Image {
+            u: Vec2::new(1.0, 1.0).to3(0.0),
+            v: Vec2::new(-1.0, 1.0).to3(0.0),
+            size: Vec2::new(10.0, 10.0),
+            ..Default::default()
+        };
+        let e = Entity::new(Handle(1), EntityKind::Image(image));
+        assert_eq!(entity_distance(&d, &e, Vec2::new(0.0, 10.0), 0.01), 0.0);
+        assert!(entity_distance(&d, &e, Vec2::new(8.0, 2.0), 0.01) > 0.0);
+    }
     use super::*;
     use cadcraft_doc::{Common, RayLine};
     use cadcraft_geom::Vec3;

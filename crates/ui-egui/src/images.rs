@@ -46,6 +46,10 @@ fn rows(app: &mut CadApp) -> Vec<Row> {
 }
 
 pub fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
+    egui::Frame::new().inner_margin(8).show(ui, |ui| panel_contents(app, ui));
+}
+
+fn panel_contents(app: &mut CadApp, ui: &mut egui::Ui) {
     let t = crate::theme::Tokens::get();
     let rows = rows(app);
     let id = egui::Id::unique("image-manager-selected");
