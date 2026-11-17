@@ -85,3 +85,25 @@ tests, font-import tests, DXF round trips, undo, a cold collection-name index,
 and a headless-rendered panel inspection. Formatting, Clippy for fonts/engine/UI
 (all targets), asset attribution, dependency layering and the wasm check pass.
 Full workspace CI and manual Windows acceptance remain required before release.
+
+## Image loading memory budget
+
+Adapted from @dotCooCoo's upstream PR #3151:
+https://github.com/storytold/cadcraft/pull/3151
+
+Concurrent loaders reserve the largest supported decoded image size before starting
+another file. Near the limit they wait for ongoing decodes; failures release their
+reservation. The upstream policy permits at most one decoded image beyond the limit;
+the existing retention pass excludes excess images. This bounds decoded pixel buffers,
+not total process memory, decoder scratch space or compressed source buffers.
+The reservation matches the current 128-million-pixel decoder cap (512 million RGBA bytes).
+The change stays in the image loader and preserves the fork's image-editing commands.
+
+### Contributors to notify
+
+| Contributor | Contribution used | Notification status |
+| --- | --- | --- |
+| @dotCooCoo | #3151: concurrent image decoding budget and regression tests | Pending; no notification sent |
+
+PR #1565 remains a separate clipping-module candidate. PR #1093 is excluded from
+this integration at the fork owner's request.
