@@ -695,6 +695,7 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
                 ("Stair", "stairadd", thumbs::paint_stair),
                 ("Railing", "railadd", thumbs::paint_railing),
                 ("Curtain Wall", "curtainadd", thumbs::paint_curtain_wall),
+                ("Roof", "roofadd", thumbs::paint_roof),
             ] {
                 if row_tip(ui, crate::i18n::t(label), "", Some(label), false, paint) {
                     design_start = Some(cmd);

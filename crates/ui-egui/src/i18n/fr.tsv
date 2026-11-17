@@ -1932,3 +1932,47 @@
 	Clip PDF Underlay	Découper le fond de plan PDF
 
 # ArtCraft feature naming
+	Click the corners of the room, then press Enter. Or choose Walls and click inside a room closed by walls, or Room or Object.	Clique les angles de la pièce, puis Entrée. Ou choisis Murs et clique dans une pièce fermée par des murs, ou Pièce ou Objet.
+	In Properties type the tile (600x600, 600x1200…) and the height of the false ceiling.	Dans les Propriétés, tape la dalle (600x600, 600x1200…) et la hauteur du faux plafond.
+	The whole and cut tiles are counted in the Structure Takeoff; the tile centres are where a diffuser or a luminaire snaps.	Les dalles entières et coupées sont comptées dans le Métré de la structure ; les centres de dalles sont là où se place un diffuseur ou un luminaire.
+	Click the middle of the first riser, then a point in the direction of the way up.	Clique le milieu de la première contremarche, puis un point dans le sens de la montée.
+	In Properties type the rise from floor to floor, the largest riser, the tread and the width: the number of risers follows.	Dans les Propriétés, tape la hauteur à monter d'un plancher à l'autre, la contremarche maximale, le giron et la largeur : le nombre de contremarches en découle.
+	The label says whether the stair is comfortable: twice the riser plus the tread within 600 to 650 mm (Blondel).	Le repère dit si l'escalier est confortable : deux fois la contremarche plus le giron entre 600 et 650 mm (Blondel).
+	Click the points of the path of the railing, then press Enter.	Clique les points du tracé du garde-corps, puis Entrée.
+	In Properties type the height and the spacing of the posts.	Dans les Propriétés, tape la hauteur et l'entraxe des poteaux.
+	The railings and their length are counted in the Structure Takeoff.	Les garde-corps et leur longueur sont comptés dans le Métré de la structure.
+	Click the points of the façade, then press Enter. The Height option sets its height.	Clique les points de la façade, puis Entrée. L'option Hauteur règle sa hauteur.
+	In Properties type the spacing of the mullions and of the transoms, and the depth of the frame.	Dans les Propriétés, tape l'entraxe des montants et des traverses, et l'épaisseur de l'ossature.
+	The panels, the mullions, the transoms and the area are counted in the Structure Takeoff.	Les panneaux, les montants, les traverses et la surface sont comptés dans le Métré de la structure.
+	Click the corners of the roof, then press Enter. Or choose Walls and click inside a room closed by walls.	Clique les angles du toit, puis Entrée. Ou choisis Murs et clique dans une pièce fermée par des murs.
+	Choose Shed, Gable or Hip and the pitch in degrees with the options; the ridge runs along the first side.	Choisis avec les options mono-pente, deux pans ou quatre pans et la pente en degrés ; le faîtage suit le premier côté.
+	The label gives the top of the roof. In Properties change the kind, the pitch, the direction of the ridge and the height of the eaves.	Le repère donne le sommet du toit. Dans les Propriétés, change le type, la pente, le sens du faîtage et la hauteur de l'égout.
+	The area in plan, the area of the slopes, the rise and the ridge are counted in the Structure Takeoff.	La surface en plan, la surface des pans, la hauteur et le faîtage sont comptés dans le Métré de la structure.
+	Choose the section (family and size) in the list above the tools.	Choisis la section (famille et taille) dans la liste au-dessus des outils.
+	Click where the columns stand: near the corner of two walls, the end of a beam or another column, the click lands on it.	Clique où se dressent les poteaux : près de l'angle de deux murs, de l'extrémité d'une poutre ou d'un autre poteau, le clic s'y place.
+	In Properties type the height of the column and the elevation of its foot.	Dans les Propriétés, tape la hauteur du poteau et la cote de son pied.
+	Click the points of the beams: one beam is drawn for each segment.	Clique les points des poutres : une poutre est tracée par segment.
+	A beam is cut where it meets a column or another beam. In Properties type the elevation of its underside.	Une poutre est coupée là où elle rencontre un poteau ou une autre poutre. Dans les Propriétés, tape la cote de sa sous-face.
+	Select the columns or the beams, then start the tool.	Sélectionne les poteaux ou les poutres, puis lance l'outil.
+	Choose what to change: the section, the height, the elevation or the rotation, and type the new value.	Choisis ce qui change : la section, la hauteur, la cote ou la rotation, et tape la nouvelle valeur.
+	The same values are changed in Properties, with the section list above the tools.	Les mêmes valeurs se changent dans les Propriétés, avec la liste des sections au-dessus des outils.
+	Beams are cut where they meet a column or another beam as they are drawn.	Les poutres sont coupées là où elles rencontrent un poteau ou une autre poutre au fil du tracé.
+	After moving, copying or erasing columns or beams, run this tool: it cuts them again.	Après avoir déplacé, copié ou effacé des poteaux ou des poutres, lance cet outil : il les recoupe.
+	Nothing is asked: every column and beam of the drawing is redrawn.	Rien n'est demandé : tous les poteaux et toutes les poutres du dessin sont redessinés.
+	No selection needed: the whole drawing is counted.	Aucune sélection : tout le dessin est compté.
+	The steel columns and beams are listed by section with their count, length and mass.	Les poteaux et poutres en acier sont listés par section avec leur nombre, longueur et masse.
+	The slabs, the false ceilings, the stairs, the railings, the curtain walls and the roofs are counted too.	Les dalles, les faux plafonds, les escaliers, les garde-corps, les murs-rideaux et les toits sont comptés aussi.
+	It saves a workbook (.xlsx) or a text file.	Il enregistre un classeur (.xlsx) ou un fichier texte.
+	Select the slab, then click the corners of the opening and press Enter.	Sélectionne la dalle, puis clique les angles de la trémie et Entrée.
+	The area of the opening is taken out of the area and the volume of the slab.	La surface de la trémie est retirée de la surface et du volume de la dalle.
+	Edit Slab changes its kind, its thickness and its elevation afterwards.	Modifier la dalle change ensuite son type, son épaisseur et sa cote.
+	Shed	Mono-pente
+	Gable	Deux pans
+	Hip	Quatre pans
+	Pitch (°)	Pente (°)
+	Ridge direction (°)	Sens du faîtage (°)
+	Eaves height (m)	Hauteur de l'égout (m)
+	Plan area (m²)	Surface en plan (m²)
+	Slope area (m²)	Surface des pans (m²)
+	Rise (m)	Hauteur du faîtage (m)
+	Ridge length (m)	Longueur du faîtage (m)

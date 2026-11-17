@@ -1850,3 +1850,47 @@ menu	View	视图
 	Show Addresses	显示地址
 
 # ArtCraft feature naming
+	Click the corners of the room, then press Enter. Or choose Walls and click inside a room closed by walls, or Room or Object.	点击房间的角点，然后按 Enter。或选择“墙体”并点击墙体围合的房间内部，或选择“房间”或“对象”。
+	In Properties type the tile (600x600, 600x1200…) and the height of the false ceiling.	在特性中输入面板规格（600x600、600x1200…）和吊顶高度。
+	The whole and cut tiles are counted in the Structure Takeoff; the tile centres are where a diffuser or a luminaire snaps.	整块和切割的面板计入结构统计；面板中心是风口或灯具的捕捉位置。
+	Click the middle of the first riser, then a point in the direction of the way up.	点击第一级踏步的中点，然后点击上行方向上的一点。
+	In Properties type the rise from floor to floor, the largest riser, the tread and the width: the number of risers follows.	在特性中输入层高、最大踢面高、踏面宽和梯段宽度：踏步数随之得出。
+	The label says whether the stair is comfortable: twice the riser plus the tread within 600 to 650 mm (Blondel).	标签会说明楼梯是否舒适：两倍踢面高加踏面宽在 600 至 650 mm 之间（Blondel 公式）。
+	Click the points of the path of the railing, then press Enter.	点击栏杆路径上的点，然后按 Enter。
+	In Properties type the height and the spacing of the posts.	在特性中输入高度和立柱间距。
+	The railings and their length are counted in the Structure Takeoff.	栏杆及其长度计入结构统计。
+	Click the points of the façade, then press Enter. The Height option sets its height.	点击立面上的点，然后按 Enter。“高度”选项设置其高度。
+	In Properties type the spacing of the mullions and of the transoms, and the depth of the frame.	在特性中输入竖框和横框的间距以及框架厚度。
+	The panels, the mullions, the transoms and the area are counted in the Structure Takeoff.	面板、竖框、横框和面积计入结构统计。
+	Click the corners of the roof, then press Enter. Or choose Walls and click inside a room closed by walls.	点击屋顶的角点，然后按 Enter。或选择“墙体”并点击墙体围合的房间内部。
+	Choose Shed, Gable or Hip and the pitch in degrees with the options; the ridge runs along the first side.	用选项选择单坡、双坡或四坡以及坡度（度）；屋脊沿第一条边。
+	The label gives the top of the roof. In Properties change the kind, the pitch, the direction of the ridge and the height of the eaves.	标签给出屋顶顶部标高。在特性中可更改类型、坡度、屋脊方向和檐口高度。
+	The area in plan, the area of the slopes, the rise and the ridge are counted in the Structure Takeoff.	平面面积、坡面面积、屋顶高度和屋脊长度计入结构统计。
+	Choose the section (family and size) in the list above the tools.	在工具上方的列表中选择截面（系列和尺寸）。
+	Click where the columns stand: near the corner of two walls, the end of a beam or another column, the click lands on it.	点击柱子的位置：靠近两面墙的转角、梁端或另一根柱时，点击会落在其上。
+	In Properties type the height of the column and the elevation of its foot.	在特性中输入柱高和柱脚标高。
+	Click the points of the beams: one beam is drawn for each segment.	点击梁的各点：每一段绘制一根梁。
+	A beam is cut where it meets a column or another beam. In Properties type the elevation of its underside.	梁在遇到柱或另一根梁处被截断。在特性中输入梁底标高。
+	Select the columns or the beams, then start the tool.	选择柱或梁，然后启动工具。
+	Choose what to change: the section, the height, the elevation or the rotation, and type the new value.	选择要更改的内容：截面、高度、标高或旋转，然后输入新值。
+	The same values are changed in Properties, with the section list above the tools.	同样的值也可在特性中更改，截面列表位于工具上方。
+	Beams are cut where they meet a column or another beam as they are drawn.	绘制时，梁在遇到柱或另一根梁处被截断。
+	After moving, copying or erasing columns or beams, run this tool: it cuts them again.	移动、复制或删除柱或梁之后，运行此工具：它会重新截断。
+	Nothing is asked: every column and beam of the drawing is redrawn.	无需输入：图中所有柱和梁都会重绘。
+	No selection needed: the whole drawing is counted.	无需选择：统计整张图。
+	The steel columns and beams are listed by section with their count, length and mass.	钢柱和钢梁按截面列出数量、长度和质量。
+	The slabs, the false ceilings, the stairs, the railings, the curtain walls and the roofs are counted too.	楼板、吊顶、楼梯、栏杆、幕墙和屋顶也一并统计。
+	It saves a workbook (.xlsx) or a text file.	可保存为工作簿 (.xlsx) 或文本文件。
+	Select the slab, then click the corners of the opening and press Enter.	选择楼板，然后点击洞口的角点并按 Enter。
+	The area of the opening is taken out of the area and the volume of the slab.	洞口面积从楼板面积和体积中扣除。
+	Edit Slab changes its kind, its thickness and its elevation afterwards.	之后可用“编辑楼板”更改其类型、厚度和标高。
+	Shed	单坡
+	Gable	双坡
+	Hip	四坡
+	Pitch (°)	坡度 (°)
+	Ridge direction (°)	屋脊方向 (°)
+	Eaves height (m)	檐口高度 (m)
+	Plan area (m²)	平面面积 (m²)
+	Slope area (m²)	坡面面积 (m²)
+	Rise (m)	屋顶高度 (m)
+	Ridge length (m)	屋脊长度 (m)

@@ -203,6 +203,107 @@ const HELPS: &[Help] = &[
         ],
         figure: corner_window,
     },
+    Help {
+        id: "Ceiling Grid",
+        steps: &[
+            "Click the corners of the room, then press Enter. Or choose Walls and click inside a room closed by walls, or Room or Object.",
+            "In Properties type the tile (600x600, 600x1200…) and the height of the false ceiling.",
+            "The whole and cut tiles are counted in the Structure Takeoff; the tile centres are where a diffuser or a luminaire snaps.",
+        ],
+        figure: ceiling_grid,
+    },
+    Help {
+        id: "Stair",
+        steps: &[
+            "Click the middle of the first riser, then a point in the direction of the way up.",
+            "In Properties type the rise from floor to floor, the largest riser, the tread and the width: the number of risers follows.",
+            "The label says whether the stair is comfortable: twice the riser plus the tread within 600 to 650 mm (Blondel).",
+        ],
+        figure: stair,
+    },
+    Help {
+        id: "Railing",
+        steps: &[
+            "Click the points of the path of the railing, then press Enter.",
+            "In Properties type the height and the spacing of the posts.",
+            "The railings and their length are counted in the Structure Takeoff.",
+        ],
+        figure: railing,
+    },
+    Help {
+        id: "Curtain Wall",
+        steps: &[
+            "Click the points of the façade, then press Enter. The Height option sets its height.",
+            "In Properties type the spacing of the mullions and of the transoms, and the depth of the frame.",
+            "The panels, the mullions, the transoms and the area are counted in the Structure Takeoff.",
+        ],
+        figure: curtain_wall,
+    },
+    Help {
+        id: "Roof",
+        steps: &[
+            "Click the corners of the roof, then press Enter. Or choose Walls and click inside a room closed by walls.",
+            "Choose Shed, Gable or Hip and the pitch in degrees with the options; the ridge runs along the first side.",
+            "The label gives the top of the roof. In Properties change the kind, the pitch, the direction of the ridge and the height of the eaves.",
+            "The area in plan, the area of the slopes, the rise and the ridge are counted in the Structure Takeoff.",
+        ],
+        figure: roof,
+    },
+    Help {
+        id: "Column",
+        steps: &[
+            "Choose the section (family and size) in the list above the tools.",
+            "Click where the columns stand: near the corner of two walls, the end of a beam or another column, the click lands on it.",
+            "In Properties type the height of the column and the elevation of its foot.",
+        ],
+        figure: column,
+    },
+    Help {
+        id: "Beam",
+        steps: &[
+            "Choose the section (family and size) in the list above the tools.",
+            "Click the points of the beams: one beam is drawn for each segment.",
+            "A beam is cut where it meets a column or another beam. In Properties type the elevation of its underside.",
+        ],
+        figure: beam,
+    },
+    Help {
+        id: "Edit Structure",
+        steps: &[
+            "Select the columns or the beams, then start the tool.",
+            "Choose what to change: the section, the height, the elevation or the rotation, and type the new value.",
+            "The same values are changed in Properties, with the section list above the tools.",
+        ],
+        figure: edit_structure,
+    },
+    Help {
+        id: "Structure Joints",
+        steps: &[
+            "Beams are cut where they meet a column or another beam as they are drawn.",
+            "After moving, copying or erasing columns or beams, run this tool: it cuts them again.",
+            "Nothing is asked: every column and beam of the drawing is redrawn.",
+        ],
+        figure: structure_joints,
+    },
+    Help {
+        id: "Structure Takeoff",
+        steps: &[
+            "No selection needed: the whole drawing is counted.",
+            "The steel columns and beams are listed by section with their count, length and mass.",
+            "The slabs, the false ceilings, the stairs, the railings, the curtain walls and the roofs are counted too.",
+            "It saves a workbook (.xlsx) or a text file.",
+        ],
+        figure: structure_takeoff,
+    },
+    Help {
+        id: "Slab Opening",
+        steps: &[
+            "Select the slab, then click the corners of the opening and press Enter.",
+            "The area of the opening is taken out of the area and the volume of the slab.",
+            "Edit Slab changes its kind, its thickness and its elevation afterwards.",
+        ],
+        figure: slab_opening,
+    },
 ];
 
 /// Asks for the help of the tool whose label is `id` to open.
@@ -452,7 +553,7 @@ mod tests {
 
     #[test]
     fn every_tool_has_a_help_window_that_draws_and_closes() {
-        assert_eq!(HELPS.len(), 20);
+        assert_eq!(HELPS.len(), 31);
         for help in HELPS {
             let mut h = Harness::builder().with_size(vec2(700.0, 500.0)).build_ui(|ui| {
                 show(ui.ctx());
@@ -687,6 +788,165 @@ fn corner_window(p: &Painter, r: Rect) {
     text(p, at(0.24, 0.56), "click near the corner", GREY);
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// The design and structure tools.
+// ---------------------------------------------------------------------------------------------------------------
+
+const STEEL: Color32 = Color32::from_rgb(0xd0, 0x50, 0x50);
+const FRAME: Color32 = Color32::from_rgb(0x50, 0x90, 0xa0);
+const ROOF: Color32 = Color32::from_rgb(0xc0, 0x70, 0x58);
+
+fn fx(r: Rect) -> impl Fn(f32, f32) -> egui::Pos2 {
+    move |x, y| pos2(r.left() + x * r.width(), r.top() + y * r.height())
+}
+
+/// A steel column seen from above: an I, filled.
+fn column_mark(p: &Painter, c: egui::Pos2, k: f32) {
+    let (w, f) = (7.0 * k, 2.2 * k);
+    p.rect_filled(Rect::from_center_size(c, vec2(2.0 * w, 2.0 * w)), 0.0, STEEL.gamma_multiply(0.3));
+    for dy in [-w + f / 2.0, w - f / 2.0] {
+        p.rect_filled(Rect::from_center_size(c + vec2(0.0, dy), vec2(2.0 * w, f)), 0.0, STEEL);
+    }
+    p.line_segment([c + vec2(0.0, -w), c + vec2(0.0, w)], Stroke::new(1.3, STEEL));
+}
+
+fn ceiling_grid(p: &Painter, r: Rect) {
+    let at = fx(r);
+    let room = Rect::from_min_max(at(0.15, 0.12), at(0.85, 0.88));
+    p.rect_stroke(room, 0.0, Stroke::new(1.4, WALL), egui::StrokeKind::Inside);
+    for i in 1..6 {
+        let x = room.left() + room.width() * i as f32 / 6.0;
+        p.line_segment([pos2(x, room.top()), pos2(x, room.bottom())], Stroke::new(1.0, GREY));
+    }
+    for i in 1..4 {
+        let y = room.top() + room.height() * i as f32 / 4.0;
+        p.line_segment([pos2(room.left(), y), pos2(room.right(), y)], Stroke::new(1.0, GREY));
+    }
+    terminal(p, pos2(room.left() + room.width() * 0.25, room.top() + room.height() * 0.375));
+    text(p, at(0.2, 0.96), "tile 600 x 600", GREY);
+}
+
+fn stair(p: &Painter, r: Rect) {
+    let at = fx(r);
+    let flight = Rect::from_min_max(at(0.38, 0.1), at(0.62, 0.9));
+    p.rect_stroke(flight, 0.0, Stroke::new(1.4, ZONE), egui::StrokeKind::Inside);
+    for i in 1..10 {
+        let y = flight.top() + flight.height() * i as f32 / 10.0;
+        p.line_segment([pos2(flight.left(), y), pos2(flight.right(), y)], Stroke::new(1.0, ZONE));
+    }
+    let (a, b) = (at(0.5, 0.86), at(0.5, 0.2));
+    let white = Stroke::new(1.4, Color32::WHITE);
+    p.line_segment([a, b], white);
+    p.line_segment([b, b + vec2(-5.0, 8.0)], white);
+    p.line_segment([b, b + vec2(5.0, 8.0)], white);
+    text(p, at(0.66, 0.5), "rise 3000 / 17 risers", GREY);
+}
+
+fn railing(p: &Painter, r: Rect) {
+    let at = fx(r);
+    let pts = [at(0.1, 0.7), at(0.45, 0.7), at(0.45, 0.3), at(0.9, 0.3)];
+    for w in pts.windows(2) {
+        p.line_segment([w[0], w[1]], Stroke::new(3.0, ZONE));
+    }
+    for q in [pts[0], at(0.275, 0.7), pts[1], at(0.45, 0.5), pts[2], at(0.675, 0.3), pts[3]] {
+        p.rect_filled(Rect::from_center_size(q, vec2(7.0, 7.0)), 0.0, Color32::WHITE);
+    }
+    text(p, at(0.1, 0.9), "post spacing", GREY);
+}
+
+fn curtain_wall(p: &Painter, r: Rect) {
+    let at = fx(r);
+    let (a, b) = (at(0.1, 0.5), at(0.9, 0.5));
+    p.line_segment([a, b], Stroke::new(6.0, FRAME));
+    p.line_segment([a, b], Stroke::new(1.0, Color32::from_rgb(0x80, 0xd0, 0xe8)));
+    for i in 0..=4 {
+        let x = a.x + (b.x - a.x) * i as f32 / 4.0;
+        p.line_segment([pos2(x, a.y - 9.0), pos2(x, a.y + 9.0)], Stroke::new(1.6, FRAME));
+    }
+    text(p, at(0.3, 0.8), "mullion every 1500 mm", GREY);
+}
+
+fn roof(p: &Painter, r: Rect) {
+    let at = fx(r);
+    let outline = Rect::from_min_max(at(0.12, 0.12), at(0.88, 0.88));
+    p.rect_stroke(outline, 0.0, Stroke::new(1.4, ROOF), egui::StrokeKind::Inside);
+    let (y, h) = (outline.center().y, outline.height() / 2.0);
+    let (x0, x1) = (outline.left() + h, outline.right() - h);
+    let s = Stroke::new(1.2, ROOF);
+    p.line_segment([pos2(x0, y), pos2(x1, y)], s);
+    for (cx, ex) in [(x0, outline.left()), (x1, outline.right())] {
+        p.line_segment([pos2(cx, y), pos2(ex, outline.top())], s);
+        p.line_segment([pos2(cx, y), pos2(ex, outline.bottom())], s);
+    }
+    for dy in [-0.5f32, 0.5] {
+        let c = pos2(outline.center().x, y + dy * h);
+        let tip = c + vec2(0.0, dy * 28.0);
+        p.line_segment([c, tip], Stroke::new(1.2, Color32::WHITE));
+        p.line_segment([tip, tip + vec2(-4.0, -dy * 6.0)], Stroke::new(1.2, Color32::WHITE));
+        p.line_segment([tip, tip + vec2(4.0, -dy * 6.0)], Stroke::new(1.2, Color32::WHITE));
+    }
+    text(p, at(0.14, 0.96), "ridge, hips and falls", GREY);
+}
+
+fn column(p: &Painter, r: Rect) {
+    let at = fx(r);
+    column_mark(p, at(0.3, 0.45), 2.2);
+    column_mark(p, at(0.7, 0.45), 2.2);
+    text(p, at(0.2, 0.82), "C1  HEA 200  h=3.00 m", STEEL);
+}
+
+fn beam(p: &Painter, r: Rect) {
+    let at = fx(r);
+    let (a, b) = (at(0.25, 0.45), at(0.75, 0.45));
+    p.line_segment([a, b], Stroke::new(3.0, DUCT));
+    column_mark(p, a, 1.6);
+    column_mark(p, b, 1.6);
+    text(p, at(0.3, 0.7), "B1  IPE 240", DUCT);
+}
+
+fn edit_structure(p: &Painter, r: Rect) {
+    let at = fx(r);
+    column_mark(p, at(0.3, 0.4), 1.8);
+    p.line_segment([at(0.3, 0.4), at(0.75, 0.4)], Stroke::new(3.0, DUCT));
+    text(p, at(0.2, 0.72), "HEA 200  ->  HEB 240", STEEL);
+}
+
+fn structure_joints(p: &Painter, r: Rect) {
+    let at = fx(r);
+    let c = at(0.5, 0.45);
+    p.line_segment([at(0.1, 0.45), c - vec2(10.0, 0.0)], Stroke::new(3.0, DUCT));
+    p.line_segment([c + vec2(10.0, 0.0), at(0.9, 0.45)], Stroke::new(3.0, DUCT));
+    column_mark(p, c, 1.4);
+    text(p, at(0.25, 0.8), "the beam stops at the column", GREY);
+}
+
+fn structure_takeoff(p: &Painter, r: Rect) {
+    let at = fx(r);
+    let t = Rect::from_min_max(at(0.15, 0.12), at(0.85, 0.82));
+    p.rect_stroke(t, 0.0, Stroke::new(1.2, GREY), egui::StrokeKind::Inside);
+    for i in 1..5 {
+        let y = t.top() + t.height() * i as f32 / 5.0;
+        p.line_segment([pos2(t.left(), y), pos2(t.right(), y)], Stroke::new(1.0, GREY));
+    }
+    for i in 1..4 {
+        let x = t.left() + t.width() * i as f32 / 4.0;
+        p.line_segment([pos2(x, t.top()), pos2(x, t.bottom())], Stroke::new(1.0, GREY));
+    }
+    text(p, at(0.17, 0.93), "section  count  length  mass", GREY);
+}
+
+fn slab_opening(p: &Painter, r: Rect) {
+    let at = fx(r);
+    let slab = Rect::from_min_max(at(0.15, 0.1), at(0.85, 0.9));
+    p.rect_filled(slab, 0.0, WALL.gamma_multiply(0.2));
+    p.rect_stroke(slab, 0.0, Stroke::new(1.4, WALL), egui::StrokeKind::Inside);
+    let hole = Rect::from_min_max(at(0.4, 0.35), at(0.6, 0.65));
+    p.rect_filled(hole, 0.0, Tokens::get().chrome_dark);
+    p.rect_stroke(hole, 0.0, Stroke::new(1.4, DUCT), egui::StrokeKind::Inside);
+    p.line_segment([hole.left_top(), hole.right_bottom()], Stroke::new(1.0, DUCT));
+    p.line_segment([hole.right_top(), hole.left_bottom()], Stroke::new(1.0, DUCT));
+}
+
 #[cfg(test)]
 mod coverage_tests {
     use super::*;
@@ -732,6 +992,17 @@ mod coverage_tests {
             "Corner Window",
             "Distribute in a Space",
             "Points List",
+            "Ceiling Grid",
+            "Stair",
+            "Railing",
+            "Curtain Wall",
+            "Roof",
+            "Column",
+            "Beam",
+            "Edit Structure",
+            "Structure Joints",
+            "Structure Takeoff",
+            "Slab Opening",
         ] {
             assert!(have(id), "{id}");
         }

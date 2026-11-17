@@ -715,6 +715,16 @@ pub(super) fn paint_curtain_wall(p: &Painter, r: Rect) {
     }
 }
 
+/// A hip roof seen in plan: the outline, the ridge and the four hips.
+pub(super) fn paint_roof(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.poly(&[(3.0, 5.0), (21.0, 5.0), (21.0, 19.0), (3.0, 19.0)], true, t.base);
+    t.l((10.0, 12.0), (14.0, 12.0), t.acc);
+    for (a, b) in [((3.0, 5.0), (10.0, 12.0)), ((3.0, 19.0), (10.0, 12.0)), ((21.0, 5.0), (14.0, 12.0)), ((21.0, 19.0), (14.0, 12.0))] {
+        t.l(a, b, t.acc);
+    }
+}
+
 /// A column seen in plan: an I section, filled.
 pub(super) fn paint_column(p: &Painter, r: Rect) {
     let t = Th::new(p, r);

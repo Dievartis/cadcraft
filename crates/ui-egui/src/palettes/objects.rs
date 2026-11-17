@@ -119,6 +119,9 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
         if let Some(c) = cadcraft_doc::curtain_of(e) {
             return curtain_section(ui, sel, &c, bad);
         }
+        if let Some(r) = cadcraft_doc::roof_of(e) {
+            return roof_section(ui, sel, &r, bad);
+        }
     }
     let structs: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| struct_of(e))).collect();
     if !structs.is_empty() && structs.len() == sel.len() {
@@ -574,6 +577,30 @@ fn rail_section(ui: &mut egui::Ui, sel: &[Handle], r: &cadcraft_doc::RailParams,
     action
 }
 
+/// The Properties group of a roof: kind, pitch, direction of the ridge, eaves height, with its areas, rise and ridge.
+fn roof_section(ui: &mut egui::Ui, sel: &[Handle], r: &cadcraft_doc::RoofParams, bad: &mut Option<String>) -> Action {
+    let ids = handles(sel);
+    let mut action: Action = None;
+    group(ui, "Roof");
+    const CMD: &str = "roofedit";
+    elec_text(ui, CMD, "Tag", "name", &ids, vec![r.name.clone()], &mut action);
+    prop_row(ui, "Kind", |ui| {
+        let items = [("shed", "Shed"), ("gable", "Gable"), ("hip", "Hip")];
+        if let Some(k) = choice(ui, r.kind.name(), &items) {
+            action = Some((CMD, json!({ "handles": ids, "kind": k })));
+        }
+    });
+    elec_number(ui, (CMD, "Pitch (°)", "pitch", false), &ids, vec![Some(r.pitch_deg)], bad, &mut action);
+    elec_number(ui, (CMD, "Ridge direction (°)", "angle", true), &ids, vec![Some(r.angle_deg)], bad, &mut action);
+    elec_number(ui, (CMD, "Eaves height (m)", "elevation", true), &ids, vec![Some(r.elevation_mm / 1000.0)], bad, &mut action);
+    let n = r.count();
+    prop_row(ui, "Plan area (m²)", |ui| read_only(ui, &format!("{:.2}", n.plan_m2)));
+    prop_row(ui, "Slope area (m²)", |ui| read_only(ui, &format!("{:.2}", n.area_m2)));
+    prop_row(ui, "Rise (m)", |ui| read_only(ui, &format!("{:.2}", n.rise_m)));
+    prop_row(ui, "Ridge length (m)", |ui| read_only(ui, &format!("{:.2}", n.ridge_m)));
+    action
+}
+
 /// The Properties group of a curtain wall: name, height, spacing of mullions and transoms, depth, foot, with its length, panels and area.
 fn curtain_section(ui: &mut egui::Ui, sel: &[Handle], c: &cadcraft_doc::CurtainParams, bad: &mut Option<String>) -> Action {
     let ids = handles(sel);
@@ -699,6 +726,7 @@ pub(crate) fn is_parametric(d: &Drawing, h: Handle) -> bool {
             || stair_of(e).is_some()
             || rail_of(e).is_some()
             || cadcraft_doc::curtain_of(e).is_some()
+            || cadcraft_doc::roof_of(e).is_some()
             || part_of(e).is_some()
             || pipe_riser_of(e).is_some()
             || accessory_of(e).is_some()

@@ -654,6 +654,13 @@ pub struct StructTakeoff {
     pub curtain_mullion_m: f64,
     #[serde(default)]
     pub curtain_transom_m: f64,
+    /// The roofs: how many, their area in plan and the area of their slopes (m²).
+    #[serde(default)]
+    pub roofs: usize,
+    #[serde(default)]
+    pub roof_plan_m2: f64,
+    #[serde(default)]
+    pub roof_area_m2: f64,
     /// The mass of all the steel, kg.
     pub steel_kg: f64,
     pub slab_area_m2: f64,
@@ -707,6 +714,17 @@ impl StructTakeoff {
                 String::new(),
                 String::new(),
                 num(self.curtain_area_m2),
+                String::new(),
+            ]);
+        }
+        if self.roofs > 0 {
+            rows.push([
+                "Roof".into(),
+                format!("plan {} m²", num(self.roof_plan_m2)),
+                self.roofs.to_string(),
+                String::new(),
+                String::new(),
+                num(self.roof_area_m2),
                 String::new(),
             ]);
         }
@@ -777,6 +795,15 @@ impl StructTakeoff {
                 vec![C::text("Railings"), C::Num(self.railings as f64), C::text(""), num(self.railing_length_m)],
             ],
         )?;
+        if self.roofs > 0 {
+            wb.sheet(
+                "Roofs",
+                vec![
+                    head(&["Roofs", "Plan area (m²)", "Slope area (m²)"]),
+                    vec![C::Num(self.roofs as f64), num(self.roof_plan_m2), num(self.roof_area_m2)],
+                ],
+            )?;
+        }
         if self.curtain_walls > 0 {
             wb.sheet(
                 "Curtain walls",
@@ -828,6 +855,11 @@ impl crate::Drawing {
             } else if let Some(r) = super::rail_of(e) {
                 t.railings += 1;
                 t.railing_length_m += r.length_mm() / 1000.0;
+            } else if let Some(r) = super::roof_of(e) {
+                let n = r.count();
+                t.roofs += 1;
+                t.roof_plan_m2 += n.plan_m2;
+                t.roof_area_m2 += n.area_m2;
             } else if let Some(c) = super::curtain_of(e) {
                 let n = c.count();
                 t.curtain_walls += 1;
