@@ -725,6 +725,17 @@ pub(super) fn paint_roof(p: &Painter, r: Rect) {
     }
 }
 
+/// A building section: a cut line with its two arrows, and the cut walls and slab below.
+pub(super) fn paint_building_section(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.l((3.0, 5.0), (21.0, 5.0), t.acc);
+    t.l((3.0, 3.5), (3.0, 6.5), t.acc);
+    t.l((21.0, 3.5), (21.0, 6.5), t.acc);
+    t.poly(&[(5.0, 9.0), (7.0, 9.0), (7.0, 18.0), (5.0, 18.0)], true, t.base);
+    t.poly(&[(17.0, 9.0), (19.0, 9.0), (19.0, 18.0), (17.0, 18.0)], true, t.base);
+    t.poly(&[(5.0, 18.0), (19.0, 18.0), (19.0, 20.0), (5.0, 20.0)], true, t.base);
+}
+
 /// A column seen in plan: an I section, filled.
 pub(super) fn paint_column(p: &Painter, r: Rect) {
     let t = Th::new(p, r);

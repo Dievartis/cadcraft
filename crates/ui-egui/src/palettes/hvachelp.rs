@@ -240,6 +240,16 @@ const HELPS: &[Help] = &[
         figure: curtain_wall,
     },
     Help {
+        id: "Building Section",
+        steps: &[
+            "Click the two ends of the cut line across the plan, so that it goes through the walls, slabs, columns and beams to show.",
+            "Click where the section goes, or press Enter to put it to the right of the drawing.",
+            "The cut walls are drawn with their openings, with the slabs, steel columns and beams and false ceilings at their elevations, and the levels in the margin.",
+            "It is a picture made now: draw a new section after changing the plan. Slopes are not drawn.",
+        ],
+        figure: building_section,
+    },
+    Help {
         id: "Roof",
         steps: &[
             "Click the corners of the roof, then press Enter. Or choose Walls and click inside a room closed by walls.",
@@ -553,7 +563,7 @@ mod tests {
 
     #[test]
     fn every_tool_has_a_help_window_that_draws_and_closes() {
-        assert_eq!(HELPS.len(), 31);
+        assert_eq!(HELPS.len(), 32);
         for help in HELPS {
             let mut h = Harness::builder().with_size(vec2(700.0, 500.0)).build_ui(|ui| {
                 show(ui.ctx());
@@ -866,6 +876,25 @@ fn curtain_wall(p: &Painter, r: Rect) {
     text(p, at(0.3, 0.8), "mullion every 1500 mm", GREY);
 }
 
+fn building_section(p: &Painter, r: Rect) {
+    let at = fx(r);
+    let s = Stroke::new(1.3, WALL);
+    p.line_segment([at(0.05, 0.12), at(0.95, 0.12)], Stroke::new(1.3, ZONE));
+    text(p, at(0.03, 0.05), "A", ZONE);
+    text(p, at(0.94, 0.05), "A", ZONE);
+    for (x0, x1) in [(0.2, 0.24), (0.76, 0.8)] {
+        let w = Rect::from_min_max(at(x0, 0.3), at(x1, 0.8));
+        p.rect_filled(w, 0.0, WALL.gamma_multiply(0.5));
+        p.rect_stroke(w, 0.0, s, egui::StrokeKind::Inside);
+    }
+    let slab = Rect::from_min_max(at(0.2, 0.8), at(0.8, 0.88));
+    p.rect_filled(slab, 0.0, WALL.gamma_multiply(0.5));
+    p.rect_stroke(slab, 0.0, s, egui::StrokeKind::Inside);
+    p.line_segment([at(0.2, 0.46), at(0.8, 0.46)], Stroke::new(1.0, GREY));
+    text(p, at(0.4, 0.62), "+2.60", GREY);
+    text(p, at(0.08, 0.8), "+0.00", GREY);
+}
+
 fn roof(p: &Painter, r: Rect) {
     let at = fx(r);
     let outline = Rect::from_min_max(at(0.12, 0.12), at(0.88, 0.88));
@@ -997,6 +1026,7 @@ mod coverage_tests {
             "Railing",
             "Curtain Wall",
             "Roof",
+            "Building Section",
             "Column",
             "Beam",
             "Edit Structure",

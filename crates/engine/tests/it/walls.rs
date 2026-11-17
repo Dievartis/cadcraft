@@ -1092,3 +1092,44 @@ fn a_slab_and_a_ceiling_take_the_outline_of_a_room_closed_by_walls() {
     // A point outside every closed loop has no room.
     assert!(s.execute("slabadd", &json!({"inside": [9000, 9000]})).is_err());
 }
+
+#[test]
+fn a_section_draws_what_the_cut_line_goes_through() {
+    let mut s = metric();
+    // A room of 6 × 4 m: walls 3 m high, a window in the east wall, a floor slab with an opening, a column and a beam, a false ceiling.
+    s.execute("walladd", &json!({"points": [[0, 0], [6000, 0], [6000, 4000], [0, 4000], [0, 0]], "thickness": 200})).unwrap();
+    s.execute("openingadd", &json!({"kind": "window", "at": [6000, 2000]})).ok();
+    let slab = s.execute("slabadd", &json!({"points": [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], "thickness": 200, "elevation": 0.0})).unwrap();
+    s.execute("slabhole", &json!({"handle": slab["handle"], "points": [[2000, 1500], [3000, 1500], [3000, 2500], [2000, 2500]]})).unwrap();
+    s.execute("columnadd", &json!({"at": [4500, 2000], "section": "HEA 200", "height": 3000})).unwrap();
+    s.execute("beamadd", &json!({"points": [[0, 2000], [6000, 2000]], "section": "IPE 240", "elevation": 2.7})).unwrap();
+    s.execute("ceilingadd", &json!({"points": [[300, 300], [5700, 300], [5700, 3700], [300, 3700]], "elevation": 2.6})).unwrap();
+    let r = s.execute("sectionadd", &json!({"a": [-1000, 2000], "b": [7000, 2000]})).unwrap();
+    // The line y = 2000 crosses the west and east walls, the slab in two stretches round its opening, the column and the ceiling.
+    assert_eq!(r["walls"].as_u64(), Some(2), "{r}");
+    assert_eq!(r["slabs"].as_u64(), Some(1), "{r}");
+    assert_eq!(r["columns"].as_u64(), Some(1), "{r}");
+    assert_eq!(r["ceilings"].as_u64(), Some(1), "{r}");
+    assert!(r["beams"].as_u64().unwrap() >= 1, "{r}");
+    assert!((r["width"].as_f64().unwrap() - 8000.0).abs() < 1e-6);
+    // The cut line and its two letters are in plan, and the picture is one block reference on its own layer.
+    let on = |s: &Session, layer: &str| s.doc().unwrap().model.iter().filter(|e| e.common.layer == layer).count();
+    assert_eq!(on(&s, cadcraft_doc::SECTION_LINE_LAYER), 3);
+    assert_eq!(on(&s, cadcraft_doc::SECTION_LAYER), 1);
+    // A second section is named B; a cut line with no length or a bad place is refused.
+    let b = s.execute("sectionadd", &json!({"a": [-1000, 1000], "b": [7000, 1000], "at": [0, -10000]})).unwrap();
+    assert!(b["handle"].is_string());
+    for bad in [
+        json!({"a": [0, 0], "b": [0, 0]}),
+        json!({"a": [0, 0]}),
+        json!({"a": [0, 0], "b": [1000, 0], "at": "here"}),
+        json!({"a": [f64::NAN, 0], "b": [1, 0]}),
+    ] {
+        assert!(s.execute("sectionadd", &bad).is_err(), "{bad}");
+    }
+    // The interactive form.
+    for t in ["sectionadd", "-1000,3000", "7000,3000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    assert_eq!(on(&s, cadcraft_doc::SECTION_LAYER), 3);
+}

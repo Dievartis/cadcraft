@@ -1894,3 +1894,8 @@ menu	View	视图
 	Slope area (m²)	坡面面积 (m²)
 	Rise (m)	屋顶高度 (m)
 	Ridge length (m)	屋脊长度 (m)
+	Click the two ends of the cut line across the plan, so that it goes through the walls, slabs, columns and beams to show.	点击穿过平面的剖切线的两个端点，使其经过要显示的墙、楼板、柱和梁。
+	Click where the section goes, or press Enter to put it to the right of the drawing.	点击剖面图的放置位置，或按 Enter 将其放在图形右侧。
+	The cut walls are drawn with their openings, with the slabs, steel columns and beams and false ceilings at their elevations, and the levels in the margin.	被剖切的墙连同洞口一起绘出，楼板、钢柱、钢梁和吊顶按其标高绘出，标高标注在边缘。
+	It is a picture made now: draw a new section after changing the plan. Slopes are not drawn.	这是当前生成的图像：修改平面后请重新绘制剖面。坡度不绘制。
+	Building Section	剖面图
