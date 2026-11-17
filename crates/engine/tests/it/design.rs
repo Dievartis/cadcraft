@@ -190,3 +190,34 @@ fn a_curtain_wall_is_drawn_counted_and_edited() {
     assert_eq!(t["curtainWalls"].as_u64(), Some(2), "{t}");
     assert!(t["curtainAreaM2"].as_f64().unwrap() > 32.0, "{t}");
 }
+
+#[test]
+fn a_roof_is_drawn_from_points_or_from_a_room_and_edited() {
+    use cadcraft_doc::{RoofKind, roof_of};
+    let mut s = metric();
+    let r = s.execute("roofadd", &json!({"points": [[0, 0], [10000, 0], [10000, 6000], [0, 6000]], "pitch": 30})).unwrap();
+    let t30 = 30f64.to_radians().tan();
+    assert!((r["rise"].as_f64().unwrap() - 3.0 * t30).abs() < 1e-9 && (r["ridge"].as_f64().unwrap() - 10.0).abs() < 1e-9, "{r}");
+    assert!((r["planArea"].as_f64().unwrap() - 60.0).abs() < 1e-9);
+    let h = Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    s.execute("roofedit", &json!({"handle": r["handle"], "kind": "hip", "pitch": 40, "name": "TOIT"})).unwrap();
+    let p = roof_of(s.doc().unwrap().entity(h).unwrap()).expect("a roof");
+    assert_eq!((p.kind, p.pitch_deg, p.name.as_str()), (RoofKind::Hip, 40.0, "TOIT"));
+    for bad in [
+        json!({"points": [[0, 0], [1000, 0]]}),
+        json!({"points": [[0, 0], [1000, 0], [0, 1000]], "pitch": 95}),
+        json!({"points": [[0, 0], [1000, 0], [0, 1000]], "kind": "dome"}),
+    ] {
+        assert!(s.execute("roofadd", &bad).is_err(), "{bad}");
+    }
+    assert!(s.execute("roofedit", &json!({"handle": "FFFF", "pitch": 20})).is_err());
+    // From a room closed by walls.
+    s.execute("walladd", &json!({"points": [[20000, 0], [26000, 0], [26000, 4000], [20000, 4000], [20000, 0]], "thickness": 200})).unwrap();
+    let w = s.execute("roofadd", &json!({"inside": [23000, 2000]})).unwrap();
+    assert!((20.0..27.0).contains(&w["planArea"].as_f64().unwrap()), "{w}");
+    // The interactive form.
+    for t in ["roofadd", "0,10000", "8000,10000", "8000,14000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    assert_eq!(s.doc().unwrap().model.iter().filter(|e| roof_of(e).is_some()).count(), 3);
+}

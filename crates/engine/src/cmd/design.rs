@@ -59,6 +59,9 @@ pub struct DesignLastUsed {
     pub rail_height_mm: f64,
     /// A curtain wall's height, mm.
     pub curtain_height_mm: f64,
+    /// A roof's slope, degrees, and the kind of the last one.
+    pub roof_pitch_deg: f64,
+    pub roof_kind: cadcraft_doc::RoofKind,
 }
 
 impl Default for DesignLastUsed {
@@ -72,6 +75,8 @@ impl Default for DesignLastUsed {
             width_mm: 1000.0,
             rail_height_mm: 1000.0,
             curtain_height_mm: 3000.0,
+            roof_pitch_deg: 30.0,
+            roof_kind: cadcraft_doc::RoofKind::Gable,
         }
     }
 }

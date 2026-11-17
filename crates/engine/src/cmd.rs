@@ -32,6 +32,7 @@ mod part;
 mod pipe;
 mod pipe_riser;
 mod riser;
+mod roof;
 mod slab;
 mod structure;
 mod takeoff;
@@ -242,6 +243,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(slab::specs());
         v.extend(design::specs());
         v.extend(curtain::specs());
+        v.extend(roof::specs());
         v.extend(structure::specs());
         v.extend(duct_acc::specs());
         v.extend(zone::specs());

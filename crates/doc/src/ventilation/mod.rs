@@ -34,6 +34,7 @@ mod pipe_networks;
 mod pipe_riser;
 mod refrigerant;
 mod riser;
+mod roof;
 mod single_line;
 mod slab;
 mod space;
@@ -75,6 +76,7 @@ pub use pipe_networks::*;
 pub use pipe_riser::*;
 pub use refrigerant::{OutletReport, PartReport, RefrigerantNetwork, RefrigerantReport};
 pub use riser::*;
+pub use roof::*;
 pub use single_line::*;
 pub use slab::*;
 pub use space::*;
@@ -120,6 +122,7 @@ fn hvac_layer_color(name: &str) -> Option<cadcraft_color::Color> {
             .or_else(|| structure::structure_layer_color(name))
             .or_else(|| design::design_layer_color(name))
             .or_else(|| curtain::curtain_layer_color(name))
+            .or_else(|| roof::roof_layer_color(name))
             .or_else(|| part::part_layer_color(name))
             .or_else(|| elec::elec_layer_color(name))
             .or_else(|| control::control_layer_color(name))
