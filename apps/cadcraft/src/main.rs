@@ -162,6 +162,7 @@ pub fn install_io() {
 fn services() -> Services {
     Services {
         pick_open: Some(Box::new(|| file_dialog(&Pick::Open).pick_file().map(|p| p.to_string_lossy().to_string()))),
+        pick_image: Some(Box::new(|| file_dialog(&Pick::Image).pick_file().map(|p| p.to_string_lossy().to_string()))),
         pick_plot_style_open: Some(Box::new(|| file_dialog(&Pick::PlotStyleOpen).pick_file().map(|p| p.to_string_lossy().to_string()))),
         pick_plot_style_save: Some(Box::new(|name: &str| {
             file_dialog(&Pick::PlotStyleSave(name.into())).save_file().map(|p| p.to_string_lossy().to_string())
@@ -182,6 +183,10 @@ fn services() -> Services {
 /// macOS sheets.
 fn filters(pick: &Pick) -> Vec<(&'static str, Vec<&'static str>)> {
     match pick {
+        Pick::Image => vec![
+            (i18n::t("Raster images (PNG, JPEG, BMP, TIFF)"), vec!["png", "jpg", "jpeg", "bmp", "tif", "tiff"]),
+            (i18n::t("All files"), vec!["*"]),
+        ],
         Pick::Open => vec![
             (i18n::t("Drawings (DWG, DXF)"), vec!["dwg", "dxf", "dwt"]),
             (i18n::t("SVG drawings (SVG, SVGZ)"), vec!["svg", "svgz"]),

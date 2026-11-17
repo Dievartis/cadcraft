@@ -228,6 +228,7 @@ impl Default for UiState {
 #[derive(Default)]
 pub struct Services {
     pub pick_open: Option<Box<dyn Fn() -> Option<String>>>,
+    pub pick_image: Option<Box<dyn Fn() -> Option<String>>>,
     /// Select a native CADCraft plot-style JSON file.
     pub pick_plot_style_open: Option<Box<dyn Fn() -> Option<String>>>,
     /// Save a native CADCraft plot-style JSON file.
@@ -255,6 +256,7 @@ pub struct Services {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pick {
     Open,
+    Image,
     Save(String),
     PlotStyleOpen,
     PlotStyleSave(String),
@@ -474,6 +476,7 @@ impl CadApp {
     fn pick_for(&mut self, pick: Pick, bound: bool, then: PickDone) -> Option<Result<Value, String>> {
         let available = match pick {
             Pick::Open => self.services.pick_open.is_some(),
+            Pick::Image => self.services.pick_image.is_some(),
             Pick::PlotStyleOpen => self.services.pick_plot_style_open.is_some(),
             Pick::PlotStyleSave(_) => self.services.pick_plot_style_save.is_some(),
             Pick::Save(_) => self.services.pick_save.is_some(),
@@ -508,6 +511,7 @@ impl CadApp {
         }
         let path = match &pick {
             Pick::Open => self.services.pick_open.as_ref().and_then(|f| f()),
+            Pick::Image => self.services.pick_image.as_ref().and_then(|f| f()),
             Pick::PlotStyleOpen => self.services.pick_plot_style_open.as_ref().and_then(|f| f()),
             Pick::PlotStyleSave(name) => self.services.pick_plot_style_save.as_ref().and_then(|f| f(name)),
             Pick::Save(name) => self.services.pick_save.as_ref().and_then(|f| f(name)),

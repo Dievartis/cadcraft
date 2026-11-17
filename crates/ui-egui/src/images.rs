@@ -70,7 +70,7 @@ pub fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
         .unwrap_or_default();
     ui.horizontal(|ui| {
         if ui.button("Attach…").clicked() {
-            if let Some(result) = app.pick_then(Pick::Open, |app, path| app.run("imageattach", json!({"path": path}))) {
+            if let Some(result) = app.pick_then(Pick::Image, |app, path| app.run("imageattach", json!({"path": path}))) {
                 if let Err(error) = result {
                     app.set_status(error);
                 }
