@@ -1,0 +1,18 @@
+[package]
+name = "craft-dwg"
+description = "Bounded DWG↔DXF byte bridge with an optional child-process worker (craft-libs 7bb6c90, built for wasm32 too)"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+repository = "https://github.com/storytold/craft-libs"
+
+# A copy of craft-libs `crates/dwg` at 7bb6c90 with one change: wasm32 builds acadrust and the bridge too (CADCraft PR #2512, "DWG in the web build"),
+# so the web build opens and saves DWG instead of saying to use DXF. acadrust uses `web-time` for its clocks, runs its parallel stages sequentially on
+# wasm32 and memory-maps files only on native targets. Kept here until craft-libs builds the bridge for wasm32; then the `[patch]` in the root
+# Cargo.toml and this directory go, and the `craft-dwg` revision moves.
+
+# acadrust is used unmodified; only FreeBSD aarch64 is left out (0.6.6 passes a `*const c_char` to its own `*const i8` sysctlbyname there).
+[target.'cfg(not(all(target_os = "freebsd", target_arch = "aarch64")))'.dependencies]
+acadrust = "=0.6.6"
+log = "0.4"
