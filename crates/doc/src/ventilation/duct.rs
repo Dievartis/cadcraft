@@ -1021,13 +1021,14 @@ impl DuctParams {
         }
     }
 
-    /// The cone where the run joins a larger or smaller one, drawn only where no elbow is: the radius of the run it joins, its
-    /// length and whether it is at the run's far end. `r` is the run's own radius, drawing units.
+    /// The cone where the run joins a larger or smaller one: the radius it starts from, its length and whether it is at the run's far end. It
+    /// starts where the straight run does, after what an elbow at that end takes. `r` is the run's own radius, drawing units.
     fn cone(&self, r: f64) -> Option<(f64, f64, bool)> {
         let (trim0, trim1) = (self.units.to_units(self.trim_start_mm), self.units.to_units(self.trim_end_mm));
-        self.reducer.filter(|red| if red.at_end { trim1 <= 0.0 } else { trim0 <= 0.0 }).map(|red| {
+        self.reducer.map(|red| {
             let r0 = self.units.to_units(red.from_mm) / 2.0;
-            let len = ((r0 - r).abs() / REDUCER_HALF_ANGLE_DEG.to_radians().tan()).min(0.4 * self.length);
+            let room = (self.length - trim0 - trim1).max(0.0);
+            let len = ((r0 - r).abs() / REDUCER_HALF_ANGLE_DEG.to_radians().tan()).min(0.4 * room);
             (r0, len, red.at_end)
         })
     }
@@ -1038,8 +1039,8 @@ impl DuctParams {
         let r = self.units.to_units(self.plan_width_mm()) / 2.0;
         let (trim0, trim1) = (self.units.to_units(self.trim_start_mm), self.units.to_units(self.trim_end_mm));
         let (x0, x1) = match self.cone(r) {
-            Some((_, len, false)) => (len, self.length - trim1),
-            Some((_, len, true)) => (trim0, self.length - len),
+            Some((_, len, false)) => (trim0 + len, self.length - trim1),
+            Some((_, len, true)) => (trim0, self.length - trim1 - len),
             None => (trim0, self.length - trim1),
         };
         (x0.min(self.length), x1.max(x0).min(self.length))
@@ -1199,17 +1200,18 @@ impl DuctParams {
         // What an elbow takes at each end; a cone is drawn only where no elbow is.
         let cone = self.cone(r);
         let (x0, x1) = self.straight_range();
+        let (trim0, trim1) = (self.units.to_units(self.trim_start_mm), self.units.to_units(self.trim_end_mm));
         // The stretches drawn: the run less where it passes under another duct.
         let solid = self.solid_stretches(x0, x1);
         for sign in [1.0, -1.0] {
             for (k, (s, e)) in solid.iter().copied().enumerate() {
                 let mut pts = Vec::new();
                 if let (Some((r0, _, false)), 0) = (cone, k) {
-                    pts.push(Vec2::new(0.0, sign * r0));
+                    pts.push(Vec2::new(trim0, sign * r0));
                 }
                 pts.extend(self.side_points(s, e, sign * r));
                 if let (Some((r0, _, true)), true) = (cone, k + 1 == solid.len()) {
-                    pts.push(Vec2::new(self.length, sign * r0));
+                    pts.push(Vec2::new(self.length - trim1, sign * r0));
                 }
                 pieces.push(HvacPiece {
                     layer,
@@ -1304,7 +1306,7 @@ impl DuctParams {
         }
         // A line across where the cone meets the straight run.
         if let Some((_, len, at_end)) = cone {
-            let x = if at_end { self.length - len } else { len };
+            let x = if at_end { self.length - trim1 - len } else { trim0 + len };
             pieces.push(HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(Vec2::new(x, -r)), b: v3(Vec2::new(x, r)) }) });
         }
         let mut text = self.size_label();

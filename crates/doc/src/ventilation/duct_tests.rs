@@ -2212,6 +2212,17 @@ fn a_run_ending_on_the_side_of_another_of_another_width_gets_a_reducer_and_an_el
     p.diameter_mm = 315.0;
     d.regenerate_duct(b, &p).unwrap();
     d.draw_duct_elbows(&Space::Model).unwrap();
-    assert!(duct_of(d.entity(a).unwrap()).unwrap().reducer.is_none() && duct_of(d.entity(b).unwrap()).unwrap().reducer.is_none());
-    assert!(duct_of(d.entity(b).unwrap()).unwrap().elbow.is_some());
+    assert!(duct_of(d.entity(b).unwrap()).unwrap().elbow.is_some(), "the later run has the elbow, drawn at its own width");
+    assert_eq!(duct_of(d.entity(b).unwrap()).unwrap().reducer, None);
+    // The other run takes the cone, from the elbow's width, just before the bend.
+    let first = duct_of(d.entity(a).unwrap()).unwrap();
+    assert_eq!(first.reducer, Some(DuctReducer { from_mm: 315.0, at_end: true }));
+    assert!(first.straight_range().1 < first.length - first.trim_end_mm, "the cone takes a stretch before the bend");
+    // The sides end at the bend with the width of the elbow, and the straight stretch stops short of the bend by the cone.
+    let sides: Vec<Vec2> = polylines(&first.generate(false).unwrap()).into_iter().flatten().collect();
+    let tangent = first.units.to_units(first.trim_end_mm);
+    assert!(
+        sides.iter().any(|v| (v.x - (first.length - tangent)).abs() < 1e-6 && (v.y.abs() - first.units.to_units(315.0) / 2.0).abs() < 1e-6),
+        "{sides:?}"
+    );
 }

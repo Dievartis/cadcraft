@@ -5,7 +5,8 @@
 //!
 //! Where two runs of another width meet (end to end, or a run ending on the side of another) the one that joins the other gets a reducer, the cone from the
 //! other's width; it is drawn again when either run changes size or shape, and taken away when the widths are equal again. A reducer the sizing drew stays on
-//! the run that has it. A joint that has an elbow draws no cone.
+//! the run that has it. At a joint that has an elbow the cone is on the other run (the elbow is drawn at its own run's width, and the cone goes from that
+//! width to the other run's), just before the bend.
 
 use cadcraft_geom::Vec2;
 
@@ -97,8 +98,7 @@ fn joints(runs: &[Run], tol: f64) -> Vec<[(usize, bool); 2]> {
 /// The reducer each run has once the elbows are decided (`next`: the elbow and the length each end gives up to it). See the module's text for the rules.
 fn reducers(runs: &[Run], joints: &[[(usize, bool); 2]], next: &[(Option<DuctElbow>, f64, f64)], tol: f64) -> Vec<Option<DuctReducer>> {
     let width = |k: usize| runs.get(k).map_or(0.0, |r| r.params.plan_width_mm());
-    // A cone takes the end of a run only where no elbow does.
-    let open = |k: usize, at_end: bool| next.get(k).is_some_and(|n| (if at_end { n.2 } else { n.1 }) <= 0.0);
+    let elbow_at = |k: usize, at_end: bool| next.get(k).is_some_and(|n| n.0.is_some_and(|e| e.at_end == at_end));
     let mut out: Vec<Option<DuctReducer>> = runs.iter().map(|r| r.params.reducer).collect();
     // Whether `k` can take a reducer at `at_end` (it has one reducer, at one end).
     fn can_hold(out: &[Option<DuctReducer>], k: usize, at_end: bool) -> bool {
@@ -115,11 +115,11 @@ fn reducers(runs: &[Run], joints: &[[(usize, bool); 2]], next: &[(Option<DuctElb
     // Two runs end to end: the one that has a reducer there keeps it, else the later one takes it.
     for j in joints {
         let [(a, ae), (b, be)] = *j;
-        if !open(a, ae) || !open(b, be) {
-            continue;
-        }
         let differs = (width(a) - width(b)).abs() > 0.5;
-        let (holder, other) = if has(&out, a, ae) && !has(&out, b, be) {
+        // The run that has the elbow is drawn at its own width: the other one takes the cone.
+        let (holder, other) = if elbow_at(a, ae) {
+            ((b, be), (a, ae))
+        } else if elbow_at(b, be) || (has(&out, a, ae) && !has(&out, b, be)) {
             ((a, ae), (b, be))
         } else if has(&out, b, be) || can_hold(&out, b, be) {
             ((b, be), (a, ae))
@@ -137,7 +137,7 @@ fn reducers(runs: &[Run], joints: &[[(usize, bool); 2]], next: &[(Option<DuctElb
     for (k, r) in runs.iter().enumerate() {
         for at_end in [false, true] {
             let p = r.end(at_end);
-            if !open(k, at_end) || joints.iter().any(|j| j.contains(&(k, at_end))) {
+            if joints.iter().any(|j| j.contains(&(k, at_end))) {
                 continue;
             }
             let others: Vec<usize> = runs
