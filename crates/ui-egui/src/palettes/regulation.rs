@@ -4,7 +4,7 @@
 use cadcraft_doc::{CableUsage, ControlGroup, ControlKind};
 use egui::{Rect, Stroke, vec2};
 
-use super::building::{header, open_id, row_button, row_tip, sections_id, separator};
+use super::building::{header, open_id, row_tip, sections_id, separator};
 use super::hvachelp;
 use crate::CadApp;
 use crate::theme::Tokens;
@@ -74,18 +74,20 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         ] {
             header(ui, title);
             for kind in ControlKind::ALL.into_iter().filter(|k| k.group() == group) {
-                if row_button(ui, crate::i18n::t(kind.name()), kind == current, |p, r| paint_control(p, r, kind)) {
+                if row_tip(ui, crate::i18n::t(kind.name()), "", Some("Control Device"), kind == current, |p, r| paint_control(p, r, kind)) {
                     chosen = Some(kind);
                 }
             }
-            if group == ControlGroup::Automation && row_button(ui, crate::i18n::t("Bus cable"), false, paint_bus) {
+            if group == ControlGroup::Automation
+                && row_tip(ui, crate::i18n::t("Bus cable"), crate::i18n::t("The cable of a control bus: its circuit has the name of the bus."), Some("Bus cable"), false, paint_bus)
+            {
                 bus = true;
             }
             ui.add_space(6.0);
             separator(ui);
         }
         header(ui, "Points");
-        if row_button(ui, crate::i18n::t("Check Controls"), false, paint_points) {
+        if row_tip(ui, crate::i18n::t("Check Controls"), crate::i18n::t("Says what is wrong with the controls: points, controllers, buses and addresses."), Some("Check Controls"), false, paint_points) {
             check = true;
         }
         if row_tip(
@@ -94,13 +96,13 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
             crate::i18n::t(
                 "Writes the address beside every object that has one: control devices, equipment, air handling units, electrical devices.",
             ),
-            None,
+            Some("Addresses"),
             false,
             paint_address,
         ) {
             addresses = Some(true);
         }
-        if row_button(ui, crate::i18n::t("Hide Addresses"), false, paint_address) {
+        if row_tip(ui, crate::i18n::t("Hide Addresses"), "", Some("Addresses"), false, paint_address) {
             addresses = Some(false);
         }
         if row_tip(

@@ -5,7 +5,7 @@
 use cadcraft_doc::{CableUsage, DeviceKind};
 use egui::{Rect, Stroke, pos2, vec2};
 
-use super::building::{header, open_id, row_button, row_tip, sections_id, separator};
+use super::building::{header, open_id, row_tip, sections_id, separator};
 use super::hvachelp;
 use crate::CadApp;
 use crate::theme::Tokens;
@@ -182,7 +182,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         for (title, kinds) in groups {
             header(ui, title);
             for kind in kinds {
-                if row_button(ui, crate::i18n::t(kind.name()), *kind == current, |p, r| paint_device(p, r, *kind)) {
+                if row_tip(ui, crate::i18n::t(kind.name()), "", Some("Electrical Device"), *kind == current, |p, r| paint_device(p, r, *kind)) {
                     chosen_device = Some(*kind);
                 }
             }
@@ -196,32 +196,32 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
             (CableUsage::Data, "Data cable"),
             (CableUsage::Safety, "Safety cable"),
         ] {
-            if row_button(ui, crate::i18n::t(label), u == usage, |p, r| paint_cable(p, r, u)) {
+            if row_tip(ui, crate::i18n::t(label), "", Some("Cable"), u == usage, |p, r| paint_cable(p, r, u)) {
                 chosen_usage = Some(u);
             }
         }
         ui.add_space(6.0);
         separator(ui);
         header(ui, "Circuits");
-        if row_button(ui, crate::i18n::t("Assign to Circuit"), false, paint_check) {
+        if row_tip(ui, crate::i18n::t("Assign to Circuit"), crate::i18n::t("Puts the selected devices, cables and equipment on one circuit."), Some("Assign to Circuit"), false, paint_check) {
             start = Some("circuitassign");
         }
-        if row_button(ui, crate::i18n::t("Check Circuits"), false, paint_check) {
+        if row_tip(ui, crate::i18n::t("Check Circuits"), crate::i18n::t("Checks the load, the sections, the voltage drop and the short-circuit current of every circuit."), Some("Check Circuits"), false, paint_check) {
             check = true;
         }
-        if row_button(ui, crate::i18n::t("Size Circuits"), false, paint_size) {
+        if row_tip(ui, crate::i18n::t("Size Circuits"), crate::i18n::t("Writes on the cables of each circuit the section it needs."), Some("Size Circuits"), false, paint_size) {
             size = true;
         }
-        if row_button(ui, crate::i18n::t("Check Lighting"), false, paint_lux) {
+        if row_tip(ui, crate::i18n::t("Check Lighting"), crate::i18n::t("Compares the illuminance of each space with the regulation's minimum."), Some("Check Lighting"), false, paint_lux) {
             lighting = true;
         }
-        if row_button(ui, crate::i18n::t("Check Emergency Lighting"), false, paint_lux) {
+        if row_tip(ui, crate::i18n::t("Check Emergency Lighting"), crate::i18n::t("Says where emergency lighting or an exit sign is missing."), Some("Check Emergency Lighting"), false, paint_lux) {
             emergency = true;
         }
-        if row_button(ui, crate::i18n::t("Circuit Legend"), false, super::thumbs::paint_quantities) {
+        if row_tip(ui, crate::i18n::t("Circuit Legend"), crate::i18n::t("A row for each circuit: its colour, name, cable, length, power and breaker."), Some("Circuit Legend"), false, super::thumbs::paint_quantities) {
             start = Some("circuitlegend");
         }
-        if row_button(ui, crate::i18n::t("Single-Line Diagram"), false, super::thumbs::paint_quantities) {
+        if row_tip(ui, crate::i18n::t("Single-Line Diagram"), crate::i18n::t("The boards with their breakers and, for each circuit, its breaker, cable and load."), Some("Single-Line Diagram"), false, super::thumbs::paint_quantities) {
             start = Some("singleline");
         }
         if row_tip(
@@ -237,7 +237,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         ui.add_space(6.0);
         separator(ui);
         header(ui, "Quantities");
-        if row_button(ui, crate::i18n::t("Electrical Quantities"), false, super::thumbs::paint_quantities) {
+        if row_tip(ui, crate::i18n::t("Electrical Quantities"), crate::i18n::t("The cables, devices, boards and loads of the level, for Excel."), Some("Electrical Quantities"), false, super::thumbs::paint_quantities) {
             start = Some("electakeoff");
         }
     });

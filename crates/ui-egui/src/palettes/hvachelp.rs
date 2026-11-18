@@ -56,9 +56,13 @@ const HELPS: &[Help] = &[
     Help {
         id: "Height Zone",
         steps: &[
-            "Click the corners of the outline where ducts have less height (a beam, a low ceiling), seen from above.",
-            "Type the height available for the ducts, in mm. An altitude is optional.",
-            "Size Ducts cuts the ducts at the edges and sizes them flat inside the zone.",
+            "Click the corners of the outline where ducts have less height (under a beam, a low ceiling), seen from above, then press Enter.",
+            "Type the height available for the ducts, in mm: the void under the beam. Sizing keeps a margin back for the hangers (100 mm by default), so 250 mm available gives a duct 150 mm high.",
+            "The altitude of the underside is optional: ducts under the zone sit at that altitude, and a step (two 45° elbows) is drawn between two runs at other altitudes as soon as they are laid.",
+            "Size Ducts cuts the ducts at the edges of the zone and sizes the part inside flat: a round duct that is too tall becomes rectangular, as wide as the flow needs.",
+            "The duct must be part of a network: start it on a unit's collar and end it on a terminal or a riser. A duct that leads to none is left out of the sizing, and the message says so.",
+            "A section you typed on a duct is kept: a duct you gave Ø355 stays Ø355 under the beam, and the sizing warns that it is too tall. Set its section to Auto in Properties to let the zone change it.",
+            "To change the zone afterwards, select it and edit its height or its altitude in Properties, then run Size Ducts again.",
         ],
         figure: zone,
     },
@@ -314,6 +318,178 @@ const HELPS: &[Help] = &[
         ],
         figure: slab_opening,
     },
+    Help {
+        id: "Electrical Device",
+        steps: &[
+            "Choose a kind of device (socket, switch, luminaire, distribution board…), then click where it goes; each click places one. At the command line you can type Name, Circuit, Power and Height first.",
+            "Give each device its circuit, written board-circuit (TD1-C3): the board's name, a hyphen, the circuit's number. Devices with the same circuit name are on the same circuit.",
+            "The power (W) is what the circuit carries; a luminaire's flux (lm) is what Check Lighting uses. A distribution board has a main breaker (A) and a size, and is the source of its circuits.",
+            "A ceiling light can snap to the centre of the ceiling tile it is on (Ceiling Snap, see Ceiling Grid). The address of a KNX or DALI device is written beside it.",
+            "Everything can be changed later in Properties: name, circuit, power, height, address. Several selected devices change together.",
+        ],
+        figure: elec_device,
+    },
+    Help {
+        id: "Cable",
+        steps: &[
+            "Choose the use (power, lighting, data, safety), then click the points of the run: one cable is drawn per segment, seen from above, in the colour of its use.",
+            "Name its circuit (TD1-C3): the cables of one circuit share a colour, and the check, the sizing and the quantities group them by circuit.",
+            "In Properties or at the command line: single or three phases, copper or aluminium, PVC or PR insulation, the laying letter (B, C, E, F), the section (empty: to be sized), the breaker (A), the power factor and the ambient temperature.",
+            "The length counted for a cable is its drawing plus Extra (metres of rises and slack for the run). Use an Electrical Riser for the height between floors.",
+            "Cables that carry several circuits in one bundle are marked Grouped: the current capacity is reduced as the standard says.",
+        ],
+        figure: cable_fig,
+    },
+    Help {
+        id: "Assign to Circuit",
+        steps: &[
+            "Select the devices, cables, HVAC equipment and air handling units that belong together, then start the tool.",
+            "Type the circuit name (TD1-C3). They all take it; typing nothing puts them on no circuit.",
+            "The power of an HVAC unit or equipment (its electrical kW in Properties) then counts on that circuit, and its cables are sized for it.",
+            "Run Check Circuits afterwards: it says what the circuit carries and what is wrong with it.",
+        ],
+        figure: circuit_fig,
+    },
+    Help {
+        id: "Check Circuits",
+        steps: &[
+            "Run it when the devices, equipment and cables are drawn and each is on its circuit. No selection is needed: every circuit of the drawing is checked.",
+            "For each circuit: its power (with the share on at once), the design current, the section the heating needs, the one the voltage drop needs (3 % for lighting, 5 % for the rest from the board), the section drawn and the breaker.",
+            "It also gives the short-circuit current at the end of the cable (maximum and minimum), the longest cable the magnetic trip still sees, the breaking capacity against the source's current and the ratio to the board's main breaker (selectivity).",
+            "Boards fed by a circuit of another board are followed: the load, the short-circuit current and the voltage drop add up down the chain.",
+            "Options: the short-circuit current at the origin (kA, given by the network operator: 10 by default), the breakers' breaking capacity, the curve B, C or D and the share of power on at once. The values are design values: check them with the manufacturer.",
+        ],
+        figure: circuit_fig,
+    },
+    Help {
+        id: "Size Circuits",
+        steps: &[
+            "Run it after Check Circuits shows what each circuit needs. Without a selection it sizes every circuit.",
+            "It writes on the cables of each circuit the section it needs and, where there is none, the breaker rating.",
+            "A section you typed is kept, unless you ask to overwrite the sections already given.",
+            "Run Check Circuits again: it confirms the voltage drop and the short-circuit current with the new sections.",
+        ],
+        figure: circuit_fig,
+    },
+    Help {
+        id: "Check Lighting",
+        steps: &[
+            "Draw the spaces (rooms) of the floor and give each its use; place the luminaires inside them and type the flux of each (lm) in Properties.",
+            "The tool computes the illuminance each space gets: flux × utilisation × maintenance ÷ area (utilisation 0.5 and maintenance 0.8 by default).",
+            "It compares the result with the minimum of the Code du travail (article R4223-4: 40 lux for a circulation, 120 for a room…) and lists the spaces that are too dark.",
+            "It is a quick estimate, not a lighting study: the minimum values are the ones of the regulation, to be confirmed for your building.",
+        ],
+        figure: lighting_fig,
+    },
+    Help {
+        id: "Check Emergency Lighting",
+        steps: &[
+            "Place the emergency lights and the exit signs (Safety group) and draw the spaces, naming the escape routes (circulation, couloir, hall, escalier…) and giving each room its occupants.",
+            "The check says where nothing is drawn: an escape route with no emergency light or exit sign, and a room of 100 people or more, or with more than one person for 10 m², with no emergency light.",
+            "It checks the presence only. The levels and the autonomy are those of the arrêté of 14 December 2011 and of the standard NF EN 1838, to be confirmed.",
+        ],
+        figure: lighting_fig,
+    },
+    Help {
+        id: "Circuit Legend",
+        steps: &[
+            "Start the tool and click where the upper left corner of the legend goes.",
+            "It draws one row for each circuit: a sample of its cable in its colour and line type, its name, its use, its cable, its length, its power and its breaker.",
+            "It is redrawn by itself when a circuit is named, renamed, sized or changed: there is nothing to run again.",
+        ],
+        figure: circuit_fig,
+    },
+    Help {
+        id: "Single-Line Diagram",
+        steps: &[
+            "Start the tool and click where the upper left corner of the diagram goes; with a board selected in the options, only that board is drawn.",
+            "Each board is a busbar fed by its main breaker; each circuit is a branch with its breaker and curve, its cable (3G2.5, 5G10…) and length, the minimum short-circuit current and a box with its load: devices, kW and A.",
+            "A “!” beside a circuit means the check has a warning for it. Circuits with no board drawn are listed under a dash.",
+            "A board fed by a circuit of another board shows “-> TD1” in the box of that circuit, and the load, the short-circuit current and the voltage drop follow the chain.",
+            "It is redrawn by itself when a circuit is named, sized or changed. The options (source current, breaking capacity, curve) are those of Check Circuits.",
+        ],
+        figure: single_line_fig,
+    },
+    Help {
+        id: "Electrical Riser",
+        steps: &[
+            "Start the tool and click the corners of the shaft, then press Enter. The options are Name (the same on every floor), Circuit, Up or Down.",
+            "A riser holds several lines, as the pipe risers do: in Properties, Add a line for each cable that goes through the shaft, and give each its use (power, lighting, data, safety, bus), its circuit, its section and its loads.",
+            "Type the height from floor to floor: it is added to the cable length of the circuit of each line (voltage drop, short circuit, quantities). The load that comes from the other floors is added to the circuit's load.",
+            "The arrows show the way the current goes (up or down); the end on the side of the source has the whole load of this level, the other the part that goes on to the other floors. The arrows never overlap, whatever the number of lines.",
+            "Each floor is its own drawing: the risers of two floors meet by their name.",
+        ],
+        figure: elec_riser_fig,
+    },
+    Help {
+        id: "Electrical Quantities",
+        steps: &[
+            "Draw one drawing per level, then open this tool on the level and type its name.",
+            "The tables count the cables by section and use (the vertical runs of the electrical risers included), the devices by kind with their power and flux, the boards and the loads of the HVAC equipment.",
+            "The circuits are listed as they are checked: power, current, sections, voltage drop, short circuit, breakers.",
+            "The spreadsheet button saves them for Excel, with the prices you type; each level makes its own file.",
+        ],
+        figure: quantities,
+    },
+    Help {
+        id: "Control Device",
+        steps: &[
+            "Place the controllers, the modules and the gateways first and give each a name (AU1, MX1…): the other devices are wired to them by that name.",
+            "Then the sensors, the room controls and the actuators. In Properties type the controller each is wired to and the equipment it serves (CTA1, UI3…).",
+            "A controller or a module offers inputs and outputs (AI, AO, DI, DO); each device asks for points, a thermostat for two, a sensor for one.",
+            "Give an automation device the circuit that feeds it and, if it is on a bus, the bus and its address.",
+        ],
+        figure: points_list,
+    },
+    Help {
+        id: "Bus cable",
+        steps: &[
+            "A bus is a name, not an object: give every device and controller on it the same Bus in Properties (BUS1).",
+            "Draw its cable with this tool: the circuit of that cable has the name of the bus. Without one, Check Controls says “no bus cable is drawn”.",
+            "Say the protocol on a controller or a gateway (Modbus RTU, BACnet MS/TP, KNX TP, M-Bus): the check then tests the addresses, the number of devices on a segment and the length of cable.",
+            "The length counted is the cable drawn plus the height of the bus risers that carry the bus between floors.",
+        ],
+        figure: control_schema_fig,
+    },
+    Help {
+        id: "Check Controls",
+        steps: &[
+            "Run it when the devices and controllers are drawn. It needs no selection.",
+            "It says what each device asks of its controller and the load of each controller and module against what it offers, with the reserve left.",
+            "It tells what is wrong: a device wired to nothing or to a controller that is not drawn, a controller over its capacity, an automation device that no circuit feeds, a bus with no cable, a device that serves an object that is not drawn.",
+            "With a protocol on the bus it also checks the addresses (Modbus 1–247, BACnet MS/TP 0–127, KNX 1.1.5, M-Bus 1–250), the devices per segment and the cable length. These are usual design values: confirm them with the manufacturer.",
+        ],
+        figure: points_list,
+    },
+    Help {
+        id: "Addresses",
+        steps: &[
+            "Show Addresses writes the address beside every object that has one: control devices, equipment, air handling units and electrical devices. Hide Addresses takes them off the plan.",
+            "The address is a Modbus number, a BACnet MAC or a KNX address (1.1.5), typed in the Address line of the object's Properties.",
+            "The list tells the addresses used twice on one bus or on one controller: those are the clashes to fix.",
+        ],
+        figure: points_list,
+    },
+    Help {
+        id: "Principle Diagram",
+        steps: &[
+            "Start the tool and click where the upper left corner of the diagram goes. With a bus named in the options only that bus is drawn; else all of them.",
+            "It draws the buses, the controllers on each, and each controller with its modules as boxes: name, kind, and the points used and offered (AI, AO, DI, DO).",
+            "Under each controller are the points wired to it, with their address and type (“@3  TA1  AI”). Controllers with no bus are drawn together.",
+            "It is redrawn by itself when a control device is added, changed or erased: there is nothing to run again.",
+        ],
+        figure: control_schema_fig,
+    },
+    Help {
+        id: "Bus Riser",
+        steps: &[
+            "Start the tool and click the corners of the shaft, then press Enter. Name it the same on every floor and give the bus it carries (BUS1).",
+            "A riser can carry several lines, a bus and the data cables for example: in Properties, Add a line for each and give its use and its circuit or bus.",
+            "Type the height from floor to floor: it is added to the length of the bus, which Check Controls compares with what the protocol allows (1200 m in RS-485, 1000 m in KNX, 350 m in M-Bus).",
+            "A bus riser counts as a bus cable drawn: Check Controls no longer says there is none.",
+        ],
+        figure: elec_riser_fig,
+    },
 ];
 
 /// Asks for the help of the tool whose label is `id` to open.
@@ -563,7 +739,7 @@ mod tests {
 
     #[test]
     fn every_tool_has_a_help_window_that_draws_and_closes() {
-        assert_eq!(HELPS.len(), 32);
+        assert_eq!(HELPS.len(), 49);
         for help in HELPS {
             let mut h = Harness::builder().with_size(vec2(700.0, 500.0)).build_ui(|ui| {
                 show(ui.ctx());
@@ -976,6 +1152,142 @@ fn slab_opening(p: &Painter, r: Rect) {
     p.line_segment([hole.right_top(), hole.left_bottom()], Stroke::new(1.0, DUCT));
 }
 
+const CABLE_RED: Color32 = Color32::from_rgb(0xd0, 0x45, 0x45);
+const LIGHT_YELLOW: Color32 = Color32::from_rgb(0xe6, 0xc2, 0x2e);
+const BUS_PURPLE: Color32 = Color32::from_rgb(0x90, 0x60, 0xd0);
+
+/// A point of the figure's box from fractions of its width and height.
+fn frac(r: Rect) -> impl Fn(f32, f32) -> egui::Pos2 {
+    move |x, y| pos2(r.left() + x * r.width(), r.top() + y * r.height())
+}
+
+fn board(p: &Painter, c: egui::Pos2, label: &str) {
+    let r = Rect::from_center_size(c, vec2(44.0, 56.0));
+    p.rect_filled(r, 0.0, Color32::from_gray(40));
+    p.rect_stroke(r, 0.0, Stroke::new(1.4, Color32::WHITE), egui::StrokeKind::Inside);
+    p.text(c, egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(11.0), Color32::WHITE);
+}
+
+fn socket(p: &Painter, c: egui::Pos2) {
+    p.circle_stroke(c, 7.0, Stroke::new(1.3, Color32::WHITE));
+    p.line_segment([c + vec2(-3.0, -3.0), c + vec2(-3.0, 3.0)], Stroke::new(1.3, Color32::WHITE));
+    p.line_segment([c + vec2(3.0, -3.0), c + vec2(3.0, 3.0)], Stroke::new(1.3, Color32::WHITE));
+}
+
+fn luminaire(p: &Painter, c: egui::Pos2) {
+    p.circle_stroke(c, 8.0, Stroke::new(1.3, LIGHT_YELLOW));
+    p.line_segment([c + vec2(-5.0, -5.0), c + vec2(5.0, 5.0)], Stroke::new(1.0, LIGHT_YELLOW));
+    p.line_segment([c + vec2(-5.0, 5.0), c + vec2(5.0, -5.0)], Stroke::new(1.0, LIGHT_YELLOW));
+}
+
+fn elec_device(p: &Painter, r: Rect) {
+    let at = frac(r);
+    board(p, at(0.12, 0.5), "TD1");
+    for (y, color) in [(0.2, CABLE_RED), (0.5, CABLE_RED), (0.8, LIGHT_YELLOW)] {
+        p.line_segment([at(0.2, 0.5), at(0.4, y)], Stroke::new(1.3, color));
+        p.line_segment([at(0.4, y), at(0.62, y)], Stroke::new(1.3, color));
+    }
+    socket(p, at(0.66, 0.2));
+    socket(p, at(0.66, 0.5));
+    luminaire(p, at(0.66, 0.8));
+    text(p, at(0.74, 0.2), "TD1-C1  P1", CABLE_RED);
+    text(p, at(0.74, 0.5), "TD1-C1  P2", CABLE_RED);
+    text(p, at(0.74, 0.8), "TD1-E1  L1", LIGHT_YELLOW);
+}
+
+fn cable_fig(p: &Painter, r: Rect) {
+    let at = frac(r);
+    for (y, color, label) in
+        [(0.2, CABLE_RED, "TD1-C1  3G2.5"), (0.5, LIGHT_YELLOW, "TD1-E1  3G1.5"), (0.8, Color32::from_rgb(0x3c, 0xb0, 0x6b), "VDI  Cat6")]
+    {
+        p.line_segment([at(0.05, y), at(0.5, y)], Stroke::new(1.6, color));
+        p.line_segment([at(0.5, y), at(0.62, y - 0.12)], Stroke::new(1.6, color));
+        p.line_segment([at(0.62, y - 0.12), at(0.95, y - 0.12)], Stroke::new(1.6, color));
+        text(p, at(0.07, y - 0.1), label, color);
+    }
+    text(p, at(0.5, 0.97), "+ Extra (rises, slack)", GREY);
+}
+
+fn circuit_fig(p: &Painter, r: Rect) {
+    let at = frac(r);
+    board(p, at(0.1, 0.5), "TD1");
+    for (y, color, name) in [(0.25, CABLE_RED, "TD1-C1"), (0.75, LIGHT_YELLOW, "TD1-E1")] {
+        p.line_segment([at(0.18, 0.5), at(0.3, y)], Stroke::new(1.5, color));
+        p.line_segment([at(0.3, y), at(0.85, y)], Stroke::new(1.5, color));
+        text(p, at(0.32, y - 0.1), name, color);
+        for x in [0.5, 0.65, 0.8] {
+            if color == CABLE_RED { socket(p, at(x, y)) } else { luminaire(p, at(x, y)) }
+        }
+    }
+    text(p, at(0.32, 0.5), "230 V  12 A  16 mm²  ΔU 2.1 %", GREY);
+}
+
+fn lighting_fig(p: &Painter, r: Rect) {
+    let at = frac(r);
+    let room = Rect::from_min_max(at(0.1, 0.12), at(0.65, 0.88));
+    p.rect_stroke(room, 0.0, Stroke::new(1.6, WALL), egui::StrokeKind::Inside);
+    for (x, y) in [(0.25, 0.3), (0.5, 0.3), (0.25, 0.68), (0.5, 0.68)] {
+        luminaire(p, at(x, y));
+    }
+    text(p, at(0.7, 0.3), "Bureau 1", Color32::WHITE);
+    text(p, at(0.7, 0.45), "4 × 3000 lm", LIGHT_YELLOW);
+    text(p, at(0.7, 0.6), "≈ 320 lx  ≥ 120 lx", Color32::from_rgb(0x3c, 0xb0, 0x6b));
+    p.circle_stroke(at(0.82, 0.82), 8.0, Stroke::new(1.3, Color32::from_rgb(0xd0, 0x45, 0x45)));
+    text(p, at(0.86, 0.82), "SSI", Color32::from_rgb(0xd0, 0x45, 0x45));
+}
+
+fn single_line_fig(p: &Painter, r: Rect) {
+    let at = frac(r);
+    p.line_segment([at(0.5, 0.05), at(0.5, 0.22)], Stroke::new(1.6, Color32::WHITE));
+    p.rect_stroke(Rect::from_center_size(at(0.5, 0.15), vec2(10.0, 14.0)), 0.0, Stroke::new(1.3, Color32::WHITE), egui::StrokeKind::Inside);
+    text(p, at(0.54, 0.12), "TD1  63 A", Color32::WHITE);
+    p.line_segment([at(0.1, 0.25), at(0.9, 0.25)], Stroke::new(3.0, Color32::WHITE));
+    for (x, color, name, load) in
+        [(0.2, CABLE_RED, "C1  C16", "3.2 kW 14 A"), (0.5, LIGHT_YELLOW, "E1  B10", "1.1 kW 5 A"), (0.8, CABLE_RED, "C2  C20 !", "4.6 kW 20 A")]
+    {
+        p.line_segment([at(x, 0.25), at(x, 0.4)], Stroke::new(1.4, color));
+        p.rect_stroke(Rect::from_center_size(at(x, 0.45), vec2(10.0, 14.0)), 0.0, Stroke::new(1.3, color), egui::StrokeKind::Inside);
+        p.line_segment([at(x, 0.5), at(x, 0.7)], Stroke::new(1.4, color));
+        p.text(at(x + 0.03, 0.45), egui::Align2::LEFT_CENTER, name, egui::FontId::proportional(10.0), color);
+        let b = Rect::from_center_size(at(x, 0.8), vec2(74.0, 22.0));
+        p.rect_stroke(b, 2.0, Stroke::new(1.2, GREY), egui::StrokeKind::Inside);
+        p.text(b.center(), egui::Align2::CENTER_CENTER, load, egui::FontId::proportional(10.0), GREY);
+    }
+}
+
+fn elec_riser_fig(p: &Painter, r: Rect) {
+    // A shaft with three lines; from each symbol an arrow at 45°, parallel and apart, with its text at the end: nothing overlaps.
+    let shaft = Rect::from_min_size(pos2(r.right() - 150.0, r.top() + 10.0), vec2(110.0, 44.0));
+    p.rect_stroke(shaft, 0.0, Stroke::new(1.4, Color32::WHITE), egui::StrokeKind::Inside);
+    for (i, (color, label)) in
+        [(CABLE_RED, "TD1-C1 35 mm² 18 kW"), (LIGHT_YELLOW, "TD1-E1 6 mm² 2.5 kW"), (BUS_PURPLE, "BUS1 2 mm²")].into_iter().enumerate()
+    {
+        let centre = pos2(shaft.left() + 24.0 + 31.0 * i as f32, shaft.center().y);
+        p.circle_stroke(centre, 6.0, Stroke::new(1.3, color));
+        p.circle_filled(centre, 1.5, color);
+        let len = 36.0 + 18.0 * i as f32;
+        let end = centre + vec2(-len, len);
+        p.line_segment([centre + vec2(-4.0, 4.0), end], Stroke::new(1.2, color));
+        p.arrow(end + vec2(9.0, -9.0), vec2(-9.0, 9.0), Stroke::new(1.5, color));
+        p.text(end + vec2(-3.0, 2.0), egui::Align2::RIGHT_TOP, label, egui::FontId::proportional(10.0), color);
+    }
+}
+
+fn control_schema_fig(p: &Painter, r: Rect) {
+    let at = frac(r);
+    p.line_segment([at(0.04, 0.12), at(0.96, 0.12)], Stroke::new(2.2, BUS_PURPLE));
+    text(p, at(0.05, 0.04), "BUS1  Modbus RTU", BUS_PURPLE);
+    for (x, name) in [(0.15, "AU1"), (0.58, "AU2")] {
+        p.line_segment([at(x + 0.12, 0.12), at(x + 0.12, 0.22)], Stroke::new(1.4, BUS_PURPLE));
+        let b = Rect::from_min_size(at(x, 0.22), vec2(0.3 * r.width(), 0.26 * r.height()));
+        p.rect_stroke(b, 2.0, Stroke::new(1.3, Color32::WHITE), egui::StrokeKind::Inside);
+        p.text(b.center(), egui::Align2::CENTER_CENTER, format!("{name}  AI 4/8  DO 2/4"), egui::FontId::proportional(10.0), Color32::WHITE);
+        for (i, row) in ["@3  TA1  AI", "@4  CO2  AI"].into_iter().enumerate() {
+            text(p, at(x + 0.02, 0.6 + 0.14 * i as f32), row, GREY);
+        }
+    }
+}
+
 #[cfg(test)]
 mod coverage_tests {
     use super::*;
@@ -988,7 +1300,7 @@ mod coverage_tests {
         ids.dedup();
         assert_eq!(ids.len(), n, "one help for each tool");
         for h in HELPS {
-            assert!((3..=5).contains(&h.steps.len()), "{}: {} steps", h.id, h.steps.len());
+            assert!((3..=8).contains(&h.steps.len()), "{}: {} steps", h.id, h.steps.len());
             for step in h.steps {
                 assert_ne!(crate::i18n::tr("fr", step), *step, "{}: not translated into French: {step}", h.id);
                 assert_ne!(crate::i18n::tr("zh", step), *step, "{}: not translated into Chinese: {step}", h.id);
@@ -1033,6 +1345,24 @@ mod coverage_tests {
             "Structure Joints",
             "Structure Takeoff",
             "Slab Opening",
+            "Height Zone",
+            "Electrical Device",
+            "Cable",
+            "Assign to Circuit",
+            "Check Circuits",
+            "Size Circuits",
+            "Check Lighting",
+            "Check Emergency Lighting",
+            "Circuit Legend",
+            "Single-Line Diagram",
+            "Electrical Riser",
+            "Electrical Quantities",
+            "Control Device",
+            "Bus cable",
+            "Check Controls",
+            "Addresses",
+            "Principle Diagram",
+            "Bus Riser",
         ] {
             assert!(have(id), "{id}");
         }

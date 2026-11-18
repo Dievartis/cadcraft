@@ -1913,3 +1913,81 @@ menu	View	视图
 	Pressure (Pa)	压力 (Pa)
 	Electrical Riser	电气立管
 	Bus Riser	总线立管
+	Choose a kind of device (socket, switch, luminaire, distribution board…), then click where it goes; each click places one. At the command line you can type Name, Circuit, Power and Height first.	选择设备类型（插座、开关、灯具、配电箱……），然后点击放置位置；每次点击放置一个。在命令行中可先输入名称、回路、功率和高度。
+	Give each device its circuit, written board-circuit (TD1-C3): the board's name, a hyphen, the circuit's number. Devices with the same circuit name are on the same circuit.	为每个设备指定回路，写作 配电箱-回路（TD1-C3）：配电箱名称、连字符、回路编号。回路名称相同的设备属于同一回路。
+	The power (W) is what the circuit carries; a luminaire's flux (lm) is what Check Lighting uses. A distribution board has a main breaker (A) and a size, and is the source of its circuits.	功率（W）是回路承载的负荷；灯具的光通量（lm）用于照明检查。配电箱有总断路器（A）和尺寸，是其回路的电源。
+	A ceiling light can snap to the centre of the ceiling tile it is on (Ceiling Snap, see Ceiling Grid). The address of a KNX or DALI device is written beside it.	吊顶灯可吸附到所在吊顶板的中心（见吊顶网格）。KNX 或 DALI 设备的地址写在设备旁边。
+	Everything can be changed later in Properties: name, circuit, power, height, address. Several selected devices change together.	之后都可在“特性”中修改：名称、回路、功率、高度、地址。选中多个设备时一起修改。
+	Choose the use (power, lighting, data, safety), then click the points of the run: one cable is drawn per segment, seen from above, in the colour of its use.	选择用途（动力、照明、弱电、安全），然后点击线路的各点：每段绘制一根电缆，俯视显示，颜色由用途决定。
+	Name its circuit (TD1-C3): the cables of one circuit share a colour, and the check, the sizing and the quantities group them by circuit.	命名其回路（TD1-C3）：同一回路的电缆颜色相同，检查、选型和统计都按回路分组。
+	In Properties or at the command line: single or three phases, copper or aluminium, PVC or PR insulation, the laying letter (B, C, E, F), the section (empty: to be sized), the breaker (A), the power factor and the ambient temperature.	在“特性”或命令行中设置：单相或三相、铜或铝、PVC 或 PR 绝缘、敷设代号（B、C、E、F）、截面（留空：待选型）、断路器（A）、功率因数和环境温度。
+	The length counted for a cable is its drawing plus Extra (metres of rises and slack for the run). Use an Electrical Riser for the height between floors.	电缆的计算长度为图上长度加“附加长度”（该段的上翻和余量，单位米）。楼层之间的高度请用电气立管。
+	Cables that carry several circuits in one bundle are marked Grouped: the current capacity is reduced as the standard says.	多个回路捆扎敷设的电缆应标记为“成组”：载流量按标准降低。
+	Select the devices, cables, HVAC equipment and air handling units that belong together, then start the tool.	选中属于同一回路的设备、电缆、暖通设备和空调机组，然后启动此工具。
+	Type the circuit name (TD1-C3). They all take it; typing nothing puts them on no circuit.	输入回路名称（TD1-C3），它们都会采用该名称；留空则不属于任何回路。
+	The power of an HVAC unit or equipment (its electrical kW in Properties) then counts on that circuit, and its cables are sized for it.	暖通机组或设备的电功率（“特性”中的电气 kW）随即计入该回路，其电缆按此选型。
+	Run Check Circuits afterwards: it says what the circuit carries and what is wrong with it.	随后运行“检查回路”：它会给出回路的负荷和存在的问题。
+	Run it when the devices, equipment and cables are drawn and each is on its circuit. No selection is needed: every circuit of the drawing is checked.	在设备、器材和电缆都已绘制并各有回路后运行。无需选择：检查图中所有回路。
+	For each circuit: its power (with the share on at once), the design current, the section the heating needs, the one the voltage drop needs (3 % for lighting, 5 % for the rest from the board), the section drawn and the breaker.	对每个回路：功率（含同时系数）、设计电流、发热要求的截面、压降要求的截面（照明 3%，其他 5%，自配电箱起算）、图中截面和断路器。
+	It also gives the short-circuit current at the end of the cable (maximum and minimum), the longest cable the magnetic trip still sees, the breaking capacity against the source's current and the ratio to the board's main breaker (selectivity).	还给出电缆末端的短路电流（最大和最小）、磁脱扣仍能识别的最大长度、断路器分断能力与电源短路电流的比较，以及与配电箱总断路器的比值（选择性）。
+	Boards fed by a circuit of another board are followed: the load, the short-circuit current and the voltage drop add up down the chain.	由其他配电箱的回路供电的配电箱也会被追踪：负荷、短路电流和压降沿链路累加。
+	Options: the short-circuit current at the origin (kA, given by the network operator: 10 by default), the breakers' breaking capacity, the curve B, C or D and the share of power on at once. The values are design values: check them with the manufacturer.	选项：电源处短路电流（kA，由电网运营商提供，默认 10）、断路器分断能力、B/C/D 曲线和同时系数。这些是设计值，请与制造商核实。
+	Run it after Check Circuits shows what each circuit needs. Without a selection it sizes every circuit.	在“检查回路”显示各回路需求后运行。未选择时对所有回路选型。
+	It writes on the cables of each circuit the section it needs and, where there is none, the breaker rating.	它把各回路所需截面写入其电缆，并在没有断路器时写入断路器额定值。
+	A section you typed is kept, unless you ask to overwrite the sections already given.	您输入的截面会保留，除非要求覆盖已有截面。
+	Run Check Circuits again: it confirms the voltage drop and the short-circuit current with the new sections.	再次运行“检查回路”：用新截面确认压降和短路电流。
+	Draw the spaces (rooms) of the floor and give each its use; place the luminaires inside them and type the flux of each (lm) in Properties.	绘制本层的空间（房间）并为每个指定用途；在其中放置灯具，并在“特性”中输入各自的光通量（lm）。
+	The tool computes the illuminance each space gets: flux × utilisation × maintenance ÷ area (utilisation 0.5 and maintenance 0.8 by default).	工具计算各空间的照度：光通量 × 利用系数 × 维护系数 ÷ 面积（默认利用系数 0.5、维护系数 0.8）。
+	It compares the result with the minimum of the Code du travail (article R4223-4: 40 lux for a circulation, 120 for a room…) and lists the spaces that are too dark.	将结果与法国劳动法典的最低值比较（R4223-4：通道 40 勒克斯、房间 120 勒克斯……），并列出过暗的空间。
+	It is a quick estimate, not a lighting study: the minimum values are the ones of the regulation, to be confirmed for your building.	这只是快速估算，不是照明设计：最低值取自法规，请针对您的建筑核实。
+	Place the emergency lights and the exit signs (Safety group) and draw the spaces, naming the escape routes (circulation, couloir, hall, escalier…) and giving each room its occupants.	放置应急灯和出口标志（“安全”组），绘制空间，给疏散通道命名（circulation、couloir、hall、escalier……）并为每个房间指定人数。
+	The check says where nothing is drawn: an escape route with no emergency light or exit sign, and a room of 100 people or more, or with more than one person for 10 m², with no emergency light.	检查会指出缺失之处：没有应急灯或出口标志的疏散通道，以及 100 人及以上或每 10 m² 超过一人但没有应急灯的房间。
+	It checks the presence only. The levels and the autonomy are those of the arrêté of 14 December 2011 and of the standard NF EN 1838, to be confirmed.	仅检查是否存在。照度和续航时间以 2011 年 12 月 14 日的法令和标准 NF EN 1838 为准，需核实。
+	Start the tool and click where the upper left corner of the legend goes.	启动工具并点击图例左上角的位置。
+	It draws one row for each circuit: a sample of its cable in its colour and line type, its name, its use, its cable, its length, its power and its breaker.	为每个回路绘制一行：其电缆的颜色和线型样例、名称、用途、电缆、长度、功率和断路器。
+	It is redrawn by itself when a circuit is named, renamed, sized or changed: there is nothing to run again.	回路被命名、重命名、选型或修改时，图例会自动重绘，无需再次运行。
+	Start the tool and click where the upper left corner of the diagram goes; with a board selected in the options, only that board is drawn.	启动工具并点击图纸左上角的位置；在选项中指定配电箱时，只绘制该配电箱。
+	Each board is a busbar fed by its main breaker; each circuit is a branch with its breaker and curve, its cable (3G2.5, 5G10…) and length, the minimum short-circuit current and a box with its load: devices, kW and A.	每个配电箱是一条由总断路器供电的母线；每个回路是一条支路，含断路器和曲线、电缆（3G2.5、5G10……）及长度、最小短路电流，以及显示负荷（设备、kW、A）的方框。
+	A “!” beside a circuit means the check has a warning for it. Circuits with no board drawn are listed under a dash.	回路旁的“!”表示检查对其有警告。没有绘制配电箱的回路列在短横线之下。
+	A board fed by a circuit of another board shows “-> TD1” in the box of that circuit, and the load, the short-circuit current and the voltage drop follow the chain.	由其他配电箱回路供电的配电箱，会在该回路的方框中显示“-> TD1”，负荷、短路电流和压降沿链路传递。
+	It is redrawn by itself when a circuit is named, sized or changed. The options (source current, breaking capacity, curve) are those of Check Circuits.	回路被命名、选型或修改时会自动重绘。选项（电源电流、分断能力、曲线）与“检查回路”相同。
+	Start the tool and click the corners of the shaft, then press Enter. The options are Name (the same on every floor), Circuit, Up or Down.	启动工具并点击竖井的各角，然后按回车。选项有：名称（各层相同）、回路、向上或向下。
+	A riser holds several lines, as the pipe risers do: in Properties, Add a line for each cable that goes through the shaft, and give each its use (power, lighting, data, safety, bus), its circuit, its section and its loads.	立管可容纳多条线路，与管道立管一样：在“特性”中为穿过竖井的每根电缆添加一行，并指定用途（动力、照明、弱电、安全、总线）、回路、截面和负荷。
+	Type the height from floor to floor: it is added to the cable length of the circuit of each line (voltage drop, short circuit, quantities). The load that comes from the other floors is added to the circuit's load.	输入层高：它会加入每条线路所属回路的电缆长度（压降、短路、统计）。来自其他楼层的负荷加入该回路的负荷。
+	The arrows show the way the current goes (up or down); the end on the side of the source has the whole load of this level, the other the part that goes on to the other floors. The arrows never overlap, whatever the number of lines.	箭头表示电流方向（向上或向下）；靠近电源一端显示本层全部负荷，另一端显示继续流向其他楼层的部分。无论线路多少，箭头都不会重叠。
+	Each floor is its own drawing: the risers of two floors meet by their name.	每层是独立的图纸：不同楼层的立管通过名称对应。
+	Draw one drawing per level, then open this tool on the level and type its name.	每个楼层一张图，然后在该楼层打开此工具并输入楼层名称。
+	The tables count the cables by section and use (the vertical runs of the electrical risers included), the devices by kind with their power and flux, the boards and the loads of the HVAC equipment.	表格按截面和用途统计电缆（含电气立管的垂直段）、按类型统计设备及其功率和光通量，以及配电箱和暖通设备的负荷。
+	The circuits are listed as they are checked: power, current, sections, voltage drop, short circuit, breakers.	回路按检查结果列出：功率、电流、截面、压降、短路、断路器。
+	The spreadsheet button saves them for Excel, with the prices you type; each level makes its own file.	表格按钮将其保存为 Excel 文件，并带上您输入的价格；每个楼层生成各自的文件。
+	Place the controllers, the modules and the gateways first and give each a name (AU1, MX1…): the other devices are wired to them by that name.	先放置控制器、模块和网关并各取名称（AU1、MX1……）：其他设备通过该名称与之连接。
+	Then the sensors, the room controls and the actuators. In Properties type the controller each is wired to and the equipment it serves (CTA1, UI3…).	再放置传感器、房间控制器和执行器。在“特性”中输入每个设备所连接的控制器及其服务的设备（CTA1、UI3……）。
+	A controller or a module offers inputs and outputs (AI, AO, DI, DO); each device asks for points, a thermostat for two, a sensor for one.	控制器或模块提供输入输出（AI、AO、DI、DO）；每个设备占用若干点位，温控器两个，传感器一个。
+	Give an automation device the circuit that feeds it and, if it is on a bus, the bus and its address.	为自动化设备指定供电回路；若接在总线上，还要指定总线及其地址。
+	A bus is a name, not an object: give every device and controller on it the same Bus in Properties (BUS1).	总线是一个名称而不是对象：在“特性”中给总线上的每个设备和控制器填入相同的“总线”（BUS1）。
+	Draw its cable with this tool: the circuit of that cable has the name of the bus. Without one, Check Controls says “no bus cable is drawn”.	用此工具绘制其电缆：电缆的回路名称即总线名称。没有它，“检查控制”会提示“no bus cable is drawn”。
+	Say the protocol on a controller or a gateway (Modbus RTU, BACnet MS/TP, KNX TP, M-Bus): the check then tests the addresses, the number of devices on a segment and the length of cable.	在控制器或网关上指定协议（Modbus RTU、BACnet MS/TP、KNX TP、M-Bus）：检查会据此测试地址、每段设备数量和电缆长度。
+	The length counted is the cable drawn plus the height of the bus risers that carry the bus between floors.	计入的长度为已绘制的电缆加上跨楼层承载该总线的总线立管高度。
+	Run it when the devices and controllers are drawn. It needs no selection.	在设备和控制器绘制完成后运行。无需选择。
+	It says what each device asks of its controller and the load of each controller and module against what it offers, with the reserve left.	它显示每个设备对其控制器的需求，以及每个控制器和模块的负荷与其容量的对比和剩余余量。
+	It tells what is wrong: a device wired to nothing or to a controller that is not drawn, a controller over its capacity, an automation device that no circuit feeds, a bus with no cable, a device that serves an object that is not drawn.	它指出问题：设备未连接或连接到未绘制的控制器、控制器超出容量、没有回路供电的自动化设备、没有电缆的总线、服务于未绘制对象的设备。
+	With a protocol on the bus it also checks the addresses (Modbus 1–247, BACnet MS/TP 0–127, KNX 1.1.5, M-Bus 1–250), the devices per segment and the cable length. These are usual design values: confirm them with the manufacturer.	总线指定协议后还会检查地址（Modbus 1–247、BACnet MS/TP 0–127、KNX 1.1.5、M-Bus 1–250）、每段设备数和电缆长度。这些是常用设计值，请与制造商核实。
+	Show Addresses writes the address beside every object that has one: control devices, equipment, air handling units and electrical devices. Hide Addresses takes them off the plan.	“显示地址”会把地址写在每个有地址的对象旁：控制设备、设备、空调机组和电气设备。“隐藏地址”将其从图上移除。
+	The address is a Modbus number, a BACnet MAC or a KNX address (1.1.5), typed in the Address line of the object's Properties.	地址可以是 Modbus 编号、BACnet MAC 或 KNX 地址（1.1.5），在对象“特性”的“地址”一行输入。
+	The list tells the addresses used twice on one bus or on one controller: those are the clashes to fix.	列表会指出同一总线或同一控制器上被重复使用的地址：这些是需要修正的冲突。
+	Start the tool and click where the upper left corner of the diagram goes. With a bus named in the options only that bus is drawn; else all of them.	启动工具并点击图纸左上角的位置。在选项中指定总线时只绘制该总线，否则绘制全部。
+	It draws the buses, the controllers on each, and each controller with its modules as boxes: name, kind, and the points used and offered (AI, AO, DI, DO).	绘制各总线、挂在其上的控制器，以及每个控制器和模块的方框：名称、类型、已用和可用点位（AI、AO、DI、DO）。
+	Under each controller are the points wired to it, with their address and type (“@3  TA1  AI”). Controllers with no bus are drawn together.	每个控制器下方列出连接其上的点位及其地址和类型（“@3  TA1  AI”）。没有总线的控制器画在一起。
+	It is redrawn by itself when a control device is added, changed or erased: there is nothing to run again.	添加、修改或删除控制设备时会自动重绘，无需再次运行。
+	Start the tool and click the corners of the shaft, then press Enter. Name it the same on every floor and give the bus it carries (BUS1).	启动工具并点击竖井各角，然后按回车。各层使用相同名称，并指定其承载的总线（BUS1）。
+	A riser can carry several lines, a bus and the data cables for example: in Properties, Add a line for each and give its use and its circuit or bus.	一个立管可承载多条线路，例如总线和弱电电缆：在“特性”中为每条添加一行，并指定用途及回路或总线。
+	Type the height from floor to floor: it is added to the length of the bus, which Check Controls compares with what the protocol allows (1200 m in RS-485, 1000 m in KNX, 350 m in M-Bus).	输入层高：它会加入总线长度，“检查控制”会将其与协议允许值比较（RS-485 为 1200 m，KNX 为 1000 m，M-Bus 为 350 m）。
+	A bus riser counts as a bus cable drawn: Check Controls no longer says there is none.	总线立管视为已绘制总线电缆：“检查控制”不再提示没有总线电缆。
+	Click the corners of the outline where ducts have less height (under a beam, a low ceiling), seen from above, then press Enter.	俯视点击轮廓的各角，这些位置风管可用高度较小（梁下、低吊顶），然后按回车。
+	Type the height available for the ducts, in mm: the void under the beam. Sizing keeps a margin back for the hangers (100 mm by default), so 250 mm available gives a duct 150 mm high.	输入风管可用高度（mm）：梁下的净空。选型会预留吊架余量（默认 100 mm），所以可用 250 mm 对应风管高 150 mm。
+	The altitude of the underside is optional: ducts under the zone sit at that altitude, and a step (two 45° elbows) is drawn between two runs at other altitudes as soon as they are laid.	底部标高是可选的：区域下的风管位于该标高，两段标高不同的风管一铺设就会在其间绘制过渡段（两个 45° 弯头）。
+	Size Ducts cuts the ducts at the edges of the zone and sizes the part inside flat: a round duct that is too tall becomes rectangular, as wide as the flow needs.	“风管选型”会在区域边缘切断风管，并把区域内的部分按扁平截面选型：过高的圆管变为矩形，宽度按风量需要确定。
+	The duct must be part of a network: start it on a unit's collar and end it on a terminal or a riser. A duct that leads to none is left out of the sizing, and the message says so.	风管必须属于某个管网：从机组接口出发，终止于风口或立管。不通向任何终端的风管不参与选型，并会给出提示。
+	A section you typed on a duct is kept: a duct you gave Ø355 stays Ø355 under the beam, and the sizing warns that it is too tall. Set its section to Auto in Properties to let the zone change it.	您为风管输入的截面会被保留：设为 Ø355 的风管在梁下仍是 Ø355，选型会警告其过高。请在“特性”中把截面设为“自动”，让区域来改变它。
+	To change the zone afterwards, select it and edit its height or its altitude in Properties, then run Size Ducts again.	之后要修改区域，请选中它并在“特性”中修改高度或标高，然后重新运行“风管选型”。
+	Addresses	地址
