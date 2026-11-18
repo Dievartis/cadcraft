@@ -5,13 +5,16 @@
 //!
 //! Where two runs of another width meet (end to end, or a run ending on the side of another) the one that joins the other gets a reducer, the cone from the
 //! other's width; it is drawn again when either run changes size or shape, and taken away when the widths are equal again. A reducer the sizing drew stays on
-//! the run that has it. At a joint that has an elbow the cone is on the other run (the elbow is drawn at its own run's width, and the cone goes from that
+//! the run that has it. Where two runs at other altitudes meet end to end, the later one gets the step between them (two 45° elbows) as soon as both have an
+//! altitude, and loses it when they are at one again.
+//! At a joint that has an elbow the cone is on the other run (the elbow is drawn at its own run's width, and the cone goes from that
 //! width to the other run's), just before the bend.
 
 use cadcraft_geom::Vec2;
 
-use super::network::MAX_DUCTS;
-use super::{DuctElbow, DuctParams, DuctReducer, HvacUnits, ahu_of, air_terminal_of, duct_of, riser_of};
+use super::duct::LEVEL_STEP_MIN_MM;
+use super::network::{MAX_DUCTS, STEP_CLEARANCE_MM};
+use super::{AirDirection, DuctElbow, DuctParams, DuctReducer, DuctStep, HvacUnits, ahu_of, air_terminal_of, duct_of, riser_of};
 use crate::{EntityKind, Handle, Result, Space};
 
 /// Distance, mm, within which two ends are one point.
@@ -95,8 +98,64 @@ fn joints(runs: &[Run], tol: f64) -> Vec<[(usize, bool); 2]> {
     out
 }
 
+/// The steps each run has once the elbows are decided: where two runs meet end to end at other altitudes, the later one has the step between them, at that
+/// end, on the straight part (not over an elbow); a step there that was written for the joint on either run is replaced. Steps elsewhere are left.
+fn steps(runs: &[Run], joints: &[[(usize, bool); 2]], next: &[(Option<DuctElbow>, f64, f64)], mm_per_unit: f64) -> Vec<Vec<DuctStep>> {
+    let mut out: Vec<Vec<DuctStep>> = runs.iter().map(|r| r.params.steps.clone()).collect();
+    let length = |k: usize| runs.get(k).map_or(0.0, |r| r.params.length * mm_per_unit);
+    let trims = |k: usize| next.get(k).map_or((0.0, 0.0), |n| (n.1, n.2));
+    // The step a run has at its `at_end` end is the one whose elbows are there.
+    let at_end_of = |k: usize, st: &DuctStep, at_end: bool| {
+        let (lo, hi) = (trims(k).0, length(k) - trims(k).1);
+        if at_end { (st.at_mm + st.shift_mm.abs() - hi).abs() < 1.5 } else { (st.at_mm - lo).abs() < 1.5 }
+    };
+    for j in joints {
+        let [(a, ae), (b, be)] = *j;
+        let (Some(ra), Some(rb)) = (runs.get(a), runs.get(b)) else { continue };
+        if ra.params.flexible || rb.params.flexible {
+            continue;
+        }
+        for (k, e) in [(a, ae), (b, be)] {
+            let kept: Vec<DuctStep> = out.get(k).into_iter().flatten().copied().filter(|st| !at_end_of(k, st, e)).collect();
+            if let Some(slot) = out.get_mut(k) {
+                *slot = kept;
+            }
+        }
+        let (Some(from), Some(to)) = (ra.params.altitude_mm(), rb.params.altitude_mm()) else { continue };
+        let shift = to - from;
+        let (lo, hi) = (trims(b).0, length(b) - trims(b).1);
+        if shift.abs() >= LEVEL_STEP_MIN_MM && hi - lo >= shift.abs() + STEP_CLEARANCE_MM {
+            let at_mm = if be { hi - shift.abs() } else { lo };
+            if let Some(slot) = out.get_mut(b) {
+                slot.push(DuctStep { at_mm, shift_mm: shift });
+            }
+        }
+    }
+    out
+}
+
+/// A collar of a unit with the size it was given: where it ends, and the width of each collar that ends there (stacked ones share the point), by air direction.
+struct Port {
+    at: Vec2,
+    sizes: Vec<(AirDirection, f64)>,
+}
+
+impl Port {
+    /// The width of the collar a run `r` starts on here: the one of its own air direction when that was set, else the widest.
+    fn width_for(&self, r: &Run) -> Option<f64> {
+        let own = r.params.air_set.then(|| self.sizes.iter().find(|(a, _)| *a == r.params.air).map(|(_, w)| *w)).flatten();
+        own.or_else(|| self.sizes.iter().map(|(_, w)| *w).reduce(f64::max))
+    }
+}
+
 /// The reducer each run has once the elbows are decided (`next`: the elbow and the length each end gives up to it). See the module's text for the rules.
-fn reducers(runs: &[Run], joints: &[[(usize, bool); 2]], next: &[(Option<DuctElbow>, f64, f64)], tol: f64) -> Vec<Option<DuctReducer>> {
+fn reducers(
+    runs: &[Run],
+    joints: &[[(usize, bool); 2]],
+    next: &[(Option<DuctElbow>, f64, f64)],
+    ports: &[Port],
+    tol: f64,
+) -> Vec<Option<DuctReducer>> {
     let width = |k: usize| runs.get(k).map_or(0.0, |r| r.params.plan_width_mm());
     let elbow_at = |k: usize, at_end: bool| next.get(k).is_some_and(|n| n.0.is_some_and(|e| e.at_end == at_end));
     let mut out: Vec<Option<DuctReducer>> = runs.iter().map(|r| r.params.reducer).collect();
@@ -140,6 +199,13 @@ fn reducers(runs: &[Run], joints: &[[(usize, bool); 2]], next: &[(Option<DuctElb
             if joints.iter().any(|j| j.contains(&(k, at_end))) {
                 continue;
             }
+            // A run that starts on the collar of a unit that was given a size: the cone from that size.
+            if let Some(w) = ports.iter().find(|q| q.at.dist(p) <= 3.0 * tol).and_then(|q| q.width_for(r)) {
+                if can_hold(&out, k, at_end) {
+                    set(&mut out, k, at_end, w, (w - width(k)).abs() > 0.5);
+                }
+                continue;
+            }
             let others: Vec<usize> = runs
                 .iter()
                 .enumerate()
@@ -180,7 +246,8 @@ impl crate::Drawing {
     /// Whether a duct run of `space` was added, changed or removed since `before` (an older state of this drawing).
     pub fn ducts_touched_since(&self, before: &crate::Drawing, space: &Space) -> bool {
         let (Some(now), Some(then)) = (self.space(space), before.space(space)) else { return false };
-        let relevant = |e: &std::sync::Arc<crate::Entity>| matches!(e.kind, EntityKind::Insert(_)) && duct_of(e).is_some();
+        // (a unit's collar sizes count: a run that starts on one takes the cone from it)
+        let relevant = |e: &std::sync::Arc<crate::Entity>| matches!(e.kind, EntityKind::Insert(_)) && (duct_of(e).is_some() || ahu_of(e).is_some());
         now.iter().any(|e| then.get(e.handle).is_none_or(|old| !std::sync::Arc::ptr_eq(old, e)) && relevant(e))
             || then.iter().any(|e| now.get(e.handle).is_none() && relevant(e))
     }
@@ -213,6 +280,20 @@ impl crate::Drawing {
             }
         }
         let terminal_reach = units.to_units(150.0);
+        // The collars of the units that were given a size, where they end.
+        let mut ports: Vec<Port> = Vec::new();
+        for e in self.space(space).into_iter().flat_map(|s| s.iter()) {
+            let (EntityKind::Insert(i), Some(a)) = (&e.kind, ahu_of(e)) else { continue };
+            let roles = a.roles();
+            for (k, (tip, _)) in a.port_tips().into_iter().enumerate() {
+                let (Some(size), Some(role)) = (a.port_sizes.get(k).copied().flatten(), roles.get(k).copied()) else { continue };
+                let at = super::slab::block_to_world(i, tip);
+                match ports.iter_mut().find(|q| q.at.dist(at) <= 1e-6) {
+                    Some(q) => q.sizes.push((role, size.width_mm())),
+                    None => ports.push(Port { at, sizes: vec![(role, size.width_mm())] }),
+                }
+            }
+        }
         let blocked = |p: Vec2| {
             terminals.iter().any(|t| t.dist(p) <= terminal_reach)
                 || units_at.iter().any(|(c, reach)| c.dist(p) <= *reach)
@@ -284,7 +365,8 @@ impl crate::Drawing {
                 }
             }
         }
-        let reducers = reducers(&runs, &all_joints, &next, tol);
+        let reducers = reducers(&runs, &all_joints, &next, &ports, tol);
+        let steps = steps(&runs, &all_joints, &next, units.mm_per_unit);
         let mut redrawn = 0;
         for (k, (r, (elbow, trim_start, trim_end))) in runs.iter().zip(next).enumerate() {
             let same = |a: f64, b: f64| (a - b).abs() < 1e-6;
@@ -294,6 +376,7 @@ impl crate::Drawing {
                 && same(r.params.trim_end_mm, trim_end)
                 && (r.params.cap_start, r.params.cap_end) == (cap_start, cap_end)
                 && r.params.reducer == reducers.get(k).copied().flatten()
+                && steps.get(k).is_none_or(|st| *st == r.params.steps)
             {
                 continue;
             }
@@ -301,6 +384,9 @@ impl crate::Drawing {
             (p.elbow, p.trim_start_mm, p.trim_end_mm) = (elbow, trim_start, trim_end);
             (p.cap_start, p.cap_end) = (cap_start, cap_end);
             p.reducer = reducers.get(k).copied().flatten();
+            if let Some(st) = steps.get(k) {
+                p.steps.clone_from(st);
+            }
             self.regenerate_duct(r.handle, &p)?;
             redrawn += 1;
         }

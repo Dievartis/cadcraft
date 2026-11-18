@@ -333,3 +333,26 @@ fn short_circuit_currents_follow_the_cable_and_the_origin() {
     }
     assert_eq!(magnetic_trip_multiple('x'), None);
 }
+
+#[test]
+fn a_section_typed_for_a_duct_that_is_taller_than_the_height_available_is_kept_with_a_warning_that_says_how_to_free_it() {
+    // Ø355 is typed; the beam leaves 150 mm: the size stays, and the warning names the duct and the way out.
+    let (r, warnings) = one(1800.0, |s| {
+        s.diameter_mm = Some(355.0);
+        s.max_height_mm = Some(150.0);
+    });
+    assert_eq!((r.section, r.diameter_mm), (Section::Round, 355.0));
+    assert!(warnings.iter().any(|w| w.contains("imposed Ø355") && w.contains("150 mm are available") && w.contains("Auto")), "{warnings:?}");
+    // A rectangle typed 600 x 300 under 150 mm is the same.
+    let (_, warnings) = one(1800.0, |s| {
+        s.rect_mm = Some((600.0, 300.0));
+        s.max_height_mm = Some(150.0);
+    });
+    assert!(warnings.iter().any(|w| w.contains("imposed 600×300")), "{warnings:?}");
+    // One that fits is not blamed.
+    let (_, warnings) = one(1800.0, |s| {
+        s.rect_mm = Some((600.0, 150.0));
+        s.max_height_mm = Some(150.0);
+    });
+    assert!(warnings.iter().all(|w| !w.contains("imposed")), "{warnings:?}");
+}

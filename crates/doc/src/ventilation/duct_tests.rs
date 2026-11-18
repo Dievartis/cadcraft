@@ -2226,3 +2226,60 @@ fn a_run_ending_on_the_side_of_another_of_another_width_gets_a_reducer_and_an_el
         "{sides:?}"
     );
 }
+
+#[test]
+fn a_run_that_starts_on_a_collar_that_was_given_a_size_gets_the_cone_from_it_without_sizing() {
+    let mut d = Drawing::new_metric();
+    let mut unit = ahu();
+    unit.kind = AhuKind::DoubleFlow;
+    unit.port_sizes = vec![None, None, Some(super::RiserSize::Rectangular { width_mm: 1500.0, height_mm: 300.0 }), None];
+    let u = d.add_ahu(&Space::Model, Common::default(), &unit, Vec2::ZERO, 0.0).unwrap();
+    let tip = unit.port_tips()[2].0;
+    let run = d.add_duct(&Space::Model, Common::default(), duct(315.0), tip, tip + Vec2::new(3000.0, 0.0)).unwrap();
+    let reducer = |d: &Drawing| duct_of(d.entity(run).unwrap()).unwrap().reducer;
+    assert_eq!(reducer(&d), None);
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(reducer(&d), Some(DuctReducer { from_mm: 1500.0, at_end: false }), "from the width of the collar");
+    // A duct as wide as the collar needs none.
+    let mut p = duct_of(d.entity(run).unwrap()).unwrap();
+    (p.shape, p.width_mm, p.height_mm) = (DuctShape::Rectangular, 1500.0, 250.0);
+    d.regenerate_duct(run, &p).unwrap();
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(reducer(&d), None);
+    // The size of the collar changed: the cone is drawn again.
+    unit.port_sizes[2] = Some(super::RiserSize::Rectangular { width_mm: 1000.0, height_mm: 300.0 });
+    d.regenerate_ahu(u, &unit).unwrap();
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(reducer(&d), Some(DuctReducer { from_mm: 1000.0, at_end: false }));
+}
+
+#[test]
+fn two_runs_at_other_altitudes_get_the_step_between_them_as_soon_as_they_are_laid_and_lose_it_at_one_level() {
+    let mut d = Drawing::new_metric();
+    let (a, b) = (add_duct(&mut d, (0.0, 0.0), (4000.0, 0.0)), add_duct(&mut d, (4000.0, 0.0), (8000.0, 0.0)));
+    let set_level = |d: &mut Drawing, h, level: Option<f64>| {
+        let mut p = duct_of(d.entity(h).unwrap()).unwrap();
+        p.level_mm = level;
+        d.regenerate_duct(h, &p).unwrap();
+        d.draw_duct_elbows(&Space::Model).unwrap();
+    };
+    let steps = |d: &Drawing, h| duct_of(d.entity(h).unwrap()).unwrap().steps;
+    assert!(steps(&d, b).is_empty());
+    // Only one altitude is known: no step. Both known and different: the later run is 400 mm higher, the step at its start.
+    set_level(&mut d, a, Some(2500.0));
+    assert!(steps(&d, b).is_empty());
+    set_level(&mut d, b, Some(2900.0));
+    assert_eq!(steps(&d, b), vec![DuctStep { at_mm: 0.0, shift_mm: 400.0 }]);
+    assert!(steps(&d, a).is_empty());
+    // The other way, and the new shift replaces the old one.
+    set_level(&mut d, b, Some(2100.0));
+    assert_eq!(steps(&d, b), vec![DuctStep { at_mm: 0.0, shift_mm: -400.0 }]);
+    // Level again (a difference under the least a step has): nothing, and nothing more to draw.
+    set_level(&mut d, b, Some(2510.0));
+    assert!(steps(&d, b).is_empty());
+    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
+    // A run too short for it gets none.
+    let c = add_duct(&mut d, (8000.0, 0.0), (8200.0, 0.0));
+    set_level(&mut d, c, Some(3500.0));
+    assert!(steps(&d, c).is_empty(), "200 mm of run for a 990 mm step");
+}

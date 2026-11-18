@@ -401,6 +401,14 @@ fn size_segment(i: usize, s: &Segment, flow: f64, c: &DesignCriteria, warnings: 
         Section::Round => format!("Ø{diameter_mm:.0}"),
         Section::Rectangular => format!("{width_mm:.0}×{height_mm:.0}"),
     };
+    // A section typed for the duct is kept, but it may not go under the beam: say so, and how to give it back to sizing.
+    if let (Governing::Imposed, Some(max)) = (governing, s.max_height_mm)
+        && height_mm > max + 0.5
+    {
+        warnings.push(format!(
+            "segment {i}: the imposed {size} is {height_mm:.0} mm high and only {max:.0} mm are available there (a height zone, less the margin): set its section to Auto"
+        ));
+    }
     if governing == Governing::Largest {
         warnings.push(format!("segment {i}: {flow:.0} m³/h exceeds the limits even at {size}"));
     } else if v > c.max_velocity(s.kind) {

@@ -30,7 +30,7 @@ pub const FLEX_ROUGHNESS_MM: f64 = 3.0;
 /// A duct leaving a junction at more than this many degrees from the way the air comes lies on the one it leaves.
 const STACKED_BACK_DEG: f64 = 170.0;
 /// A step needs at least this much straight run beyond its own length, mm, to be moved off a bend.
-const STEP_CLEARANCE_MM: f64 = 100.0;
+pub(super) const STEP_CLEARANCE_MM: f64 = 100.0;
 /// Two runs' altitudes differ when they are this far apart, mm.
 const LEVEL_TOLERANCE_MM: f64 = 1.0;
 

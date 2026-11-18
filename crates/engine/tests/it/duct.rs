@@ -1407,3 +1407,20 @@ fn the_reducer_is_drawn_by_the_commands_that_lay_and_resize_the_runs() {
     s.execute("ductedit", &json!({"handles": [last], "width": 800})).unwrap();
     assert_eq!(reducers(&s).iter().map(|r| r.from_mm).collect::<Vec<_>>(), vec![500.0]);
 }
+
+#[test]
+fn a_duct_drawn_on_a_collar_with_a_size_has_its_cone_at_once_and_follows_the_collar_when_it_is_resized() {
+    let mut s = metric();
+    s.execute("ahuadd", &json!({"at": [0, 0], "type": "doubleFlow"})).unwrap();
+    let h = s.doc().unwrap().model.iter().find_map(|e| cadcraft_doc::ahu_of(e).map(|_| e.handle)).unwrap();
+    s.execute("ahuedit", &json!({"handle": h.hex(), "portSizes": [null, null, "1500x300", null]})).unwrap();
+    let ahu = s.doc().unwrap().model.iter().find_map(|e| cadcraft_doc::ahu_of(e).map(|a| (e.handle, a))).unwrap();
+    let tip = ahu.1.port_tips()[2].0;
+    let r = s.execute("ductadd", &json!({"points": [[tip.x, tip.y], [tip.x + 4000.0, tip.y]], "width": 1000, "height": 200})).unwrap();
+    let reducer = |s: &Session| duct_of(s.doc().unwrap().entity(hd(&r["handles"][0])).unwrap()).unwrap().reducer.map(|r| r.from_mm);
+    assert_eq!(reducer(&s), Some(1500.0), "the 1500 mm collar and the 1000 mm duct: a cone, without sizing");
+    s.execute("ahuedit", &json!({"handle": ahu.0.hex(), "portSizes": [null, null, "1000x300", null]})).unwrap();
+    assert_eq!(reducer(&s), None, "as wide as the collar now");
+    s.execute("ahuedit", &json!({"handle": ahu.0.hex(), "portSizes": [null, null, "800x300", null]})).unwrap();
+    assert_eq!(reducer(&s), Some(800.0));
+}
