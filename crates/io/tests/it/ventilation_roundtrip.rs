@@ -186,6 +186,7 @@ fn a_riser_survives_dxf_and_dwg_and_its_application_is_registered() {
         height_mm: Some(2800.0),
         label_height_mm: 100.0,
         units: HvacUnits::default(),
+        cable: Default::default(),
     };
     d.add_riser(&Space::Model, Common::default(), p.clone()).unwrap();
     for name in ["riser.dxf", "riser.dwg"] {

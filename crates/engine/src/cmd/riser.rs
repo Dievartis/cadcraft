@@ -2,7 +2,9 @@
 //! through the floors, with its symbol, arrow and label; RISEREDIT changes one already drawn. Each
 //! floor is its own drawing, so the risers of two floors meet by name.
 
-use cadcraft_doc::{AirDirection, Drawing, EntityKind, Handle, HvacUnits, MAX_RISER_VERTICES, RiserParams, RiserSize, riser_of};
+use cadcraft_doc::{
+    AirDirection, CableData, Drawing, EntityKind, Handle, HvacUnits, MAX_RISER_VERTICES, RiserMedium, RiserParams, RiserSize, any_riser_of,
+};
 use cadcraft_geom::Vec2;
 use serde_json::{Value, json};
 
@@ -19,8 +21,24 @@ pub fn specs() -> Vec<CommandSpec> {
                  incomingFlow? (m³/h that comes from, or goes on to, the other floors: written at the lower end of the leader), incomingSize? (its section; default: sized for that flow), flow? (m³/h), size? (diameter, \"400x250\" or \"auto\"), height? (mm, floor to floor), labelHeight? (mm)} → {handle, name}",
             )
             .interactive(|s| Ok(Box::new(RiserAddM::new(s)))),
+        CommandSpec::new("elecriser", "Electrical Riser", run_add_power)
+            .menu(&["Draw", "Electricity", "Riser"])
+            .params(
+                "{points | handle (closed polyline) | at + width + depth (mm), name?, medium? (power|lighting|data|safety; default power), circuit? (the circuit it carries: its vertical run is counted in the \
+                 circuit's cable length), direction? (up|down: the way the current goes), load? (kW carried at this level), incomingLoad? (kW that comes from, or goes on to, the other floors: added to the \
+                 circuit's load), section? (mm²), height? (mm, floor to floor), labelHeight? (mm)} → {handle, name}",
+            )
+            .interactive(|s| Ok(Box::new(RiserAddM::with_medium(s, RiserMedium::Power)))),
+        CommandSpec::new("busriser", "Bus Riser", run_add_bus)
+            .menu(&["Draw", "Controls", "Bus Riser"])
+            .params(
+                "{points | handle (closed polyline) | at + width + depth (mm), name?, circuit? (the bus it carries: its vertical run is counted in the bus's cable length), direction? (up|down), \
+                 height? (mm, floor to floor), labelHeight? (mm)} → {handle, name}",
+            )
+            .interactive(|s| Ok(Box::new(RiserAddM::with_medium(s, RiserMedium::Bus)))),
         CommandSpec::new("riseredit", "Edit Riser", run_edit).params(
-            "{handle | handles, name?, air?, direction?, width? + depth? (the shaft, mm), incomingFlow? (or null), incomingSize? (or null), flow? (or null), size? (or \"auto\"), height? (mm, or null)} → {changed}",
+            "{handle | handles, name?, air?, direction?, width? + depth? (the shaft, mm), incomingFlow? (or null), incomingSize? (or null), flow? (or null), size? (or \"auto\"), height? (mm, or null); for a riser of cables: medium? (air|power|lighting|data|safety|bus), circuit?, load? (kW or null), \
+             incomingLoad? (kW or null), section? (mm² or null)} → {changed}",
         ),
     ]
 }
@@ -115,8 +133,31 @@ fn incoming_size_param(cmd: &str, p: &Value) -> Result<Option<Option<RiserSize>>
     p.get("incomingSize").map(|v| size_value(cmd, v)).transpose()
 }
 
-fn risers_count(d: &Drawing) -> usize {
-    d.model.iter().filter(|e| riser_of(e).is_some()).count()
+fn risers_count(d: &Drawing, medium: RiserMedium) -> usize {
+    // (the air risers, the control buses and the cables of power, lighting, data and safety are numbered apart)
+    let class = |m: RiserMedium| match m {
+        RiserMedium::Air => 0,
+        RiserMedium::Bus => 1,
+        _ => 2,
+    };
+    d.model.iter().filter(|e| any_riser_of(e).is_some_and(|r| class(r.cable.medium) == class(medium))).count()
+}
+
+/// The name a new riser of `medium` gets: "Riser 2", "Power riser 1", "Bus riser 1".
+fn default_name(d: Option<&Drawing>, medium: RiserMedium) -> String {
+    let n = d.map(|d| risers_count(d, medium)).unwrap_or(0) + 1;
+    match medium {
+        RiserMedium::Air => format!("Riser {n}"),
+        RiserMedium::Bus => format!("Bus riser {n}"),
+        _ => format!("Power riser {n}"),
+    }
+}
+
+fn medium_param(cmd: &str, p: &Value) -> Result<Option<RiserMedium>> {
+    match str_param(p, "medium") {
+        None => Ok(None),
+        Some(t) => RiserMedium::parse(t).map(Some).ok_or_else(|| bad(cmd, "`medium` is air, power, lighting, data, safety or bus")),
+    }
 }
 
 fn add_riser(s: &mut Session, p: RiserParams) -> Result<Handle> {
@@ -127,14 +168,27 @@ fn add_riser(s: &mut Session, p: RiserParams) -> Result<Handle> {
 }
 
 fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
-    const CMD: &str = "riseradd";
+    run_add_as(s, p, "riseradd", None)
+}
+
+fn run_add_power(s: &mut Session, p: &Value) -> Result<Value> {
+    run_add_as(s, p, "elecriser", Some(RiserMedium::Power))
+}
+
+fn run_add_bus(s: &mut Session, p: &Value) -> Result<Value> {
+    run_add_as(s, p, "busriser", Some(RiserMedium::Bus))
+}
+
+fn run_add_as(s: &mut Session, p: &Value, cmd: &str, default: Option<RiserMedium>) -> Result<Value> {
+    let cmd: &str = cmd;
+    let medium = medium_param(cmd, p)?.or(default).unwrap_or_default();
     let units = HvacUnits::of(s.doc()?);
     let outline = match (super::points_param(p, "points"), super::curves::handle_param(p, "handle"), super::point_param(p, "at")) {
         (Some(pts), ..) => pts,
         (None, Some(h), _) => super::hvac::polyline_outline(s.doc()?, h)?,
         (None, None, Some(c)) => {
-            let (w, d) = (number(CMD, p, "width")?, number(CMD, p, "depth")?);
-            let (Some(w), Some(d)) = (w, d) else { return Err(bad(CMD, "`width` and `depth` (mm) go with `at`")) };
+            let (w, d) = (number(cmd, p, "width")?, number(cmd, p, "depth")?);
+            let (Some(w), Some(d)) = (w, d) else { return Err(bad(cmd, "`width` and `depth` (mm) go with `at`")) };
             let mut r = RiserParams {
                 name: String::new(),
                 air: AirDirection::Extract,
@@ -149,28 +203,36 @@ fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
                 height_mm: None,
                 label_height_mm: 100.0,
                 units,
+                cable: CableData::default(),
             };
             r.set_shaft_mm(w, d).map_err(doc_err)?;
             r.outline
         }
-        _ => return Err(bad(CMD, "`points` (three or more [x, y]), `handle` (a closed polyline) or `at` + `width` + `depth` is required")),
+        _ => return Err(bad(cmd, "`points` (three or more [x, y]), `handle` (a closed polyline) or `at` + `width` + `depth` is required")),
     };
     let last = s.last_used.riser.clone();
-    let name = str_param(p, "name").map(str::to_string).unwrap_or_else(|| format!("Riser {}", s.doc().map(risers_count).unwrap_or(0) + 1));
+    let name = str_param(p, "name").map(str::to_string).unwrap_or_else(|| default_name(s.doc().ok(), medium));
     let params = RiserParams {
         name,
-        air: air_param(CMD, p)?.unwrap_or(last.air),
-        up: direction_param(CMD, p)?.unwrap_or(last.up),
+        air: air_param(cmd, p)?.unwrap_or(last.air),
+        up: direction_param(cmd, p)?.unwrap_or(last.up),
         outline,
-        incoming_flow_m3h: number(CMD, p, "incomingFlow")?,
-        flow_m3h: number(CMD, p, "flow")?,
-        flow_set: number(CMD, p, "flow")?.is_some(),
-        size: size_param(CMD, p)?.flatten(),
-        incoming_size: incoming_size_param(CMD, p)?.flatten(),
-        size_set: size_param(CMD, p)?.flatten().is_some(),
-        height_mm: number(CMD, p, "height")?,
-        label_height_mm: number(CMD, p, "labelHeight")?.unwrap_or(100.0),
+        incoming_flow_m3h: number(cmd, p, "incomingFlow")?,
+        flow_m3h: number(cmd, p, "flow")?,
+        flow_set: number(cmd, p, "flow")?.is_some(),
+        size: size_param(cmd, p)?.flatten(),
+        incoming_size: incoming_size_param(cmd, p)?.flatten(),
+        size_set: size_param(cmd, p)?.flatten().is_some(),
+        height_mm: number(cmd, p, "height")?,
+        label_height_mm: number(cmd, p, "labelHeight")?.unwrap_or(100.0),
         units,
+        cable: CableData {
+            medium,
+            circuit: str_param(p, "circuit").map(str::to_string).unwrap_or_default(),
+            section_mm2: number(cmd, p, "section")?,
+            load_kw: number(cmd, p, "load")?,
+            incoming_load_kw: number(cmd, p, "incomingLoad")?,
+        },
     };
     let name = params.name.clone();
     let h = add_riser(s, params)?;
@@ -187,16 +249,31 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     let incoming_size = incoming_size_param(CMD, p)?;
     let (incoming, flow) = (clearable(CMD, p, "incomingFlow")?, clearable(CMD, p, "flow")?);
     let height = clearable(CMD, p, "height")?;
+    let (medium, load, incoming_load, section) =
+        (medium_param(CMD, p)?, clearable(CMD, p, "load")?, clearable(CMD, p, "incomingLoad")?, clearable(CMD, p, "section")?);
     let shaft = (number(CMD, p, "width")?, number(CMD, p, "depth")?);
     let d = s.doc()?;
     let mut next = Vec::with_capacity(hs.len());
     for h in &hs {
-        let mut r = d.entity(*h).and_then(|e| riser_of(e)).ok_or_else(|| other("Select risers only."))?;
+        let mut r = d.entity(*h).and_then(|e| any_riser_of(e)).ok_or_else(|| other("Select risers only."))?;
         if let Some(n) = str_param(p, "name") {
             r.name = n.to_string();
         }
         r.air = air.unwrap_or(r.air);
         r.up = up.unwrap_or(r.up);
+        r.cable.medium = medium.unwrap_or(r.cable.medium);
+        if let Some(c) = str_param(p, "circuit") {
+            r.cable.circuit = c.trim().to_string();
+        }
+        if let Some(v) = load {
+            r.cable.load_kw = v;
+        }
+        if let Some(v) = incoming_load {
+            r.cable.incoming_load_kw = v;
+        }
+        if let Some(v) = section {
+            r.cable.section_mm2 = v;
+        }
         if let Some(v) = incoming {
             r.incoming_flow_m3h = v;
         }
@@ -236,6 +313,7 @@ enum Ask {
     Object,
     Name,
     Air,
+    Circuit,
 }
 
 struct RiserAddM {
@@ -243,16 +321,31 @@ struct RiserAddM {
     name: String,
     last: RiserLastUsed,
     ask: Ask,
+    medium: RiserMedium,
+    circuit: String,
 }
 
 impl RiserAddM {
     fn new(s: &Session) -> Self {
-        let n = s.doc().map(risers_count).unwrap_or(0) + 1;
-        RiserAddM { pts: Vec::new(), name: format!("Riser {n}"), last: s.last_used.riser.clone(), ask: Ask::Point }
+        Self::with_medium(s, RiserMedium::Air)
+    }
+    fn with_medium(s: &Session, medium: RiserMedium) -> Self {
+        RiserAddM {
+            pts: Vec::new(),
+            name: default_name(s.doc().ok(), medium),
+            last: s.last_used.riser.clone(),
+            ask: Ask::Point,
+            medium,
+            circuit: String::new(),
+        }
     }
     fn settings(&self, s: &mut Session) {
         let way = if self.last.up { "Up" } else { "Down" };
-        s.echo(format!("Current settings: Name = {}, Air = {}, Direction = {way}", self.name, self.last.air.name()));
+        if self.medium == RiserMedium::Air {
+            s.echo(format!("Current settings: Name = {}, Air = {}, Direction = {way}", self.name, self.last.air.name()));
+        } else {
+            s.echo(format!("Current settings: Name = {}, Circuit = {}, Direction = {way}", self.name, self.circuit));
+        }
     }
     fn params(&self, s: &Session, outline: Vec<Vec2>) -> Result<RiserParams> {
         Ok(RiserParams {
@@ -269,6 +362,7 @@ impl RiserAddM {
             height_mm: None,
             label_height_mm: 100.0,
             units: HvacUnits::of(s.doc()?),
+            cable: CableData { medium: self.medium, circuit: self.circuit.clone(), ..CableData::default() },
         })
     }
     /// Adds the riser; the points stay when it can't be added, with the reason.
@@ -299,6 +393,7 @@ impl RiserAddM {
                 };
             }
             (Ask::Name, _, Some(t)) if !t.is_empty() => self.name = t.to_string(),
+            (Ask::Circuit, _, Some(t)) => self.circuit = t.to_string(),
             (Ask::Air, _, Some(t)) => {
                 self.last.air = AirDirection::parse(t).ok_or_else(|| other("Requires supply, extract, fresh or exhaust."))?;
             }
@@ -313,7 +408,11 @@ impl RiserAddM {
 
 impl Interactive for RiserAddM {
     fn name(&self) -> &'static str {
-        "RISERADD"
+        match self.medium {
+            RiserMedium::Air => "RISERADD",
+            RiserMedium::Bus => "BUSRISER",
+            _ => "ELECRISER",
+        }
     }
     fn begin(&mut self, s: &mut Session) -> Result<Step> {
         self.settings(s);
@@ -323,6 +422,13 @@ impl Interactive for RiserAddM {
         match self.ask {
             Ask::Object => return Prompt::new("Select a closed polyline", Accept::SELECT),
             Ask::Name => return Prompt::new("Enter riser name", Accept::TEXT).default(self.name.clone()),
+            Ask::Circuit => {
+                return Prompt::new(
+                    if self.medium == RiserMedium::Bus { "Enter the bus it carries" } else { "Enter the circuit it carries" },
+                    Accept::TEXT,
+                )
+                .default(self.circuit.clone());
+            }
             Ask::Air => {
                 return Prompt::new("Enter the air direction [supply/extract/fresh/exhaust]", Accept::TEXT).default(self.last.air.name().to_string());
             }
@@ -330,6 +436,9 @@ impl Interactive for RiserAddM {
         }
         let last = self.pts.last().copied();
         match self.pts.len() {
+            0 if self.medium != RiserMedium::Air => {
+                Prompt::new("Specify first point of the shaft", Accept::POINT).kw(&["OBject", "Name", "Circuit", "Up", "Down"])
+            }
             0 => Prompt::new("Specify first point of the shaft", Accept::POINT).kw(&["OBject", "Name", "Air", "Up", "Down"]),
             1 | 2 => Prompt::new("Specify next point", Accept::POINT).kw(&["Undo"]).base_opt(last),
             _ => Prompt::new("Specify next point", Accept::POINT).kw(&["Close", "Undo"]).base_opt(last),
@@ -345,6 +454,7 @@ impl Interactive for RiserAddM {
                     "OBject" => self.ask = Ask::Object,
                     "Name" => self.ask = Ask::Name,
                     "Air" => self.ask = Ask::Air,
+                    "Circuit" => self.ask = Ask::Circuit,
                     "Up" | "Down" => {
                         self.last.up = k == "Up";
                         self.settings(s);

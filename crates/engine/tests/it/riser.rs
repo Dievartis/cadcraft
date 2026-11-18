@@ -211,3 +211,47 @@ fn a_flow_typed_on_a_riser_is_kept_by_sizing_which_sizes_the_riser_and_its_run_f
     let p = riser(&s, hd(&r["handle"]));
     assert_eq!((p.flow_m3h, p.flow_set), (Some(250.0), false));
 }
+
+#[test]
+fn a_riser_of_cables_counts_its_height_in_its_circuit_and_a_bus_riser_in_the_length_of_its_bus() {
+    let mut s = metric();
+    // A circuit of two sockets on a 10 m cable, then a riser that carries it between the floors (3 m, and 4 kW from the other floors).
+    s.execute("elecdeviceadd", &json!({"points": [[0, 0], [1000, 0]], "kind": "socket", "circuit": "TD1-C1", "power": 1000})).unwrap();
+    s.execute("cableadd", &json!({"points": [[0, 0], [10000, 0]], "circuit": "TD1-C1"})).unwrap();
+    let before = s.execute("circuitcheck", &json!({})).unwrap();
+    let c = |r: &Value| r["circuits"].as_array().unwrap().iter().find(|c| c["name"] == "TD1-C1").cloned().unwrap();
+    let (length, power) = (c(&before)["cableLengthM"].as_f64().unwrap(), c(&before)["powerW"].as_f64().unwrap());
+    let r = s
+        .execute("elecriser", &json!({"at": [2000, 2000], "width": 400, "depth": 400, "circuit": "TD1-C1", "height": 3000, "incomingLoad": 4, "load": 6, "section": 16}))
+        .unwrap();
+    let p = cadcraft_doc::any_riser_of(s.doc().unwrap().entity(hd(&r["handle"])).unwrap()).unwrap();
+    assert_eq!((p.cable.medium, p.name.as_str(), p.cable.circuit.as_str()), (cadcraft_doc::RiserMedium::Power, "Power riser 1", "TD1-C1"));
+    assert_eq!(p.text(), "Power riser 1-16 mm²-6 kW");
+    // The riser is not an air riser: the air networks and the air takeoff never see it.
+    assert!(riser_of(s.doc().unwrap().entity(hd(&r["handle"])).unwrap()).is_none());
+    let after = s.execute("circuitcheck", &json!({})).unwrap();
+    assert!((c(&after)["cableLengthM"].as_f64().unwrap() - (length + 3.0)).abs() < 0.01, "{after}");
+    assert!((c(&after)["powerW"].as_f64().unwrap() - (power + 4000.0)).abs() < 1.0, "{after}");
+    // Edited like a riser: the load, the circuit, the way.
+    s.execute("riseredit", &json!({"handle": r["handle"], "load": null, "direction": "down", "circuit": "TD1-C2"})).unwrap();
+    let p = cadcraft_doc::any_riser_of(s.doc().unwrap().entity(hd(&r["handle"])).unwrap()).unwrap();
+    assert_eq!((p.cable.load_kw, p.up, p.cable.circuit.as_str()), (None, false, "TD1-C2"));
+    // The cable takeoff counts the vertical run.
+    let t = s.execute("electakeoff", &json!({})).unwrap();
+    assert!(t["cables"].as_array().unwrap().iter().any(|q| q["size"].as_str().is_some_and(|z| z.contains("riser"))), "{t}");
+    // A bus riser: its height is part of the bus, so the check counts it (a riser alone is a cable drawn for that bus).
+    s.execute("controladd", &json!({"at": [0, 0], "kind": "controller", "name": "AU1", "bus": "BUS1", "protocol": "modbus", "ai": 8})).unwrap();
+    let b = s.execute("busriser", &json!({"at": [5000, 2000], "width": 300, "depth": 300, "circuit": "BUS1", "height": 5000})).unwrap();
+    assert_eq!(cadcraft_doc::any_riser_of(s.doc().unwrap().entity(hd(&b["handle"])).unwrap()).unwrap().name, "Bus riser 1");
+    let r = s.execute("controlcheck", &json!({})).unwrap();
+    assert!(!r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("no bus cable")), "{r}");
+    // 1198 m of cable and the 5 m of the riser are over the 1200 m of a Modbus segment; with the riser at 1 m the bus is within it.
+    s.execute("cableadd", &json!({"points": [[0, 900], [1_198_000, 900]], "circuit": "BUS1", "usage": "bus"})).unwrap();
+    let too_long = |s: &mut Session| {
+        let r = s.execute("controlcheck", &json!({})).unwrap();
+        r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("bus BUS1") && w.as_str().unwrap().contains("at most"))
+    };
+    assert!(too_long(&mut s));
+    s.execute("riseredit", &json!({"handle": b["handle"], "height": 1000})).unwrap();
+    assert!(!too_long(&mut s));
+}

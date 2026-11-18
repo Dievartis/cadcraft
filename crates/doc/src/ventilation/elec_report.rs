@@ -239,6 +239,17 @@ impl crate::Drawing {
                     }
                     None => t.cables.push(CableQuantity { size, usage, count: 1, length_m: c.length_m() }),
                 }
+            } else if let Some(r) = super::any_riser_of(e).filter(|r| r.is_cable() && r.height_mm.is_some()) {
+                // The vertical run of a riser of cables is cable.
+                let size = r.cable.section_mm2.map_or("riser, to size".to_string(), |s| format!("{s:.0} mm² (riser)"));
+                let (usage, length_m) = (r.cable.medium.name().to_string(), r.height_mm.unwrap_or(0.0) / 1000.0);
+                match t.cables.iter_mut().find(|q| q.size == size && q.usage == usage) {
+                    Some(q) => {
+                        q.count += 1;
+                        q.length_m += length_m;
+                    }
+                    None => t.cables.push(CableQuantity { size, usage, count: 1, length_m }),
+                }
             } else if let Some(d) = device_of(e) {
                 if d.kind == DeviceKind::Panel {
                     t.panels.push(d.name.clone());

@@ -176,8 +176,16 @@ impl crate::Drawing {
         }
         t.points.sort_by(|a, b| a.controller.cmp(&b.controller).then(a.device.cmp(&b.device)));
         // What feeds the automation, and the buses.
-        let bus_cables: Vec<String> =
-            self.model.iter().filter_map(|e| cable_of(e)).filter(|c| c.usage == super::CableUsage::Bus).map(|c| c.circuit).collect();
+        let bus_cables: Vec<String> = self
+            .model
+            .iter()
+            .filter_map(|e| {
+                cable_of(e)
+                    .filter(|c| c.usage == super::CableUsage::Bus)
+                    .map(|c| c.circuit)
+                    .or_else(|| super::any_riser_of(e).filter(|r| r.cable.medium == super::RiserMedium::Bus).map(|r| r.cable.circuit))
+            })
+            .collect();
         let mut buses: Vec<&str> = Vec::new();
         for (p, _) in devices.iter().filter(|(p, _)| p.kind.is_automation()) {
             if matches!(p.kind, ControlKind::Controller | ControlKind::IoModule | ControlKind::Gateway | ControlKind::ControlCabinet)
@@ -377,6 +385,16 @@ impl ControlTakeoff {
 }
 
 impl crate::Drawing {
+    /// The vertical run, metres, of the risers that carry bus `b` between the floors.
+    pub fn bus_riser_m(&self, b: &str) -> f64 {
+        self.model
+            .iter()
+            .filter_map(|e| super::any_riser_of(e))
+            .filter(|r| r.cable.medium == super::RiserMedium::Bus && same_network(&r.cable.circuit, b))
+            .map(|r| r.height_mm.unwrap_or(0.0) / 1000.0)
+            .sum()
+    }
+
     /// What is wrong with the buses that have a protocol: the addresses it does not take, too many devices for a segment, too much cable, devices that do not
     /// all say the same protocol.
     fn bus_profile_warnings(&self, devices: &[(ControlParams, Vec2)], buses: &[&str]) -> Vec<String> {
@@ -414,7 +432,8 @@ impl crate::Drawing {
                 .filter_map(|e| cable_of(e))
                 .filter(|c| c.usage == super::CableUsage::Bus && same_network(&c.circuit, b))
                 .map(|c| c.length_m())
-                .sum();
+                .sum::<f64>()
+                + self.bus_riser_m(b);
             if length_m > protocol.max_length_m() {
                 warnings.push(format!(
                     "bus {b} ({}): {length_m:.0} m of cable, at most {:.0} m on a segment",

@@ -5,8 +5,8 @@
 use cadcraft_doc::{
     AccessoryKind, AccessoryParams, AhuKind, AhuParams, AirDirection, Drawing, DuctKind, DuctParams, DuctShape, Handle, OpeningKind, OpeningParams,
     PartParams, PipeParams, PipeRiserParams, PipeService, RiserParams, SlabParams, SpaceParams, TerminalKind, TerminalParams, WallJustification,
-    ZoneParams, accessory_of, ahu_of, air_terminal_of, ceiling_of, duct_of, opening_of, part_of, pipe_of, pipe_riser_of, rail_of, riser_of, slab_of,
-    space_of, stair_of, struct_of, wall_of, zone_of,
+    ZoneParams, accessory_of, ahu_of, air_terminal_of, ceiling_of, duct_of, opening_of, part_of, pipe_of, pipe_riser_of, rail_of, slab_of, space_of,
+    stair_of, struct_of, wall_of, zone_of,
 };
 use cadcraft_hvac::RoomUse;
 use egui::{Sense, pos2, vec2};
@@ -60,8 +60,11 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     if !equipment.is_empty() && equipment.len() == sel.len() {
         return equipment_section(ui, sel, &equipment, bad);
     }
-    let risers: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| riser_of(e))).collect();
+    let risers: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::any_riser_of(e))).collect();
     if !risers.is_empty() && risers.len() == sel.len() {
+        if risers.iter().all(RiserParams::is_cable) {
+            return cable_riser_section(ui, sel, &risers, bad);
+        }
         return riser_section(ui, sel, &risers, bad);
     }
     let units: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| ahu_of(e))).collect();
@@ -730,7 +733,7 @@ pub(crate) fn is_parametric(d: &Drawing, h: Handle) -> bool {
             || part_of(e).is_some()
             || pipe_riser_of(e).is_some()
             || accessory_of(e).is_some()
-            || riser_of(e).is_some()
+            || cadcraft_doc::any_riser_of(e).is_some()
             || cadcraft_doc::equipment_of(e).is_some()
     })
 }
@@ -1431,6 +1434,79 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
 // =====================================================================================
 // Risers
 // =====================================================================================
+
+/// A riser of cables or of a bus: what it carries, the circuit, the section and the loads, the way it goes and its height.
+fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams], bad: &mut Option<String>) -> Action {
+    let ids = handles(sel);
+    let mut action: Action = None;
+    let edit = |key: &str, value: Value| Some(("riseredit", json!({ "handles": ids, key: value })));
+    group(ui, "Cable riser");
+    let name = shared(&risers.iter().map(|r| r.name.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Name", |ui| {
+        if let Some(n) = edit_field(ui, ui.scope_id().with(("criser_name", &ids)), name).filter(|n| !n.trim().is_empty() && n != VARIES) {
+            action = edit("name", json!(n));
+        }
+    });
+    let medium = shared(&risers.iter().map(|r| r.cable.medium).collect::<Vec<_>>());
+    prop_row(ui, "Carries", |ui| {
+        let shown = medium.map_or(VARIES, |m| match m {
+            cadcraft_doc::RiserMedium::Power => "Power",
+            cadcraft_doc::RiserMedium::Lighting => "Lighting",
+            cadcraft_doc::RiserMedium::Data => "Data",
+            cadcraft_doc::RiserMedium::Safety => "Safety",
+            cadcraft_doc::RiserMedium::Bus => "Control bus",
+            cadcraft_doc::RiserMedium::Air => "Air",
+        });
+        let items = [("power", "Power"), ("lighting", "Lighting"), ("data", "Data"), ("safety", "Safety"), ("bus", "Control bus")];
+        if let Some(m) = choice(ui, shown, &items) {
+            action = edit("medium", json!(m));
+        }
+    });
+    let circuit = shared(&risers.iter().map(|r| r.cable.circuit.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Circuit or bus", |ui| {
+        if let Some(c) = edit_field(ui, ui.scope_id().with(("criser_circuit", &ids)), circuit).filter(|c| c != VARIES) {
+            action = edit("circuit", json!(c.trim()));
+        }
+    });
+    let up = shared(&risers.iter().map(|r| r.up).collect::<Vec<_>>());
+    prop_row(ui, "Direction", |ui| {
+        let shown = up.map_or(VARIES, |u| if u { "Goes up" } else { "Goes down" });
+        if let Some(d) = choice(ui, shown, &[("up", "Goes up"), ("down", "Goes down")]) {
+            action = edit("direction", json!(d));
+        }
+    });
+    for (label, key, pick) in [("Shaft width (mm)", "width", 0), ("Shaft depth (mm)", "depth", 1)] {
+        let v = shared(&risers.iter().map(|r| format!("{:.0}", if pick == 0 { r.shaft_mm().0 } else { r.shaft_mm().1 })).collect::<Vec<_>>())
+            .unwrap_or_else(|| VARIES.into());
+        prop_row(ui, label, |ui| {
+            if let Some(n) = number(edit_field(ui, ui.scope_id().with(("criser_shaft", key, &ids)), v), bad) {
+                action = edit(key, json!(n));
+            }
+        });
+    }
+    // Numbers, empty for none: the section, the load carried here and the one from the other floors, the height of the vertical run.
+    type Pick = fn(&RiserParams) -> Option<f64>;
+    let rows: [(&str, &str, Pick); 4] = [
+        ("Section (mm²)", "section", |r| r.cable.section_mm2),
+        ("Load (kW)", "load", |r| r.cable.load_kw),
+        ("Load from other floors (kW)", "incomingLoad", |r| r.cable.incoming_load_kw),
+        ("Height, floor to floor (mm)", "height", |r| r.height_mm),
+    ];
+    for (label, key, pick) in rows {
+        let v =
+            shared(&risers.iter().map(|r| pick(r).map_or(String::new(), |f| format!("{f}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+        prop_row(ui, label, |ui| {
+            if let Some(t) = edit_field(ui, ui.scope_id().with(("criser_num", key, &ids)), v).filter(|t| t != VARIES) {
+                if t.trim().is_empty() {
+                    action = edit(key, Value::Null);
+                } else if let Some(f) = number(Some(t), bad) {
+                    action = edit(key, json!(f));
+                }
+            }
+        });
+    }
+    action
+}
 
 fn riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams], bad: &mut Option<String>) -> Action {
     let ids = handles(sel);
@@ -2355,6 +2431,27 @@ mod hvac_tests {
         type_into(&mut hn, "600", "800");
         let p = cadcraft_doc::riser_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
         assert_eq!(p.shaft_mm(), (800.0, 400.0));
+    }
+
+    #[test]
+    fn a_selected_riser_of_cables_shows_its_circuit_and_takes_the_load_typed_in_the_palette() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        *app.session.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+        let r = app
+            .run("elecriser", json!({ "at": [0, 0], "width": 400, "depth": 400, "name": "CP 7", "circuit": "TD1-C4", "incomingLoad": 4 }))
+            .unwrap();
+        let h = cadcraft_doc::Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+        assert!(super::is_parametric(app.session.doc().unwrap(), h), "a double-click opens Properties");
+        app.session.set_selection(vec![h]);
+        let mut hn = palette(app);
+        assert!(hn.get_all_by_value("CP 7").next().is_some() && hn.get_all_by_value("TD1-C4").next().is_some());
+        assert!(
+            hn.query_all_by_label_contains("Section (mm²)").count() >= 1 && hn.query_all_by_label_contains("Air").count() == 0,
+            "the rows of a cable, not of air"
+        );
+        type_into(&mut hn, "4", "9");
+        let p = cadcraft_doc::any_riser_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
+        assert_eq!(p.cable.incoming_load_kw, Some(9.0));
     }
 
     #[test]

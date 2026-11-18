@@ -125,6 +125,16 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         ) {
             start = Some("controlschema");
         }
+        if row_tip(
+            ui,
+            crate::i18n::t("Bus Riser"),
+            crate::i18n::t("Draw the shaft where a control bus goes up or down between the floors. Name the bus it carries: its vertical run (the height from floor to floor) is counted in the length of the bus, which the check compares with what the protocol allows."),
+            Some("Bus Riser"),
+            false,
+            paint_points,
+        ) {
+            start = Some("busriser");
+        }
     });
     app.ui.sections = ui
         .data_mut(|d| {

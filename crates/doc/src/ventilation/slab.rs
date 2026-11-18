@@ -348,7 +348,7 @@ impl crate::Drawing {
         let Some(store) = self.space(space) else { return Vec::new() };
         store
             .iter()
-            .filter_map(|e| match (&e.kind, super::riser_of(e)) {
+            .filter_map(|e| match (&e.kind, super::any_riser_of(e)) {
                 (EntityKind::Insert(i), Some(r)) => Some(r.outline.iter().map(|p| block_to_world(i, *p)).collect()),
                 _ => None,
             })

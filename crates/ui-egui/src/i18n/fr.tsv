@@ -3360,3 +3360,18 @@ echo	{a} attribute{b} selected.	{a} attribut{b} sélectionné(s).
 echo	{a} attribute{b} changed.	{a} attribut{b} modifié(s).
 echo	ATTSYNC block {a}: {b} reference{c} synchronized.	Bloc ATTSYNC {a} : {b} référence{c} synchronisée(s).
 echo	{a} row{b} extracted.	{a} ligne{b} extraite(s).
+	Electrical Riser	Colonne électrique
+	Bus Riser	Colonne de bus
+	Cable riser	Colonne de câbles
+	Carries	Transporte
+	Data	Courants faibles
+	Control bus	Bus de régulation
+	Circuit or bus	Circuit ou bus
+	Load (kW)	Charge (kW)
+	Load from other floors (kW)	Charge des autres étages (kW)
+	Height, floor to floor (mm)	Hauteur, d'un plancher à l'autre (mm)
+	Draw the shaft where the cables go up or down between the floors. Name the circuit it carries: its vertical run (the height from floor to floor) is counted in the circuit's cable length, and the load of the other floors in its load.	Dessinez la trémie où les câbles montent ou descendent entre les étages. Donnez le circuit qu'elle porte : sa hauteur (d'un plancher à l'autre) est comptée dans la longueur de câble du circuit, et la charge des autres étages dans sa charge.
+	Draw the shaft where a control bus goes up or down between the floors. Name the bus it carries: its vertical run (the height from floor to floor) is counted in the length of the bus, which the check compares with what the protocol allows.	Dessinez la trémie où un bus de régulation monte ou descend entre les étages. Donnez le bus qu'elle porte : sa hauteur (d'un plancher à l'autre) est comptée dans la longueur du bus, que la vérification compare à ce que le protocole permet.
+	Enter the circuit it carries	Saisissez le circuit qu'elle porte
+	Enter the bus it carries	Saisissez le bus qu'elle porte
+echo	Current settings: Name = {a}, Circuit = {b}, Direction = {c}	Paramètres actuels : Nom = {a}, Circuit = {b}, Sens = {c}

@@ -10,8 +10,8 @@ use cadcraft_geom::{PolyVertex, Vec2, polygon_centroid};
 use serde::{Deserialize, Serialize};
 
 use super::terminal::air_layer;
-use super::{AirDirection, DUCT_DIAMETER_MM, HvacPiece, HvacUnits, check_label_height, check_name, invalid, v3, xdata};
-use crate::{Circle, EntityKind, HAlign, Line, LwPolyline, RawTag, Result, Text, VAlign};
+use super::{AirDirection, CableUsage, DUCT_DIAMETER_MM, HvacPiece, HvacUnits, check_label_height, check_name, invalid, v3, xdata};
+use crate::{Circle, EntityKind, HAlign, Line, LwPolyline, RawTag, Result, Solid, Text, VAlign};
 
 /// The registered application name of a riser's extended data.
 pub const RISER_APP: &str = "CADCRAFT_RISER";
@@ -76,6 +76,74 @@ impl RiserSize {
     }
 }
 
+/// What a riser carries between the floors: air, or an electrical cable or a control bus (the same symbol and arrows, the same shaft).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RiserMedium {
+    #[default]
+    Air,
+    Power,
+    Lighting,
+    Data,
+    Safety,
+    Bus,
+}
+
+impl RiserMedium {
+    pub const ALL: [RiserMedium; 6] =
+        [RiserMedium::Air, RiserMedium::Power, RiserMedium::Lighting, RiserMedium::Data, RiserMedium::Safety, RiserMedium::Bus];
+
+    /// The use of the cable, for the cable mediums.
+    pub fn usage(self) -> Option<CableUsage> {
+        match self {
+            RiserMedium::Air => None,
+            RiserMedium::Power => Some(CableUsage::Power),
+            RiserMedium::Lighting => Some(CableUsage::Lighting),
+            RiserMedium::Data => Some(CableUsage::Data),
+            RiserMedium::Safety => Some(CableUsage::Safety),
+            RiserMedium::Bus => Some(CableUsage::Bus),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        self.usage().map_or("air", CableUsage::name)
+    }
+
+    pub fn parse(text: &str) -> Option<RiserMedium> {
+        if text.trim().eq_ignore_ascii_case("air") {
+            return Some(RiserMedium::Air);
+        }
+        match CableUsage::parse(text)? {
+            CableUsage::Power => Some(RiserMedium::Power),
+            CableUsage::Lighting => Some(RiserMedium::Lighting),
+            CableUsage::Data => Some(RiserMedium::Data),
+            CableUsage::Safety => Some(RiserMedium::Safety),
+            CableUsage::Bus => Some(RiserMedium::Bus),
+        }
+    }
+}
+
+/// What a riser of cables has besides what every riser has: the circuit (or the bus) it carries, its section and the load, kW.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CableData {
+    #[serde(default)]
+    pub medium: RiserMedium,
+    /// The circuit (or, for a bus, the bus) the riser carries: the vertical run is counted in its length.
+    #[serde(default)]
+    pub circuit: String,
+    #[serde(default)]
+    pub section_mm2: Option<f64>,
+    /// The load the riser carries at this level, kW, and the part of it that goes on to, or comes from, the other floors.
+    #[serde(default)]
+    pub load_kw: Option<f64>,
+    #[serde(default)]
+    pub incoming_load_kw: Option<f64>,
+}
+
+/// The most power a riser may carry, kW.
+pub const MAX_RISER_KW: f64 = 100_000.0;
+
 /// A riser: what its block reference keeps to regenerate it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -114,13 +182,59 @@ pub struct RiserParams {
     pub label_height_mm: f64,
     #[serde(default)]
     pub units: HvacUnits,
+    /// A riser of cables or of a bus: what it carries (the air fields are then left alone).
+    #[serde(default)]
+    pub cable: CableData,
+}
+
+fn kw_text(kw: f64) -> String {
+    if (kw - kw.round()).abs() < 0.05 { format!("{kw:.0} kW") } else { format!("{kw:.1} kW") }
 }
 
 impl RiserParams {
+    /// Whether the riser carries cables (or a bus), not air.
+    pub fn is_cable(&self) -> bool {
+        self.cable.medium != RiserMedium::Air
+    }
+
+    /// The layer of the symbol and its texts: the air direction's, or the cable's use.
+    fn symbol_layer(&self) -> &'static str {
+        self.cable.medium.usage().map_or_else(|| air_layer(self.air), CableUsage::layer)
+    }
+
+    /// Whether the end of the leader that has the whole load is the upper one. Air that leaves the unit comes from the side of the unit, air that goes to it
+    /// goes there; a current comes from the source: below it when it goes up.
+    fn total_above(&self) -> bool {
+        if self.is_cable() { !self.up } else { self.air.leaves_the_unit() != self.up }
+    }
+
+    /// The text of an end of a cable riser's leader: "CP 1-35 mm²-18 kW". A bus or a data cable carries no load: its name only.
+    fn cable_text(&self, section: bool, kw: Option<f64>) -> String {
+        let mut t = self.name.clone();
+        if let (true, Some(s)) = (section, self.cable.section_mm2) {
+            t.push_str(&format!("-{s:.0} mm²"));
+        }
+        if let Some(k) = kw.filter(|_| self.cable.medium.usage().is_some_and(|u| !u.is_signal())) {
+            t.push_str(&format!("-{}", kw_text(k)));
+        }
+        t
+    }
+
     pub fn validate(&self) -> Result<()> {
         check_name("riser", &self.name)?;
         check_label_height(self.label_height_mm)?;
         self.units.validate()?;
+        for kw in [self.cable.load_kw, self.cable.incoming_load_kw].into_iter().flatten() {
+            if !(kw.is_finite() && kw > 0.0 && kw <= MAX_RISER_KW) {
+                return Err(invalid(format!("A riser's load is more than 0 and at most {MAX_RISER_KW} kW.")));
+            }
+        }
+        if self.cable.section_mm2.is_some_and(|s| !(s.is_finite() && (0.5..=2_500.0).contains(&s))) {
+            return Err(invalid("A cable riser's section is 0.5 to 2500 mm²."));
+        }
+        if self.cable.circuit.chars().count() > 64 {
+            return Err(invalid("A circuit name has at most 64 characters."));
+        }
         if !(3..=MAX_RISER_VERTICES).contains(&self.outline.len()) || self.outline.iter().any(|p| !p.is_finite()) {
             return Err(invalid(format!("A riser's shaft outline has 3 to {MAX_RISER_VERTICES} points.")));
         }
@@ -170,6 +284,9 @@ impl RiserParams {
 
     /// The text written at the end of the arrow, readable by any program: "VMC 3-Ø0200-240 m³/h" (the name, the section on four digits, the flow).
     pub fn text(&self) -> String {
+        if self.is_cable() {
+            return self.cable_text(true, self.cable.load_kw.or(self.cable.incoming_load_kw));
+        }
         self.end_text(self.size, self.flow_m3h.or(self.incoming_flow_m3h))
     }
 
@@ -185,9 +302,13 @@ impl RiserParams {
         t
     }
 
-    /// What the lower end of the leader says, when the riser goes on to (or comes from) the floor below: the part of the flow that is not this floor's,
-    /// with its section. `None` when the riser has no such part, or when all of its flow is the one it carries here.
-    pub fn lower_text(&self) -> Option<String> {
+    /// What the end of the leader away from the unit says, when the riser goes on to (or comes from) another floor: the part of the flow that is not this
+    /// floor's, with its section. `None` when the riser has no such part, or when all of its flow is the one it carries here.
+    pub fn part_text(&self) -> Option<String> {
+        if self.is_cable() {
+            let (total, part) = (self.cable.load_kw?, self.cable.incoming_load_kw?);
+            return (part < total - 0.05).then(|| self.cable_text(false, Some(part)));
+        }
         let (total, part) = (self.flow_m3h?, self.incoming_flow_m3h?);
         if part >= total - 0.5 {
             return None;
@@ -196,7 +317,7 @@ impl RiserParams {
         Some(self.end_text(size, Some(part)))
     }
 
-    /// The shaft outline, the symbol with its leader arrows (the upper end for the floor above, the lower for the floor below), and the texts.
+    /// The shaft outline, the symbol with its leader and arrow heads (the upper end for the floor above, the lower for the floor below), and the texts.
     pub fn generate(&self) -> Result<Vec<HvacPiece>> {
         self.validate()?;
         let h = self.units.to_units(self.label_height_mm);
@@ -219,7 +340,7 @@ impl RiserParams {
             Some(hf) => (hf.x.min(hf.y), hf.x.min(hf.y) * std::f64::consts::SQRT_2),
             None => (r, r),
         };
-        let layer = air_layer(self.air);
+        let layer = self.symbol_layer();
         let line = |a: Vec2, b: Vec2| HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
         let circle = |radius: f64| HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius }) };
         let symbol = match rect_half {
@@ -244,51 +365,46 @@ impl RiserParams {
             pieces.push(line(c + Vec2::new(-k, -k), c + Vec2::new(k, k)));
             pieces.push(line(c + Vec2::new(-k, k), c + Vec2::new(k, -k)));
         }
-        // The leader leaves the circle at 45° and ends in an arrow head, where the text begins.
+        // One leader through the symbol at 45°: its two ends speak of the floor above and the floor below. Each end has a filled arrow head that points the
+        // way the air goes (up for a riser that goes up, down for one that goes down), and the text where the leader ends. The end on the side of the unit
+        // has the whole flow of this level; the other, the part that goes on to (or comes from) the other floor, when the riser has one.
         let dir = Vec2::new(FRAC_1_SQRT_2, FRAC_1_SQRT_2);
-        let (start, len) = (c + dir * edge, self.units.to_units(0.6 * (w * w + d * d).sqrt()).max(6.0 * h));
-        let end = start + dir * len;
-        let (back, side, head) = (-dir, dir.perp(), 1.2 * h);
-        pieces.push(line(start, end));
-        pieces.push(line(end, end + back * head + side * (0.4 * head)));
-        pieces.push(line(end, end + back * head - side * (0.4 * head)));
-        // The lower end: the part of the flow that comes from (extract) or goes on to (supply) the other floor, drawn the other way.
-        if let Some(lower) = self.lower_text() {
-            let (start, end) = (c - dir * edge, c - dir * (edge + len));
+        let (len, head) = (self.units.to_units(0.6 * (w * w + d * d).sqrt()).max(6.0 * h), 1.2 * h);
+        let flow_dir = if self.up { dir } else { -dir };
+        let side = dir.perp();
+        let triangle = |apex: Vec2| {
+            let base = apex - flow_dir * head;
+            let corner = |k: f64| v3(base + side * (k * 0.4 * head));
+            HvacPiece { layer, kind: EntityKind::Solid(Solid { corners: [v3(apex), corner(1.0), corner(-1.0), corner(-1.0)] }) }
+        };
+        let total_above = self.total_above();
+        let part = self.part_text();
+        for (above, text) in
+            [(true, if total_above { Some(self.text()) } else { part.clone() }), (false, if total_above { part.clone() } else { Some(self.text()) })]
+        {
+            let Some(text) = text else { continue };
+            let sign = if above { 1.0 } else { -1.0 };
+            let (start, end) = (c + dir * (sign * edge), c + dir * (sign * (edge + len)));
             pieces.push(line(start, end));
-            pieces.push(line(end, end - back * head + side * (0.4 * head)));
-            pieces.push(line(end, end - back * head - side * (0.4 * head)));
-            let at = end - dir * (0.6 * h);
+            // The air goes toward this end (and the head's point is on it), or comes from it (and the head's base is on it).
+            pieces.push(triangle(if (sign > 0.0) == self.up { end } else { end + flow_dir * head }));
+            let at = end + dir * (sign * 0.6 * h);
             pieces.push(HvacPiece {
                 layer,
                 kind: EntityKind::Text(Text {
                     insert: v3(at),
                     align_pt: Some(v3(at)),
                     height: h,
-                    value: lower,
+                    value: text,
                     rotation: FRAC_PI_4,
                     width_factor: 1.0,
                     oblique: 0.0,
                     style: "Standard".into(),
-                    halign: HAlign::Right,
+                    halign: if above { HAlign::Left } else { HAlign::Right },
                     valign: VAlign::Middle,
                 }),
             });
         }
-        let at = end + dir * (0.6 * h);
-        let text = Text {
-            insert: v3(at),
-            align_pt: Some(v3(at)),
-            height: h,
-            value: self.text(),
-            rotation: FRAC_PI_4,
-            width_factor: 1.0,
-            oblique: 0.0,
-            style: "Standard".into(),
-            halign: HAlign::Left,
-            valign: VAlign::Middle,
-        };
-        pieces.push(HvacPiece { layer, kind: EntityKind::Text(text) });
         Ok(pieces)
     }
 
@@ -302,8 +418,13 @@ impl RiserParams {
     }
 }
 
-/// The riser an object is, when it is a block reference carrying usable riser data.
+/// The riser of air an object is, when it is a block reference carrying usable riser data: the networks, the takeoff and the sizing see these only.
 pub fn riser_of(e: &crate::Entity) -> Option<RiserParams> {
+    any_riser_of(e).filter(|r| !r.is_cable())
+}
+
+/// The riser an object is, of air or of cables or a bus.
+pub fn any_riser_of(e: &crate::Entity) -> Option<RiserParams> {
     match &e.kind {
         EntityKind::Insert(_) => RiserParams::from_xdata(&e.common.xdata),
         _ => None,

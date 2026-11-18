@@ -1,7 +1,7 @@
 use cadcraft_geom::Vec2;
 
 use super::*;
-use crate::{Common, Drawing, EntityKind, Space};
+use crate::{Common, Drawing, EntityKind, HAlign, Space};
 
 fn riser() -> RiserParams {
     RiserParams {
@@ -18,6 +18,7 @@ fn riser() -> RiserParams {
         height_mm: None,
         label_height_mm: 100.0,
         units: HvacUnits::default(),
+        cable: CableData::default(),
     }
 }
 
@@ -47,10 +48,10 @@ fn a_riser_is_its_shaft_a_symbol_with_a_leader_and_a_label_that_reads_like_the_p
     );
     let round = RiserParams { size: Some(RiserSize::Round { diameter_mm: 200.0 }), ..p.clone() };
     let down = RiserParams { up: false, ..round.clone() };
-    assert_eq!((count(&round, circles), count(&round, lines), count(&round, polys)), (2, 3, 1));
-    assert_eq!((count(&down, circles), count(&down, lines), count(&down, polys)), (1, 5, 1));
+    assert_eq!((count(&round, circles), count(&round, lines), count(&round, polys)), (2, 1, 1));
+    assert_eq!((count(&down, circles), count(&down, lines), count(&down, polys)), (1, 3, 1));
     // Rectangular (400 x 250 here): no circle but the dot, and a second polyline, the section.
-    assert_eq!((count(&p, circles), count(&p, lines), count(&p, polys)), (1, 3, 2), "{:?}", p.size);
+    assert_eq!((count(&p, circles), count(&p, lines), count(&p, polys)), (1, 1, 2), "{:?}", p.size);
 }
 
 #[test]
@@ -92,12 +93,64 @@ fn a_riser_that_goes_on_to_another_floor_has_an_arrow_and_a_text_at_each_end_of_
     // A size typed for that part is the one written.
     p.incoming_size = Some(RiserSize::Round { diameter_mm: 250.0 });
     assert!(texts(&p).iter().any(|x| x == "VMC 3-Ø0250-660 m³/h"));
-    // Arrow heads: two lines for each end.
-    let lines = p.generate().unwrap().iter().filter(|x| matches!(x.kind, EntityKind::Line(_))).count();
-    assert_eq!(lines, 6, "two leaders and four heads");
+    // A leader and a filled arrow head at each end.
+    let count = |p: &RiserParams, f: fn(&EntityKind) -> bool| p.generate().unwrap().iter().filter(|x| f(&x.kind)).count();
+    assert_eq!((count(&p, |k| matches!(k, EntityKind::Line(_))), count(&p, |k| matches!(k, EntityKind::Solid(_)))), (2, 2));
     // The ground floor has nothing below: one end only. So has a riser whose flow is all its own, or one not sized yet.
     for (flow, incoming) in [(Some(815.0), None), (Some(660.0), Some(660.0)), (None, Some(660.0))] {
         let q = RiserParams { flow_m3h: flow, incoming_flow_m3h: incoming, ..p.clone() };
         assert_eq!(texts(&q).len(), 1, "{flow:?} {incoming:?}");
     }
+}
+
+/// The heads of a riser's leader: how far each one's apex is along the leader's way up (positive: it points up), and where each text is.
+fn heads_and_texts(p: &RiserParams) -> (Vec<f64>, Vec<(String, bool)>) {
+    let mut heads = Vec::new();
+    let mut texts = Vec::new();
+    for x in p.generate().unwrap() {
+        match x.kind {
+            EntityKind::Solid(s) => {
+                heads.push((s.corners[0].x + s.corners[0].y) - (s.corners[1].x + s.corners[2].x + s.corners[1].y + s.corners[2].y) / 2.0)
+            }
+            EntityKind::Text(t) => texts.push((t.value, t.halign == HAlign::Left)),
+            _ => {}
+        }
+    }
+    (heads, texts)
+}
+
+#[test]
+fn the_arrow_heads_of_a_riser_point_the_way_the_air_goes_and_the_whole_flow_is_on_the_side_of_the_unit() {
+    let mut p = riser();
+    p.size = Some(RiserSize::Round { diameter_mm: 400.0 });
+    p.flow_m3h = Some(2620.0);
+    p.incoming_flow_m3h = Some(660.0);
+    p.size_set = true;
+    // Extract air that goes up (to the unit on the roof): both heads point up, the whole flow is above.
+    let (heads, texts) = heads_and_texts(&p);
+    assert!(heads.len() == 2 && heads.iter().all(|h| *h > 0.0), "{heads:?}");
+    assert!(
+        texts.iter().any(|(t, above)| t.ends_with("-2620 m³/h") && *above) && texts.iter().any(|(t, above)| t.ends_with("-660 m³/h") && !*above),
+        "{texts:?}"
+    );
+    // Supply air that comes down from the roof: both heads point down, the whole flow is still above (where it comes from).
+    let supply = RiserParams { air: AirDirection::Supply, up: false, ..p.clone() };
+    let (heads, texts) = heads_and_texts(&supply);
+    assert!(heads.len() == 2 && heads.iter().all(|h| *h < 0.0), "{heads:?}");
+    assert!(texts.iter().any(|(t, above)| t.ends_with("-2620 m³/h") && *above), "{texts:?}");
+    // Supply air that goes up from a unit below: the whole flow is below, the part that goes on is above.
+    let rising = RiserParams { air: AirDirection::Supply, up: true, ..p.clone() };
+    let (heads, texts) = heads_and_texts(&rising);
+    assert!(heads.iter().all(|h| *h > 0.0));
+    assert!(
+        texts.iter().any(|(t, above)| t.ends_with("-2620 m³/h") && !*above) && texts.iter().any(|(t, above)| t.ends_with("-660 m³/h") && *above),
+        "{texts:?}"
+    );
+    // With nothing to go on to, one arrow only, on the side of the unit, pointing the way.
+    let alone = RiserParams { incoming_flow_m3h: None, up: false, air: AirDirection::Extract, ..p.clone() };
+    let (heads, texts) = heads_and_texts(&alone);
+    assert!(
+        heads.len() == 1 && heads[0] < 0.0 && texts.len() == 1 && !texts[0].1,
+        "an extract riser that goes down has the unit below: {heads:?} {texts:?}"
+    );
 }

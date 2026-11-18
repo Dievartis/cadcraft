@@ -9,7 +9,10 @@ use std::collections::BTreeMap;
 use cadcraft_hvac as calc;
 use serde::{Deserialize, Serialize};
 
-use super::{CableParams, CableUsage, DeviceKind, ElecConductor, ElecInsulation, ElecLaying, ElecPhases, ahu_of, cable_of, device_of, equipment_of};
+use super::{
+    CableParams, CableUsage, DeviceKind, ElecConductor, ElecInsulation, ElecLaying, ElecPhases, ahu_of, any_riser_of, cable_of, device_of,
+    equipment_of,
+};
 use super::{circuit_panel, same_network};
 use crate::{Handle, Result};
 
@@ -121,6 +124,8 @@ struct Acc {
     lights_only: bool,
     /// The boards this circuit feeds.
     fed: Vec<String>,
+    /// The vertical run of the risers that carry it, metres.
+    risers_m: f64,
 }
 
 fn grouping(laying: ElecLaying) -> calc::Grouping {
@@ -158,6 +163,15 @@ impl crate::Drawing {
             if let Some(c) = cable_of(e) {
                 let h = e.handle;
                 add(&c.circuit.clone(), &mut |a| a.cables.push((h, c.clone())));
+            } else if let Some(r) = any_riser_of(e).filter(|r| r.is_cable() && !r.cable.circuit.trim().is_empty()) {
+                // A riser carries its circuit between floors: its vertical run is cable, and the load of the other floors is the circuit's.
+                add(&r.cable.circuit.clone(), &mut |a| {
+                    a.risers_m += r.height_mm.unwrap_or(0.0) / 1000.0;
+                    if r.cable.medium == super::RiserMedium::Power {
+                        a.power_w += r.cable.incoming_load_kw.unwrap_or(0.0) * 1000.0;
+                        a.lights_only = false;
+                    }
+                });
             } else if let Some(d) = device_of(e) {
                 if d.kind == DeviceKind::Panel {
                     // A board fed by a circuit (of another board): that circuit carries the load of the board's circuits.
@@ -308,7 +322,7 @@ fn circuit_report(
         upstream_drop_percent: (origin.1 > 0.0).then_some((origin.1 * 100.0).round() / 100.0),
         ..CircuitReport::default()
     };
-    let length_m: f64 = a.cables.iter().map(|(_, c)| c.length_m()).sum();
+    let length_m: f64 = a.cables.iter().map(|(_, c)| c.length_m()).sum::<f64>() + a.risers_m;
     r.cable_length_m = (length_m * 100.0).round() / 100.0;
     r.section_mm2 = a.cables.iter().filter_map(|(_, c)| c.section_mm2).min_by(f64::total_cmp);
     r.protection_a = a.cables.iter().filter_map(|(_, c)| c.protection_a).min_by(f64::total_cmp);

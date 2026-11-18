@@ -1221,6 +1221,7 @@ fn riser_at(d: &mut Drawing, at: (f64, f64), air: AirDirection, incoming: Option
         height_mm: None,
         label_height_mm: 100.0,
         units: HvacUnits::default(),
+        cable: Default::default(),
     };
     for v in &mut p.outline {
         *v += Vec2::new(at.0, at.1);

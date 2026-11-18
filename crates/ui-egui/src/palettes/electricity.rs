@@ -5,7 +5,7 @@
 use cadcraft_doc::{CableUsage, DeviceKind};
 use egui::{Rect, Stroke, pos2, vec2};
 
-use super::building::{header, open_id, row_button, sections_id, separator};
+use super::building::{header, open_id, row_button, row_tip, sections_id, separator};
 use super::hvachelp;
 use crate::CadApp;
 use crate::theme::Tokens;
@@ -223,6 +223,16 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         }
         if row_button(ui, crate::i18n::t("Single-Line Diagram"), false, super::thumbs::paint_quantities) {
             start = Some("singleline");
+        }
+        if row_tip(
+            ui,
+            crate::i18n::t("Electrical Riser"),
+            crate::i18n::t("Draw the shaft where the cables go up or down between the floors. Name the circuit it carries: its vertical run (the height from floor to floor) is counted in the circuit's cable length, and the load of the other floors in its load."),
+            Some("Electrical Riser"),
+            false,
+            super::thumbs::paint_riser,
+        ) {
+            start = Some("elecriser");
         }
         ui.add_space(6.0);
         separator(ui);
