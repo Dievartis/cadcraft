@@ -3,7 +3,8 @@
 //! floor is its own drawing, so the risers of two floors meet by name.
 
 use cadcraft_doc::{
-    AirDirection, CableData, Drawing, EntityKind, Handle, HvacUnits, MAX_RISER_VERTICES, RiserMedium, RiserParams, RiserSize, any_riser_of,
+    AirDirection, CableData, CableLine, Drawing, EntityKind, Handle, HvacUnits, MAX_CABLE_LINES, MAX_RISER_VERTICES, RiserMedium, RiserParams,
+    RiserSize, any_riser_of,
 };
 use cadcraft_geom::Vec2;
 use serde_json::{Value, json};
@@ -24,15 +25,15 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("elecriser", "Electrical Riser", run_add_power)
             .menu(&["Draw", "Electricity", "Riser"])
             .params(
-                "{points | handle (closed polyline) | at + width + depth (mm), name?, medium? (power|lighting|data|safety; default power), circuit? (the circuit it carries: its vertical run is counted in the \
-                 circuit's cable length), direction? (up|down: the way the current goes), load? (kW carried at this level), incomingLoad? (kW that comes from, or goes on to, the other floors: added to the \
-                 circuit's load), section? (mm²), height? (mm, floor to floor), labelHeight? (mm)} → {handle, name}",
+                "{points | handle (closed polyline) | at + width + depth (mm), name?, medium? (power|lighting|data|safety; default power), lines? (a list: a circuit name, or {usage? (power|lighting|data|safety|bus), circuit?, section? (mm²), \
+                 load? (kW carried at this level), incomingLoad? (kW that comes from, or goes on to, the other floors: added to the circuit's load)}; default one line), or circuit, section, load and \
+                 incomingLoad for that one line; direction? (up|down: the way the current goes), height? (mm, floor to floor: counted in the length of each circuit it carries), labelHeight? (mm)} → {handle, name}",
             )
             .interactive(|s| Ok(Box::new(RiserAddM::with_medium(s, RiserMedium::Power)))),
         CommandSpec::new("busriser", "Bus Riser", run_add_bus)
             .menu(&["Draw", "Controls", "Bus Riser"])
             .params(
-                "{points | handle (closed polyline) | at + width + depth (mm), name?, circuit? (the bus it carries: its vertical run is counted in the bus's cable length), direction? (up|down), \
+                "{points | handle (closed polyline) | at + width + depth (mm), name?, lines? (a list of {circuit: the bus, usage?}; default one line of the bus) or circuit for that one line, direction? (up|down), \
                  height? (mm, floor to floor), labelHeight? (mm)} → {handle, name}",
             )
             .interactive(|s| Ok(Box::new(RiserAddM::with_medium(s, RiserMedium::Bus)))),
@@ -203,7 +204,7 @@ fn run_add_as(s: &mut Session, p: &Value, cmd: &str, default: Option<RiserMedium
                 height_mm: None,
                 label_height_mm: 100.0,
                 units,
-                cable: CableData::default(),
+                cable: CableData::of(medium),
             };
             r.set_shaft_mm(w, d).map_err(doc_err)?;
             r.outline
@@ -226,17 +227,59 @@ fn run_add_as(s: &mut Session, p: &Value, cmd: &str, default: Option<RiserMedium
         height_mm: number(cmd, p, "height")?,
         label_height_mm: number(cmd, p, "labelHeight")?.unwrap_or(100.0),
         units,
-        cable: CableData {
-            medium,
-            circuit: str_param(p, "circuit").map(str::to_string).unwrap_or_default(),
-            section_mm2: number(cmd, p, "section")?,
-            load_kw: number(cmd, p, "load")?,
-            incoming_load_kw: number(cmd, p, "incomingLoad")?,
-        },
+        cable: cable_data(cmd, p, medium)?,
     };
     let name = params.name.clone();
     let h = add_riser(s, params)?;
     Ok(json!({ "handle": h.hex(), "name": name }))
+}
+
+/// One line of a riser of cables from a command: a circuit name, or an object {usage?, circuit?, section?, load?, incomingLoad?}.
+fn cable_line_value(cmd: &str, v: &Value, default: cadcraft_doc::CableUsage) -> Result<CableLine> {
+    let mut line = CableLine::new(default);
+    match v {
+        Value::String(c) => line.circuit = c.trim().to_string(),
+        Value::Object(_) => apply_cable_line(cmd, &mut line, v)?,
+        _ => return Err(bad(cmd, "a line is a circuit name or {usage?, circuit?, section?, load?, incomingLoad?}")),
+    }
+    Ok(line)
+}
+
+/// Changes what `v` names on a line: a number or null for the numbers.
+fn apply_cable_line(cmd: &str, line: &mut CableLine, v: &Value) -> Result<()> {
+    if let Some(t) = str_param(v, "usage") {
+        line.usage = cadcraft_doc::CableUsage::parse(t).ok_or_else(|| bad(cmd, "`usage` is power, lighting, data, safety or bus"))?;
+    }
+    if let Some(c) = str_param(v, "circuit") {
+        line.circuit = c.trim().to_string();
+    }
+    for (key, slot) in [("section", &mut line.section_mm2), ("load", &mut line.load_kw), ("incomingLoad", &mut line.incoming_load_kw)] {
+        if let Some(n) = clearable(cmd, v, key)? {
+            *slot = n;
+        }
+    }
+    Ok(())
+}
+
+/// The lines of a riser of cables from a command: `lines`, else one line built from `circuit`, `section`, `load` and `incomingLoad`.
+fn cable_data(cmd: &str, p: &Value, medium: RiserMedium) -> Result<CableData> {
+    let mut data = CableData::of(medium);
+    let Some(usage) = medium.usage() else { return Ok(data) };
+    match p.get("lines") {
+        Some(Value::Array(a)) => {
+            if a.len() > MAX_CABLE_LINES {
+                return Err(bad(cmd, format!("a riser has at most {MAX_CABLE_LINES} lines")));
+            }
+            data.lines = a.iter().map(|v| cable_line_value(cmd, v, usage)).collect::<Result<_>>()?;
+        }
+        Some(Value::Null) | None => {
+            if let Some(first) = data.lines.first_mut() {
+                apply_cable_line(cmd, first, p)?;
+            }
+        }
+        Some(_) => return Err(bad(cmd, "`lines` is a list")),
+    }
+    Ok(data)
 }
 
 fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
@@ -249,8 +292,11 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     let incoming_size = incoming_size_param(CMD, p)?;
     let (incoming, flow) = (clearable(CMD, p, "incomingFlow")?, clearable(CMD, p, "flow")?);
     let height = clearable(CMD, p, "height")?;
-    let (medium, load, incoming_load, section) =
-        (medium_param(CMD, p)?, clearable(CMD, p, "load")?, clearable(CMD, p, "incomingLoad")?, clearable(CMD, p, "section")?);
+    let medium = medium_param(CMD, p)?;
+    let remove = match p.get("removeLine").filter(|v| !v.is_null()) {
+        Some(v) => Some(v.as_u64().filter(|n| *n >= 1).ok_or_else(|| bad(CMD, "`removeLine` is the number of a line, from 1"))? as usize),
+        None => None,
+    };
     let shaft = (number(CMD, p, "width")?, number(CMD, p, "depth")?);
     let d = s.doc()?;
     let mut next = Vec::with_capacity(hs.len());
@@ -261,19 +307,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         r.air = air.unwrap_or(r.air);
         r.up = up.unwrap_or(r.up);
-        r.cable.medium = medium.unwrap_or(r.cable.medium);
-        if let Some(c) = str_param(p, "circuit") {
-            r.cable.circuit = c.trim().to_string();
-        }
-        if let Some(v) = load {
-            r.cable.load_kw = v;
-        }
-        if let Some(v) = incoming_load {
-            r.cable.incoming_load_kw = v;
-        }
-        if let Some(v) = section {
-            r.cable.section_mm2 = v;
-        }
+        edit_cable_lines(CMD, p, &mut r, medium, remove)?;
         if let Some(v) = incoming {
             r.incoming_flow_m3h = v;
         }
@@ -305,6 +339,52 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         d.regenerate_riser(*h, r).map_err(doc_err)?;
     }
     Ok(json!({ "changed": next.len() }))
+}
+
+/// The lines of a riser of cables as an edit asks: `lines` (replace), `addLines`, `removeLine` (from 1), `line` ({index, …}: one changed), and
+/// `circuit`, `section`, `load`, `incomingLoad` for the first line (made if there is none).
+fn edit_cable_lines(cmd: &str, p: &Value, r: &mut RiserParams, medium: Option<RiserMedium>, remove: Option<usize>) -> Result<()> {
+    if let Some(m) = medium {
+        if r.cable.medium == RiserMedium::Air || m == RiserMedium::Air {
+            r.cable = CableData::of(m);
+        }
+        r.cable.medium = m;
+    }
+    let Some(default) = r.cable.medium.usage() else { return Ok(()) };
+    match p.get("lines") {
+        Some(Value::Array(a)) => r.cable.lines = a.iter().map(|v| cable_line_value(cmd, v, default)).collect::<Result<_>>()?,
+        Some(Value::Null) | None => {}
+        Some(_) => return Err(bad(cmd, "`lines` is a list")),
+    }
+    if let Some(Value::Array(a)) = p.get("addLines") {
+        for v in a {
+            r.cable.lines.push(cable_line_value(cmd, v, default)?);
+        }
+    }
+    if let Some(n) = remove {
+        if n > r.cable.lines.len() {
+            return Err(other(format!("The riser has {} line(s).", r.cable.lines.len())));
+        }
+        r.cable.lines.remove(n - 1);
+    }
+    if let Some(edit) = p.get("line").filter(|v| v.is_object()) {
+        let n =
+            edit.get("index").and_then(Value::as_u64).filter(|n| *n >= 1).ok_or_else(|| bad(cmd, "`line.index` is the number of a line, from 1"))?
+                as usize;
+        let count = r.cable.lines.len();
+        let l = r.cable.lines.get_mut(n - 1).ok_or_else(|| other(format!("The riser has {count} line(s).")))?;
+        apply_cable_line(cmd, l, edit)?;
+    }
+    // What is typed without a line is the first one's.
+    if ["circuit", "section", "load", "incomingLoad"].iter().any(|k| p.get(*k).is_some()) {
+        if r.cable.lines.is_empty() {
+            r.cable.lines.push(CableLine::new(default));
+        }
+        if let Some(first) = r.cable.lines.first_mut() {
+            apply_cable_line(cmd, first, p)?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -362,7 +442,13 @@ impl RiserAddM {
             height_mm: None,
             label_height_mm: 100.0,
             units: HvacUnits::of(s.doc()?),
-            cable: CableData { medium: self.medium, circuit: self.circuit.clone(), ..CableData::default() },
+            cable: {
+                let mut c = CableData::of(self.medium);
+                if let Some(first) = c.lines.first_mut() {
+                    first.circuit = self.circuit.clone();
+                }
+                c
+            },
         })
     }
     /// Adds the riser; the points stay when it can't be added, with the reason.

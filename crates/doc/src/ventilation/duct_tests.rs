@@ -2118,10 +2118,9 @@ fn the_size_written_at_a_collar_has_no_leading_zero_while_a_riser_label_keeps_it
         .collect();
     assert!(texts.iter().any(|t| t.contains("900×600")), "{texts:?}");
     assert!(!texts.iter().any(|t| t.contains("0900")), "no leading zero on a collar: {texts:?}");
-    // A riser's label, as asked, is on four digits.
+    // A riser's label has no leading zero either.
     assert_eq!(super::RiserSize::Round { diameter_mm: 400.0 }.label(), "Ø400");
-    assert_eq!(super::RiserSize::Round { diameter_mm: 400.0 }.label_padded(), "Ø0400");
-    assert_eq!(super::RiserSize::Rectangular { width_mm: 900.0, height_mm: 600.0 }.label_padded(), "0900×0600");
+    assert_eq!(super::RiserSize::Rectangular { width_mm: 900.0, height_mm: 600.0 }.label(), "900×600");
 }
 
 #[test]

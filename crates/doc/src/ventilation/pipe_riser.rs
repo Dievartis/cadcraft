@@ -8,7 +8,7 @@
 use cadcraft_geom::{PolyVertex, Vec2, point_in_polygon, polygon_centroid, shoelace};
 use serde::{Deserialize, Serialize};
 
-use super::{HvacPiece, HvacUnits, PipeLeg, PipeParams, PipeService, check_label_height, check_name, invalid, label_left, v3, xdata};
+use super::{HvacPiece, HvacUnits, PipeLeg, PipeParams, PipeService, check_label_height, check_name, invalid, v3, xdata};
 use crate::{Circle, EntityKind, Line, LwPolyline, RawTag, Result};
 
 /// The registered application name of a pipe riser's extended data.
@@ -19,8 +19,6 @@ pub const PIPE_RISER_LAYER: &str = "M-PIPE-RISER";
 pub const MAX_PIPE_RISER_VERTICES: usize = 256;
 pub const MAX_RISER_LINES: usize = 32;
 const XDATA_FORMAT: &str = "PIPERISER1";
-/// The gap between two line symbols in a shaft, mm.
-const SYMBOL_GAP_MM: f64 = 30.0;
 
 fn default_label_mm() -> f64 {
     100.0
@@ -108,14 +106,46 @@ impl RiserLine {
         self.service == service && (!service.has_legs() || self.leg == leg)
     }
 
+    /// Whether the line flows up when the pipes of the riser go up from this level (the plant below): the supply, the liquid, go up to the loads; the
+    /// return, the gas, and a drain, come down.
+    pub fn flows_up(&self, up: bool) -> bool {
+        let with_the_plant_below = match self.service {
+            PipeService::Condensate | PipeService::RefrigerantGas => false,
+            s if s.has_legs() => self.leg == PipeLeg::Supply,
+            _ => true,
+        };
+        with_the_plant_below == up
+    }
+
+    /// Whether the end of the leader that has the whole load is the upper one: the plant's side for a line that flows away from it, the other for one that
+    /// flows to it (the load adds up toward the plant).
+    pub fn total_above(&self, up: bool) -> bool {
+        let leaves_the_plant = !matches!(self.service, PipeService::Condensate | PipeService::RefrigerantGas)
+            && (!self.service.has_legs() || self.leg == PipeLeg::Supply);
+        if leaves_the_plant { !self.flows_up(up) } else { self.flows_up(up) }
+    }
+
+    /// The part of the load that goes on to, or comes from, the other floors, when the line has one apart from what it carries here.
+    pub fn part(&self) -> Option<f64> {
+        match (self.load, self.incoming) {
+            (Some(total), Some(part)) if part < total - 0.5 => Some(part),
+            _ => None,
+        }
+    }
+
     /// The text written for the line: "CHW-S DN65 120 kW".
     pub fn text(&self, units: HvacUnits) -> String {
+        self.text_of(units, self.load.or(self.incoming))
+    }
+
+    /// The text of the line for a load of `amount` (in the line's unit).
+    pub fn text_of(&self, units: HvacUnits, amount: Option<f64>) -> String {
         let p = self.pipe(units);
         let mut t = format!("{} {}", p.tag(), p.size_text());
         if !self.network.trim().is_empty() {
             t = format!("{} {t}", self.network.trim());
         }
-        if let Some(l) = self.load.or(self.incoming) {
+        if let Some(l) = amount {
             t.push_str(&match self.service {
                 PipeService::Condensate => format!(" {l:.0} l/h"),
                 s if s.is_refrigerant() => format!(" i{l:.0}"),
@@ -207,35 +237,16 @@ impl PipeRiserParams {
         tubes.iter().map(|(_, w)| 2.0 * (u.to_units(*w) / 2.0).max(0.2 * h)).sum::<f64>() + u.to_units(20.0) * (tubes.len() as f64 - 1.0)
     }
 
-    /// Where each line's symbol is, relative to the block's origin: rows along the longer side of the shaft, centred.
+    /// Where each line's symbol is: across the leaders, which leave at 45°, so that the parallel leaders and their texts never touch.
+    #[cfg(test)]
     pub(super) fn symbol_centres(&self) -> Vec<Vec2> {
-        let n = self.lines.len();
-        if n == 0 {
-            return Vec::new();
-        }
-        let m = self.units.mm_per_unit;
-        // The widest symbol as it is drawn (a tube is drawn no smaller than a fraction of the label), so two links never overlap.
-        let widest = self.lines.iter().map(|l| self.symbol_width_units(l)).fold(self.units.to_units(1.0), f64::max);
-        let pitch = widest + SYMBOL_GAP_MM / m;
-        let (w, d) = self.shaft_mm();
-        let along_x = w >= d;
-        let side = (if along_x { w } else { d }) / m;
-        let per_row = ((side / pitch).floor() as usize).clamp(1, n);
-        let rows = n.div_ceil(per_row);
-        let c = self.centre();
-        (0..n)
-            .map(|i| {
-                let (col, row) = (i % per_row, i / per_row);
-                let in_row = if row + 1 == rows && !n.is_multiple_of(per_row) { n % per_row } else { per_row };
-                let u = (col as f64 - (in_row as f64 - 1.0) / 2.0) * pitch;
-                let v = (row as f64 - (rows as f64 - 1.0) / 2.0) * pitch;
-                if along_x { c + Vec2::new(u, v) } else { c + Vec2::new(v, u) }
-            })
-            .collect()
+        let widths: Vec<f64> = self.lines.iter().map(|l| self.symbol_width_units(l)).collect();
+        super::riser::leader_centres(self.centre(), self.units.to_units(self.label_height_mm), &widths)
     }
 
-    /// The shaft outline, a symbol for each line (the section of its tubes, with a dot when it comes up here and a cross when it
-    /// goes down) and the name and the lines written under the shaft.
+    /// The shaft outline and, for each line, a symbol (the section of its tubes, with a dot when it comes up to this level and a cross when it goes down)
+    /// with a leader and arrow heads like the air's: the heads point the way the line flows, the end on the plant's side says the whole load and the other
+    /// the part for the other floors. The name is at the lower right of the shaft.
     pub fn generate(&self) -> Result<Vec<HvacPiece>> {
         self.validate()?;
         let u = self.units;
@@ -245,49 +256,47 @@ impl PipeRiserParams {
             layer: PIPE_RISER_LAYER,
             kind: EntityKind::LwPolyline(LwPolyline { vertices, closed: true, const_width: 0.0, elevation: 0.0, plinegen: false }),
         }];
-        for (line, c) in self.lines.iter().zip(self.symbol_centres()) {
+        let leaders: Vec<super::riser::Leader> = self
+            .lines
+            .iter()
+            .map(|l| super::riser::Leader {
+                layer: l.pipe(u).layer(),
+                width: self.symbol_width_units(l),
+                flows_up: l.flows_up(self.up),
+                total_above: l.total_above(self.up),
+                total: l.text(u),
+                part: l.part().map(|v| l.text_of(u, Some(v))),
+            })
+            .collect();
+        let (w, d) = self.shaft_mm();
+        let diag = u.to_units((w * w + d * d).sqrt());
+        pieces.extend(super::riser::leader_pieces(self.centre(), diag, h, &leaders, |i, c| {
+            let Some(line) = self.lines.get(i) else { return Vec::new() };
+            let flows_up = line.flows_up(self.up);
             let pipe = line.pipe(u);
             let tubes = pipe.tubes();
             let layer = pipe.layer();
+            let mut out = Vec::new();
             if tubes.is_empty() {
                 let r = (u.to_units(pipe.plan_width_mm()) / 2.0).max(0.3 * h);
-                pieces.push(HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: r }) });
-                pieces.extend(self.direction_mark(layer, c, r));
+                out.push(HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: r }) });
+                out.extend(direction_mark(layer, flows_up, c, r));
             } else {
                 // A link: one circle for each tube, side by side.
                 let total: f64 = tubes.iter().map(|(_, w)| u.to_units(*w)).sum::<f64>() + u.to_units(20.0) * (tubes.len() as f64 - 1.0);
                 let mut x = c.x - total / 2.0;
                 for (tube_layer, w) in &tubes {
                     let r = (u.to_units(*w) / 2.0).max(0.2 * h);
-                    pieces.push(HvacPiece { layer: tube_layer, kind: EntityKind::Circle(Circle { center: v3(Vec2::new(x + r, c.y)), radius: r }) });
+                    out.push(HvacPiece { layer: tube_layer, kind: EntityKind::Circle(Circle { center: v3(Vec2::new(x + r, c.y)), radius: r }) });
                     x += 2.0 * r + u.to_units(20.0);
                 }
-                pieces.extend(self.direction_mark(layer, c, u.to_units(pipe.plan_width_mm()) / 4.0));
+                out.extend(direction_mark(layer, flows_up, c, u.to_units(pipe.plan_width_mm()) / 4.0));
             }
-        }
-        // The name, then a row for each line in the colour of its service, under the shaft.
-        let (_, d) = self.shaft_mm();
-        let c = self.centre();
-        let mut y = c.y - u.to_units(d) / 2.0 - 1.4 * h;
-        let left = self.outline.iter().map(|p| p.x).fold(f64::MAX, f64::min);
+            out
+        }));
         let head = format!("{} {}", self.name, if self.up { "UP" } else { "DOWN" });
-        pieces.push(HvacPiece { layer: PIPE_RISER_LAYER, kind: label_left(Vec2::new(left, y), h, head) });
-        for line in &self.lines {
-            y -= 1.4 * h;
-            pieces.push(HvacPiece { layer: line.pipe(u).layer(), kind: label_left(Vec2::new(left, y), h, line.text(u)) });
-        }
+        pieces.push(HvacPiece { layer: PIPE_RISER_LAYER, kind: super::riser_name_label(&self.outline, h, &head) });
         Ok(pieces)
-    }
-
-    /// A dot when the line comes up to this level, a cross when it goes down, as the air riser draws it.
-    fn direction_mark(&self, layer: &'static str, c: Vec2, r: f64) -> Vec<HvacPiece> {
-        let line = |a: Vec2, b: Vec2| HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
-        let k = 0.5 * r;
-        if self.up {
-            vec![HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: 0.12 * r }) }]
-        } else {
-            vec![line(c + Vec2::new(-k, -k), c + Vec2::new(k, k)), line(c + Vec2::new(-k, k), c + Vec2::new(k, -k))]
-        }
     }
 
     pub fn to_xdata(&self) -> Result<Vec<RawTag>> {
@@ -368,4 +377,15 @@ fn distance_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f64 {
     }
     let t = ((p - a).dot(ab) / len2).clamp(0.0, 1.0);
     p.dist(a + ab * t)
+}
+
+/// A dot when the line comes up to this level, a cross when it goes down, as the air riser draws it.
+fn direction_mark(layer: &'static str, flows_up: bool, c: Vec2, r: f64) -> Vec<HvacPiece> {
+    let line = |a: Vec2, b: Vec2| HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
+    let k = 0.5 * r;
+    if flows_up {
+        vec![HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: 0.12 * r }) }]
+    } else {
+        vec![line(c + Vec2::new(-k, -k), c + Vec2::new(k, k)), line(c + Vec2::new(-k, k), c + Vec2::new(k, -k))]
+    }
 }

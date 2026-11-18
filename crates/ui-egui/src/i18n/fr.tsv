@@ -3375,3 +3375,8 @@ echo	{a} row{b} extracted.	{a} ligne{b} extraite(s).
 	Enter the circuit it carries	Saisissez le circuit qu'elle porte
 	Enter the bus it carries	Saisissez le bus qu'elle porte
 echo	Current settings: Name = {a}, Circuit = {b}, Direction = {c}	Paramètres actuels : Nom = {a}, Circuit = {b}, Sens = {c}
+	Line {n}: use	Ligne {n} : usage
+	Line {n}: circuit or bus	Ligne {n} : circuit ou bus
+	Line {n}: section (mm²)	Ligne {n} : section (mm²)
+	Line {n}: load (kW)	Ligne {n} : charge (kW)
+	Line {n}: load from other floors (kW)	Ligne {n} : charge des autres étages (kW)

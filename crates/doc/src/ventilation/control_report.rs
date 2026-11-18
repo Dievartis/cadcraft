@@ -179,11 +179,12 @@ impl crate::Drawing {
         let bus_cables: Vec<String> = self
             .model
             .iter()
-            .filter_map(|e| {
-                cable_of(e)
-                    .filter(|c| c.usage == super::CableUsage::Bus)
-                    .map(|c| c.circuit)
-                    .or_else(|| super::any_riser_of(e).filter(|r| r.cable.medium == super::RiserMedium::Bus).map(|r| r.cable.circuit))
+            .flat_map(|e| match cable_of(e) {
+                Some(c) if c.usage == super::CableUsage::Bus => vec![c.circuit],
+                Some(_) => Vec::new(),
+                None => super::any_riser_of(e)
+                    .map(|r| r.cable.lines.into_iter().filter(|l| l.usage == super::CableUsage::Bus).map(|l| l.circuit).collect())
+                    .unwrap_or_default(),
             })
             .collect();
         let mut buses: Vec<&str> = Vec::new();
@@ -390,8 +391,10 @@ impl crate::Drawing {
         self.model
             .iter()
             .filter_map(|e| super::any_riser_of(e))
-            .filter(|r| r.cable.medium == super::RiserMedium::Bus && same_network(&r.cable.circuit, b))
-            .map(|r| r.height_mm.unwrap_or(0.0) / 1000.0)
+            .map(|r| {
+                let lines = r.cable.lines.iter().filter(|l| l.usage == super::CableUsage::Bus && same_network(&l.circuit, b)).count();
+                r.height_mm.unwrap_or(0.0) / 1000.0 * lines as f64
+            })
             .sum()
     }
 

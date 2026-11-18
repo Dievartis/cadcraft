@@ -30,7 +30,7 @@ fn riseradd_takes_a_shaft_by_points_by_a_centre_and_size_or_by_a_polyline() {
         .unwrap();
     let p = riser(&s, hd(&r["handle"]));
     assert_eq!((p.name.as_str(), p.air, p.up, p.shaft_mm()), ("VMC 3", AirDirection::Extract, true, (600.0, 400.0)));
-    assert_eq!((p.size, p.flow_m3h, p.text().as_str()), (Some(RiserSize::Round { diameter_mm: 200.0 }), Some(240.0), "VMC 3-Ø0200-240 m³/h"));
+    assert_eq!((p.size, p.flow_m3h, p.text().as_str()), (Some(RiserSize::Round { diameter_mm: 200.0 }), Some(240.0), "VMC 3-Ø200-240 m³/h"));
     // A centre and a size make a rectangle around it; the way is given.
     let r = s.execute("riseradd", &json!({"at": [5000, 5000], "width": 800, "depth": 500, "direction": "down", "air": "fresh"})).unwrap();
     let q = riser(&s, hd(&r["handle"]));
@@ -53,7 +53,7 @@ fn riseredit_changes_the_way_the_flows_the_size_and_the_shaft_and_clears_what_is
     let p = riser(&s, hd(&h));
     assert_eq!((p.up, p.air, p.incoming_flow_m3h, p.shaft_mm()), (false, AirDirection::Supply, Some(660.0), (800.0, 400.0)));
     assert_eq!(p.size, Some(RiserSize::Rectangular { width_mm: 400.0, height_mm: 250.0 }));
-    assert_eq!(p.text(), "Riser 1-0400×0250-660 m³/h");
+    assert_eq!(p.text(), "Riser 1-400×250-660 m³/h");
     s.execute("riseredit", &json!({"handle": h, "incomingFlow": null, "size": "auto"})).unwrap();
     let p = riser(&s, hd(&h));
     assert_eq!((p.incoming_flow_m3h, p.size), (None, None));
@@ -225,8 +225,8 @@ fn a_riser_of_cables_counts_its_height_in_its_circuit_and_a_bus_riser_in_the_len
         .execute("elecriser", &json!({"at": [2000, 2000], "width": 400, "depth": 400, "circuit": "TD1-C1", "height": 3000, "incomingLoad": 4, "load": 6, "section": 16}))
         .unwrap();
     let p = cadcraft_doc::any_riser_of(s.doc().unwrap().entity(hd(&r["handle"])).unwrap()).unwrap();
-    assert_eq!((p.cable.medium, p.name.as_str(), p.cable.circuit.as_str()), (cadcraft_doc::RiserMedium::Power, "Power riser 1", "TD1-C1"));
-    assert_eq!(p.text(), "Power riser 1-16 mm²-6 kW");
+    assert_eq!((p.cable.medium, p.name.as_str(), p.cable.lines[0].circuit.as_str()), (cadcraft_doc::RiserMedium::Power, "Power riser 1", "TD1-C1"));
+    assert_eq!(p.text(), "Power riser 1 TD1-C1 16 mm² 6 kW");
     // The riser is not an air riser: the air networks and the air takeoff never see it.
     assert!(riser_of(s.doc().unwrap().entity(hd(&r["handle"])).unwrap()).is_none());
     let after = s.execute("circuitcheck", &json!({})).unwrap();
@@ -235,7 +235,7 @@ fn a_riser_of_cables_counts_its_height_in_its_circuit_and_a_bus_riser_in_the_len
     // Edited like a riser: the load, the circuit, the way.
     s.execute("riseredit", &json!({"handle": r["handle"], "load": null, "direction": "down", "circuit": "TD1-C2"})).unwrap();
     let p = cadcraft_doc::any_riser_of(s.doc().unwrap().entity(hd(&r["handle"])).unwrap()).unwrap();
-    assert_eq!((p.cable.load_kw, p.up, p.cable.circuit.as_str()), (None, false, "TD1-C2"));
+    assert_eq!((p.cable.lines[0].load_kw, p.up, p.cable.lines[0].circuit.as_str()), (None, false, "TD1-C2"));
     // The cable takeoff counts the vertical run.
     let t = s.execute("electakeoff", &json!({})).unwrap();
     assert!(t["cables"].as_array().unwrap().iter().any(|q| q["size"].as_str().is_some_and(|z| z.contains("riser"))), "{t}");
@@ -254,4 +254,59 @@ fn a_riser_of_cables_counts_its_height_in_its_circuit_and_a_bus_riser_in_the_len
     assert!(too_long(&mut s));
     s.execute("riseredit", &json!({"handle": b["handle"], "height": 1000})).unwrap();
     assert!(!too_long(&mut s));
+}
+
+#[test]
+fn a_riser_of_cables_holds_several_lines_each_counted_in_its_own_circuit() {
+    let mut s = metric();
+    s.execute("elecdeviceadd", &json!({"at": [0, 0], "kind": "socket", "circuit": "TD1-C1", "power": 1000})).unwrap();
+    s.execute("cableadd", &json!({"points": [[0, 0], [10000, 0]], "circuit": "TD1-C1"})).unwrap();
+    s.execute("cableadd", &json!({"points": [[0, 500], [20000, 500]], "circuit": "TD1-C2"})).unwrap();
+    let r = s
+        .execute(
+            "elecriser",
+            &json!({"at": [0, 3000], "width": 600, "depth": 600, "height": 3000, "lines": [
+                {"circuit": "TD1-C1", "section": 16, "incomingLoad": 2},
+                {"circuit": "TD1-C2", "usage": "lighting"},
+                {"circuit": "BUS1", "usage": "bus"},
+            ]}),
+        )
+        .unwrap();
+    let h = hd(&r["handle"]);
+    let lines = |s: &Session| cadcraft_doc::any_riser_of(s.doc().unwrap().entity(h).unwrap()).unwrap().cable.lines;
+    assert_eq!(
+        lines(&s).iter().map(|l| (l.usage.name(), l.circuit.as_str())).collect::<Vec<_>>(),
+        [("power", "TD1-C1"), ("lighting", "TD1-C2"), ("bus", "BUS1")]
+    );
+    // Each line adds the height of the riser to its own circuit.
+    let c = s.execute("circuitcheck", &json!({})).unwrap();
+    let length = |name: &str| c["circuits"].as_array().unwrap().iter().find(|c| c["name"] == name).unwrap()["cableLengthM"].as_f64().unwrap();
+    assert!((length("TD1-C1") - 13.0).abs() < 0.01 && (length("TD1-C2") - 23.0).abs() < 0.01, "{c}");
+    // The shaft counts one run of cable for each line in the takeoff.
+    let t = s.execute("electakeoff", &json!({})).unwrap();
+    let risers: f64 = t["cables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|q| q["size"].as_str().is_some_and(|z| z.contains("riser")))
+        .map(|q| q["lengthM"].as_f64().unwrap())
+        .sum();
+    assert!((risers - 9.0).abs() < 0.01, "{t}");
+    // Add, change and remove a line.
+    s.execute("riseredit", &json!({"handle": r["handle"], "addLines": [{"circuit": "TD2-C1"}]})).unwrap();
+    assert_eq!(lines(&s).len(), 4);
+    s.execute("riseredit", &json!({"handle": r["handle"], "line": {"index": 4, "section": 25, "load": 7, "usage": "power"}})).unwrap();
+    assert_eq!((lines(&s)[3].section_mm2, lines(&s)[3].load_kw), (Some(25.0), Some(7.0)));
+    s.execute("riseredit", &json!({"handle": r["handle"], "removeLine": 2})).unwrap();
+    assert_eq!(lines(&s).iter().map(|l| l.circuit.as_str()).collect::<Vec<_>>(), ["TD1-C1", "BUS1", "TD2-C1"]);
+    assert!(s.execute("riseredit", &json!({"handle": r["handle"], "removeLine": 9})).is_err());
+    assert!(s.execute("riseredit", &json!({"handle": r["handle"], "line": {"index": 9}})).is_err());
+    assert!(s.execute("elecriser", &json!({"at": [0, 0], "width": 600, "depth": 600, "lines": [{"usage": "water"}]})).is_err());
+    assert!(
+        s.execute(
+            "elecriser",
+            &json!({"at": [0, 0], "width": 600, "depth": 600, "lines": (0..40).map(|_| json!({"circuit": "X"})).collect::<Vec<_>>()})
+        )
+        .is_err()
+    );
 }

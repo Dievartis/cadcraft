@@ -44,29 +44,71 @@ fn a_riser_is_a_shaft_with_a_symbol_and_a_text_for_each_line_in_the_colour_of_it
     assert!(circles(PIPE_REFRIGERANT_LIQUID_LAYER) >= 1 && circles(PIPE_REFRIGERANT_HPLP_LAYER) >= 1 && circles(PIPE_REFRIGERANT_GAS_LAYER) >= 1);
     // The text: the name and the direction, then a line each.
     let texts: Vec<String> = pieces.iter().filter_map(|x| if let EntityKind::Text(t) = &x.kind { Some(t.value.clone()) } else { None }).collect();
-    assert_eq!(texts.len(), 1 + 5);
-    assert_eq!(texts[0], "CT1 UP");
+    assert_eq!(texts.len(), 5 + 1, "a text at the end of each line's leader, and the name");
+    assert_eq!(texts.last().map(String::as_str), Some("CT1 UP"));
     assert!(texts.contains(&"CHW-S DN80".to_string()) && texts.contains(&"HW-S DN50".to_string()) && texts.contains(&"COND DN32".to_string()));
     assert!(texts.iter().any(|t| t.contains("REF-HR") && t.contains("3/8\"")), "{texts:?}");
     // Going down, a cross in place of the dot.
     let down = PipeRiserParams { up: false, ..riser(chw()) }.generate().unwrap();
-    assert_eq!(down.iter().filter(|x| x.layer == PIPE_CHW_SUPPLY_LAYER && matches!(x.kind, EntityKind::Line(_))).count(), 2);
+    assert_eq!(
+        down.iter().filter(|x| x.layer == PIPE_CHW_SUPPLY_LAYER && matches!(x.kind, EntityKind::Line(_))).count(),
+        2 + 1,
+        "the cross and the leader"
+    );
 }
 
 #[test]
-fn the_symbols_of_the_lines_sit_in_rows_inside_the_shaft() {
+fn the_leaders_of_the_lines_are_parallel_and_a_label_and_a_half_apart_so_nothing_overlaps() {
     let many: Vec<RiserLine> =
         (0..8).map(|i| RiserLine::new(PipeService::ChilledWater, if i % 2 == 0 { PipeLeg::Supply } else { PipeLeg::Return }, 100.0)).collect();
     let p = riser(many);
     let centres = p.symbol_centres();
     assert_eq!(centres.len(), 8);
-    let (lo, hi) = (Vec2::new(0.0, 0.0), Vec2::new(600.0, 400.0));
-    assert!(centres.iter().all(|c| c.x > lo.x && c.x < hi.x && c.y > lo.y && c.y < hi.y), "{centres:?}");
-    // A narrow shaft puts them in a column.
-    let narrow = PipeRiserParams { outline: shaft(0.0, 0.0, 150.0, 900.0), ..riser(chw()) };
-    let c = narrow.symbol_centres();
-    assert!((c[0].x - c[1].x).abs() < 1e-9 && (c[0].y - c[1].y).abs() > 1.0);
+    // The leaders leave at 45°: the distance between two of them is measured across, along the other diagonal.
+    let across = |a: Vec2, b: Vec2| ((b - a).x - (b - a).y).abs() / std::f64::consts::SQRT_2;
+    let h = 100.0;
+    for (i, a) in centres.iter().enumerate() {
+        for b in centres.iter().skip(i + 1) {
+            assert!(across(*a, *b) >= 1.5 * h - 1e-6, "{a:?} {b:?}: {}", across(*a, *b));
+        }
+    }
     assert!(riser(Vec::new()).symbol_centres().is_empty());
+    // Every line has a head on its leader, pointing the way it flows: a supply goes up from the plant below, a return comes down.
+    let pieces = p.generate().unwrap();
+    let heads: Vec<f64> = pieces
+        .iter()
+        .filter_map(|x| if let EntityKind::Solid(s) = &x.kind { Some(s.corners[0].y - (s.corners[1].y + s.corners[2].y) / 2.0) } else { None })
+        .collect();
+    assert_eq!(heads.len(), 8);
+    assert!(heads.iter().step_by(2).all(|d| *d > 0.0) && heads.iter().skip(1).step_by(2).all(|d| *d < 0.0), "{heads:?}");
+}
+
+#[test]
+fn the_end_of_a_leader_on_the_plants_side_has_the_whole_load_and_the_other_the_part_for_the_other_floor() {
+    let mut line = RiserLine::new(PipeService::ChilledWater, PipeLeg::Supply, 80.0);
+    (line.load, line.incoming) = (Some(120.0), Some(70.0));
+    let text_at = |p: &PipeRiserParams, above: bool| -> Option<String> {
+        p.generate().unwrap().iter().find_map(|x| match &x.kind {
+            EntityKind::Text(t) if (t.halign == crate::HAlign::Left) == above && t.value != "CT1 UP" => Some(t.value.clone()),
+            _ => None,
+        })
+    };
+    // The plant is below (the pipes go up): the supply flows up, its whole load is below, and 70 kW goes on above.
+    let up = riser(vec![line.clone()]);
+    assert_eq!(text_at(&up, false).as_deref(), Some("CHW-S DN80 120 kW"));
+    assert_eq!(text_at(&up, true).as_deref(), Some("CHW-S DN80 70 kW"));
+    // A return flows the other way: down to the plant, where its whole load is.
+    let ret = RiserLine { leg: PipeLeg::Return, ..line.clone() };
+    assert_eq!(text_at(&riser(vec![ret.clone()]), false).as_deref(), Some("CHW-R DN80 120 kW"));
+    // With the plant above (the pipes go down) it is the other way round.
+    let down = PipeRiserParams { up: false, ..riser(vec![line]) };
+    assert_eq!(text_at(&down, true).as_deref(), Some("CHW-S DN80 120 kW"));
+    assert!(ret.flows_up(false) && !ret.flows_up(true));
+    // A drain comes down whatever the way, and a refrigerant gas line goes back to the plant.
+    let drain = RiserLine::new(PipeService::Condensate, PipeLeg::Supply, 32.0);
+    assert!(!drain.flows_up(true) && !drain.total_above(true));
+    let gas = RiserLine::new(PipeService::RefrigerantGas, PipeLeg::Supply, 9.52);
+    assert!(!gas.total_above(true) && gas.total_above(false), "its load is on the plant's side, below when the pipes go up");
 }
 
 #[test]

@@ -234,6 +234,13 @@ fn label_left(at: Vec2, height: f64, value: String) -> crate::EntityKind {
     text_at(at, height, value, crate::HAlign::Left)
 }
 
+/// The name of a riser, at the lower right outside its shaft (the leaders go up to the right and down to the left, so nothing is there).
+fn riser_name_label(outline: &[Vec2], height: f64, value: &str) -> crate::EntityKind {
+    let right = outline.iter().map(|p| p.x).fold(f64::MIN, f64::max);
+    let bottom = outline.iter().map(|p| p.y).fold(f64::MAX, f64::min);
+    label_left(Vec2::new(right + 0.5 * height, bottom), height, value.to_string())
+}
+
 fn text_at(at: Vec2, height: f64, value: String, halign: crate::HAlign) -> crate::EntityKind {
     crate::EntityKind::Text(crate::Text {
         insert: v3(at),

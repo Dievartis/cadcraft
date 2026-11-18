@@ -3,10 +3,10 @@
 //! command so the object is regenerated, as the command line would.
 
 use cadcraft_doc::{
-    AccessoryKind, AccessoryParams, AhuKind, AhuParams, AirDirection, Drawing, DuctKind, DuctParams, DuctShape, Handle, OpeningKind, OpeningParams,
-    PartParams, PipeParams, PipeRiserParams, PipeService, RiserParams, SlabParams, SpaceParams, TerminalKind, TerminalParams, WallJustification,
-    ZoneParams, accessory_of, ahu_of, air_terminal_of, ceiling_of, duct_of, opening_of, part_of, pipe_of, pipe_riser_of, rail_of, slab_of, space_of,
-    stair_of, struct_of, wall_of, zone_of,
+    AccessoryKind, AccessoryParams, AhuKind, AhuParams, AirDirection, CableUsage, Drawing, DuctKind, DuctParams, DuctShape, Handle, OpeningKind,
+    OpeningParams, PartParams, PipeParams, PipeRiserParams, PipeService, RiserParams, SlabParams, SpaceParams, TerminalKind, TerminalParams,
+    WallJustification, ZoneParams, accessory_of, ahu_of, air_terminal_of, ceiling_of, duct_of, opening_of, part_of, pipe_of, pipe_riser_of, rail_of,
+    slab_of, space_of, stair_of, struct_of, wall_of, zone_of,
 };
 use cadcraft_hvac::RoomUse;
 use egui::{Sense, pos2, vec2};
@@ -1435,7 +1435,8 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
 // Risers
 // =====================================================================================
 
-/// A riser of cables or of a bus: what it carries, the circuit, the section and the loads, the way it goes and its height.
+/// The Properties group of risers of cables or of a bus: name, direction, shaft and height, and the lines each holds (its use, its circuit or bus, its
+/// section and its loads); lines are added and removed.
 fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams], bad: &mut Option<String>) -> Action {
     let ids = handles(sel);
     let mut action: Action = None;
@@ -1445,27 +1446,6 @@ fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams]
     prop_row(ui, "Name", |ui| {
         if let Some(n) = edit_field(ui, ui.scope_id().with(("criser_name", &ids)), name).filter(|n| !n.trim().is_empty() && n != VARIES) {
             action = edit("name", json!(n));
-        }
-    });
-    let medium = shared(&risers.iter().map(|r| r.cable.medium).collect::<Vec<_>>());
-    prop_row(ui, "Carries", |ui| {
-        let shown = medium.map_or(VARIES, |m| match m {
-            cadcraft_doc::RiserMedium::Power => "Power",
-            cadcraft_doc::RiserMedium::Lighting => "Lighting",
-            cadcraft_doc::RiserMedium::Data => "Data",
-            cadcraft_doc::RiserMedium::Safety => "Safety",
-            cadcraft_doc::RiserMedium::Bus => "Control bus",
-            cadcraft_doc::RiserMedium::Air => "Air",
-        });
-        let items = [("power", "Power"), ("lighting", "Lighting"), ("data", "Data"), ("safety", "Safety"), ("bus", "Control bus")];
-        if let Some(m) = choice(ui, shown, &items) {
-            action = edit("medium", json!(m));
-        }
-    });
-    let circuit = shared(&risers.iter().map(|r| r.cable.circuit.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
-    prop_row(ui, "Circuit or bus", |ui| {
-        if let Some(c) = edit_field(ui, ui.scope_id().with(("criser_circuit", &ids)), circuit).filter(|c| c != VARIES) {
-            action = edit("circuit", json!(c.trim()));
         }
     });
     let up = shared(&risers.iter().map(|r| r.up).collect::<Vec<_>>());
@@ -1484,27 +1464,71 @@ fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams]
             }
         });
     }
-    // Numbers, empty for none: the section, the load carried here and the one from the other floors, the height of the vertical run.
-    type Pick = fn(&RiserParams) -> Option<f64>;
-    let rows: [(&str, &str, Pick); 4] = [
-        ("Section (mm²)", "section", |r| r.cable.section_mm2),
-        ("Load (kW)", "load", |r| r.cable.load_kw),
-        ("Load from other floors (kW)", "incomingLoad", |r| r.cable.incoming_load_kw),
-        ("Height, floor to floor (mm)", "height", |r| r.height_mm),
-    ];
-    for (label, key, pick) in rows {
-        let v =
-            shared(&risers.iter().map(|r| pick(r).map_or(String::new(), |f| format!("{f}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
-        prop_row(ui, label, |ui| {
-            if let Some(t) = edit_field(ui, ui.scope_id().with(("criser_num", key, &ids)), v).filter(|t| t != VARIES) {
-                if t.trim().is_empty() {
-                    action = edit(key, Value::Null);
-                } else if let Some(f) = number(Some(t), bad) {
-                    action = edit(key, json!(f));
-                }
+    let height =
+        shared(&risers.iter().map(|r| r.height_mm.map_or(String::new(), |h| format!("{h}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Height, floor to floor (mm)", |ui| {
+        if let Some(t) = edit_field(ui, ui.scope_id().with(("criser_height", &ids)), height).filter(|t| t != VARIES) {
+            if t.trim().is_empty() {
+                action = edit("height", Value::Null);
+            } else if let Some(n) = number(Some(t), bad) {
+                action = edit("height", json!(n));
+            }
+        }
+    });
+    // The lines of one riser: each is a cable (or a bus) that goes through the shaft.
+    let [r] = risers else { return action };
+    for (i, line) in r.cable.lines.iter().enumerate() {
+        let n = i + 1;
+        let line_edit = |key: &str, value: Value| Some(("riseredit", json!({ "handles": ids, "line": { "index": n, key: value } })));
+        let use_label = crate::tf!("Line {n}: use", n = n);
+        prop_row(ui, &use_label, |ui| {
+            let shown = match line.usage {
+                CableUsage::Power => "Power",
+                CableUsage::Lighting => "Lighting",
+                CableUsage::Data => "Data",
+                CableUsage::Safety => "Safety",
+                CableUsage::Bus => "Control bus",
+            };
+            let items = [("power", "Power"), ("lighting", "Lighting"), ("data", "Data"), ("safety", "Safety"), ("bus", "Control bus")];
+            if let Some(u) = choice(ui, shown, &items) {
+                action = line_edit("usage", json!(u));
             }
         });
+        let circuit_label = crate::tf!("Line {n}: circuit or bus", n = n);
+        prop_row(ui, &circuit_label, |ui| {
+            if let Some(c) = edit_field(ui, ui.scope_id().with(("criser_circuit", n, &ids)), line.circuit.clone()) {
+                action = line_edit("circuit", json!(c.trim()));
+            }
+        });
+        let mut numbers: Vec<(String, &str, Option<f64>)> = vec![(crate::tf!("Line {n}: section (mm²)", n = n), "section", line.section_mm2)];
+        if !line.usage.is_signal() {
+            numbers.push((crate::tf!("Line {n}: load (kW)", n = n), "load", line.load_kw));
+            numbers.push((crate::tf!("Line {n}: load from other floors (kW)", n = n), "incomingLoad", line.incoming_load_kw));
+        }
+        for (label, key, value) in numbers {
+            let shown = value.map_or(String::new(), |f| format!("{f}"));
+            prop_row(ui, &label, |ui| {
+                if let Some(t) = edit_field(ui, ui.scope_id().with(("criser_num", n, key, &ids)), shown) {
+                    if t.trim().is_empty() {
+                        action = line_edit(key, Value::Null);
+                    } else if let Some(f) = number(Some(t), bad) {
+                        action = line_edit(key, json!(f));
+                    }
+                }
+            });
+        }
     }
+    prop_row(ui, "Lines", |ui| {
+        if let Some(usage) = pick_menu(ui, crate::i18n::t("Add a line"), CableUsage::ALL.iter().map(|u| u.name().to_string())) {
+            action = edit("addLines", json!([{ "usage": usage }]));
+        }
+        let names: Vec<String> = r.cable.lines.iter().enumerate().map(|(i, l)| format!("{} {}", i + 1, l.text())).collect();
+        let removed =
+            pick_menu(ui, crate::i18n::t("Remove a line"), names).and_then(|c| c.split_whitespace().next().and_then(|n| n.parse::<u64>().ok()));
+        if let Some(n) = removed {
+            action = edit("removeLine", json!(n));
+        }
+    });
     action
 }
 
@@ -2445,13 +2469,11 @@ mod hvac_tests {
         app.session.set_selection(vec![h]);
         let mut hn = palette(app);
         assert!(hn.get_all_by_value("CP 7").next().is_some() && hn.get_all_by_value("TD1-C4").next().is_some());
-        assert!(
-            hn.query_all_by_label_contains("Section (mm²)").count() >= 1 && hn.query_all_by_label_contains("Air").count() == 0,
-            "the rows of a cable, not of air"
-        );
+        assert!(hn.query_all_by_label_contains("section (mm²)").count() >= 1, "the rows of a cable");
+        assert_eq!(hn.query_all_by_label_contains("Air").count(), 0, "not the rows of air");
         type_into(&mut hn, "4", "9");
         let p = cadcraft_doc::any_riser_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
-        assert_eq!(p.cable.incoming_load_kw, Some(9.0));
+        assert_eq!(p.cable.lines.first().and_then(|l| l.incoming_load_kw), Some(9.0));
     }
 
     #[test]

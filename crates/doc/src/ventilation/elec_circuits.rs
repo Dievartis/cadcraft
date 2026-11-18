@@ -163,15 +163,17 @@ impl crate::Drawing {
             if let Some(c) = cable_of(e) {
                 let h = e.handle;
                 add(&c.circuit.clone(), &mut |a| a.cables.push((h, c.clone())));
-            } else if let Some(r) = any_riser_of(e).filter(|r| r.is_cable() && !r.cable.circuit.trim().is_empty()) {
-                // A riser carries its circuit between floors: its vertical run is cable, and the load of the other floors is the circuit's.
-                add(&r.cable.circuit.clone(), &mut |a| {
-                    a.risers_m += r.height_mm.unwrap_or(0.0) / 1000.0;
-                    if r.cable.medium == super::RiserMedium::Power {
-                        a.power_w += r.cable.incoming_load_kw.unwrap_or(0.0) * 1000.0;
-                        a.lights_only = false;
-                    }
-                });
+            } else if let Some(r) = any_riser_of(e).filter(|r| r.is_cable()) {
+                // A riser carries circuits between floors: the vertical run of each line is cable, and the load of the other floors is its circuit's.
+                for l in r.cable.lines.iter().filter(|l| !l.circuit.trim().is_empty()) {
+                    add(&l.circuit.clone(), &mut |a| {
+                        a.risers_m += r.height_mm.unwrap_or(0.0) / 1000.0;
+                        if !l.usage.is_signal() {
+                            a.power_w += l.incoming_load_kw.unwrap_or(0.0) * 1000.0;
+                            a.lights_only &= l.usage == super::CableUsage::Lighting;
+                        }
+                    });
+                }
             } else if let Some(d) = device_of(e) {
                 if d.kind == DeviceKind::Panel {
                     // A board fed by a circuit (of another board): that circuit carries the load of the board's circuits.
