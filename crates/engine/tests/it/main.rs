@@ -48,6 +48,7 @@ mod dim_nested_circle;
 mod dim_properties;
 mod dim_radial_inside;
 mod dim_radial_outside;
+mod dim_text_frame;
 mod dim_vars;
 mod dimtedit_prompts;
 mod drafting_spacing;
