@@ -99,6 +99,7 @@ fn missing_marked_ui_literals(language: &str) -> BTreeSet<String> {
     let modules = [
         "xrefs",
         "pdfattach_dlg",
+        "blocks_palette",
         "canvas",
         "chrome",
         "cmdline",
@@ -505,7 +506,6 @@ fn dialogs_render_in_every_language_and_keep_their_source_ids() {
             ("dsettings", "Drafting Settings"),
             ("about", "About CADCraft"),
             ("commands", "Command Reference"),
-            ("blocks", "Blocks"),
             ("layers", "Layer Properties Manager"),
             ("qselect", "Quick Select"),
             ("parameters", "Parameters Manager"),

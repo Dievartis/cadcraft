@@ -216,6 +216,10 @@ pub struct CanvasState {
     /// The right-click that opened the shortcut menu held Shift or Ctrl: it is the object snap
     /// menu ([`crate::context_menu`]).
     pub snap_menu: bool,
+    /// The number (in the session's count of commands) of the INSERT the Blocks palette started
+    /// and is placing: a quick right-click at its insertion point cancels it
+    /// ([`right_click_cancels_placing`]).
+    pub palette_insert: Option<u64>,
     /// Tab was pressed over a snap marker: show the next candidate ([`SnapCycle`]).
     pub snap_tab: bool,
     pub snap_cycle: Option<SnapCycle>,
@@ -1005,6 +1009,15 @@ fn flick_without_window(app: &mut CadApp, ui: &egui::Ui, xf: &Xf, rect: Rect, sh
     }
 }
 
+/// Whether a quick right-click cancels the running command instead of acting as Enter: it asks for
+/// the insertion point of an INSERT the Blocks palette started. AutoCAD's Enter asks the point again,
+/// and Escape (or this) is how a placement ends, so the palette's own placements get a way out
+/// with the mouse.
+pub(crate) fn right_click_cancels_placing(app: &CadApp) -> bool {
+    app.canvas.palette_insert == Some(app.session.commands_started)
+        && app.session.current_prompt().is_some_and(|p| p.message == "Specify insertion point")
+}
+
 /// Draw the drawing area and handle its input (zoom and pan, picking, the crosshair) for this
 /// frame.
 ///
@@ -1013,6 +1026,15 @@ fn flick_without_window(app: &mut CadApp, ui: &egui::Ui, xf: &Xf, rect: Rect, sh
 /// replaces the pointer over the drawing alone. A menu bar, an open menu (including its frame, not
 /// just its items), a tooltip or a floating palette above the canvas keeps the normal OS cursor
 /// visible (#1701), and so do the menus painted on the canvas itself (see [`over_canvas_menu`]).
+/// A part dragged from the Pipework Part Library and dropped here goes where it was dropped.
+fn drop_dragged_part(app: &mut CadApp, ui: &egui::Ui, resp: &egui::Response, xf: &Xf) {
+    if let Some(drag) = resp.dnd_release_payload::<crate::partlibdlg::PartDrag>()
+        && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+    {
+        crate::partlibdlg::drop_part(app, &drag.0, xf.to_world(pos));
+    }
+}
+
 pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     let t = Tokens::get();
     let full = ui.available_rect_before_wrap();
@@ -1053,12 +1075,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     let scale = f64::from(rect.height()) / view.height.max(1e-12);
     let xf = Xf { rect, center: view.center, scale, twist: view.twist };
     app.canvas.xf = Some(xf);
-    // A part dragged from the Pipework Part Library and dropped here goes where it was dropped.
-    if let Some(drag) = resp.dnd_release_payload::<crate::partlibdlg::PartDrag>()
-        && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
-    {
-        crate::partlibdlg::drop_part(app, &drag.0, xf.to_world(pos));
-    }
+    drop_dragged_part(app, ui, &resp, &xf);
     // The paper (display) transform; equal to `xf` except inside an MSPACE viewport.
     let (xf_paper, active_vp) = match app.session.state() {
         Ok(st) => {
@@ -1211,7 +1228,11 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         app.canvas.snap_menu = mods.shift || mods.ctrl;
     }
     if crate::context_menu::in_command(app, ui, inside, pressed_secondary) {
-        let _ = app.session.input(Input::Enter);
+        if right_click_cancels_placing(app) {
+            crate::cmdline::escape(app);
+        } else {
+            let _ = app.session.input(Input::Enter);
+        }
     }
     let middle_clicked = inside && !app.session.settings.mbuttonpan && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Middle));
     crate::context_menu::middle_snap_menu(app, ui, middle_clicked);
