@@ -19,6 +19,8 @@ pub const PIPE_RISER_LAYER: &str = "M-PIPE-RISER";
 pub const MAX_PIPE_RISER_VERTICES: usize = 256;
 pub const MAX_RISER_LINES: usize = 32;
 const XDATA_FORMAT: &str = "PIPERISER1";
+/// The gap between two line symbols in a shaft, mm.
+const SYMBOL_GAP_MM: f64 = 30.0;
 
 fn default_label_mm() -> f64 {
     100.0
@@ -60,6 +62,10 @@ pub struct RiserLine {
     /// The name of the network the line is on: its symbol and its text are on the network's layer.
     #[serde(default)]
     pub network: String,
+    /// Whether the line goes up (`true`) or down (`false`) through this level, when it was chosen for the line: else it goes the way its service goes when
+    /// the pipes of the riser go up or down. A condensate drain always goes down.
+    #[serde(default)]
+    pub goes_up: Option<bool>,
 }
 
 impl RiserLine {
@@ -78,6 +84,7 @@ impl RiserLine {
             flow_m3h: None,
             velocity: None,
             network: String::new(),
+            goes_up: None,
         };
         if service.has_gas_tube() {
             l.gas_dn_mm = 15.88;
@@ -106,11 +113,17 @@ impl RiserLine {
         self.service == service && (!service.has_legs() || self.leg == leg)
     }
 
-    /// Whether the line flows up when the pipes of the riser go up from this level (the plant below): the supply, the liquid, go up to the loads; the
-    /// return, the gas, and a drain, come down.
+    /// Whether the line goes up: the way chosen for it, else, when the pipes of the riser go up from this level (the plant below), the supply and the liquid
+    /// go up to the loads and the return and the gas come down (the other way round when they go down). A drain always comes down.
     pub fn flows_up(&self, up: bool) -> bool {
+        if self.service == PipeService::Condensate {
+            return false;
+        }
+        if let Some(chosen) = self.goes_up {
+            return chosen;
+        }
         let with_the_plant_below = match self.service {
-            PipeService::Condensate | PipeService::RefrigerantGas => false,
+            PipeService::RefrigerantGas => false,
             s if s.has_legs() => self.leg == PipeLeg::Supply,
             _ => true,
         };
@@ -197,6 +210,9 @@ impl PipeRiserParams {
             return Err(invalid(format!("A riser has at most {MAX_RISER_LINES} lines.")));
         }
         for l in &self.lines {
+            if l.service == PipeService::Condensate && l.goes_up == Some(true) {
+                return Err(invalid("A condensate drain always goes down."));
+            }
             l.pipe(self.units).validate()?;
             if [l.incoming, l.load, l.flow_m3h, l.velocity].into_iter().flatten().any(|v| !v.is_finite() || !(0.0..=1.0e9).contains(&v)) {
                 return Err(invalid("The load of a riser line is 0 or more."));
@@ -237,11 +253,12 @@ impl PipeRiserParams {
         tubes.iter().map(|(_, w)| 2.0 * (u.to_units(*w) / 2.0).max(0.2 * h)).sum::<f64>() + u.to_units(20.0) * (tubes.len() as f64 - 1.0)
     }
 
-    /// Where each line's symbol is: across the leaders, which leave at 45°, so that the parallel leaders and their texts never touch.
-    #[cfg(test)]
+    /// Where each line's symbol is: in rows along the longer side of the shaft, centred.
     pub(super) fn symbol_centres(&self) -> Vec<Vec2> {
+        let u = self.units;
         let widths: Vec<f64> = self.lines.iter().map(|l| self.symbol_width_units(l)).collect();
-        super::riser::leader_centres(self.centre(), self.units.to_units(self.label_height_mm), &widths)
+        let (w, d) = self.shaft_mm();
+        super::riser::grid_centres(self.centre(), u.to_units(w), u.to_units(d), &widths, u.to_units(SYMBOL_GAP_MM))
     }
 
     /// The shaft outline and, for each line, a symbol (the section of its tubes, with a dot when it comes up to this level and a cross when it goes down)
@@ -268,9 +285,9 @@ impl PipeRiserParams {
                 part: l.part().map(|v| l.text_of(u, Some(v))),
             })
             .collect();
+        let centres = self.symbol_centres();
         let (w, d) = self.shaft_mm();
-        let diag = u.to_units((w * w + d * d).sqrt());
-        pieces.extend(super::riser::leader_pieces(self.centre(), diag, h, &leaders, |i, c| {
+        pieces.extend(super::riser::leader_pieces(h, u.to_units((w * w + d * d).sqrt()), &leaders, &centres, |i, c| {
             let Some(line) = self.lines.get(i) else { return Vec::new() };
             let flows_up = line.flows_up(self.up);
             let pipe = line.pipe(u);

@@ -3380,3 +3380,7 @@ echo	Current settings: Name = {a}, Circuit = {b}, Direction = {c}	Paramètres ac
 	Line {n}: section (mm²)	Ligne {n} : section (mm²)
 	Line {n}: load (kW)	Ligne {n} : charge (kW)
 	Line {n}: load from other floors (kW)	Ligne {n} : charge des autres étages (kW)
+	Line {n} {tag}: direction	Ligne {n} {tag} : sens
+	Goes down (a drain)	Descend (une évacuation)
+	Auto (goes up)	Auto (monte)
+	Auto (goes down)	Auto (descend)

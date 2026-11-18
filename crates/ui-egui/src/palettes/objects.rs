@@ -253,6 +253,24 @@ fn pipe_riser_section(ui: &mut egui::Ui, sel: &[Handle], rs: &[PipeRiserParams],
                 }
             });
         }
+        // The way the line goes through this level: chosen for each line (a drain always goes down).
+        let direction_label = crate::tf!("Line {n} {tag}: direction", n = n, tag = tag);
+        prop_row(ui, &direction_label, |ui| {
+            if line.service == cadcraft_doc::PipeService::Condensate {
+                read_only(ui, crate::i18n::t("Goes down (a drain)"));
+                return;
+            }
+            let shown = match line.goes_up {
+                Some(true) => "Goes up",
+                Some(false) => "Goes down",
+                None if line.flows_up(r.up) => "Auto (goes up)",
+                None => "Auto (goes down)",
+            };
+            let items = [("up", "Goes up"), ("down", "Goes down"), ("auto", "Auto")];
+            if let Some(d) = choice(ui, shown, &items) {
+                action = line_edit("direction", json!(d));
+            }
+        });
         let unit = match line.service {
             cadcraft_doc::PipeService::Condensate => "l/h",
             s if s.is_refrigerant() => "index",

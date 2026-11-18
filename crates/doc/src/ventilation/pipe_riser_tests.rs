@@ -53,34 +53,71 @@ fn a_riser_is_a_shaft_with_a_symbol_and_a_text_for_each_line_in_the_colour_of_it
     assert_eq!(
         down.iter().filter(|x| x.layer == PIPE_CHW_SUPPLY_LAYER && matches!(x.kind, EntityKind::Line(_))).count(),
         2 + 1,
-        "the cross and the leader"
+        "the cross and the arrow (a lone line's arrow goes through its symbol)"
     );
 }
 
 #[test]
-fn the_leaders_of_the_lines_are_parallel_and_a_label_and_a_half_apart_so_nothing_overlaps() {
+fn the_symbols_sit_in_rows_inside_the_shaft_and_the_arrows_are_parallel_and_a_label_and_a_half_apart() {
     let many: Vec<RiserLine> =
         (0..8).map(|i| RiserLine::new(PipeService::ChilledWater, if i % 2 == 0 { PipeLeg::Supply } else { PipeLeg::Return }, 100.0)).collect();
     let p = riser(many);
     let centres = p.symbol_centres();
     assert_eq!(centres.len(), 8);
-    // The leaders leave at 45°: the distance between two of them is measured across, along the other diagonal.
-    let across = |a: Vec2, b: Vec2| ((b - a).x - (b - a).y).abs() / std::f64::consts::SQRT_2;
-    let h = 100.0;
-    for (i, a) in centres.iter().enumerate() {
-        for b in centres.iter().skip(i + 1) {
-            assert!(across(*a, *b) >= 1.5 * h - 1e-6, "{a:?} {b:?}: {}", across(*a, *b));
+    // The symbols are spread over the shaft (600 x 400), not along a diagonal of it.
+    let (lo, hi) = (Vec2::new(0.0, 0.0), Vec2::new(600.0, 400.0));
+    assert!(centres.iter().all(|c| c.x > lo.x && c.x < hi.x && c.y > lo.y && c.y < hi.y), "{centres:?}");
+    assert!(centres.iter().map(|c| c.y.round() as i64).collect::<std::collections::BTreeSet<_>>().len() >= 2, "more than one row: {centres:?}");
+    // A narrow shaft puts them in a column.
+    let narrow = PipeRiserParams { outline: shaft(0.0, 0.0, 150.0, 900.0), ..riser(chw()) };
+    let c = narrow.symbol_centres();
+    assert!((c[0].x - c[1].x).abs() < 1e-9 && (c[0].y - c[1].y).abs() > 1.0);
+    assert!(riser(Vec::new()).symbol_centres().is_empty());
+    // The texts at the ends of the arrows (rotated 45°) are a label and a half apart across the arrows, whatever the places of the symbols.
+    let pieces = p.generate().unwrap();
+    let spots: Vec<(f64, f64)> =
+        pieces.iter().filter_map(|x| if let EntityKind::Text(t) = &x.kind { Some((t.insert.x, t.insert.y)) } else { None }).collect();
+    let spots = &spots[..spots.len() - 1]; // the name is the last text
+    assert_eq!(spots.len(), 8);
+    for (i, a) in spots.iter().enumerate() {
+        for b in spots.iter().skip(i + 1) {
+            let across = ((b.0 - a.0) - (b.1 - a.1)).abs() / std::f64::consts::SQRT_2;
+            assert!(across >= 150.0 - 1e-6, "{a:?} {b:?}: {across}");
         }
     }
-    assert!(riser(Vec::new()).symbol_centres().is_empty());
-    // Every line has a head on its leader, pointing the way it flows: a supply goes up from the plant below, a return comes down.
-    let pieces = p.generate().unwrap();
+    // Every line has a head, pointing the way it flows: a supply goes up from the plant below, a return comes down.
     let heads: Vec<f64> = pieces
         .iter()
         .filter_map(|x| if let EntityKind::Solid(s) = &x.kind { Some(s.corners[0].y - (s.corners[1].y + s.corners[2].y) / 2.0) } else { None })
         .collect();
-    assert_eq!(heads.len(), 8);
-    assert!(heads.iter().step_by(2).all(|d| *d > 0.0) && heads.iter().skip(1).step_by(2).all(|d| *d < 0.0), "{heads:?}");
+    assert_eq!((heads.len(), heads.iter().filter(|d| **d > 0.0).count(), heads.iter().filter(|d| **d < 0.0).count()), (8, 4, 4));
+}
+
+#[test]
+fn each_line_goes_the_way_chosen_for_it_and_a_drain_always_goes_down() {
+    let mut chilled = RiserLine::new(PipeService::ChilledWater, PipeLeg::Supply, 80.0);
+    assert!(chilled.flows_up(true) && !chilled.flows_up(false), "without a choice, the way of the riser");
+    chilled.goes_up = Some(false);
+    assert!(!chilled.flows_up(true), "chosen: down, whatever the riser does");
+    chilled.goes_up = Some(true);
+    assert!(chilled.flows_up(false));
+    // A drain goes down whatever is chosen, and choosing otherwise is refused.
+    let mut drain = RiserLine::new(PipeService::Condensate, PipeLeg::Supply, 32.0);
+    assert!(!drain.flows_up(true));
+    drain.goes_up = Some(true);
+    assert!(!drain.flows_up(true) && riser(vec![drain.clone()]).validate().is_err());
+    drain.goes_up = Some(false);
+    assert!(riser(vec![drain]).validate().is_ok());
+    // Two lines of one riser go opposite ways: one head up, one down.
+    let down = RiserLine { goes_up: Some(false), ..chilled.clone() };
+    let up = RiserLine { goes_up: Some(true), ..chilled };
+    let heads: Vec<f64> = riser(vec![up, down])
+        .generate()
+        .unwrap()
+        .iter()
+        .filter_map(|x| if let EntityKind::Solid(s) = &x.kind { Some(s.corners[0].y - (s.corners[1].y + s.corners[2].y) / 2.0) } else { None })
+        .collect();
+    assert_eq!((heads.iter().filter(|d| **d > 0.0).count(), heads.iter().filter(|d| **d < 0.0).count()), (1, 1));
 }
 
 #[test]

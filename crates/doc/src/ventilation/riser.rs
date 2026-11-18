@@ -500,10 +500,10 @@ impl RiserParams {
             })
             .collect();
         let (w, d) = self.shaft_mm();
-        let diag = u.to_units((w * w + d * d).sqrt());
+        let centres = grid_centres(self.centre(), u.to_units(w), u.to_units(d), &vec![2.0 * r; self.cable.lines.len()], u.to_units(30.0));
         let up = self.up;
         let lines = &self.cable.lines;
-        pieces.extend(leader_pieces(self.centre(), diag, h, &leaders, |i, c| {
+        pieces.extend(leader_pieces(h, u.to_units((w * w + d * d).sqrt()), &leaders, &centres, |i, c| {
             let layer = lines.get(i).map_or(RISER_LAYER, |l| l.usage.layer());
             let mut out = vec![HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: r }) }];
             if up {
@@ -557,41 +557,93 @@ pub(super) fn head_piece(layer: &'static str, apex: Vec2, flow_dir: Vec2, head: 
     HvacPiece { layer, kind: EntityKind::Solid(Solid { corners: [v3(apex), corner(1.0), corner(-1.0), corner(-1.0)] }) }
 }
 
-/// Where the symbols of the lines of a riser are: along the diagonal that crosses the leaders (which leave at 45°), so that the parallel leaders and their
-/// texts are at least a label and a half apart and never touch, and no closer than the symbols are wide.
-pub(super) fn leader_centres(centre: Vec2, h: f64, widths: &[f64]) -> Vec<Vec2> {
-    let step = widths.iter().copied().fold(0.0, f64::max).max(0.0) + 0.2 * h;
-    let step = step.max(1.5 * h);
-    let anti = Vec2::new(FRAC_1_SQRT_2, -FRAC_1_SQRT_2);
+/// Where the symbols of the lines of a riser are: in rows along the longer side of the shaft, centred, a gap between two symbols, so that they spread over the
+/// shaft. `centre` and the shaft's `width` and `depth` are in drawing units.
+pub(super) fn grid_centres(centre: Vec2, width: f64, depth: f64, widths: &[f64], gap: f64) -> Vec<Vec2> {
     let n = widths.len();
-    (0..n).map(|i| centre + anti * ((i as f64 - (n as f64 - 1.0) / 2.0) * step)).collect()
+    if n == 0 {
+        return Vec::new();
+    }
+    let pitch = widths.iter().copied().fold(0.0, f64::max) + gap;
+    let along_x = width >= depth;
+    let side = if along_x { width } else { depth };
+    let per_row = ((side / pitch).floor() as usize).clamp(1, n);
+    let rows = n.div_ceil(per_row);
+    (0..n)
+        .map(|i| {
+            let (col, row) = (i % per_row, i / per_row);
+            let in_row = if row + 1 == rows && !n.is_multiple_of(per_row) { n % per_row } else { per_row };
+            let u = (col as f64 - (in_row as f64 - 1.0) / 2.0) * pitch;
+            let v = (row as f64 - (rows as f64 - 1.0) / 2.0) * pitch;
+            if along_x { centre + Vec2::new(u, v) } else { centre + Vec2::new(v, u) }
+        })
+        .collect()
 }
 
-/// The leaders of the lines of a riser: for each, its symbol (drawn by `symbol`), a leader through it at 45° whose two ends have an arrow head and a text, the
-/// head pointing the way the line flows. The end on the side of `total_above` has the whole load, the other the part for the other floor, when there is one.
+/// The places across (along the other diagonal) of the arrows of lines whose symbols are at `across` (sorted): as near as they can be to those, and at least
+/// `step` apart (the closest sequence in the least squares sense: the arrows of symbols that are close are spread out around them).
+fn spread_across(across: &[f64], step: f64) -> Vec<f64> {
+    // With q = across - rank * step the arrows are `step` apart when q does not decrease: pool the adjacent values that decrease.
+    let mut blocks: Vec<(f64, usize)> = Vec::new();
+    for (k, a) in across.iter().enumerate() {
+        blocks.push((a - k as f64 * step, 1));
+        while blocks.len() > 1 {
+            let (last, before) = (blocks[blocks.len() - 1], blocks[blocks.len() - 2]);
+            if before.0 <= last.0 {
+                break;
+            }
+            let n = before.1 + last.1;
+            let mean = (before.0 * before.1 as f64 + last.0 * last.1 as f64) / n as f64;
+            blocks.truncate(blocks.len() - 2);
+            blocks.push((mean, n));
+        }
+    }
+    let mut out = Vec::with_capacity(across.len());
+    for (mean, n) in blocks {
+        for _ in 0..n {
+            out.push(mean + out.len() as f64 * step);
+        }
+    }
+    out
+}
+
+/// The leaders of the lines of a riser. Each line has its symbol at `centres[i]` (drawn by `symbol`) and an arrow at 45° whose head points the way the line
+/// flows, with its text at the end: the end on the side of `total_above` says the whole load, the other the part for the other floor, when there is one.
+/// The arrows are parallel and at least a label and a half apart across (so that neither they nor their texts ever touch), whatever the symbols' places:
+/// an arrow is where its symbol is, or, when two symbols are too close across, a little aside, joined to its symbol by a thin line.
 pub(super) fn leader_pieces(
-    centre: Vec2,
-    diag: f64,
     h: f64,
+    diag: f64,
     leaders: &[Leader],
+    centres: &[Vec2],
     mut symbol: impl FnMut(usize, Vec2) -> Vec<HvacPiece>,
 ) -> Vec<HvacPiece> {
-    let widths: Vec<f64> = leaders.iter().map(|l| l.width).collect();
-    let dir = Vec2::new(FRAC_1_SQRT_2, FRAC_1_SQRT_2);
-    let (len, head) = ((0.6 * diag).max(6.0 * h), 1.2 * h);
+    let n = leaders.len().min(centres.len());
+    let (dir, anti) = (Vec2::new(FRAC_1_SQRT_2, FRAC_1_SQRT_2), Vec2::new(FRAC_1_SQRT_2, -FRAC_1_SQRT_2));
+    let (len, head, step) = ((0.6 * diag).max(6.0 * h), 1.2 * h, 1.5 * h);
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|a, b| centres[*a].dot(anti).total_cmp(&centres[*b].dot(anti)));
+    let across: Vec<f64> = order.iter().map(|i| centres[*i].dot(anti)).collect();
+    let places = spread_across(&across, step);
     let mut pieces = Vec::new();
-    for (i, (l, c)) in leaders.iter().zip(leader_centres(centre, h, &widths)).enumerate() {
+    for (&i, &u) in order.iter().zip(&places) {
+        let (Some(l), Some(&c)) = (leaders.get(i), centres.get(i)) else { continue };
         pieces.extend(symbol(i, c));
         let flow_dir = if l.flows_up { dir } else { -dir };
         let r = l.width / 2.0;
+        // Where the arrow is: on its line across, at the symbol's height along it; a thin line joins it to the symbol when it is not on it.
+        let foot = anti * u + dir * c.dot(dir);
+        let aside = u - c.dot(anti);
+        if aside.abs() > r {
+            let from = c + anti * (r * aside.signum());
+            pieces.push(HvacPiece { layer: l.layer, kind: EntityKind::Line(Line { a: v3(from), b: v3(foot) }) });
+        }
         for above in [true, false] {
-            let text = match (above == l.total_above, &l.part) {
-                (true, _) => Some(l.total.clone()),
-                (false, part) => part.clone(),
-            };
+            let text = if above == l.total_above { Some(l.total.clone()) } else { l.part.clone() };
             let Some(text) = text else { continue };
             let sign = if above { 1.0 } else { -1.0 };
-            let (start, end) = (c + dir * (sign * r), c + dir * (sign * (r + len)));
+            let start = if aside.abs() > r { foot } else { c + dir * (sign * r) };
+            let end = foot + dir * (sign * len);
             pieces.push(HvacPiece { layer: l.layer, kind: EntityKind::Line(Line { a: v3(start), b: v3(end) }) });
             // The point is on the end the line flows toward, else the head's base is on it.
             pieces.push(head_piece(l.layer, if above == l.flows_up { end } else { end + flow_dir * head }, flow_dir, head));

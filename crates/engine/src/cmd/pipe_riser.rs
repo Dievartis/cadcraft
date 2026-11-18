@@ -22,12 +22,12 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(
                 "{points (3 or more) | handle (closed polyline), name? (shared by the risers of the other floors), up? (true: the pipes go up from this level; default), height? (mm, floor to floor), \\
                  lines? (a list: a tag \"CHW-S\", \"CHW-R\", \"HW-S\", \"HW-R\", \"CO-S\", \"CO-R\", \"COND\", \"REF-L\", \"REF-G\", \"REF\", \"REF-HR\", or {service, leg?, dn? (mm; inches for a refrigerant tube), gas?, hpGas?, \\
-                 insulation? (mm), incoming? (what the line carries to the other floors: kW, l/h for a drain, capacity index for refrigerant)}; default chilled water supply and return), labelHeight? (mm)} → {handle, name, lines}",
+                 insulation? (mm), direction? (up|down: the way this line goes; a drain always goes down), incoming? (what the line carries to the other floors: kW, l/h for a drain, capacity index for refrigerant)}; default chilled water supply and return), labelHeight? (mm)} → {handle, name, lines}",
             )
             .interactive(|s| Ok(Box::new(PipeRiserAddM::new(s)))),
         CommandSpec::new("piperiseredit", "Edit Pipe Riser", run_edit).params(
             "{handle | handles, name?, up?, height? (mm or null), lines? (replace them all, as for piperiseradd) | addLines? (appended) | removeLine? (the number of a line, from 1), \\
-             line? ({index (from 1), dn?, gas?, hpGas?, insulation?, incoming? (or null), imposed?}: one line changed)} → {changed}",
+             line? ({index (from 1), dn?, gas?, hpGas?, insulation?, direction? (up|down|null), incoming? (or null), imposed?}: one line changed)} → {changed}",
         ),
     ]
 }
@@ -96,6 +96,23 @@ fn apply_line(cmd: &str, l: &mut RiserLine, v: &Value) -> Result<()> {
     }
     if let Some(b) = v.get("imposed").and_then(Value::as_bool) {
         l.imposed = b;
+    }
+    // The way the line goes through this level: up or down, or null for the way of its service and of the riser.
+    match v.get("direction") {
+        None => {}
+        Some(Value::Null) => l.goes_up = None,
+        Some(Value::String(t)) => {
+            l.goes_up = match t.trim().to_ascii_lowercase().as_str() {
+                "up" | "u" | "monte" => Some(true),
+                "down" | "d" | "descend" => Some(false),
+                "auto" => None,
+                _ => return Err(bad(cmd, "`direction` is up, down or null")),
+            };
+            if l.service == PipeService::Condensate && l.goes_up == Some(true) {
+                return Err(bad(cmd, "a condensate drain always goes down"));
+            }
+        }
+        Some(_) => return Err(bad(cmd, "`direction` is up, down or null")),
     }
     Ok(())
 }

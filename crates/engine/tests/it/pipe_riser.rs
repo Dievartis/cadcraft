@@ -135,3 +135,32 @@ fn pipesize_reads_a_network_through_a_riser_and_sizes_its_lines() {
     // The line is what the riser now says.
     assert_eq!(riser(&s, h).lines[0].load, Some(90.0));
 }
+
+#[test]
+fn each_line_of_a_pipe_riser_can_be_given_its_own_direction_and_a_drain_always_goes_down() {
+    let mut s = metric();
+    let r = s
+        .execute(
+            "piperiseradd",
+            &json!({"points": [[0, 0], [600, 0], [600, 400], [0, 400]], "name": "CT1", "lines": [
+                {"service": "chilledWater", "leg": "supply", "direction": "down"},
+                "CHW-R",
+                "COND",
+            ]}),
+        )
+        .unwrap();
+    let h = hd(&r["handle"]);
+    let goes = |s: &Session| riser(s, h).lines.iter().map(|l| l.goes_up).collect::<Vec<_>>();
+    assert_eq!(goes(&s), [Some(false), None, None]);
+    s.execute("piperiseredit", &json!({"handle": r["handle"], "line": {"index": 2, "direction": "up"}})).unwrap();
+    s.execute("piperiseredit", &json!({"handle": r["handle"], "line": {"index": 1, "direction": null}})).unwrap();
+    assert_eq!(goes(&s), [None, Some(true), None]);
+    // A drain can't be made to go up, nor a direction be anything else.
+    assert!(s.execute("piperiseredit", &json!({"handle": r["handle"], "line": {"index": 3, "direction": "up"}})).is_err());
+    assert!(s.execute("piperiseredit", &json!({"handle": r["handle"], "line": {"index": 1, "direction": "sideways"}})).is_err());
+    assert!(
+        s.execute("piperiseradd", &json!({"points": [[0, 0], [600, 0], [600, 400]], "lines": [{"service": "condensate", "direction": "up"}]}))
+            .is_err()
+    );
+    s.execute("piperiseredit", &json!({"handle": r["handle"], "line": {"index": 3, "direction": "down"}})).unwrap();
+}
