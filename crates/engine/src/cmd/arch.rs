@@ -111,6 +111,10 @@ pub(crate) fn after_command(s: &mut Session, before: Option<&std::sync::Arc<Draw
     if st.doc.ducts_touched_since(b, &space) {
         let _ = std::sync::Arc::make_mut(&mut st.doc).draw_duct_elbows(&space);
     }
+    // The same for the pipes: elbows where two pipes of one service turn, cones where their sizes differ.
+    if st.doc.pipes_touched_since(b, &space) {
+        let _ = std::sync::Arc::make_mut(&mut st.doc).draw_pipe_elbows(&space);
+    }
     // The principle diagrams of the controls follow the control devices.
     if st.doc.controls_touched_since(b, &space) && st.doc.model.iter().any(|e| cadcraft_doc::control_schema_of(e).is_some()) {
         std::sync::Arc::make_mut(&mut st.doc).refresh_control_schemas();

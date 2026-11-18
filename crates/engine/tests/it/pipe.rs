@@ -309,3 +309,21 @@ fn links_named_one_by_one_become_one_network_when_a_branch_joins_them() {
     assert_eq!(nets[0]["name"], "REF1");
     assert_eq!(nets[0]["pipes"], 3);
 }
+
+#[test]
+fn pipes_laid_by_the_command_get_their_elbow_and_follow_a_change_of_diameter_without_any_sizing() {
+    let mut s = metric();
+    let r = s.execute("pipeadd", &json!({"points": [[0, 0], [4000, 0], [4000, 3000]], "service": "chilledWater", "dn": 50})).unwrap();
+    let hs: Vec<Handle> = r["handles"].as_array().unwrap().iter().map(hd).collect();
+    let p = |s: &Session, h: Handle| pipe(s, h);
+    let elbows = |s: &Session| hs.iter().filter(|h| p(s, **h).elbow.is_some()).count();
+    assert_eq!(elbows(&s), 1, "one elbow where the two pipes turn");
+    // A new diameter on the later one: the elbow follows its width, and the other pipe gets the cone from it.
+    s.execute("pipeedit", &json!({"handle": hs[1].hex(), "dn": 100})).unwrap();
+    let (a, b) = (p(&s, hs[0]), p(&s, hs[1]));
+    assert!((b.elbow.unwrap().radius_mm - 1.5 * b.plan_width_mm()).abs() < 1e-6);
+    assert!(a.reducer.is_some_and(|r| r.at_end && (r.from_mm - b.plan_width_mm()).abs() < 1e-6), "{:?}", a.reducer);
+    // Equal again: the cone goes, the elbow stays.
+    s.execute("pipeedit", &json!({"handle": hs[1].hex(), "dn": 50})).unwrap();
+    assert!(p(&s, hs[0]).reducer.is_none() && elbows(&s) == 1);
+}

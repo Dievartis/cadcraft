@@ -459,3 +459,47 @@ fn the_fittings_are_read_from_where_pipes_meet_and_cross() {
     assert!(t.fittings.iter().any(|f| f.name == "Pipe elbow 90°" && f.count == 1), "{:?}", t.fittings);
     assert!(t.fittings.iter().any(|f| f.name == "Pipe reducer" && f.size.contains('→')));
 }
+
+#[test]
+fn pipes_of_one_service_get_their_elbows_and_cones_as_soon_as_they_are_laid_and_follow_their_sizes() {
+    let mut d = Drawing::new_metric();
+    let add = |d: &mut Drawing, service, leg, dn, a: (f64, f64), b: (f64, f64)| {
+        let p = PipeParams::new(service, dn, HvacUnits { mm_per_unit: 1.0 });
+        d.add_pipe(&Space::Model, Common::default(), PipeParams { leg, ..p }, Vec2::new(a.0, a.1), Vec2::new(b.0, b.1)).unwrap()
+    };
+    let (a, b) = (
+        add(&mut d, PipeService::ChilledWater, PipeLeg::Supply, 50.0, (0.0, 0.0), (3000.0, 0.0)),
+        add(&mut d, PipeService::ChilledWater, PipeLeg::Supply, 50.0, (3000.0, 0.0), (3000.0, 3000.0)),
+    );
+    let get = |d: &Drawing, h| pipe_of(d.entity(h).unwrap()).unwrap();
+    assert_eq!(d.draw_pipe_elbows(&Space::Model).unwrap(), 2, "the later pipe has the elbow, both give up its tangent");
+    let (pa, pb) = (get(&d, a), get(&d, b));
+    let e = pb.elbow.expect("an elbow");
+    assert!((e.radius_mm - 1.5 * pb.plan_width_mm()).abs() < 1e-6 && pa.elbow.is_none());
+    assert!((pa.trim_end_mm - e.tangent_mm()).abs() < 1e-6 && (pb.trim_start_mm - e.tangent_mm()).abs() < 1e-6);
+    assert_eq!(d.draw_pipe_elbows(&Space::Model).unwrap(), 0, "done once");
+    // A pipe of another service meeting there is not the same network: no elbow with it.
+    let other = add(&mut d, PipeService::HotWater, PipeLeg::Supply, 50.0, (3000.0, 3000.0), (6000.0, 3000.0));
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    assert!(get(&d, other).elbow.is_none());
+    // The later pipe is made bigger: the elbow is drawn again at the new radius, and the cone is on the other pipe, from the elbow's width.
+    let mut big = get(&d, b);
+    big.dn_mm = 80.0;
+    d.regenerate_pipe(b, &big).unwrap();
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    let (pa, pb) = (get(&d, a), get(&d, b));
+    assert!((pb.elbow.unwrap().radius_mm - 1.5 * pb.plan_width_mm()).abs() < 1e-6);
+    assert_eq!(pa.reducer.map(|r| (r.at_end, r.from_mm)), Some((true, pb.plan_width_mm())), "{:?}", pa.reducer);
+    // Straight on, a cone: two pipes in line of two sizes.
+    let c = add(&mut d, PipeService::Condensate, PipeLeg::Supply, 25.0, (0.0, 9000.0), (3000.0, 9000.0));
+    let e2 = add(&mut d, PipeService::Condensate, PipeLeg::Supply, 40.0, (3000.0, 9000.0), (6000.0, 9000.0));
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    assert_eq!((get(&d, c).reducer, get(&d, e2).reducer.map(|r| r.at_end)), (None, Some(false)));
+    assert!(get(&d, e2).generate(false).unwrap().len() > 4);
+    // The same size again: the cone goes.
+    let mut same = get(&d, e2);
+    same.dn_mm = 25.0;
+    d.regenerate_pipe(e2, &same).unwrap();
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    assert!(get(&d, e2).reducer.is_none());
+}

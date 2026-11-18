@@ -302,6 +302,17 @@ pub struct PipeParams {
     /// The name of the network the run belongs to (see [`super::pipe_networks`]): its layers, colour and line type, and its text.
     #[serde(default)]
     pub network: String,
+    /// The elbow where the run joins the pipe before it, drawn as soon as the pipes are laid: arcs across the run, the two pipes giving up what it takes.
+    #[serde(default)]
+    pub elbow: Option<super::DuctElbow>,
+    /// A cone where the run joins a pipe of another size.
+    #[serde(default)]
+    pub reducer: Option<super::DuctReducer>,
+    /// What an elbow takes of the run at each end, mm.
+    #[serde(default)]
+    pub trim_start_mm: f64,
+    #[serde(default)]
+    pub trim_end_mm: f64,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     #[serde(default)]
@@ -328,6 +339,10 @@ impl PipeParams {
             flow_forward: None,
             level_mm: None,
             network: String::new(),
+            elbow: None,
+            reducer: None,
+            trim_start_mm: 0.0,
+            trim_end_mm: 0.0,
             label_height_mm: default_label_mm(),
             units,
         }
@@ -356,8 +371,43 @@ impl PipeParams {
         if self.network.chars().count() > super::MAX_NETWORK_NAME_CHARS || self.network.chars().any(char::is_control) {
             return Err(invalid(format!("A network's name has at most {} characters, without control characters.", super::MAX_NETWORK_NAME_CHARS)));
         }
+        if let Some(e) = self.elbow
+            && !(e.angle_deg.is_finite() && e.angle_deg.abs() > 0.0 && e.angle_deg.abs() < 180.0 && e.radius_mm.is_finite() && e.radius_mm > 0.0)
+        {
+            return Err(invalid("An elbow turns by 0 to 180 degrees, with a radius above 0."));
+        }
+        if self.reducer.is_some_and(|r| !(r.from_mm.is_finite() && r.from_mm > 0.0)) {
+            return Err(invalid("A reducer joins a size above 0."));
+        }
+        if ![self.trim_start_mm, self.trim_end_mm].into_iter().all(|t| t.is_finite() && t >= 0.0 && t <= self.length * self.units.mm_per_unit) {
+            return Err(invalid("What an elbow takes of a pipe is 0 to its length."));
+        }
         self.units.validate()?;
         check_label_height(self.label_height_mm)
+    }
+
+    /// The cone where the run joins a pipe of another size: the radius it starts from, its length and whether it is at the far end. It starts where the
+    /// straight run does, after what an elbow takes. `r` is the run's own radius, drawing units.
+    fn cone(&self, r: f64) -> Option<(f64, f64, bool)> {
+        let (trim0, trim1) = (self.units.to_units(self.trim_start_mm), self.units.to_units(self.trim_end_mm));
+        self.reducer.map(|red| {
+            let r0 = self.units.to_units(red.from_mm) / 2.0;
+            let room = (self.length - trim0 - trim1).max(0.0);
+            let len = ((r0 - r).abs() / super::duct::REDUCER_HALF_ANGLE_DEG.to_radians().tan()).min(0.4 * room);
+            (r0, len, red.at_end)
+        })
+    }
+
+    /// The stretch of the run, drawing units from its start, whose sides are straight: between what an elbow takes at each end and the cone of a reducer.
+    pub fn straight_range(&self) -> (f64, f64) {
+        let r = self.units.to_units(self.plan_width_mm()) / 2.0;
+        let (trim0, trim1) = (self.units.to_units(self.trim_start_mm), self.units.to_units(self.trim_end_mm));
+        let (x0, x1) = match self.cone(r) {
+            Some((_, len, false)) => (trim0 + len, self.length - trim1),
+            Some((_, len, true)) => (trim0, self.length - trim1 - len),
+            None => (trim0, self.length - trim1),
+        };
+        (x0.min(self.length), x1.max(x0).min(self.length))
     }
 
     /// The outer diameter of the pipe, mm: the steel pipe of the nominal diameter, or the copper tube.
@@ -478,8 +528,23 @@ impl PipeParams {
         let layer = self.layer();
         let line = |layer: &'static str, a: Vec2, b: Vec2| HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
         let tubes = self.tubes();
+        let (x0, x1) = if tubes.is_empty() { self.straight_range() } else { (0.0, self.length) };
         let mut pieces = if tubes.is_empty() {
-            vec![line(layer, Vec2::new(0.0, -r), Vec2::new(self.length, -r)), line(layer, Vec2::new(0.0, r), Vec2::new(self.length, r))]
+            // The two sides of the straight run, the cone of a reducer at the end that has one, and the arcs of an elbow.
+            let mut v = vec![line(layer, Vec2::new(x0, -r), Vec2::new(x1, -r)), line(layer, Vec2::new(x0, r), Vec2::new(x1, r))];
+            if let Some((r0, _, at_end)) = self.cone(r) {
+                let (trim0, trim1) = (self.units.to_units(self.trim_start_mm), self.units.to_units(self.trim_end_mm));
+                let ((xa, ra), (xb, rb)) = if at_end { ((x1, r), (self.length - trim1, r0)) } else { ((trim0, r0), (x0, r)) };
+                for sign in [1.0, -1.0] {
+                    v.push(line(layer, Vec2::new(xa, sign * ra), Vec2::new(xb, sign * rb)));
+                }
+                let cross = if at_end { x1 } else { x0 };
+                v.push(line(layer, Vec2::new(cross, -r), Vec2::new(cross, r)));
+            }
+            if let Some(e) = self.elbow {
+                v.extend(super::duct::elbow_arcs(e, r, self.length, self.units, layer));
+            }
+            v
         } else {
             // Each tube as two lines on its own layer, side by side with a small gap.
             let mut v = Vec::new();
@@ -495,7 +560,7 @@ impl PipeParams {
         if let Some(colour) = band_colour(self.service) {
             // The line along the axis is on the pipe's layer, drawn in the colour of the identification band.
             let band = intern(format!("{layer}|ByLayer|{colour}")).unwrap_or(layer);
-            pieces.push(line(band, Vec2::ZERO, Vec2::new(self.length, 0.0)));
+            pieces.push(line(band, Vec2::new(x0, 0.0), Vec2::new(x1, 0.0)));
         }
         if let Some(forward) = self.flow_forward {
             let len = (2.4 * r).min(0.15 * self.length);

@@ -902,7 +902,7 @@ impl DuctElbow {
 }
 
 /// Half the angle of a reducer's cone.
-const REDUCER_HALF_ANGLE_DEG: f64 = 15.0;
+pub(super) const REDUCER_HALF_ANGLE_DEG: f64 = 15.0;
 /// Most vertices of a flexible duct's side.
 const MAX_BELLOWS_VERTICES: usize = 2_000;
 
@@ -1351,8 +1351,15 @@ impl DuctParams {
     /// The two arcs of an elbow, in the run's block coordinates: the entry end is the origin (or, if
     /// the run is entered by its far end, the end turned half a turn about the middle).
     fn elbow_pieces(&self, e: DuctElbow, half_width: f64, layer: &'static str) -> Vec<HvacPiece> {
+        elbow_arcs(e, half_width, self.length, self.units, layer)
+    }
+}
+
+/// The two arcs of an elbow of a run `length` drawing units long, in the run's block coordinates (see [`DuctParams::elbow_pieces`]).
+pub(super) fn elbow_arcs(e: DuctElbow, half_width: f64, length: f64, units: HvacUnits, layer: &'static str) -> Vec<HvacPiece> {
+    {
         let phi = e.angle_deg.to_radians();
-        let radius = self.units.to_units(e.radius_mm);
+        let radius = units.to_units(e.radius_mm);
         let tangent = radius * (phi.abs() / 2.0).tan();
         let side = phi.signum();
         // The centre is on the inside of the turn; the arc runs from the parent's tangent point to the run's.
@@ -1362,7 +1369,7 @@ impl DuctParams {
             (Vec2::new(tangent, -radius), std::f64::consts::FRAC_PI_2, std::f64::consts::FRAC_PI_2 - phi)
         };
         let (centre, start, end) = if e.at_end {
-            (Vec2::new(self.length - centre.x, -centre.y), start + std::f64::consts::PI, end + std::f64::consts::PI)
+            (Vec2::new(length - centre.x, -centre.y), start + std::f64::consts::PI, end + std::f64::consts::PI)
         } else {
             (centre, start, end)
         };
@@ -1371,7 +1378,9 @@ impl DuctParams {
             .map(|r| HvacPiece { layer, kind: EntityKind::Arc(crate::Arc { center: v3(centre), radius: r, start, end }) })
             .collect()
     }
+}
 
+impl DuctParams {
     /// The vertices of one side of the straight part, from `x0` to `x1` at height `y`: two points
     /// for a rigid duct, a zigzag for a flexible one.
     /// `x0`–`x1` less the stretches the run passes under other ducts, in drawing units along the run.

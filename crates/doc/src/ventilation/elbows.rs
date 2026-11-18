@@ -26,15 +26,80 @@ const MEET_MM: f64 = 10.0;
 const MIN_TURN_DEG: f64 = 10.0;
 const MAX_TURN_DEG: f64 = 170.0;
 
+/// What the elbows and the reducers need to know of a run, which is a duct or a pipe.
+trait RunParams {
+    /// The radius of the axis through a bend, as a multiple of the run's width.
+    const ELBOW_RADIUS_PER_WIDTH: f64;
+    /// The width a plan shows, mm.
+    fn width_mm(&self) -> f64;
+    fn length_mm(&self) -> f64;
+    fn elbow(&self) -> Option<DuctElbow>;
+    fn reducer(&self) -> Option<DuctReducer>;
+    /// A flexible run takes no elbow and no cone.
+    fn flexible(&self) -> bool {
+        false
+    }
+    /// The air direction a duct was given, when it was set (a collar of a unit sized for it).
+    fn air_role(&self) -> Option<AirDirection> {
+        None
+    }
+    /// Whether `other` is of the same network: only runs of one network meet in an elbow or a cone.
+    fn same_network(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl RunParams for DuctParams {
+    const ELBOW_RADIUS_PER_WIDTH: f64 = 1.0;
+    fn width_mm(&self) -> f64 {
+        self.plan_width_mm()
+    }
+    fn length_mm(&self) -> f64 {
+        self.length * self.units.mm_per_unit
+    }
+    fn elbow(&self) -> Option<DuctElbow> {
+        self.elbow
+    }
+    fn reducer(&self) -> Option<DuctReducer> {
+        self.reducer
+    }
+    fn flexible(&self) -> bool {
+        self.flexible
+    }
+    fn air_role(&self) -> Option<AirDirection> {
+        self.air_set.then_some(self.air)
+    }
+}
+
+impl RunParams for super::PipeParams {
+    // A short-radius pipe elbow.
+    const ELBOW_RADIUS_PER_WIDTH: f64 = 1.5;
+    fn width_mm(&self) -> f64 {
+        self.plan_width_mm()
+    }
+    fn length_mm(&self) -> f64 {
+        self.length * self.units.mm_per_unit
+    }
+    fn elbow(&self) -> Option<DuctElbow> {
+        self.elbow
+    }
+    fn reducer(&self) -> Option<DuctReducer> {
+        self.reducer
+    }
+    fn same_network(&self, other: &Self) -> bool {
+        self.service == other.service && (!self.service.has_legs() || self.leg == other.leg)
+    }
+}
+
 /// One run: its handle, its data and its two ends.
-struct Run {
+struct Run<P = DuctParams> {
     handle: Handle,
-    params: DuctParams,
+    params: P,
     a: Vec2,
     b: Vec2,
 }
 
-impl Run {
+impl<P> Run<P> {
     fn end(&self, at_end: bool) -> Vec2 {
         if at_end { self.b } else { self.a }
     }
@@ -46,17 +111,18 @@ impl Run {
 }
 
 /// How far `child` turns from `parent` at their joint, degrees, positive to the left of the way the air runs from the parent into the child.
-fn turn_deg(parent: &Run, parent_end: bool, child: &Run, child_end: bool) -> f64 {
+fn turn_deg<P>(parent: &Run<P>, parent_end: bool, child: &Run<P>, child_end: bool) -> f64 {
     let into = -parent.away(parent_end);
     ((child.away(child_end).angle() - into.angle()).to_degrees() + 540.0).rem_euclid(360.0) - 180.0
 }
 
 /// The radius of the elbow `child` makes where it turns `turn` degrees from `parent`: its width, or less where the runs are short; `None` when a bend that
 /// tight would not fit the width (the joint is left as a corner).
-fn elbow_radius(child: &Run, parent: &Run, turn: f64) -> Option<f64> {
-    let width = child.params.plan_width_mm();
-    let room = 0.4 * (child.params.length * child.params.units.mm_per_unit).min(parent.params.length * parent.params.units.mm_per_unit);
-    let radius = width.min(room / (turn.abs().to_radians() / 2.0).tan());
+fn elbow_radius<P: RunParams>(child: &Run<P>, parent: &Run<P>, turn: f64) -> Option<f64> {
+    let width = child.params.width_mm();
+    let wanted = P::ELBOW_RADIUS_PER_WIDTH * width;
+    let room = 0.4 * child.params.length_mm().min(parent.params.length_mm());
+    let radius = wanted.min(room / (turn.abs().to_radians() / 2.0).tan());
     (radius.is_finite() && radius > 0.55 * width).then_some(radius)
 }
 
@@ -68,7 +134,7 @@ fn near_segment(p: Vec2, a: Vec2, b: Vec2, tol: f64) -> bool {
 }
 
 /// The joints where exactly two runs meet end to end: (run, at its end?) of each.
-fn joints(runs: &[Run], tol: f64) -> Vec<[(usize, bool); 2]> {
+fn joints<P>(runs: &[Run<P>], tol: f64) -> Vec<[(usize, bool); 2]> {
     let mut out = Vec::new();
     for (i, r) in runs.iter().enumerate() {
         for at_end in [false, true] {
@@ -145,23 +211,23 @@ struct Port {
 
 impl Port {
     /// The width of the collar a run `r` starts on here: the one of its own air direction when that was set, else the widest.
-    fn width_for(&self, r: &Run) -> Option<f64> {
-        let own = r.params.air_set.then(|| self.sizes.iter().find(|(a, _)| *a == r.params.air).map(|(_, w)| *w)).flatten();
+    fn width_for(&self, role: Option<AirDirection>) -> Option<f64> {
+        let own = role.and_then(|air| self.sizes.iter().find(|(a, _)| *a == air).map(|(_, w)| *w));
         own.or_else(|| self.sizes.iter().map(|(_, w)| *w).reduce(f64::max))
     }
 }
 
 /// The reducer each run has once the elbows are decided (`next`: the elbow and the length each end gives up to it). See the module's text for the rules.
-fn reducers(
-    runs: &[Run],
+fn reducers<P: RunParams>(
+    runs: &[Run<P>],
     joints: &[[(usize, bool); 2]],
     next: &[(Option<DuctElbow>, f64, f64)],
     ports: &[Port],
     tol: f64,
 ) -> Vec<Option<DuctReducer>> {
-    let width = |k: usize| runs.get(k).map_or(0.0, |r| r.params.plan_width_mm());
+    let width = |k: usize| runs.get(k).map_or(0.0, |r| r.params.width_mm());
     let elbow_at = |k: usize, at_end: bool| next.get(k).is_some_and(|n| n.0.is_some_and(|e| e.at_end == at_end));
-    let mut out: Vec<Option<DuctReducer>> = runs.iter().map(|r| r.params.reducer).collect();
+    let mut out: Vec<Option<DuctReducer>> = runs.iter().map(|r| r.params.reducer()).collect();
     // Whether `k` can take a reducer at `at_end` (it has one reducer, at one end).
     fn can_hold(out: &[Option<DuctReducer>], k: usize, at_end: bool) -> bool {
         out.get(k).is_some_and(|r| r.is_none_or(|r| r.at_end == at_end))
@@ -203,7 +269,7 @@ fn reducers(
                 continue;
             }
             // A run that starts on the collar of a unit that was given a size: the cone from that size.
-            if let Some(w) = ports.iter().find(|q| q.at.dist(p) <= 3.0 * tol).and_then(|q| q.width_for(r)) {
+            if let Some(w) = ports.iter().find(|q| q.at.dist(p) <= 3.0 * tol).and_then(|q| q.width_for(r.params.air_role())) {
                 if can_hold(&out, k, at_end) {
                     set(&mut out, k, at_end, w, (w - width(k)).abs() > 0.5);
                 }
@@ -212,7 +278,9 @@ fn reducers(
             let others: Vec<usize> = runs
                 .iter()
                 .enumerate()
-                .filter(|(i, o)| *i != k && (near_segment(p, o.a, o.b, tol) || o.a.dist(p) <= tol || o.b.dist(p) <= tol))
+                .filter(|(i, o)| {
+                    *i != k && r.params.same_network(&o.params) && (near_segment(p, o.a, o.b, tol) || o.a.dist(p) <= tol || o.b.dist(p) <= tol)
+                })
                 .map(|(i, _)| i)
                 .collect();
             let through: Vec<usize> =
@@ -230,7 +298,7 @@ fn reducers(
     }
     // A flexible duct takes no cone: it follows the collar as it is.
     for (r, slot) in runs.iter().zip(out.iter_mut()) {
-        if r.params.flexible {
+        if r.params.flexible() {
             *slot = None;
         }
     }
@@ -238,7 +306,7 @@ fn reducers(
 }
 
 /// Which ends of each run are free: no other run ends on it or goes through it, and `blocked` (a unit, a terminal, a riser) is not there.
-fn free_ends(runs: &[Run], tol: f64, blocked: &dyn Fn(Vec2) -> bool) -> Vec<[bool; 2]> {
+fn free_ends<P>(runs: &[Run<P>], tol: f64, blocked: &dyn Fn(Vec2) -> bool) -> Vec<[bool; 2]> {
     runs.iter()
         .enumerate()
         .map(|(i, r)| {
@@ -249,6 +317,73 @@ fn free_ends(runs: &[Run], tol: f64, blocked: &dyn Fn(Vec2) -> bool) -> Vec<[boo
             })
         })
         .collect()
+}
+
+/// The elbows the runs have, and what each gives up to them (mm at its start and at its end): the ones already there stay while the joint they are at still
+/// turns that much and the run is still the size they were drawn for; one at no joint (or that no longer fits) is dropped; a joint with none gives one to the later
+/// of its two runs; each of the two gives up the length the bend takes. `joints` are the joints where exactly two runs meet end to end that may have an elbow.
+fn plan_elbows<P: RunParams>(runs: &[Run<P>], joints: &[[(usize, bool); 2]]) -> Vec<(Option<DuctElbow>, f64, f64)> {
+    let mut next: Vec<(Option<DuctElbow>, f64, f64)> = runs.iter().map(|r| (r.params.elbow(), 0.0, 0.0)).collect();
+    // The elbows already there stay while the joint they are at still turns that much.
+    let mut holder: Vec<Option<usize>> = vec![None; joints.len()];
+    for (n, j) in joints.iter().enumerate() {
+        for (side, other) in [(0usize, 1usize), (1, 0)] {
+            let (Some(&(c, ce)), Some(&(p, pe))) = (j.get(side), j.get(other)) else { continue };
+            let (Some(child), Some(parent)) = (runs.get(c), runs.get(p)) else { continue };
+            // The elbow stays while the joint still turns that much and the run is still the size it was drawn for: a run that was made wider (or
+            // rectangular) gets its elbow drawn again at the radius of its new width.
+            if let Some(e) = child.params.elbow()
+                && e.at_end == ce
+                && (turn_deg(parent, pe, child, ce).abs() - e.angle_deg.abs()).abs() < 0.5
+                && elbow_radius(child, parent, turn_deg(parent, pe, child, ce)).is_some_and(|r| (r - e.radius_mm).abs() < 0.5)
+                && holder.get(n).is_some_and(Option::is_none)
+            {
+                holder[n] = Some(side);
+            }
+        }
+    }
+    // An elbow at no joint (or one that no longer fits) is dropped.
+    for (k, r) in runs.iter().enumerate() {
+        let kept = joints.iter().zip(&holder).any(|(j, h)| h.and_then(|s| j.get(s)).is_some_and(|(c, _)| *c == k));
+        if r.params.elbow().is_some() && !kept {
+            next[k].0 = None;
+        }
+    }
+    // The joints with no elbow yet give one to the run of the two that has none.
+    for (n, j) in joints.iter().enumerate() {
+        if holder.get(n).copied().flatten().is_some() {
+            continue;
+        }
+        for side in [1usize, 0] {
+            let Some(&(c, ce)) = j.get(side) else { continue };
+            let Some(&(p, pe)) = j.get(1 - side) else { continue };
+            let (Some(child), Some(parent), Some(slot)) = (runs.get(c), runs.get(p), next.get(c)) else { continue };
+            if slot.0.is_some() {
+                continue;
+            }
+            let turn = turn_deg(parent, pe, child, ce);
+            if !(MIN_TURN_DEG..=MAX_TURN_DEG).contains(&turn.abs()) {
+                break;
+            }
+            if let Some(radius) = elbow_radius(child, parent, turn) {
+                next[c].0 = Some(DuctElbow { angle_deg: turn, radius_mm: radius, at_end: ce });
+                holder[n] = Some(side);
+            }
+            break;
+        }
+    }
+    // Each run gives up to the elbow, at the end of the joint, the length the bend takes.
+    for (j, h) in joints.iter().zip(&holder) {
+        let Some(&(c, ce)) = h.and_then(|s| j.get(s)) else { continue };
+        let Some(&(p, pe)) = h.and_then(|s| j.get(1 - s)) else { continue };
+        let Some(t) = next.get(c).and_then(|n| n.0).map(|e| e.tangent_mm()) else { continue };
+        for (k, at_end) in [(c, ce), (p, pe)] {
+            if let Some(slot) = next.get_mut(k) {
+                if at_end { slot.2 = t } else { slot.1 = t }
+            }
+        }
+    }
+    next
 }
 
 impl crate::Drawing {
@@ -262,6 +397,59 @@ impl crate::Drawing {
         };
         now.iter().any(|e| then.get(e.handle).is_none_or(|old| !std::sync::Arc::ptr_eq(old, e)) && relevant(e))
             || then.iter().any(|e| now.get(e.handle).is_none() && relevant(e))
+    }
+
+    /// Whether a pipe of `space` was added, changed or removed since `before` (an older state of this drawing).
+    pub fn pipes_touched_since(&self, before: &crate::Drawing, space: &Space) -> bool {
+        let (Some(now), Some(then)) = (self.space(space), before.space(space)) else { return false };
+        let relevant = |e: &std::sync::Arc<crate::Entity>| matches!(e.kind, EntityKind::Insert(_)) && super::pipe_of(e).is_some();
+        now.iter().any(|e| then.get(e.handle).is_none_or(|old| !std::sync::Arc::ptr_eq(old, e)) && relevant(e))
+            || then.iter().any(|e| now.get(e.handle).is_none() && relevant(e))
+    }
+
+    /// Gives the elbows and the cones to the pipes of `space`, as it does the ducts: where two pipes of one service (and leg) meet end to end and turn, one of them
+    /// gets the elbow, a short-radius one, the two giving up what it takes; where they are of another size, a cone from the size of the other (on the pipe
+    /// that has no elbow, where there is one). A pipe that moved away loses them. The pipes of a refrigerant link (several tubes side by side) are left as they are.
+    /// Returns how many pipes were redrawn.
+    pub fn draw_pipe_elbows(&mut self, space: &Space) -> Result<usize> {
+        let tol = HvacUnits::of(self).to_units(MEET_MM);
+        let runs: Vec<Run<super::PipeParams>> = self
+            .space(space)
+            .into_iter()
+            .flat_map(|s| s.iter())
+            .filter_map(|e| self.pipe_ends(e.handle).map(|(params, a, b)| Run { handle: e.handle, params, a, b }))
+            .filter(|r| r.params.tubes().is_empty())
+            .take(super::MAX_FITTING_PIPES + 1)
+            .collect();
+        if runs.len() > super::MAX_FITTING_PIPES {
+            return Ok(0);
+        }
+        let joints: Vec<[(usize, bool); 2]> = joints(&runs, tol)
+            .into_iter()
+            .filter(|j| match (runs.get(j[0].0), runs.get(j[1].0)) {
+                (Some(a), Some(b)) => a.params.same_network(&b.params),
+                _ => false,
+            })
+            .collect();
+        let next = plan_elbows(&runs, &joints);
+        let reducers = reducers(&runs, &joints, &next, &[], tol);
+        let mut redrawn = 0;
+        for (k, (r, (elbow, trim_start, trim_end))) in runs.iter().zip(next).enumerate() {
+            let same = |a: f64, b: f64| (a - b).abs() < 1e-6;
+            let reducer = reducers.get(k).copied().flatten();
+            if r.params.elbow == elbow
+                && same(r.params.trim_start_mm, trim_start)
+                && same(r.params.trim_end_mm, trim_end)
+                && r.params.reducer == reducer
+            {
+                continue;
+            }
+            let mut p = r.params.clone();
+            (p.elbow, p.trim_start_mm, p.trim_end_mm, p.reducer) = (elbow, trim_start, trim_end, reducer);
+            self.regenerate_pipe(r.handle, &p)?;
+            redrawn += 1;
+        }
+        Ok(redrawn)
     }
 
     /// Gives the ducted units of `space` a connection where a duct (rigid or flexible) ends on one of their sides and none is there yet, as wide as the duct, on
@@ -381,66 +569,7 @@ impl crate::Drawing {
         let all_joints = joints(&runs, tol);
         let joints: Vec<[(usize, bool); 2]> =
             all_joints.iter().copied().filter(|j| j.iter().all(|(k, _)| runs.get(*k).is_some_and(|r| !r.params.flexible))).collect();
-        let mut next: Vec<(Option<DuctElbow>, f64, f64)> = runs.iter().map(|r| (r.params.elbow, 0.0, 0.0)).collect();
-        // The elbows already there stay while the joint they are at still turns that much.
-        let mut holder: Vec<Option<usize>> = vec![None; joints.len()];
-        for (n, j) in joints.iter().enumerate() {
-            for (side, other) in [(0usize, 1usize), (1, 0)] {
-                let (Some(&(c, ce)), Some(&(p, pe))) = (j.get(side), j.get(other)) else { continue };
-                let (Some(child), Some(parent)) = (runs.get(c), runs.get(p)) else { continue };
-                // The elbow stays while the joint still turns that much and the run is still the size it was drawn for: a run that was made wider (or
-                // rectangular) gets its elbow drawn again at the radius of its new width.
-                if let Some(e) = child.params.elbow
-                    && e.at_end == ce
-                    && (turn_deg(parent, pe, child, ce).abs() - e.angle_deg.abs()).abs() < 0.5
-                    && elbow_radius(child, parent, turn_deg(parent, pe, child, ce)).is_some_and(|r| (r - e.radius_mm).abs() < 0.5)
-                    && holder.get(n).is_some_and(Option::is_none)
-                {
-                    holder[n] = Some(side);
-                }
-            }
-        }
-        // An elbow at no joint (or one that no longer fits) is dropped.
-        for (k, r) in runs.iter().enumerate() {
-            let kept = joints.iter().zip(&holder).any(|(j, h)| h.and_then(|s| j.get(s)).is_some_and(|(c, _)| *c == k));
-            if r.params.elbow.is_some() && !kept {
-                next[k].0 = None;
-            }
-        }
-        // The joints with no elbow yet give one to the run of the two that has none.
-        for (n, j) in joints.iter().enumerate() {
-            if holder.get(n).copied().flatten().is_some() {
-                continue;
-            }
-            for side in [1usize, 0] {
-                let Some(&(c, ce)) = j.get(side) else { continue };
-                let Some(&(p, pe)) = j.get(1 - side) else { continue };
-                let (Some(child), Some(parent), Some(slot)) = (runs.get(c), runs.get(p), next.get(c)) else { continue };
-                if slot.0.is_some() {
-                    continue;
-                }
-                let turn = turn_deg(parent, pe, child, ce);
-                if !(MIN_TURN_DEG..=MAX_TURN_DEG).contains(&turn.abs()) {
-                    break;
-                }
-                if let Some(radius) = elbow_radius(child, parent, turn) {
-                    next[c].0 = Some(DuctElbow { angle_deg: turn, radius_mm: radius, at_end: ce });
-                    holder[n] = Some(side);
-                }
-                break;
-            }
-        }
-        // Each run gives up to the elbow, at the end of the joint, the length the bend takes.
-        for (j, h) in joints.iter().zip(&holder) {
-            let Some(&(c, ce)) = h.and_then(|s| j.get(s)) else { continue };
-            let Some(&(p, pe)) = h.and_then(|s| j.get(1 - s)) else { continue };
-            let Some(t) = next.get(c).and_then(|n| n.0).map(|e| e.tangent_mm()) else { continue };
-            for (k, at_end) in [(c, ce), (p, pe)] {
-                if let Some(slot) = next.get_mut(k) {
-                    if at_end { slot.2 = t } else { slot.1 = t }
-                }
-            }
-        }
+        let next = plan_elbows(&runs, &joints);
         let reducers = reducers(&runs, &all_joints, &next, &ports, tol);
         let steps = steps(&runs, &all_joints, &next, units.mm_per_unit);
         let mut redrawn = 0;
