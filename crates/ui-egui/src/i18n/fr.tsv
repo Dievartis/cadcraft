@@ -3384,3 +3384,11 @@ echo	Current settings: Name = {a}, Circuit = {b}, Direction = {c}	Paramètres ac
 	Goes down (a drain)	Descend (une évacuation)
 	Auto (goes up)	Auto (monte)
 	Auto (goes down)	Auto (descend)
+	Coils (optional)	Batteries (facultatif)
+	Electric coil (kW)	Batterie électrique (kW)
+	Electric coil phases	Phases de la batterie électrique
+	Single phase	Monophasé
+	Three phase	Triphasé
+	Air inlets (sizes, mm)	Entrées d'air (tailles, mm)
+	Air outlets (sizes, mm)	Sorties d'air (tailles, mm)
+	Connections (text on the plan)	Raccords (texte écrit sur le plan)

@@ -20,14 +20,14 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(
                 "{at, kind? (chiller|vrfOutdoor|splitOutdoor|cassette|ducted|wallUnit|ceilingUnit|floorUnit), model? (a library model's name) | capacity? (kW: the \\
                  smallest model that gives it), name?, reference?, capacityKw?, heatingKw?, length? width? height? (mm), weight? (kg), fans?, clearance? (mm), \\
-                 connections?, rotation? (degrees), labelHeight? (mm)} → {handle, name, model} | {list: true, kind?} → {models} | \
+                 connections?, inlets? / outlets? (a ducted unit: the sizes of its duct connections), rotation? (degrees), labelHeight? (mm)} → {handle, name, model} | {list: true, kind?} → {models} | \
                  {space (a space's handle) + count? | rows? + cols?, + the same as above, for an indoor unit}: the units are spread evenly in the space (a grid of the \
                  outline's extents, the cells outside it left empty) → {handles, model}",
             )
             .interactive(|s| Ok(Box::new(EquipAddM::new(s)))),
         CommandSpec::new("equipmentedit", "Edit Equipment", run_edit).params(
             "{handle | handles, model? (take that library model's values), kind?, name?, reference?, capacityKw? or null, heatingKw? or null, electricKw? (the electrical power it draws, or null), circuit? (the circuit that feeds it), address? (its address, written beside it), length? width? height? (mm), \\
-             weight? or null, fans?, clearance? (mm), connections?} → {changed}",
+             weight? or null, fans?, clearance? (mm), connections? (text written beside it), inlets? / outlets? (a ducted unit: the sizes of the duct connections the air comes in by, on the left, and goes out by, on the right: a list or text, \"315, 400x250\"; spread along the side; a duct that ends on a side gives the unit its connection, as wide as the duct, by itself)} → {changed}",
         ),
     ]
 }
@@ -145,8 +145,42 @@ fn params_from(s: &Session, p: &Value, cmd: &str, last: &EquipmentLastUsed) -> R
     if let Some(v) = number(cmd, p, "labelHeight")? {
         e.label_height_mm = v;
     }
+    apply_air_ports(cmd, p, &mut e)?;
     e.validate().map_err(doc_err)?;
     Ok(e)
+}
+
+/// The sizes of a list of duct connections from a call: a list, or text "315, 400x250" (a diameter or width x height, in mm).
+fn sizes_param(cmd: &str, key: &str, v: &Value) -> Result<Vec<cadcraft_doc::RiserSize>> {
+    let items: Vec<Value> = match v {
+        Value::Array(a) => a.clone(),
+        Value::String(t) => t.split([',', ';']).map(str::trim).filter(|x| !x.is_empty()).map(|x| Value::String(x.to_string())).collect(),
+        Value::Null => Vec::new(),
+        _ => return Err(bad(cmd, format!("`{key}` is a list of sizes"))),
+    };
+    if items.len() > cadcraft_doc::MAX_AIR_PORTS {
+        return Err(bad(cmd, format!("a unit has at most {} duct connections", cadcraft_doc::MAX_AIR_PORTS)));
+    }
+    items
+        .iter()
+        .map(|i| super::riser::size_value(cmd, i)?.ok_or_else(|| bad(cmd, format!("`{key}` needs a size for each connection: 315 or 400x250"))))
+        .collect()
+}
+
+/// `inlets` (the connections the air comes in by, on the left of a ducted unit) and `outlets` (the ones it goes out by, on the right): the sizes, one for
+/// each connection; the connections are spread along their side.
+fn apply_air_ports(cmd: &str, p: &Value, e: &mut EquipmentParams) -> Result<()> {
+    let (inlets, outlets) = (p.get("inlets"), p.get("outlets"));
+    if inlets.is_none() && outlets.is_none() {
+        return Ok(());
+    }
+    if e.kind != EquipmentKind::Ducted {
+        return Err(bad(cmd, "`inlets` and `outlets` are for a ducted unit"));
+    }
+    let ins = inlets.map(|v| sizes_param(cmd, "inlets", v)).transpose()?.unwrap_or_else(|| e.air_sizes(true));
+    let outs = outlets.map(|v| sizes_param(cmd, "outlets", v)).transpose()?.unwrap_or_else(|| e.air_sizes(false));
+    e.set_air_ports(&ins, &outs);
+    Ok(())
 }
 
 fn models_json(kind: Option<EquipmentKind>) -> Vec<Value> {
@@ -279,6 +313,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         if let Some(v) = clearance {
             e.clearance_mm = v;
         }
+        apply_air_ports(CMD, p, &mut e)?;
         e.validate().map_err(doc_err)?;
         next.push((*h, e));
     }

@@ -173,7 +173,7 @@ impl AhuKind {
         match self {
             AhuKind::DoubleFlow | AhuKind::StackedDoubleFlow => &["Left top", "Left bottom", "Right top", "Right bottom"],
             AhuKind::SupplyUnit | AhuKind::ExtractUnit => &["Left", "Right"],
-            AhuKind::VmcBox => &["Left", "Right", "Top left", "Top right"],
+            AhuKind::VmcBox => &["Left", "Right"],
         }
     }
 
@@ -185,8 +185,8 @@ impl AhuKind {
             AhuKind::DoubleFlow => vec![Fresh, Exhaust, Supply, Extract],
             AhuKind::SupplyUnit => vec![Fresh, Supply],
             AhuKind::ExtractUnit => vec![Extract, Exhaust],
-            // A VMC box only extracts and exhausts: air comes in by an extract collar and goes out by an exhaust one.
-            AhuKind::VmcBox => vec![Extract, Exhaust, Extract, Exhaust],
+            // A VMC box only extracts and exhausts, by one collar each: the air comes in by the extract one and goes out by the exhaust one.
+            AhuKind::VmcBox => vec![Extract, Exhaust],
             AhuKind::StackedDoubleFlow => vec![Exhaust, Fresh, Extract, Supply],
         }
     }
@@ -212,12 +212,16 @@ pub struct AhuCoils {
     pub hot_kw: Option<f64>,
     pub change_over_kw: Option<f64>,
     pub direct_expansion_kw: Option<f64>,
+    /// An electric coil (batterie électrique), kW: an electrical load of the unit, on its circuit.
+    pub electric_kw: Option<f64>,
+    /// Whether the electric coil is single-phase (it is three-phase unless this is set).
+    pub electric_single_phase: bool,
 }
 
 impl AhuCoils {
     pub fn validate(&self) -> Result<()> {
         let ok = |v: Option<f64>| v.is_none_or(|v| v.is_finite() && v > 0.0 && v <= 1.0e5);
-        if ok(self.chilled_kw) && ok(self.hot_kw) && ok(self.change_over_kw) && ok(self.direct_expansion_kw) {
+        if ok(self.chilled_kw) && ok(self.hot_kw) && ok(self.change_over_kw) && ok(self.direct_expansion_kw) && ok(self.electric_kw) {
             Ok(())
         } else {
             Err(invalid("A coil's power is more than 0 and at most 100 000 kW."))
@@ -308,6 +312,14 @@ pub struct AhuParams {
 }
 
 impl AhuParams {
+    /// The electrical power of the unit, kW: what was typed for it and its electric coil.
+    pub fn electric_total_kw(&self) -> Option<f64> {
+        match (self.electric_kw, self.coils.electric_kw) {
+            (None, None) => None,
+            (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
+        }
+    }
+
     /// The direction of the air at each connection: the ones set, else the kind's.
     pub fn roles(&self) -> Vec<AirDirection> {
         if self.ports.len() == self.kind.default_ports().len() { self.ports.clone() } else { self.kind.default_ports() }
@@ -319,7 +331,7 @@ impl AhuParams {
         let half = self.half();
         let (hx, hy) = (half.x, half.y);
         let stick = 0.13 * hy.min(hx);
-        let (l, r, t) = (Vec2::new(-1.0, 0.0), Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0));
+        let (l, r) = (Vec2::new(-1.0, 0.0), Vec2::new(1.0, 0.0));
         match self.kind {
             AhuKind::DoubleFlow => vec![
                 (Vec2::new(-hx - stick, 0.5 * hy), l),
@@ -337,14 +349,7 @@ impl AhuParams {
                     (Vec2::new(hx + stick, 0.0), r),
                 ]
             }
-            AhuKind::VmcBox => {
-                vec![
-                    (Vec2::new(-hx - stick, 0.0), l),
-                    (Vec2::new(hx + stick, 0.0), r),
-                    (Vec2::new(-0.5 * hx, hy + stick), t),
-                    (Vec2::new(0.5 * hx, hy + stick), t),
-                ]
-            }
+            AhuKind::VmcBox => vec![(Vec2::new(-hx - stick, 0.0), l), (Vec2::new(hx + stick, 0.0), r)],
         }
     }
 
@@ -537,6 +542,7 @@ impl AhuParams {
             ("Batt. eau chaude", self.coils.hot_kw),
             ("Batt. change-over", self.coils.change_over_kw),
             ("Batt. détente directe", self.coils.direct_expansion_kw),
+            (if self.coils.electric_single_phase { "Batt. électrique mono" } else { "Batt. électrique tri" }, self.coils.electric_kw),
         ] {
             if let Some(k) = kw {
                 v.push(format!("{label} {k:.1}kW"));
@@ -628,10 +634,6 @@ impl AhuParams {
                 v.extend(fan(Vec2::ZERO, 0.38 * hy.min(hx)));
                 for right in [false, true] {
                     v.push(side_collar(right, 0.0, 0.28 * hy));
-                }
-                // Two spigots on top, as such a box has: the air out and the air in.
-                for x in [-0.5 * hx, 0.5 * hx] {
-                    v.push(rect(x, hy + stick / 2.0, 0.2 * hy.min(hx), stick / 2.0));
                 }
             }
         }

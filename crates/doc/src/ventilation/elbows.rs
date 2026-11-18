@@ -14,7 +14,10 @@ use cadcraft_geom::Vec2;
 
 use super::duct::LEVEL_STEP_MIN_MM;
 use super::network::{MAX_DUCTS, STEP_CLEARANCE_MM};
-use super::{AirDirection, DuctElbow, DuctParams, DuctReducer, DuctStep, HvacUnits, ahu_of, air_terminal_of, duct_of, riser_of};
+use super::{
+    AirDirection, AirPort, DuctElbow, DuctParams, DuctReducer, DuctShape, DuctStep, EquipmentKind, HvacUnits, RiserSize, ahu_of, air_terminal_of,
+    duct_of, equipment_of, riser_of,
+};
 use crate::{EntityKind, Handle, Result, Space};
 
 /// Distance, mm, within which two ends are one point.
@@ -225,6 +228,12 @@ fn reducers(
             }
         }
     }
+    // A flexible duct takes no cone: it follows the collar as it is.
+    for (r, slot) in runs.iter().zip(out.iter_mut()) {
+        if r.params.flexible {
+            *slot = None;
+        }
+    }
     out
 }
 
@@ -247,14 +256,72 @@ impl crate::Drawing {
     pub fn ducts_touched_since(&self, before: &crate::Drawing, space: &Space) -> bool {
         let (Some(now), Some(then)) = (self.space(space), before.space(space)) else { return false };
         // (a unit's collar sizes count: a run that starts on one takes the cone from it)
-        let relevant = |e: &std::sync::Arc<crate::Entity>| matches!(e.kind, EntityKind::Insert(_)) && (duct_of(e).is_some() || ahu_of(e).is_some());
+        let relevant = |e: &std::sync::Arc<crate::Entity>| {
+            matches!(e.kind, EntityKind::Insert(_))
+                && (duct_of(e).is_some() || ahu_of(e).is_some() || equipment_of(e).is_some_and(|q| q.kind == EquipmentKind::Ducted))
+        };
         now.iter().any(|e| then.get(e.handle).is_none_or(|old| !std::sync::Arc::ptr_eq(old, e)) && relevant(e))
             || then.iter().any(|e| now.get(e.handle).is_none() && relevant(e))
+    }
+
+    /// Gives the ducted units of `space` a connection where a duct (rigid or flexible) ends on one of their sides and none is there yet, as wide as the duct, on
+    /// the left side for the return (the air comes in) and the right side for the supply; returns how many units were redrawn.
+    pub fn draw_equipment_ports(&mut self, space: &Space) -> Result<usize> {
+        let units = HvacUnits::of(self);
+        let tol = units.to_units(3.0 * MEET_MM);
+        let ends: Vec<(Vec2, DuctParams)> = self
+            .space(space)
+            .into_iter()
+            .flat_map(|s| s.iter())
+            .filter_map(|e| self.duct_ends(e.handle))
+            .take(MAX_DUCTS)
+            .flat_map(|(p, a, b)| [(a, p.clone()), (b, p)])
+            .collect();
+        let mut updates = Vec::new();
+        for e in self.space(space).into_iter().flat_map(|s| s.iter()) {
+            let (EntityKind::Insert(i), Some(mut q)) = (&e.kind, equipment_of(e)) else { continue };
+            if q.kind != EquipmentKind::Ducted {
+                continue;
+            }
+            let (hl, hw) = (units.to_units(q.length_mm) / 2.0, units.to_units(q.width_mm) / 2.0);
+            let depth = 0.12 * hl.min(hw) * 2.0;
+            let mut changed = false;
+            for (end, params) in &ends {
+                let Some(at) = super::slab::world_to_block(i, *end) else { continue };
+                if !(at.x.abs() >= hl - tol && at.x.abs() <= hl + depth + tol && at.y.abs() <= hw + tol) || q.air_ports.len() >= super::MAX_AIR_PORTS
+                {
+                    continue;
+                }
+                let inlet = at.x < 0.0;
+                let taken = q
+                    .air_ports
+                    .iter()
+                    .any(|p| p.inlet == inlet && (units.to_units(p.y_mm) - at.y).abs() <= units.to_units(p.size.width_mm()) / 2.0 + tol);
+                if !taken {
+                    let size = match params.shape {
+                        DuctShape::Round => RiserSize::Round { diameter_mm: params.diameter_mm },
+                        DuctShape::Rectangular => RiserSize::Rectangular { width_mm: params.width_mm, height_mm: params.height_mm },
+                    };
+                    q.air_ports.push(AirPort { inlet, size, y_mm: at.y * units.mm_per_unit });
+                    changed = true;
+                }
+            }
+            if changed {
+                updates.push((e.handle, q));
+            }
+        }
+        let n = updates.len();
+        for (h, q) in updates {
+            self.regenerate_equipment(h, &q)?;
+        }
+        Ok(n)
     }
 
     /// Gives the elbows to the runs of `space` that turn where they meet, and takes them from those that no longer do; returns how many runs were redrawn.
     pub fn draw_duct_elbows(&mut self, space: &Space) -> Result<usize> {
         let units = HvacUnits::of(self);
+        // The connections of the ducted units come first: the cones from their sizes follow.
+        let grown = self.draw_equipment_ports(space)?;
         let tol = units.to_units(MEET_MM);
         let runs: Vec<Run> = self
             .space(space)
@@ -292,6 +359,15 @@ impl crate::Drawing {
                     Some(q) => q.sizes.push((role, size.width_mm())),
                     None => ports.push(Port { at, sizes: vec![(role, size.width_mm())] }),
                 }
+            }
+        }
+        // The connections of the ducted units: the return (air in) and the supply (air out), each as wide as it was given.
+        for e in self.space(space).into_iter().flat_map(|s| s.iter()) {
+            let (EntityKind::Insert(i), Some(q)) = (&e.kind, equipment_of(e)) else { continue };
+            for (tip, inlet, size) in q.air_port_tips() {
+                let Some(size) = size else { continue };
+                let (at, role) = (super::slab::block_to_world(i, tip), if inlet { AirDirection::Extract } else { AirDirection::Supply });
+                ports.push(Port { at, sizes: vec![(role, size.width_mm())] });
             }
         }
         let blocked = |p: Vec2| {
@@ -390,6 +466,6 @@ impl crate::Drawing {
             self.regenerate_duct(r.handle, &p)?;
             redrawn += 1;
         }
-        Ok(redrawn)
+        Ok(redrawn + grown)
     }
 }

@@ -870,9 +870,8 @@ fn circles(p: &[HvacPiece]) -> usize {
 #[test]
 fn each_kind_of_unit_is_drawn_with_its_own_parts_and_collars() {
     // Casing and inner panel, then the collars: two on each short side of a double-flux unit, one
-    // at each end of a single-flux one, two sides and two spigots on a ventilation box.
-    let expect =
-        [(AhuKind::DoubleFlow, 2 + 4, 2), (AhuKind::SupplyUnit, 2 + 2, 1), (AhuKind::ExtractUnit, 2 + 2, 1), (AhuKind::VmcBox, 2 + 2 + 2, 1)];
+    // at each end of a single-flux one and of a ventilation box.
+    let expect = [(AhuKind::DoubleFlow, 2 + 4, 2), (AhuKind::SupplyUnit, 2 + 2, 1), (AhuKind::ExtractUnit, 2 + 2, 1), (AhuKind::VmcBox, 2 + 2, 1)];
     for (kind, polylines, fans) in expect {
         let pieces = unit_of(kind).generate().unwrap();
         assert_eq!((polys(&pieces), circles(&pieces)), (polylines, fans), "{kind:?}");
@@ -1294,7 +1293,8 @@ fn a_stub_past_a_tee_leads_nowhere_but_takes_the_direction_of_the_network_it_han
 fn a_vmc_box_only_extracts_and_exhausts() {
     let roles = AhuParams { kind: AhuKind::VmcBox, ..ahu() }.roles();
     assert!(roles.iter().all(|r| matches!(r, AirDirection::Extract | AirDirection::Exhaust)), "{roles:?}");
-    assert!(roles.contains(&AirDirection::Extract) && roles.contains(&AirDirection::Exhaust));
+    assert_eq!(roles, vec![AirDirection::Extract, AirDirection::Exhaust], "one extraction and one exhaust, not two of each");
+    assert_eq!(AhuParams { kind: AhuKind::VmcBox, ..ahu() }.port_tips().len(), 2);
 }
 
 #[test]
@@ -2282,4 +2282,45 @@ fn two_runs_at_other_altitudes_get_the_step_between_them_as_soon_as_they_are_lai
     let c = add_duct(&mut d, (8000.0, 0.0), (8200.0, 0.0));
     set_level(&mut d, c, Some(3500.0));
     assert!(steps(&d, c).is_empty(), "200 mm of run for a 990 mm step");
+}
+
+#[test]
+fn an_electric_coil_is_a_load_of_the_circuit_of_the_unit_with_its_phases_checked() {
+    let mut d = Drawing::new_metric();
+    let mut unit = ahu();
+    unit.circuit = "TD1-V1".into();
+    unit.electric_kw = Some(2.0);
+    unit.coils = AhuCoils { electric_kw: Some(18.0), electric_single_phase: false, ..AhuCoils::default() };
+    assert_eq!(unit.electric_total_kw(), Some(20.0), "the fans and the coil");
+    assert!(AhuParams { coils: AhuCoils { electric_kw: Some(-1.0), ..unit.coils }, ..unit.clone() }.validate().is_err());
+    d.add_ahu(&Space::Model, Common::default(), &unit, Vec2::ZERO, 0.0).unwrap();
+    // A single-phase cable on its circuit: the load adds up, and the three-phase coil is told.
+    let cable = CableParams::new("TD1-V1", CableUsage::Power, HvacUnits { mm_per_unit: 1.0 });
+    d.add_cable(&Space::Model, Common::default(), cable, Vec2::ZERO, Vec2::new(5000.0, 0.0)).unwrap();
+    let c = &d.circuit_reports(&CircuitOptions::default())[0];
+    assert_eq!(c.power_w, 20_000.0);
+    assert!(c.warnings.iter().any(|w| w.contains("three-phase electric coil") && w.contains("single-phase circuit")), "{:?}", c.warnings);
+    assert!(unit.spec_lines().iter().any(|l| l.contains("électrique tri 18.0kW")), "{:?}", unit.spec_lines());
+}
+
+#[test]
+fn a_duct_that_ends_on_the_side_of_a_ducted_unit_gives_it_a_connection_and_a_cone_from_its_size() {
+    let mut d = Drawing::new_metric();
+    let model = standard_equipment_models().into_iter().find(|m| m.kind == EquipmentKind::Ducted).unwrap();
+    let p = EquipmentParams::from_model(&model, "UI1", HvacUnits { mm_per_unit: 1.0 });
+    let h = d.add_equipment(&Space::Model, Common::default(), &p, Vec2::ZERO, 0.0).unwrap();
+    let right = p.length_mm / 2.0;
+    let ports = |d: &Drawing| equipment_of(d.entity(h).unwrap()).unwrap().air_ports;
+    // A flexible Ø200 ends on the right side, a rigid Ø315 on the left: a connection each, on its own side.
+    let mut flex = DuctParams { flexible: true, ..duct(200.0) };
+    flex.air = AirDirection::Supply;
+    d.add_duct(&Space::Model, Common::default(), flex, Vec2::new(right + 2000.0, 100.0), Vec2::new(right + 60.0, 100.0)).unwrap();
+    d.add_duct(&Space::Model, Common::default(), duct(315.0), Vec2::new(-right - 2000.0, -150.0), Vec2::new(-right - 60.0, -150.0)).unwrap();
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    let got = ports(&d);
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert!(got.iter().any(|g| !g.inlet && g.size == RiserSize::Round { diameter_mm: 200.0 } && (g.y_mm - 100.0).abs() < 1.0));
+    assert!(got.iter().any(|g| g.inlet && g.size == RiserSize::Round { diameter_mm: 315.0 } && (g.y_mm + 150.0).abs() < 1.0));
+    // Once is enough: nothing more to draw.
+    assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
 }

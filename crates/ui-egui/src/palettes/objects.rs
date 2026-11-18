@@ -1428,7 +1428,9 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
         ("Fans", "fans", |e| Some(f64::from(e.fans)), false),
         ("Service clearance (mm)", "clearance", |e| Some(e.clearance_mm), false),
     ];
-    for (label, key, get, clearable) in numbers {
+    // The fans are drawn on the units that stand outdoors only: no row for the others.
+    let any_outdoor = items.iter().any(|e| e.kind.is_outdoor());
+    for (label, key, get, clearable) in numbers.into_iter().filter(|n| n.1 != "fans" || any_outdoor) {
         let v = shared(&items.iter().map(|e| get(e).map_or(String::new(), |f| format!("{f}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
         prop_row(ui, label, |ui| {
             if let Some(t) = edit_field(ui, ui.scope_id().with(("equip_num", key, &ids)), v).filter(|t| t != VARIES) {
@@ -1440,12 +1442,30 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
             }
         });
     }
-    prop_row(ui, "Connections", |ui| {
-        let c = shared(&items.iter().map(|e| e.connections.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
-        if let Some(t) = edit_field(ui, ui.scope_id().with(("equip_conn", &ids)), c).filter(|t| t != VARIES) {
-            action = edit("connections", json!(t));
+    // A ducted unit: the duct connections, each with its size, on the side the air comes in by (left) or goes out by (right). Typed as a list of sizes: one
+    // for each connection ("315, 400x250" is two). A duct laid on a side gives the unit its connection by itself.
+    if items.iter().all(|e| e.kind == EquipmentKind::Ducted) {
+        let size_text = |sizes: Vec<cadcraft_doc::RiserSize>| -> String {
+            sizes.iter().map(|z| z.label().replace('Ø', "").replace('×', "x")).collect::<Vec<_>>().join(", ")
+        };
+        for (label, key, inlet) in [("Air inlets (sizes, mm)", "inlets", true), ("Air outlets (sizes, mm)", "outlets", false)] {
+            let v = shared(&items.iter().map(|e| size_text(e.air_sizes(inlet))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+            prop_row(ui, label, |ui| {
+                if let Some(t) = edit_field(ui, ui.scope_id().with(("equip_air", key, &ids)), v).filter(|t| t != VARIES) {
+                    action = edit(key, json!(t.trim()));
+                }
+            });
         }
-    });
+    }
+    // The connections of the other equipment: a text written beside it on the plan (a pipe size, say).
+    if items.iter().all(|e| e.kind != EquipmentKind::Ducted) {
+        prop_row(ui, "Connections (text on the plan)", |ui| {
+            let c = shared(&items.iter().map(|e| e.connections.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+            if let Some(t) = edit_field(ui, ui.scope_id().with(("equip_conn", &ids)), c).filter(|t| t != VARIES) {
+                action = edit("connections", json!(t));
+            }
+        });
+    }
     action
 }
 
@@ -1713,23 +1733,43 @@ fn ahu_section(ui: &mut egui::Ui, sel: &[Handle], units: &[AhuParams], bad: &mut
             action = edit("model", json!(m));
         }
     });
-    // The coils: each power (kW) is the load of the water pipes that end at the unit; empty: no such coil.
-    for (label, key, get) in [
-        ("Chilled water coil (kW)", "chilledWater", (|u: &AhuParams| u.coils.chilled_kw) as fn(&AhuParams) -> Option<f64>),
-        ("Hot water coil (kW)", "hotWater", |u| u.coils.hot_kw),
-        ("Change-over coil (kW)", "changeOver", |u| u.coils.change_over_kw),
-        ("Direct expansion coil (kW)", "directExpansion", |u| u.coils.direct_expansion_kw),
-    ] {
-        let v = shared(&units.iter().map(|u| get(u).map_or(String::new(), |f| format!("{f}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
-        prop_row(ui, label, |ui| {
-            if let Some(t) = edit_field(ui, ui.scope_id().with(("ahu_coil", key, &ids)), v).filter(|t| t != VARIES) {
-                let value = if t.trim().is_empty() { Some(Value::Null) } else { number(Some(t), bad).map(|n| json!(n)) };
-                if let Some(value) = value {
-                    action = Some(("ahuedit", json!({ "handles": ids, "coils": { key: value } })));
-                }
+    // The coils are optional: folded away unless the unit has one. Each power (kW) is the load of the water pipes that end at the unit (an electric coil:
+    // a load of its circuit); empty: no such coil.
+    let has_a_coil = units.iter().any(|u| {
+        let c = &u.coils;
+        c.chilled_kw.is_some() || c.hot_kw.is_some() || c.change_over_kw.is_some() || c.direct_expansion_kw.is_some() || c.electric_kw.is_some()
+    });
+    egui::CollapsingHeader::new(crate::i18n::t("Coils (optional)")).id_salt(ui.scope_id().with(("ahu_coils", &ids))).default_open(has_a_coil).show(
+        ui,
+        |ui| {
+            for (label, key, get) in [
+                ("Chilled water coil (kW)", "chilledWater", (|u: &AhuParams| u.coils.chilled_kw) as fn(&AhuParams) -> Option<f64>),
+                ("Hot water coil (kW)", "hotWater", |u| u.coils.hot_kw),
+                ("Change-over coil (kW)", "changeOver", |u| u.coils.change_over_kw),
+                ("Direct expansion coil (kW)", "directExpansion", |u| u.coils.direct_expansion_kw),
+                ("Electric coil (kW)", "electric", |u| u.coils.electric_kw),
+            ] {
+                let v = shared(&units.iter().map(|u| get(u).map_or(String::new(), |f| format!("{f}"))).collect::<Vec<_>>())
+                    .unwrap_or_else(|| VARIES.into());
+                prop_row(ui, label, |ui| {
+                    if let Some(t) = edit_field(ui, ui.scope_id().with(("ahu_coil", key, &ids)), v).filter(|t| t != VARIES) {
+                        let value = if t.trim().is_empty() { Some(Value::Null) } else { number(Some(t), bad).map(|n| json!(n)) };
+                        if let Some(value) = value {
+                            action = Some(("ahuedit", json!({ "handles": ids, "coils": { key: value } })));
+                        }
+                    }
+                });
             }
-        });
-    }
+            // An electric coil is single-phase or three-phase: the circuit that feeds it is checked against it.
+            let phases = shared(&units.iter().map(|u| u.coils.electric_single_phase).collect::<Vec<_>>());
+            prop_row(ui, "Electric coil phases", |ui| {
+                let shown = phases.map_or(VARIES, |single| if single { "Single phase" } else { "Three phase" });
+                if let Some(p) = choice(ui, shown, &[("single", "Single phase"), ("three", "Three phase")]) {
+                    action = Some(("ahuedit", json!({ "handles": ids, "coils": { "electricPhases": p } })));
+                }
+            });
+        },
+    );
     if let [u] = units {
         // The flow of each direction the unit has: typed here it is kept by sizing (empty gives it back); the pressure is read-only.
         let roles = u.roles();

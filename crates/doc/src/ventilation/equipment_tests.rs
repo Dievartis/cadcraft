@@ -124,3 +124,30 @@ fn an_equipment_keeps_its_data_and_each_value_can_be_changed() {
     assert!(bad(&|q| q.clearance_mm = f64::NAN));
     assert!(bad(&|q| q.name = String::new()));
 }
+
+fn ducted(d: &mut Drawing) -> (crate::Handle, EquipmentParams) {
+    let model = standard_equipment_models().into_iter().find(|m| m.kind == EquipmentKind::Ducted).unwrap();
+    let p = EquipmentParams::from_model(&model, "UI1", HvacUnits { mm_per_unit: 1.0 });
+    (d.add_equipment(&Space::Model, Common::default(), &p, Vec2::ZERO, 0.0).unwrap(), p)
+}
+
+#[test]
+fn a_ducted_unit_has_the_connections_it_was_given_on_the_right_sides_at_the_right_size() {
+    let (mut p, collars) = (ducted(&mut Drawing::new_metric()).1, |p: &EquipmentParams| {
+        p.generate().unwrap().iter().filter(|x| matches!(&x.kind, EntityKind::LwPolyline(l) if l.closed && l.vertices.len() == 4)).count()
+    });
+    // None given: the casing and one collar at each end, as before.
+    assert_eq!((p.air_ports.len(), collars(&p)), (0, 3));
+    // Two returns (Ø250 and 400x250) on the left, three Ø160 supplies on the right.
+    let round = |d: f64| RiserSize::Round { diameter_mm: d };
+    p.set_air_ports(&[round(250.0), RiserSize::Rectangular { width_mm: 400.0, height_mm: 250.0 }], &[round(160.0); 3]);
+    assert_eq!((p.air_sizes(true).len(), p.air_sizes(false).len(), collars(&p)), (2, 3, 1 + 5));
+    // They are spread along each side, the left ones with their tips at the left.
+    let tips = p.air_port_tips();
+    assert!(tips.iter().filter(|t| t.1).all(|t| t.0.x < 0.0) && tips.iter().filter(|t| !t.1).all(|t| t.0.x > 0.0));
+    let ys: Vec<f64> = tips.iter().filter(|t| !t.1).map(|t| t.0.y).collect();
+    assert!(ys.windows(2).all(|w| w[1] > w[0]), "{ys:?}");
+    assert!(AirPort { inlet: true, size: round(5.0), y_mm: 0.0 }.size.validate().is_err());
+    p.air_ports = vec![AirPort { inlet: true, size: round(200.0), y_mm: 0.0 }; MAX_AIR_PORTS + 1];
+    assert!(p.validate().is_err(), "too many");
+}

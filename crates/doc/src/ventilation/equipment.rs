@@ -127,6 +127,22 @@ pub struct EquipmentModel {
     pub connections: String,
 }
 
+/// One duct connection of a ducted unit: on its left side the air comes in (the return), on its right side it goes out (the supply); its size and where it is
+/// along that side.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AirPort {
+    /// Whether the air comes into the unit by it (the left side) or goes out (the right side).
+    pub inlet: bool,
+    /// A round diameter or a rectangle: the opening, drawn as wide as the duct's width in plan.
+    pub size: super::RiserSize,
+    /// Where its centre is along the side, mm from the middle of the unit (across its width).
+    pub y_mm: f64,
+}
+
+/// Most duct connections a unit has.
+pub const MAX_AIR_PORTS: usize = 16;
+
 /// An equipment: what its block reference keeps to regenerate it. It is centred on the block's origin.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -155,6 +171,9 @@ pub struct EquipmentParams {
     pub clearance_mm: f64,
     #[serde(default)]
     pub connections: String,
+    /// The duct connections of a ducted unit, each with its size and its side (empty: one of each, as the kind draws them).
+    #[serde(default)]
+    pub air_ports: Vec<AirPort>,
     /// The electrical power the equipment draws, kW, and the circuit that feeds it (see [`super::elec`]).
     #[serde(default)]
     pub electric_kw: Option<f64>,
@@ -192,6 +211,7 @@ impl EquipmentParams {
             fans: m.fans,
             clearance_mm: m.kind.default_clearance_mm(),
             connections: m.connections.clone(),
+            air_ports: Vec::new(),
             electric_kw: None,
             circuit: String::new(),
             address: String::new(),
@@ -227,12 +247,56 @@ impl EquipmentParams {
         if !(self.clearance_mm.is_finite() && (0.0..=10_000.0).contains(&self.clearance_mm)) {
             return Err(invalid("The service clearance is 0 to 10 000 mm."));
         }
+        if self.air_ports.len() > MAX_AIR_PORTS {
+            return Err(invalid(format!("A unit has at most {MAX_AIR_PORTS} duct connections.")));
+        }
+        for p in &self.air_ports {
+            p.size.validate()?;
+            if !(p.y_mm.is_finite() && p.y_mm.abs() <= MAX_EQUIPMENT_MM) {
+                return Err(invalid("A duct connection is on the unit's side."));
+            }
+        }
         if !(text_ok(&self.model) && text_ok(&self.reference) && text_ok(&self.connections)) {
             return Err(invalid(format!(
                 "The model, reference and connections have at most {MAX_TEXT_CHARS} characters, without control characters."
             )));
         }
         Ok(())
+    }
+
+    /// The sizes of the connections on one side: the ones the air comes in by (`inlet`, the left side) or goes out by.
+    pub fn air_sizes(&self, inlet: bool) -> Vec<super::RiserSize> {
+        self.air_ports.iter().filter(|p| p.inlet == inlet).map(|p| p.size).collect()
+    }
+
+    /// Gives the unit these connections, spread evenly along each side (the width of the unit across).
+    pub fn set_air_ports(&mut self, inlets: &[super::RiserSize], outlets: &[super::RiserSize]) {
+        let across = self.width_mm;
+        let side = |sizes: &[super::RiserSize], inlet: bool| {
+            let n = sizes.len();
+            sizes
+                .iter()
+                .enumerate()
+                .map(move |(i, size)| AirPort { inlet, size: *size, y_mm: -across / 2.0 + (i as f64 + 0.5) * across / n.max(1) as f64 })
+                .collect::<Vec<_>>()
+        };
+        self.air_ports = [side(inlets, true), side(outlets, false)].concat();
+    }
+
+    /// How far a connection stands out of the side of the unit, drawing units.
+    fn collar_depth(&self) -> f64 {
+        let (hl, hw) = (self.units.to_units(self.length_mm) / 2.0, self.units.to_units(self.width_mm) / 2.0);
+        0.12 * hl.min(hw) * 2.0
+    }
+
+    /// Where each duct connection ends, in the block's coordinates, whether the air comes in by it, and its size: the end of the collar a duct starts on.
+    /// A unit with none given has one of each, as the kind draws them (unsized).
+    pub fn air_port_tips(&self) -> Vec<(Vec2, bool, Option<super::RiserSize>)> {
+        let (hl, depth) = (self.units.to_units(self.length_mm) / 2.0, self.collar_depth());
+        self.air_ports
+            .iter()
+            .map(|p| (Vec2::new(if p.inlet { -hl - depth } else { hl + depth }, self.units.to_units(p.y_mm)), p.inlet, Some(p.size)))
+            .collect()
     }
 
     /// The spec lines written beside the equipment: the reference, "Dim. LxPxH" (length x width x
@@ -308,10 +372,18 @@ impl EquipmentParams {
                 pieces.push(line(Vec2::new(-0.5 * pl, 0.5 * pw), Vec2::new(0.5 * pl, -0.5 * pw)));
             }
             EquipmentKind::Ducted => {
-                // A supply collar at one end, a wider return collar at the other, an arrow along the air.
-                let depth = 0.12 * hl.min(hw) * 2.0;
-                pieces.push(polyline(EQUIPMENT_LAYER, rect_points_at(hl + depth / 2.0, 0.0, depth / 2.0, 0.55 * hw), true));
-                pieces.push(polyline(EQUIPMENT_LAYER, rect_points_at(-hl - depth / 2.0, 0.0, depth / 2.0, 0.7 * hw), true));
+                // The connections: the ones given, each as wide as its duct and on its own side (the air comes in on the left and goes out on the right); else
+                // a supply collar at one end and a wider return collar at the other. An arrow along the air.
+                let depth = self.collar_depth();
+                if self.air_ports.is_empty() {
+                    pieces.push(polyline(EQUIPMENT_LAYER, rect_points_at(hl + depth / 2.0, 0.0, depth / 2.0, 0.55 * hw), true));
+                    pieces.push(polyline(EQUIPMENT_LAYER, rect_points_at(-hl - depth / 2.0, 0.0, depth / 2.0, 0.7 * hw), true));
+                }
+                for p in &self.air_ports {
+                    let half = (u(p.size.width_mm()) / 2.0).min(hw);
+                    let cx = if p.inlet { -hl - depth / 2.0 } else { hl + depth / 2.0 };
+                    pieces.push(polyline(EQUIPMENT_LAYER, rect_points_at(cx, u(p.y_mm), depth / 2.0, half), true));
+                }
                 let (from, to) = (Vec2::new(-0.5 * hl, 0.0), Vec2::new(0.5 * hl, 0.0));
                 pieces.extend([line(from, to), line(to, to + Vec2::new(-0.12 * hl, 0.15 * hw)), line(to, to + Vec2::new(-0.12 * hl, -0.15 * hw))]);
             }

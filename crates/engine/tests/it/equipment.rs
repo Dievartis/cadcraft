@@ -212,3 +212,31 @@ fn indoor_units_are_spread_in_a_space_by_count_or_by_grid_and_outdoor_units_are_
     assert!(s.execute("equipmentadd", &json!({"space": space, "kind": "cassette", "count": 100000})).is_err());
     assert!(s.execute("equipmentadd", &json!({"space": "ZZZZ", "kind": "cassette", "count": 2})).is_err());
 }
+
+#[test]
+fn a_ducted_unit_takes_the_sizes_of_its_connections_and_a_duct_laid_on_it_gives_it_one_by_itself() {
+    let mut s = metric();
+    let r = s.execute("equipmentadd", &json!({"at": [0, 0], "kind": "ducted"})).unwrap();
+    let ports = |s: &Session| equip(s, &r["handle"]).air_ports;
+    assert!(ports(&s).is_empty(), "one of each, as drawn, until some are given");
+    s.execute("equipmentedit", &json!({"handle": r["handle"], "inlets": "250, 400x250", "outlets": [160, 160, 200]})).unwrap();
+    let e = equip(&s, &r["handle"]);
+    assert_eq!((e.air_sizes(true).len(), e.air_sizes(false).len()), (2, 3));
+    assert_eq!(e.air_sizes(true)[1], cadcraft_doc::RiserSize::Rectangular { width_mm: 400.0, height_mm: 250.0 });
+    // Only the outlets changed: the inlets stay.
+    s.execute("equipmentedit", &json!({"handle": r["handle"], "outlets": "315"})).unwrap();
+    let e = equip(&s, &r["handle"]);
+    assert_eq!((e.air_sizes(true).len(), e.air_sizes(false)), (2, vec![cadcraft_doc::RiserSize::Round { diameter_mm: 315.0 }]));
+    // Refused: not a ducted unit, nothing sized, too many.
+    let chiller = s.execute("equipmentadd", &json!({"at": [5000, 0], "kind": "chiller"})).unwrap();
+    assert!(s.execute("equipmentedit", &json!({"handle": chiller["handle"], "inlets": "250"})).is_err());
+    assert!(s.execute("equipmentedit", &json!({"handle": r["handle"], "inlets": "abc"})).is_err());
+    assert!(s.execute("equipmentedit", &json!({"handle": r["handle"], "inlets": (0..40).map(|_| 200).collect::<Vec<_>>()})).is_err());
+    // A duct ended on the right side of another unit gives it that connection, with no setting.
+    let u2 = s.execute("equipmentadd", &json!({"at": [0, 5000], "kind": "ducted"})).unwrap();
+    let right = equip(&s, &u2["handle"]).length_mm / 2.0;
+    s.execute("ductadd", &json!({"points": [[right + 2000.0, 5100], [right + 40.0, 5100]], "diameter": 250})).unwrap();
+    let e = equip(&s, &u2["handle"]);
+    assert_eq!(e.air_sizes(false), vec![cadcraft_doc::RiserSize::Round { diameter_mm: 250.0 }]);
+    assert!((e.air_ports[0].y_mm - 100.0).abs() < 1.0, "{:?}", e.air_ports);
+}

@@ -26,7 +26,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .interactive(|s| Ok(Box::new(AhuAddM::new(s)))),
         CommandSpec::new("ahuedit", "Edit Air Handling Unit", run_ahuedit)
             .params(
-                "{handle | handles, name?, type?: doubleFlow|supplyUnit|extractUnit|vmcBox|stackedDoubleFlow, width? (mm), depth? (mm), height? (mm or null), model?, weight? (kg or null), coils? ({chilledWater?, hotWater?, changeOver?, directExpansion?}: the power of each coil, kW, or null for none; the water pipes that end at the unit take their load from it), portSizes? (one per collar: a diameter, 800x400 or null: the duct that starts on it takes that section), \
+                "{handle | handles, name?, type?: doubleFlow|supplyUnit|extractUnit|vmcBox|stackedDoubleFlow, width? (mm), depth? (mm), height? (mm or null), model?, weight? (kg or null), coils? ({chilledWater?, hotWater?, changeOver?, directExpansion?, electric?, electricPhases? (single|three; three by default)}: the power of each coil, kW, or null for none; an electric coil is a load of the unit's circuit; the water pipes that end at the unit take their load from it), portSizes? (one per collar: a diameter, 800x400 or null: the duct that starts on it takes that section), \
                  ports? (the direction of the air at each collar, supply|extract|fresh|exhaust, one per collar: four for a double-flux unit or a box, two for a single-flux unit; [] restores the kind's), \
                  flow? | extractFlow? | freshFlow? | exhaustFlow? (m³/h typed for that direction: sizing keeps it and sizes the run that leaves the unit for it; null or auto gives it back)} → {changed}",
             ),
@@ -256,6 +256,13 @@ fn coils_param(cmd: &str, p: &Value, base: cadcraft_doc::AhuCoils) -> Result<cad
         hot_kw: pick("hotWater", base.hot_kw)?,
         change_over_kw: pick("changeOver", base.change_over_kw)?,
         direct_expansion_kw: pick("directExpansion", base.direct_expansion_kw)?,
+        electric_kw: pick("electric", base.electric_kw)?,
+        electric_single_phase: match c.get("electricPhases").and_then(Value::as_str).map(|t| t.trim().to_ascii_lowercase()).as_deref() {
+            None => base.electric_single_phase,
+            Some("single" | "mono" | "monophase" | "1") => true,
+            Some("three" | "tri" | "triphase" | "3") => false,
+            Some(_) => return Err(bad(cmd, "`coils.electricPhases` is single or three")),
+        },
     })
 }
 

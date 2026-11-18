@@ -126,6 +126,8 @@ struct Acc {
     fed: Vec<String>,
     /// The vertical run of the risers that carry it, metres.
     risers_m: f64,
+    /// The units on it that have a three-phase electric coil.
+    three_phase_coils: Vec<String>,
 }
 
 fn grouping(laying: ElecLaying) -> calc::Grouping {
@@ -199,7 +201,11 @@ impl crate::Drawing {
             } else if let Some(u) = ahu_of(e) {
                 add(&u.circuit.clone(), &mut |a| {
                     a.hvac += 1;
-                    a.power_w += u.electric_kw.unwrap_or(0.0) * 1000.0;
+                    a.power_w += u.electric_total_kw().unwrap_or(0.0) * 1000.0;
+                    // A three-phase coil on a single-phase circuit (as its cables say) is told below.
+                    if u.coils.electric_kw.is_some() && !u.coils.electric_single_phase {
+                        a.three_phase_coils.push(u.name.clone());
+                    }
                     a.lights_only = false;
                 });
             }
@@ -328,6 +334,9 @@ fn circuit_report(
     r.cable_length_m = (length_m * 100.0).round() / 100.0;
     r.section_mm2 = a.cables.iter().filter_map(|(_, c)| c.section_mm2).min_by(f64::total_cmp);
     r.protection_a = a.cables.iter().filter_map(|(_, c)| c.protection_a).min_by(f64::total_cmp);
+    if phases == ElecPhases::Single && !a.cables.is_empty() && !a.three_phase_coils.is_empty() {
+        r.warnings.push(format!("{}: a three-phase electric coil is on a single-phase circuit", a.three_phase_coils.join(", ")));
+    }
     if !r.panel.is_empty() && !r.panel_drawn && a.name.contains('-') {
         r.warnings.push(format!("the distribution board {} is not drawn", r.panel));
     }

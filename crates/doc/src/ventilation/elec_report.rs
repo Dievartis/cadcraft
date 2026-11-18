@@ -275,9 +275,9 @@ impl crate::Drawing {
                     });
                 }
             } else if let Some(u) = ahu_of(e)
-                && (u.electric_kw.is_some() || !u.circuit.is_empty())
+                && (u.electric_total_kw().is_some() || !u.circuit.is_empty())
             {
-                t.hvac.push(HvacLoad { name: u.name.clone(), kind: "AHU".into(), electric_kw: u.electric_kw, circuit: u.circuit.clone() });
+                t.hvac.push(HvacLoad { name: u.name.clone(), kind: "AHU".into(), electric_kw: u.electric_total_kw(), circuit: u.circuit.clone() });
             }
         }
         for q in &mut t.cables {
