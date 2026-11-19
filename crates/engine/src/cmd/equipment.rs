@@ -27,7 +27,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .interactive(|s| Ok(Box::new(EquipAddM::new(s)))),
         CommandSpec::new("equipmentedit", "Edit Equipment", run_edit).params(
             "{handle | handles, model? (take that library model's values), kind?, name?, reference?, capacityKw? or null, heatingKw? or null, electricKw? (the electrical power it draws, or null), circuit? (the circuit that feeds it), address? (its address, written beside it), length? width? height? (mm), \\
-             weight? or null, fans?, clearance? (mm), connections? (text written beside it), inlets? / outlets? (a ducted unit: the sizes of the duct connections the air comes in by, on the left, and goes out by, on the right: a list or text, \"315, 400x250\"; spread along the side), inletCount? / outletCount? (how many connections, 0 to 16: each takes the size of the last one, Ø200 when there is none; a duct that ends on a side gives the unit its connection, as wide as the duct, by itself)} → {changed}",
+             weight? or null, altitude? (m: the underside, or null), fans?, clearance? (mm), connections? (text written beside it), inlets? / outlets? (a ducted unit: the sizes of the duct connections the air comes in by, on the left, and goes out by, on the right: a list or text, \"315, 400x250\"; spread along the side), inletCount? / outletCount? (how many connections, 0 to 16: each takes the size of the last one, Ø200 when there is none; a duct that ends on a side gives the unit its connection, as wide as the duct, by itself)} → {changed}",
         ),
     ]
 }
@@ -146,6 +146,9 @@ fn params_from(s: &Session, p: &Value, cmd: &str, last: &EquipmentLastUsed) -> R
         e.label_height_mm = v;
     }
     apply_air_ports(cmd, p, &mut e)?;
+    if let Some(v) = super::altitude_param(cmd, p)? {
+        e.bottom_mm = v;
+    }
     e.validate().map_err(doc_err)?;
     Ok(e)
 }
@@ -282,7 +285,12 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         let mut e = d.entity(*h).and_then(|x| equipment_of(x)).ok_or_else(|| other("Select equipment only."))?;
         if let Some(m) = &model {
             // The model's values, the name and the units kept.
-            e = EquipmentParams { name: e.name.clone(), label_height_mm: e.label_height_mm, ..EquipmentParams::from_model(m, &e.name, e.units) };
+            e = EquipmentParams {
+                name: e.name.clone(),
+                label_height_mm: e.label_height_mm,
+                bottom_mm: e.bottom_mm,
+                ..EquipmentParams::from_model(m, &e.name, e.units)
+            };
         }
         e.kind = kind.unwrap_or(e.kind);
         if let Some(n) = str_param(p, "name") {
@@ -324,6 +332,9 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
             e.clearance_mm = v;
         }
         apply_air_ports(CMD, p, &mut e)?;
+        if let Some(v) = super::altitude_param(CMD, p)? {
+            e.bottom_mm = v;
+        }
         e.validate().map_err(doc_err)?;
         next.push((*h, e));
     }

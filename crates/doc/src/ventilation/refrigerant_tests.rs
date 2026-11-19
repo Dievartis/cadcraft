@@ -119,6 +119,7 @@ fn an_indoor_unit_reached_from_no_outdoor_unit_is_told_and_a_coil_counts_as_a_un
         address: String::new(),
         show_address: true,
         label_height_mm: 100.0,
+        bottom_mm: None,
         units: units(),
     };
     a.coils.direct_expansion_kw = Some(20.0);

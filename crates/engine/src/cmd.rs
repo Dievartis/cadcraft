@@ -300,6 +300,19 @@ pub fn resolve_alias(name: &str) -> String {
 pub(crate) fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
+/// The `altitude` of a command, metres, as the altitude of an underside in mm: absent is `None`, null is `Some(None)` (clears it).
+pub(crate) fn altitude_param(cmd: &str, p: &Value) -> Result<Option<Option<f64>>> {
+    match p.get("altitude") {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(v) => v
+            .as_f64()
+            .filter(|m| m.is_finite() && m.abs() <= 100_000.0)
+            .map(|m| Some(Some(m * 1000.0)))
+            .ok_or_else(|| bad(cmd, "`altitude` must be a number of metres or null")),
+    }
+}
+
 /// Refuse a parameter name the command does not take, naming it, so a misspelt option is not
 /// silently dropped. Non-object params carry no names and pass.
 pub(crate) fn reject_unknown_params(cmd: &str, p: &Value, allowed: &[&str]) -> Result<()> {

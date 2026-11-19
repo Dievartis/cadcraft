@@ -96,6 +96,18 @@ impl EquipmentKind {
         matches!(self, EquipmentKind::Chiller | EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor)
     }
 
+    /// The altitude of the underside a new equipment of the kind starts with, mm, which can be changed: a cassette 2.50 m, a wall unit and a ceiling unit
+    /// 2.00 m, a ducted unit 2.70 m, a console on the floor; none for the units that stand outdoors.
+    pub fn default_bottom_mm(self) -> Option<f64> {
+        match self {
+            EquipmentKind::Cassette => Some(2500.0),
+            EquipmentKind::WallUnit | EquipmentKind::CeilingUnit => Some(2000.0),
+            EquipmentKind::Ducted => Some(2700.0),
+            EquipmentKind::FloorUnit => Some(0.0),
+            EquipmentKind::Chiller | EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor => None,
+        }
+    }
+
     /// The service clearance a new equipment of the kind starts with, mm.
     pub fn default_clearance_mm(self) -> f64 {
         match self {
@@ -186,6 +198,9 @@ pub struct EquipmentParams {
     pub show_address: bool,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
+    /// The altitude of the underside of the element, mm above the drawing's zero, when it is given: written beside it ("Ai:2.50") and kept for the takeoff.
+    #[serde(default)]
+    pub bottom_mm: Option<f64>,
     #[serde(default)]
     pub units: HvacUnits,
 }
@@ -212,6 +227,7 @@ impl EquipmentParams {
             clearance_mm: m.kind.default_clearance_mm(),
             connections: m.connections.clone(),
             air_ports: Vec::new(),
+            bottom_mm: m.kind.default_bottom_mm(),
             electric_kw: None,
             circuit: String::new(),
             address: String::new(),
@@ -247,6 +263,7 @@ impl EquipmentParams {
         if !(self.clearance_mm.is_finite() && (0.0..=10_000.0).contains(&self.clearance_mm)) {
             return Err(invalid("The service clearance is 0 to 10 000 mm."));
         }
+        super::check_altitude(self.bottom_mm)?;
         if self.air_ports.len() > MAX_AIR_PORTS {
             return Err(invalid(format!("A unit has at most {MAX_AIR_PORTS} duct connections.")));
         }
@@ -309,6 +326,9 @@ impl EquipmentParams {
         v.push(format!("Dim. {:.0}x{:.0}x{:.0}H", self.length_mm, self.width_mm, self.height_mm));
         if let Some(w) = self.weight_kg {
             v.push(format!("Poids {w:.0}kg"));
+        }
+        if let Some(t) = super::altitude_tag(self.bottom_mm) {
+            v.push(t);
         }
         if !self.connections.trim().is_empty() {
             v.push(self.connections.trim().to_string());

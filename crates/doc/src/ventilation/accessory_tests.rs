@@ -12,6 +12,7 @@ fn accessory(kind: AccessoryKind) -> AccessoryParams {
         zeta: None,
         pressure_drop_pa: None,
         label_height_mm: 100.0,
+        bottom_mm: None,
         units: HvacUnits::default(),
     }
 }
@@ -94,6 +95,7 @@ fn unit() -> AhuParams {
         address: String::new(),
         show_address: true,
         label_height_mm: 100.0,
+        bottom_mm: None,
         units: HvacUnits::default(),
     }
 }
@@ -137,7 +139,8 @@ fn ducted(accessory_at: Option<(AccessoryKind, f64, f64)>) -> (Drawing, Option<H
     };
     d.add_duct(&Space::Model, Common::default(), duct, Vec2::new(500.0, 0.0), Vec2::new(6000.0, 0.0)).unwrap();
     let model = standard_air_terminal_models().into_iter().find(|m| m.name == "SQ600-200").unwrap();
-    let t = TerminalParams { model, flow_m3h: 300.0, air: AirDirection::Supply, label_height_mm: 100.0, units: HvacUnits::default() };
+    let t =
+        TerminalParams { model, flow_m3h: 300.0, air: AirDirection::Supply, label_height_mm: 100.0, bottom_mm: None, units: HvacUnits::default() };
     d.add_air_terminal(&Space::Model, Common::default(), &t, Vec2::new(6000.0, 0.0), 0.0).unwrap();
     let h = accessory_at.map(|(kind, x, y)| d.add_accessory(&Space::Model, Common::default(), &accessory(kind), Vec2::new(x, y), 0.0).unwrap());
     (d, h)

@@ -434,6 +434,9 @@ pub struct PartParams {
     pub network: String,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
+    /// The altitude of the underside of the element, mm above the drawing's zero, when it is given: written beside it ("Ai:2.50") and kept for the takeoff.
+    #[serde(default)]
+    pub bottom_mm: Option<f64>,
     #[serde(default)]
     pub units: HvacUnits,
 }
@@ -473,6 +476,7 @@ impl PartParams {
             zeta: None,
             network: String::new(),
             label_height_mm: default_label_mm(),
+            bottom_mm: None,
             units,
         }
     }
@@ -480,6 +484,7 @@ impl PartParams {
     pub fn validate(&self) -> Result<()> {
         check_name("part", &self.name)?;
         check_label_height(self.label_height_mm)?;
+        super::check_altitude(self.bottom_mm)?;
         self.units.validate()?;
         let side = |v: f64| v.is_finite() && (20.0..=MAX_PART_MM).contains(&v);
         if !(side(self.length_mm) && side(self.width_mm)) {
@@ -547,6 +552,9 @@ impl PartParams {
         }
         if matches!(self.kind, PartKind::BranchBox | PartKind::RefnetHeader | PartKind::Manifold) {
             add(format!("{}x", self.outlets));
+        }
+        if let Some(t) = super::altitude_tag(self.bottom_mm) {
+            add(t);
         }
         text
     }

@@ -26,7 +26,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .interactive(|s| Ok(Box::new(AhuAddM::new(s)))),
         CommandSpec::new("ahuedit", "Edit Air Handling Unit", run_ahuedit)
             .params(
-                "{handle | handles, name?, type?: doubleFlow|supplyUnit|extractUnit|vmcBox|stackedDoubleFlow, width? (mm), depth? (mm), height? (mm or null), model?, weight? (kg or null), coils? ({chilledWater?, hotWater?, changeOver?, directExpansion?, electric?, electricPhases? (single|three; three by default)}: the power of each coil, kW, or null for none; an electric coil is a load of the unit's circuit; the water pipes that end at the unit take their load from it), portSizes? (one per collar: a diameter, 800x400 or null: the duct that starts on it takes that section), \
+                "{handle | handles, name?, type?: doubleFlow|supplyUnit|extractUnit|vmcBox|stackedDoubleFlow, width? (mm), depth? (mm), height? (mm or null), model?, weight? (kg or null), altitude? (m: the underside of the unit, or null), coils? ({chilledWater?, hotWater?, changeOver?, directExpansion?, electric?, electricPhases? (single|three; three by default)}: the power of each coil, kW, or null for none; an electric coil is a load of the unit's circuit; the water pipes that end at the unit take their load from it), portSizes? (one per collar: a diameter, 800x400 or null: the duct that starts on it takes that section), \
                  ports? (the direction of the air at each collar, supply|extract|fresh|exhaust, one per collar: four for a double-flux unit or a box, two for a single-flux unit; [] restores the kind's), \
                  flow? | extractFlow? | freshFlow? | exhaustFlow? (m³/h typed for that direction: sizing keeps it and sizes the run that leaves the unit for it; null or auto gives it back)} → {changed}",
             ),
@@ -230,6 +230,8 @@ fn run_ahuadd(s: &mut Session, p: &Value) -> Result<Value> {
         address: String::new(),
         show_address: true,
         label_height_mm: positive(CMD, p, "labelHeight")?.unwrap_or(100.0),
+        // The altitude of the underside: the one given (null for none), else the kind's own (a horizontal double-flow unit hangs at 2.70 m).
+        bottom_mm: super::altitude_param(CMD, p)?.unwrap_or_else(|| kind.default_bottom_mm()),
         units: units_of(s)?,
     };
     let h = add_ahu(s, &params, at, f64_or(p, "rotation", 0.0).to_radians())?;
@@ -333,6 +335,9 @@ fn run_ahuedit(s: &mut Session, p: &Value) -> Result<Value> {
             a.address = t.trim().to_string();
         }
         a.coils = coils_param(CMD, p, a.coils)?;
+        if let Some(v) = super::altitude_param(CMD, p)? {
+            a.bottom_mm = v;
+        }
         // The flow of each direction typed on the unit: sizing keeps it, and sizes the run that leaves the unit for it.
         for (key, air) in [
             ("flow", AirDirection::Supply),
@@ -434,6 +439,7 @@ impl AhuAddM {
                     address: String::new(),
                     show_address: true,
                     label_height_mm: 100.0,
+                    bottom_mm: self.last.kind.default_bottom_mm(),
                     units: units_of(s)?,
                 };
                 add_ahu(s, &params, at, angle)?;
@@ -523,6 +529,7 @@ impl Interactive for AhuAddM {
             address: String::new(),
             show_address: true,
             label_height_mm: 100.0,
+            bottom_mm: self.last.kind.default_bottom_mm(),
             units,
         };
         match self.ask {
@@ -978,18 +985,26 @@ fn terminals_to_connect(d: &Drawing, only: Option<&[Handle]>) -> Result<Vec<(Han
     Ok(out)
 }
 
-/// The nearest rigid duct of `air` to `at`: its foot on the axis and the distance, in drawing units.
-fn nearest_rigid(d: &Drawing, air: AirDirection, at: Vec2) -> Option<(Vec2, f64)> {
+/// The nearest rigid duct of `air` to `at`: its foot on the axis, the distance in drawing units, the width it shows in plan (mm) and the way it runs.
+fn nearest_rigid(d: &Drawing, air: AirDirection, at: Vec2) -> Option<(Vec2, f64, f64, Vec2)> {
     d.model
         .iter()
         .filter_map(|e| d.duct_ends(e.handle))
         .filter(|(p, ..)| !p.flexible && (!p.air_set || p.air == air))
-        .map(|(_, a, b)| {
+        .map(|(p, a, b)| {
             let along = (b - a).normalized();
             let foot = a + along * (at - a).dot(along).clamp(0.0, a.dist(b));
-            (foot, foot.dist(at))
+            (foot, foot.dist(at), p.plan_width_mm(), along)
         })
         .min_by(|x, y| x.1.total_cmp(&y.1))
+}
+
+/// How long the rigid collar that joins a flexible duct `neck_mm` across to a duct `trunk_mm` wide is, mm, drawn at `angle` to the duct: the cone of the
+/// reduction (15°) at least, from the axis of the duct and a little straight run to put the flexible on.
+fn collar_length_mm(trunk_mm: f64, neck_mm: f64, angle: f64) -> f64 {
+    let cone = ((trunk_mm - neck_mm) / 2.0 / 15f64.to_radians().tan()).max(0.0);
+    let to_edge = trunk_mm / 2.0 / angle.sin().abs().max(0.3);
+    (2.5 * cone).max(to_edge + 200.0).clamp(300.0, 1000.0)
 }
 
 fn run_ductconnect(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1006,7 +1021,7 @@ fn run_ductconnect(s: &mut Session, p: &Value) -> Result<Value> {
     let mm = units_of(s)?.mm_per_unit;
     let (mut created, mut skipped) = (Vec::new(), Vec::new());
     for (h, t, at) in terminals {
-        let Some((foot, dist)) = nearest_rigid(s.doc()?, t.air, at).filter(|(_, dist)| dist * mm <= reach_mm) else {
+        let Some((foot, dist, trunk_mm, along)) = nearest_rigid(s.doc()?, t.air, at).filter(|(_, dist, ..)| dist * mm <= reach_mm) else {
             skipped.push(json!({ "terminal": h.hex(), "reason": "no rigid duct of its air direction within reach" }));
             continue;
         };
@@ -1048,7 +1063,18 @@ fn run_ductconnect(s: &mut Session, p: &Value) -> Result<Value> {
             label_height_mm: 100.0,
             units: units_of(s)?,
         };
-        created.push(add_run(s, &params, foot, at)?.hex());
+        // A duct wider than the neck gets a rigid collar of the neck's size, which the cone of the reduction is drawn on (as it is for any run that starts on
+        // the side of a duct of another width); the flexible duct goes on from its end. Too near the terminal for it, the flexible leaves the duct itself.
+        let dir = (at - foot).normalized();
+        let collar_mm = collar_length_mm(trunk_mm, t.model.neck_mm, dir.angle() - along.angle());
+        if trunk_mm - t.model.neck_mm > 5.0 && dist * mm >= collar_mm + 150.0 {
+            let end = foot + dir * (collar_mm / mm);
+            let collar = DuctParams { flexible: false, ..params.clone() };
+            created.push(add_run(s, &collar, foot, end)?.hex());
+            created.push(add_run(s, &params, end, at)?.hex());
+        } else {
+            created.push(add_run(s, &params, foot, at)?.hex());
+        }
     }
     Ok(json!({ "created": created, "skipped": skipped }))
 }

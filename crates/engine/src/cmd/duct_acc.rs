@@ -76,6 +76,7 @@ fn on_duct(
         zeta,
         pressure_drop_pa: pa,
         label_height_mm: label_mm,
+        bottom_mm: None,
         units: HvacUnits::of(d),
     };
     p.validate().map_err(doc_err)?;
@@ -128,6 +129,9 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if clear_pa {
             a.pressure_drop_pa = None;
+        }
+        if let Some(v) = super::altitude_param(CMD, p)? {
+            a.bottom_mm = v;
         }
         a.validate().map_err(doc_err)?;
         next.push((*h, a));

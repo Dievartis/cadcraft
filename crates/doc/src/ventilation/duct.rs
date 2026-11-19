@@ -168,6 +168,11 @@ impl AhuKind {
         }
     }
 
+    /// The altitude of the underside a new unit of the kind starts with, mm: a horizontal double-flow unit hangs at 2.70 m; the others have none.
+    pub fn default_bottom_mm(self) -> Option<f64> {
+        (self == AhuKind::DoubleFlow).then_some(2700.0)
+    }
+
     /// The names of its connections, in the order [`AhuParams::ports`] lists them.
     pub fn port_names(self) -> &'static [&'static str] {
         match self {
@@ -307,6 +312,9 @@ pub struct AhuParams {
     pub show_address: bool,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
+    /// The altitude of the underside of the element, mm above the drawing's zero, when it is given: written beside it ("Ai:2.50") and kept for the takeoff.
+    #[serde(default)]
+    pub bottom_mm: Option<f64>,
     #[serde(default)]
     pub units: HvacUnits,
 }
@@ -462,6 +470,7 @@ impl AhuParams {
             return Err(invalid("A unit's height and weight are more than 0 (the height at most 100 000 mm)."));
         }
         self.coils.validate()?;
+        super::check_altitude(self.bottom_mm)?;
         if self.model.chars().count() > super::MAX_HVAC_NAME_CHARS || self.model.chars().any(char::is_control) {
             return Err(invalid(format!("A unit's model has at most {} characters, without control characters.", super::MAX_HVAC_NAME_CHARS)));
         }
@@ -536,6 +545,9 @@ impl AhuParams {
         }
         if let Some(w) = self.weight_kg {
             v.push(format!("Poids {w:.0}kg"));
+        }
+        if let Some(t) = super::altitude_tag(self.bottom_mm) {
+            v.push(t);
         }
         for (label, kw) in [
             ("Batt. eau glacée", self.coils.chilled_kw),

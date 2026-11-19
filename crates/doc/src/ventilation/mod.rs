@@ -241,6 +241,21 @@ fn riser_name_label(outline: &[Vec2], height: f64, value: &str) -> crate::Entity
     label_left(Vec2::new(right + 0.5 * height, bottom), height, value.to_string())
 }
 
+/// The altitude of the underside of an element as it is written beside it ("Ai:2.50", metres), when it is given.
+pub(crate) fn altitude_tag(bottom_mm: Option<f64>) -> Option<String> {
+    bottom_mm.map(|b| format!("Ai:{:.2}", b / 1000.0))
+}
+
+/// Whether the altitude of an underside, mm, can be kept.
+pub(crate) fn check_altitude(bottom_mm: Option<f64>) -> crate::Result<()> {
+    match bottom_mm {
+        Some(b) if !(b.is_finite() && (-100_000.0..=1_000_000.0).contains(&b)) => {
+            Err(invalid("The altitude of the underside is a number of millimetres."))
+        }
+        _ => Ok(()),
+    }
+}
+
 fn text_at(at: Vec2, height: f64, value: String, halign: crate::HAlign) -> crate::EntityKind {
     crate::EntityKind::Text(crate::Text {
         insert: v3(at),

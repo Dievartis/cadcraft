@@ -30,6 +30,7 @@ fn ahu() -> AhuParams {
         address: String::new(),
         show_address: true,
         label_height_mm: 100.0,
+        bottom_mm: None,
         units: HvacUnits::default(),
     }
 }
@@ -76,7 +77,7 @@ fn add_duct(d: &mut Drawing, a: (f64, f64), b: (f64, f64)) -> Handle {
 
 fn add_terminal(d: &mut Drawing, at: (f64, f64), flow: f64) -> Handle {
     let model = standard_air_terminal_models().into_iter().find(|m| m.name == "SQ600-160").unwrap();
-    let t = TerminalParams { model, flow_m3h: flow, air: AirDirection::Supply, label_height_mm: 100.0, units: HvacUnits::default() };
+    let t = TerminalParams { model, flow_m3h: flow, air: AirDirection::Supply, label_height_mm: 100.0, bottom_mm: None, units: HvacUnits::default() };
     d.add_air_terminal(&Space::Model, Common::default(), &t, Vec2::new(at.0, at.1), 0.0).unwrap()
 }
 
@@ -376,7 +377,8 @@ fn extract_duct(d: &mut Drawing, a: (f64, f64), b: (f64, f64)) -> Handle {
 
 fn extract_terminal(d: &mut Drawing, at: (f64, f64), flow: f64) -> Handle {
     let model = standard_air_terminal_models().into_iter().find(|m| m.name == "EX125").unwrap();
-    let t = TerminalParams { model, flow_m3h: flow, air: AirDirection::Extract, label_height_mm: 100.0, units: HvacUnits::default() };
+    let t =
+        TerminalParams { model, flow_m3h: flow, air: AirDirection::Extract, label_height_mm: 100.0, bottom_mm: None, units: HvacUnits::default() };
     d.add_air_terminal(&Space::Model, Common::default(), &t, Vec2::new(at.0, at.1), 0.0).unwrap()
 }
 
@@ -464,7 +466,8 @@ fn a_duct_ending_on_the_face_of_a_turned_terminal_reaches_it() {
     d.add_ahu(&Space::Model, Common::default(), &ahu(), Vec2::ZERO, 0.0).unwrap();
     add_duct(&mut d, (500.0, 0.0), (3000.0, 0.0));
     let model = standard_air_terminal_models().into_iter().find(|m| m.name == "RG300x150").unwrap();
-    let t = TerminalParams { model, flow_m3h: 100.0, air: AirDirection::Supply, label_height_mm: 100.0, units: HvacUnits::default() };
+    let t =
+        TerminalParams { model, flow_m3h: 100.0, air: AirDirection::Supply, label_height_mm: 100.0, bottom_mm: None, units: HvacUnits::default() };
     // A 300 x 150 grille turned a quarter turn: 150 mm wide along x, 300 along y. Its near end is 150 mm off.
     d.add_air_terminal(&Space::Model, Common::default(), &t, Vec2::new(3140.0, 0.0), std::f64::consts::FRAC_PI_2).unwrap();
     assert!(d.duct_networks().unwrap()[0].unconnected.is_empty());
@@ -920,7 +923,7 @@ fn every_kind_of_unit_feeds_a_network_the_same_way() {
 
 fn louvre(d: &mut Drawing, at: (f64, f64), flow: f64, air: AirDirection) -> Handle {
     let model = standard_air_terminal_models().into_iter().find(|m| m.name == "LV600x400").unwrap();
-    let t = TerminalParams { model, flow_m3h: flow, air, label_height_mm: 100.0, units: HvacUnits::default() };
+    let t = TerminalParams { model, flow_m3h: flow, air, label_height_mm: 100.0, bottom_mm: None, units: HvacUnits::default() };
     d.add_air_terminal(&Space::Model, Common::default(), &t, Vec2::new(at.0, at.1), 0.0).unwrap()
 }
 
@@ -1022,7 +1025,7 @@ fn an_arrow_on_each_duct_shows_the_way_the_air_runs() {
 fn a_louvre_is_drawn_with_arrows_of_its_direction_and_comes_in_standard_sizes() {
     let model = standard_air_terminal_models().into_iter().find(|m| m.name == "LV600x400").unwrap();
     assert_eq!((model.kind, model.neck_mm, model.max_flow_m3h), (TerminalKind::Louvre, 400.0, 3000.0));
-    let t = |air| TerminalParams { model: model.clone(), flow_m3h: 500.0, air, label_height_mm: 100.0, units: HvacUnits::default() };
+    let t = |air| TerminalParams { model: model.clone(), flow_m3h: 500.0, air, label_height_mm: 100.0, bottom_mm: None, units: HvacUnits::default() };
     for (air, layer) in [(AirDirection::Fresh, AIR_FRESH_LAYER), (AirDirection::Exhaust, AIR_EXHAUST_LAYER)] {
         let pieces = t(air).generate().unwrap();
         assert_eq!(pieces.iter().filter(|p| p.layer == layer).count(), 3, "one arrow: its shaft and two sides of the head");

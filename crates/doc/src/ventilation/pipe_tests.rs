@@ -279,6 +279,7 @@ fn the_coils_of_an_air_handling_unit_are_the_loads_of_the_water_pipes_that_end_a
         address: String::new(),
         show_address: true,
         label_height_mm: 100.0,
+        bottom_mm: None,
         units: HvacUnits { mm_per_unit: 1.0 },
     };
     assert!(AhuCoils { hot_kw: Some(-1.0), ..unit.coils }.validate().is_err());

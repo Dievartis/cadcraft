@@ -250,6 +250,9 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         pp.length_mm = length.unwrap_or(pp.length_mm);
         pp.width_mm = width.unwrap_or(pp.width_mm);
         pp.height_mm = height.unwrap_or(pp.height_mm);
+        if let Some(v) = super::altitude_param(CMD, p)? {
+            pp.bottom_mm = v;
+        }
         if let Some(n) = outlets {
             pp.outlets = n;
             // The part is as long as its outlets need, unless a length was given: it changes on the drawing as a unit does.

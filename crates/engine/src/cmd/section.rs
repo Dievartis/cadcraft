@@ -40,7 +40,8 @@ fn draw(s: &mut Session, a: Vec2, b: Vec2, name: Option<&str>, at: Option<Vec2>)
     let (space, common) = (s.space(), s.current_common());
     let (h, n, width) = s.doc_mut()?.add_section(&space, common, a, b, &name, at).map_err(doc_err)?;
     Ok(json!({
-        "handle": h.hex(), "width": width, "walls": n.walls, "openings": n.openings, "slabs": n.slabs, "columns": n.columns, "beams": n.beams, "ceilings": n.ceilings
+        "handle": h.hex(), "width": width, "walls": n.walls, "openings": n.openings, "slabs": n.slabs, "columns": n.columns, "beams": n.beams, "ceilings": n.ceilings,
+        "ducts": n.ducts, "terminals": n.terminals, "equipment": n.equipment, "pipes": n.pipes
     }))
 }
 
@@ -112,6 +113,16 @@ fn finish(s: &mut Session, a: Vec2, b: Vec2, at: Option<Vec2>) -> Result<Step> {
                 n("beams"),
                 n("ceilings")
             ));
+            // The HVAC objects the line goes through, when there are some.
+            if n("ducts") + n("terminals") + n("equipment") + n("pipes") > 0 {
+                s.echo(format!(
+                    "Section: {} ducts, {} air terminals, {} units and equipment, {} pipes crossed",
+                    n("ducts"),
+                    n("terminals"),
+                    n("equipment"),
+                    n("pipes")
+                ));
+            }
             Ok(Step::Done)
         }
         Err(e) => {

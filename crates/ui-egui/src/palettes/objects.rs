@@ -311,6 +311,21 @@ fn pipe_riser_section(ui: &mut egui::Ui, sel: &[Handle], rs: &[PipeRiserParams],
     action
 }
 
+/// The "Altitude of the underside (m)" row of an element that has one (stored in mm): empty clears it.
+fn altitude_row(ui: &mut egui::Ui, cmd: &'static str, ids: &[String], values: Vec<Option<f64>>, bad: &mut Option<String>, action: &mut Action) {
+    let texts: Vec<String> = values.iter().map(|v| v.map_or(String::new(), |b| format!("{}", b / 1000.0))).collect();
+    let v = shared(&texts).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Altitude of the underside (m)", |ui| {
+        if let Some(t) = edit_field(ui, ui.scope_id().with(("altitude_row", cmd, ids)), v).filter(|t| t != VARIES) {
+            if t.trim().is_empty() {
+                *action = Some((cmd, json!({ "handles": ids, "altitude": Value::Null })));
+            } else if let Some(m) = number(Some(t), bad) {
+                *action = Some((cmd, json!({ "handles": ids, "altitude": m })));
+            }
+        }
+    });
+}
+
 /// A text field of the electrical groups: what the objects share (or varies), and the command a change asks for.
 fn elec_text(ui: &mut egui::Ui, cmd: &'static str, label: &str, key: &str, ids: &[String], values: Vec<String>, action: &mut Action) {
     let v = shared(&values).unwrap_or_else(|| VARIES.into());
@@ -538,6 +553,7 @@ fn part_section(ui: &mut egui::Ui, sel: &[Handle], ps: &[PartParams], library: &
             action = edit("connections", json!(c));
         }
     });
+    altitude_row(ui, "pipepartedit", &ids, ps.iter().map(|p| p.bottom_mm).collect(), bad, &mut action);
     action
 }
 
@@ -1243,6 +1259,7 @@ fn terminal_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], ts: &[Termin
             prop_row(ui, "Check", |ui| read_only(ui, "Flow above the model's largest"));
         }
     }
+    altitude_row(ui, "airterminaledit", &ids, ts.iter().map(|t| t.bottom_mm).collect(), bad, &mut action);
     action
 }
 
@@ -1480,6 +1497,7 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
             }
         });
     }
+    altitude_row(ui, "equipmentedit", &ids, items.iter().map(|e| e.bottom_mm).collect(), bad, &mut action);
     action
 }
 
@@ -1672,14 +1690,19 @@ fn ahu_section(ui: &mut egui::Ui, sel: &[Handle], units: &[AhuParams], bad: &mut
     let kind = shared(&units.iter().map(|p| p.kind).collect::<Vec<_>>());
     prop_row(ui, "Type", |ui| {
         let label = |k: AhuKind| match k {
-            AhuKind::DoubleFlow => "Double-flow unit",
+            AhuKind::DoubleFlow => "Double-flow unit, horizontal",
             AhuKind::SupplyUnit => "Supply unit",
             AhuKind::ExtractUnit => "Extract unit",
             AhuKind::VmcBox => "Ventilation box",
-            AhuKind::StackedDoubleFlow => "Double-flow unit",
+            AhuKind::StackedDoubleFlow => "Double-flow unit, vertical",
         };
-        let items =
-            [("doubleFlow", "Double-flow unit"), ("supplyUnit", "Supply unit"), ("extractUnit", "Extract unit"), ("vmcBox", "Ventilation box")];
+        let items = [
+            ("doubleFlow", "Double-flow unit, horizontal"),
+            ("stackedDoubleFlow", "Double-flow unit, vertical"),
+            ("supplyUnit", "Supply unit"),
+            ("extractUnit", "Extract unit"),
+            ("vmcBox", "Ventilation box"),
+        ];
         if let Some(k) = choice(ui, kind.map_or(VARIES, label), &items) {
             action = edit("type", json!(k));
         }
@@ -1870,6 +1893,7 @@ fn ahu_section(ui: &mut egui::Ui, sel: &[Handle], units: &[AhuParams], bad: &mut
             });
         }
     }
+    altitude_row(ui, "ahuedit", &ids, units.iter().map(|u| u.bottom_mm).collect(), bad, &mut action);
     action
 }
 
@@ -2107,6 +2131,7 @@ fn accessory_section(ui: &mut egui::Ui, sel: &[Handle], accs: &[AccessoryParams]
     if let [a] = accs {
         prop_row(ui, "Duct", |ui| read_only(ui, &format!("Ø {:.0} mm", a.diameter_mm)));
     }
+    altitude_row(ui, "ductaccessoryedit", &ids, accs.iter().map(|a| a.bottom_mm).collect(), bad, &mut action);
     action
 }
 

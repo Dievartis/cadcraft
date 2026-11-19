@@ -192,6 +192,9 @@ pub struct TerminalParams {
     pub air: AirDirection,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
+    /// The altitude of the underside of the element, mm above the drawing's zero, when it is given: written beside it ("Ai:2.50") and kept for the takeoff.
+    #[serde(default)]
+    pub bottom_mm: Option<f64>,
     #[serde(default)]
     pub units: HvacUnits,
 }
@@ -250,10 +253,14 @@ fn side_arrows(half: Vec2, air: AirDirection) -> Vec<HvacPiece> {
     v
 }
 
+/// The altitude of the underside of a new air terminal, mm: a diffuser or a grille is put at 2.50 m, which can be changed.
+pub const DEFAULT_TERMINAL_BOTTOM_MM: f64 = 2500.0;
+
 impl TerminalParams {
     pub fn validate(&self) -> Result<()> {
         self.model.validate()?;
         check_label_height(self.label_height_mm)?;
+        super::check_altitude(self.bottom_mm)?;
         self.units.validate()?;
         if !(self.flow_m3h.is_finite() && self.flow_m3h > 0.0 && self.flow_m3h <= MAX_TERMINAL_FLOW_M3H) {
             return Err(invalid(format!("A terminal's flow is more than 0 and at most {MAX_TERMINAL_FLOW_M3H} m³/h.")));
@@ -262,7 +269,7 @@ impl TerminalParams {
     }
 
     /// Half the face's width and depth, in drawing units.
-    pub(super) fn half(&self) -> Vec2 {
+    pub(crate) fn half(&self) -> Vec2 {
         let m = &self.model;
         let depth = match m.kind {
             TerminalKind::SquareCeiling | TerminalKind::Round | TerminalKind::Extract => m.width_mm,
@@ -341,7 +348,19 @@ impl TerminalParams {
             _ => 0.0,
         };
         let at = Vec2::new(0.0, -self.half().y - below - 1.2 * h);
-        v.push(HvacPiece { layer: AIR_TERMINAL_LAYER, kind: label(at, h, format!("{} {:.0} m³/h", self.model.name, self.flow_m3h)) });
+        v.push(HvacPiece {
+            layer: AIR_TERMINAL_LAYER,
+            kind: label(
+                at,
+                h,
+                format!(
+                    "{} {:.0} m³/h{}",
+                    self.model.name,
+                    self.flow_m3h,
+                    super::altitude_tag(self.bottom_mm).map_or(String::new(), |t| format!(" {t}"))
+                ),
+            ),
+        });
         Ok(v)
     }
 
@@ -372,12 +391,19 @@ pub fn air_terminal_of(e: &crate::Entity) -> Option<TerminalParams> {
 
 /// The smallest model of `kind` among `models` that carries `flow_m3h`; `None` when none does.
 pub fn smallest_model_for(models: &[TerminalModel], kind: TerminalKind, flow_m3h: f64) -> Option<TerminalModel> {
-    models
-        .iter()
-        .filter(|m| m.kind == kind && m.max_flow_m3h >= flow_m3h)
-        .min_by(|a, b| a.max_flow_m3h.total_cmp(&b.max_flow_m3h).then(a.width_mm.total_cmp(&b.width_mm)))
-        .cloned()
+    let smallest = |min_neck: f64| {
+        models
+            .iter()
+            .filter(|m| m.kind == kind && m.max_flow_m3h >= flow_m3h && m.neck_mm >= min_neck)
+            .min_by(|a, b| a.max_flow_m3h.total_cmp(&b.max_flow_m3h).then(a.width_mm.total_cmp(&b.width_mm)))
+            .cloned()
+    };
+    // An extract terminal is a Ø125 unless it is chosen otherwise (a smaller one can still be named): the smallest Ø125 or more that carries the flow.
+    if kind == TerminalKind::Extract { smallest(DEFAULT_EXTRACT_NECK_MM).or_else(|| smallest(0.0)) } else { smallest(0.0) }
 }
+
+/// The neck of the extract terminals a model is chosen for, mm.
+pub const DEFAULT_EXTRACT_NECK_MM: f64 = 125.0;
 
 impl crate::Drawing {
     /// The drawing's air terminal model `name` (case-insensitive).

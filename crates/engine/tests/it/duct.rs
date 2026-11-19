@@ -409,13 +409,13 @@ fn ductconnect_draws_flexible_ducts_from_the_trunk_to_the_terminals() {
     }
     s.execute("airterminaladd", &json!({"at": [3000, 9000], "flow": 100, "air": "extract", "type": "squareCeiling"})).unwrap();
     let r = s.execute("ductconnect", &json!({})).unwrap();
-    assert_eq!(r["created"].as_array().unwrap().len(), 3, "{r}");
+    assert_eq!(r["created"].as_array().unwrap().len(), 6, "a rigid collar and a flexible duct for each, the trunk being wider than the neck: {r}");
     assert_eq!(r["skipped"].as_array().unwrap().len(), 1, "the extract terminal has no duct near");
     let flex: Vec<_> = s.doc().unwrap().model.iter().filter_map(|e| duct_of(e).filter(|p| p.flexible)).collect();
     assert_eq!(flex.len(), 3);
     // Each is as wide as a 600 mm diffuser's neck (160 mm), imposed, and about as long as the offset.
     assert!(flex.iter().all(|p| p.diameter_mm == 160.0 && p.imposed && p.kind == DuctKind::Connection));
-    assert!(flex.iter().all(|p| p.length > 1000.0 && p.length < 1600.0), "{:?}", flex.iter().map(|p| p.length).collect::<Vec<_>>());
+    assert!(flex.iter().all(|p| p.length > 600.0 && p.length < 1600.0), "{:?}", flex.iter().map(|p| p.length).collect::<Vec<_>>());
     // The trunk was cut where each starts, and the whole network now sizes: three diffusers of 150.
     let sized = s.execute("ductsize", &json!({})).unwrap();
     assert_eq!(sized["networks"][0]["totalFlow"], 450.0, "{sized}");
@@ -590,8 +590,10 @@ fn zoneadd_and_zoneedit_draw_and_change_a_zone_and_ductsize_cuts_a_duct_that_cro
         )
         .unwrap();
     assert_eq!(z["name"], "Poutre");
+    // The zone cuts the duct as soon as it is drawn (in and out of the beam), so sizing finds it in three pieces and has nothing more to cut.
+    assert_eq!(s.doc().unwrap().model.iter().filter(|e| duct_of(e).is_some()).count(), 3);
     let r = s.execute("ductsize", &json!({})).unwrap();
-    assert_eq!(r["cuts"], 2, "in and out of the beam: {r}");
+    assert_eq!(r["cuts"], 0, "already cut: {r}");
     let segs = r["networks"][0]["segments"].as_array().unwrap();
     assert_eq!(segs.len(), 3, "{r}");
     assert_eq!(segs[1]["section"], "rectangular", "flat under the beam: {r}");
@@ -1423,4 +1425,203 @@ fn a_duct_drawn_on_a_collar_with_a_size_has_its_cone_at_once_and_follows_the_col
     assert_eq!(reducer(&s), None, "as wide as the collar now");
     s.execute("ahuedit", &json!({"handle": ahu.0.hex(), "portSizes": [null, null, "800x300", null]})).unwrap();
     assert_eq!(reducer(&s), Some(800.0));
+}
+
+#[test]
+fn a_duct_laid_across_a_height_zone_is_cut_made_flat_and_given_the_zones_altitude_with_its_steps_at_once() {
+    let mut s = metric();
+    // A lone Ø300 duct (no unit, no terminal: sizing would leave it out), then a zone of 250 mm across it at an altitude.
+    let r = s.execute("ductadd", &json!({"points": [[0, 0], [0, 9000]], "diameter": 300})).unwrap();
+    assert_eq!(r["handles"].as_array().unwrap().len(), 1);
+    s.execute("zoneadd", &json!({"points": [[-1000, 3000], [1000, 3000], [1000, 6000], [-1000, 6000]], "voidHeight": 250, "altitude": 2.0})).unwrap();
+    let pieces = |s: &Session| {
+        let mut v: Vec<_> =
+            s.doc().unwrap().model.iter().filter_map(|e| s.doc().unwrap().duct_ends(e.handle).map(|(p, a, _)| (e.handle, p, a))).collect();
+        v.sort_by(|a, b| a.2.y.total_cmp(&b.2.y));
+        v
+    };
+    let got = pieces(&s);
+    assert_eq!(got.len(), 3, "cut where it enters and leaves the zone");
+    let (outer, inside) = (&got[0].1, &got[1].1);
+    assert_eq!((outer.shape, outer.diameter_mm), (cadcraft_doc::DuctShape::Round, 300.0), "outside the zone, as it was");
+    // 250 mm less the margin of 100 is 150 mm high; the same air section as Ø300 (70 686 mm²) is 500 mm wide (471 rounded up to 50).
+    assert_eq!((inside.shape, inside.height_mm, inside.width_mm), (cadcraft_doc::DuctShape::Rectangular, 150.0, 500.0), "{inside:?}");
+    assert_eq!(inside.bottom_mm, Some(2000.0), "the altitude of the zone's underside");
+    assert!(inside.steps.is_empty() && got[2].1.steps.is_empty(), "the outer pieces have no altitude: no step yet");
+    // Give the two outer pieces an altitude of 2.70 m: the steps down into the zone and up out of it are drawn at once.
+    s.execute("ductedit", &json!({"handles": [got[0].0.hex(), got[2].0.hex()], "altitude": 2.7})).unwrap();
+    let got = pieces(&s);
+    assert!(got[1].1.steps.iter().any(|st| (st.shift_mm - 700.0).abs() < 1.0 || (st.shift_mm + 700.0).abs() < 1.0), "{:?}", got[1].1.steps);
+    assert!(got[2].1.steps.iter().any(|st| (st.shift_mm.abs() - 700.0).abs() < 1.0), "{:?}", got[2].1.steps);
+    // A typed round section does not stay under the beam: Ø355 laid in the zone becomes flat as well.
+    let typed = s.execute("ductadd", &json!({"points": [[600, 3500], [600, 5500]], "diameter": 355})).unwrap();
+    let p = duct_of(s.doc().unwrap().entity(hd(&typed["handles"][0])).unwrap()).unwrap();
+    // Ø355 is 98 979 mm²: 150 mm high, 700 mm wide (660 rounded up to 50). It stays a section the user typed.
+    assert_eq!((p.shape, p.height_mm, p.width_mm, p.imposed), (cadcraft_doc::DuctShape::Rectangular, 150.0, 700.0, true), "{p:?}");
+}
+
+#[test]
+fn the_underside_of_a_unit_an_equipment_a_terminal_an_accessory_and_a_part_can_be_given_an_altitude_written_beside_it() {
+    let mut s = metric();
+    let altitude = |s: &Session, h: &Value| -> Option<f64> {
+        let e = s.doc().unwrap().entity(hd(h)).unwrap();
+        cadcraft_doc::ahu_of(e)
+            .map(|a| a.bottom_mm)
+            .or_else(|| cadcraft_doc::equipment_of(e).map(|q| q.bottom_mm))
+            .or_else(|| cadcraft_doc::air_terminal_of(e).map(|t| t.bottom_mm))
+            .or_else(|| cadcraft_doc::accessory_of(e).map(|a| a.bottom_mm))
+            .or_else(|| cadcraft_doc::part_of(e).map(|p| p.bottom_mm))
+            .unwrap()
+    };
+    let ahu = s.execute("ahuadd", &json!({"at": [0, 0]})).unwrap()["handle"].clone();
+    let equip = s.execute("equipmentadd", &json!({"at": [0, 3000], "kind": "ducted"})).unwrap()["handle"].clone();
+    let term = s.execute("airterminaladd", &json!({"at": [3000, 0], "flow": 200})).unwrap()["handles"][0].clone();
+    s.execute("ductadd", &json!({"points": [[500, 0], [2500, 0]]})).unwrap();
+    s.execute("ductaccessoryadd", &json!({"at": [1500, 0], "type": "damper"})).unwrap();
+    let acc = s.doc().unwrap().model.iter().find(|e| cadcraft_doc::accessory_of(e).is_some()).map(|e| json!(e.handle.hex())).unwrap();
+    let part = s.execute("pipepartadd", &json!({"at": [6000, 0], "model": "Balancing valve (TA)"})).unwrap()["handle"].clone();
+    for (cmd, h) in [("ahuedit", &ahu), ("equipmentedit", &equip), ("airterminaledit", &term), ("ductaccessoryedit", &acc), ("pipepartedit", &part)] {
+        s.execute(cmd, &json!({"handle": h, "altitude": null})).unwrap();
+        assert_eq!(altitude(&s, h), None, "{cmd}");
+        s.execute(cmd, &json!({"handle": h, "altitude": 2.5})).unwrap();
+        assert_eq!(altitude(&s, h), Some(2500.0), "{cmd}");
+        assert!(s.execute(cmd, &json!({"handle": h, "altitude": "high"})).is_err(), "{cmd}");
+        s.execute(cmd, &json!({"handle": h, "altitude": null})).unwrap();
+        assert_eq!(altitude(&s, h), None, "{cmd}: null gives it back");
+        s.execute(cmd, &json!({"handle": h, "altitude": 3.1})).unwrap();
+    }
+    // The altitude is written beside the element ("Ai:3.10"), on its label or spec block.
+    let texts = |h: &Value| -> Vec<String> {
+        let d = s.doc().unwrap();
+        let e = d.entity(hd(h)).unwrap();
+        let EntityKind::Insert(i) = &e.kind else { return Vec::new() };
+        d.blocks
+            .get(&i.block)
+            .map(|b| b.entities.iter().filter_map(|x| if let EntityKind::Text(t) = &x.kind { Some(t.value.clone()) } else { None }).collect())
+            .unwrap_or_default()
+    };
+    for (name, h) in [("ahu", &ahu), ("equipment", &equip), ("terminal", &term), ("accessory", &acc), ("part", &part)] {
+        assert!(texts(h).iter().any(|t| t.contains("Ai:3.10")), "{name}: {:?}", texts(h));
+    }
+}
+
+#[test]
+fn new_equipment_units_and_terminals_start_at_the_altitudes_asked_and_they_can_be_changed() {
+    let mut s = metric();
+    let altitude = |s: &Session, h: &Value| -> Option<f64> {
+        let e = s.doc().unwrap().entity(hd(h)).unwrap();
+        cadcraft_doc::equipment_of(e)
+            .map(|q| q.bottom_mm)
+            .or_else(|| cadcraft_doc::ahu_of(e).map(|a| a.bottom_mm))
+            .or_else(|| cadcraft_doc::air_terminal_of(e).map(|t| t.bottom_mm))
+            .unwrap()
+    };
+    // Equipment: cassette 2.5 m, wall unit 2 m, ceiling unit 2 m, ducted 2.7 m, console 0 m; the ones that stand outdoors have none.
+    for (kind, mm) in [
+        ("cassette", Some(2500.0)),
+        ("wallUnit", Some(2000.0)),
+        ("ceilingUnit", Some(2000.0)),
+        ("ducted", Some(2700.0)),
+        ("floorUnit", Some(0.0)),
+        ("chiller", None),
+    ] {
+        let r = s.execute("equipmentadd", &json!({"at": [0, 0], "kind": kind})).unwrap();
+        assert_eq!(altitude(&s, &r["handle"]), mm, "{kind}");
+    }
+    // Changed when it is asked for, at the placing or later.
+    let r = s.execute("equipmentadd", &json!({"at": [0, 0], "kind": "cassette", "altitude": 3.0})).unwrap();
+    assert_eq!(altitude(&s, &r["handle"]), Some(3000.0));
+    s.execute("equipmentedit", &json!({"handle": r["handle"], "altitude": null})).unwrap();
+    assert_eq!(altitude(&s, &r["handle"]), None);
+    // Another model of the same kind keeps the altitude it was given.
+    s.execute("equipmentedit", &json!({"handle": r["handle"], "altitude": 2.2})).unwrap();
+    s.execute("equipmentedit", &json!({"handle": r["handle"], "capacityKw": 5})).unwrap();
+    assert_eq!(altitude(&s, &r["handle"]), Some(2200.0));
+    // A horizontal double-flow unit hangs at 2.70 m, the other units have none.
+    let dbl = s.execute("ahuadd", &json!({"at": [0, 5000], "type": "doubleFlow"})).unwrap();
+    let sup = s.execute("ahuadd", &json!({"at": [0, 9000], "type": "supplyUnit"})).unwrap();
+    let own = s.execute("ahuadd", &json!({"at": [0, 12000], "type": "doubleFlow", "altitude": 3.4})).unwrap();
+    assert_eq!((altitude(&s, &dbl["handle"]), altitude(&s, &sup["handle"]), altitude(&s, &own["handle"])), (Some(2700.0), None, Some(3400.0)));
+    // Every terminal, grille or diffuser, is at 2.50 m.
+    let t = s.execute("airterminaladd", &json!({"at": [3000, 0], "flow": 200})).unwrap();
+    let g = s.execute("airterminaladd", &json!({"at": [4000, 0], "flow": 200, "type": "grille"})).unwrap();
+    let o = s.execute("airterminaladd", &json!({"at": [5000, 0], "flow": 200, "altitude": 2.9})).unwrap();
+    assert_eq!(
+        (altitude(&s, &t["handles"][0]), altitude(&s, &g["handles"][0]), altitude(&s, &o["handles"][0])),
+        (Some(2500.0), Some(2500.0), Some(2900.0))
+    );
+}
+
+#[test]
+fn ductconnect_gives_a_rigid_collar_with_the_cone_of_a_reduction_where_the_trunk_is_wider_than_the_flexible() {
+    let mut s = metric();
+    // A rigid Ø315 trunk along x and a terminal with a 160 mm neck two metres away from it.
+    s.execute("ductadd", &json!({"points": [[0, 0], [6000, 0]], "diameter": 315})).unwrap();
+    s.execute("airterminaladd", &json!({"at": [3000, 2000], "flow": 150})).unwrap();
+    let r = s.execute("ductconnect", &json!({})).unwrap();
+    let created: Vec<Handle> = r["created"].as_array().unwrap().iter().map(hd).collect();
+    assert_eq!(created.len(), 2, "a rigid collar and the flexible duct: {r}");
+    let (collar, flex) =
+        (duct_of(s.doc().unwrap().entity(created[0]).unwrap()).unwrap(), duct_of(s.doc().unwrap().entity(created[1]).unwrap()).unwrap());
+    assert!(!collar.flexible && flex.flexible);
+    assert_eq!((collar.diameter_mm, flex.diameter_mm), (160.0, 160.0), "both as wide as the neck");
+    // The collar starts on the axis of the trunk: the cone is on it, from the trunk's width, at once.
+    assert_eq!(collar.reducer.map(|r| (r.from_mm, r.at_end)), Some((315.0, false)), "{collar:?}");
+    assert!(flex.reducer.is_none(), "a flexible duct takes no cone");
+    // The flexible goes on from the end of the collar to the terminal, in line with it.
+    let ends = |h: Handle| s.doc().unwrap().duct_ends(h).map(|(_, a, b)| (a, b)).unwrap();
+    assert!(ends(created[0]).1.dist(ends(created[1]).0) < 1e-6 && ends(created[1]).1.dist(cadcraft_geom::Vec2::new(3000.0, 2000.0)) < 1e-6);
+    // A terminal too near the trunk for a collar gets the flexible duct alone, as before; a neck as wide as the trunk needs no cone.
+    let t2 = s.execute("airterminaladd", &json!({"at": [5000, 300], "flow": 150})).unwrap();
+    let near = s.execute("ductconnect", &json!({"terminals": t2["handles"]})).unwrap();
+    assert_eq!(near["created"].as_array().unwrap().len(), 1, "{near}");
+}
+
+#[test]
+fn an_extract_terminal_is_a_d125_unless_another_size_is_named() {
+    let mut s = metric();
+    let neck = |s: &Session, r: &Value| cadcraft_doc::air_terminal_of(s.doc().unwrap().entity(hd(&r["handles"][0])).unwrap()).unwrap().model;
+    // A small flow would have taken the smallest model: the extract ones start at Ø125.
+    let small = s.execute("airterminaladd", &json!({"at": [0, 0], "flow": 30, "air": "extract"})).unwrap();
+    assert_eq!((neck(&s, &small).kind, neck(&s, &small).neck_mm), (cadcraft_doc::TerminalKind::Extract, 125.0), "{:?}", neck(&s, &small));
+    // A bigger flow takes the next size that carries it; another size can be named.
+    let big = s.execute("airterminaladd", &json!({"at": [1000, 0], "flow": 120, "air": "extract"})).unwrap();
+    assert!(neck(&s, &big).neck_mm >= 125.0 && neck(&s, &big).max_flow_m3h >= 120.0);
+    let named = s.execute("airterminaladd", &json!({"at": [2000, 0], "flow": 30, "air": "extract", "model": "EX100"})).unwrap();
+    assert_eq!(neck(&s, &named).neck_mm, 100.0);
+    // Supply terminals are as before: the smallest that carries the flow.
+    let supply = s.execute("airterminaladd", &json!({"at": [3000, 0], "flow": 30})).unwrap();
+    assert!(neck(&s, &supply).max_flow_m3h >= 30.0);
+}
+
+#[test]
+fn a_building_section_shows_the_terminals_ducts_units_and_equipment_the_line_crosses_at_their_altitudes() {
+    let mut s = metric();
+    // Along x at y = 500: a double-flow unit (2.70 m), a duct across the line (typed at 2.60 m, Ø250), a diffuser (2.50 m) and a cassette (2.50 m).
+    s.execute("ahuadd", &json!({"at": [-2000, 500], "type": "doubleFlow", "height": 1200})).unwrap();
+    s.execute("ductadd", &json!({"points": [[1000, -500], [1000, 1500]], "diameter": 250, "altitude": 2.6})).unwrap();
+    s.execute("airterminaladd", &json!({"at": [3000, 500], "flow": 150})).unwrap();
+    s.execute("equipmentadd", &json!({"at": [5000, 500], "kind": "cassette"})).unwrap();
+    // One that is off the line is not drawn.
+    s.execute("airterminaladd", &json!({"at": [3000, 4000], "flow": 150})).unwrap();
+    let r = s.execute("sectionadd", &json!({"a": [-4000, 500], "b": [7000, 500], "name": "H"})).unwrap();
+    assert_eq!((r["ducts"].as_u64(), r["terminals"].as_u64(), r["equipment"].as_u64()), (Some(1), Some(1), Some(2)), "{r}");
+    let d = s.doc().unwrap();
+    let block = d.model.iter().find_map(|e| match &e.kind {
+        EntityKind::Insert(i) if e.common.layer == "A-SECT" => Some(i.block.clone()),
+        _ => None,
+    });
+    let pieces: Vec<&EntityKind> = d.blocks.get(&block.unwrap()).unwrap().entities.iter().map(|e| &e.kind).collect();
+    // The round duct across the line is a circle Ø250 whose underside is at 2.60 m: its centre at 2.725 m.
+    let circle = pieces.iter().find_map(|k| if let EntityKind::Circle(c) = k { Some(c) } else { None }).expect("a circle for the duct");
+    assert!((circle.radius - 125.0).abs() < 1e-6 && (circle.center.y - 2725.0).abs() < 1e-6, "{circle:?}");
+    // The rectangles of the unit (from 2.70 m, 1200 high), the diffuser (from 2.50 m) and the cassette (from 2.50 m).
+    let bottoms: Vec<f64> = pieces
+        .iter()
+        .filter_map(|k| if let EntityKind::LwPolyline(l) = k { l.vertices.iter().map(|v| v.p.y).reduce(f64::min) } else { None })
+        .collect();
+    for want in [2700.0, 2500.0] {
+        assert!(bottoms.iter().any(|b| (b - want).abs() < 1e-6), "{want} in {bottoms:?}");
+    }
+    assert!(bottoms.iter().filter(|b| (**b - 2500.0).abs() < 1e-6).count() >= 2, "the diffuser and the cassette: {bottoms:?}");
 }

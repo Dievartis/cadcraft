@@ -1,12 +1,13 @@
 //! A building section: the drawing cut along a line, seen straight on, as a picture in model space beside the plan. The walls the line crosses are
 //! drawn with their openings (sill and head), the slabs with their thickness and openings, the steel columns and beams, and the false ceilings, each
-//! at its elevation, with the levels in the margin. It is one block reference, so it moves, copies and explodes like any other object, and it is a
+//! at its elevation, with the levels in the margin. The air terminals, the ducts, the air handling units, the equipment and the pipes the line crosses are
+//! drawn too, each at the altitude of its underside (the terminals at 2.50 m and the ducts at 2.50 m where none was given). It is one block reference, so it moves, copies and explodes like any other object, and it is a
 //! picture made now: it does not follow later changes to the plan. Slopes of slabs and roofs are not drawn.
 
 use cadcraft_geom::{PolyVertex, Vec2};
 
 use super::{WallParams, joint, wall_of};
-use crate::ventilation::{HvacPiece, HvacUnits, ceiling_of, slab_of, struct_of};
+use crate::ventilation::{HvacPiece, HvacUnits, ahu_of, air_terminal_of, ceiling_of, duct_of, equipment_of, pipe_of, slab_of, struct_of};
 use crate::{
     Common, DocError, Drawing, EntityKind, HAlign, Handle, Hatch, HatchLoop, Insert, Line, LwPolyline, OpeningKind, Result, Space, Text, VAlign,
     opening_of,
@@ -31,6 +32,11 @@ pub struct SectionCount {
     pub columns: usize,
     pub beams: usize,
     pub ceilings: usize,
+    /// The ducts, the air terminals, the units and equipment, and the pipes the line goes through (a duct it crosses twice counts twice).
+    pub ducts: usize,
+    pub terminals: usize,
+    pub equipment: usize,
+    pub pipes: usize,
 }
 
 /// The cut line from `a`, `len` long, and what is measured along and across it.
@@ -184,6 +190,33 @@ impl Picture {
         }
     }
 
+    /// A rectangle in the layer of an object of the HVAC family, from station `x0` to `x1` and elevation `y0` to `y1` (mm), outlined only.
+    fn rect_on(&mut self, layer: &'static str, x0: f64, x1: f64, y0_mm: f64, y1_mm: f64) {
+        if !(x1 - x0 > 1e-9 && y1_mm - y0_mm > 1e-9) {
+            return;
+        }
+        let (y0, y1) = (self.u(y0_mm), self.u(y1_mm));
+        let corners = [Vec2::new(x0, y0), Vec2::new(x1, y0), Vec2::new(x1, y1), Vec2::new(x0, y1)];
+        self.push(HvacPiece {
+            layer,
+            kind: EntityKind::LwPolyline(LwPolyline {
+                vertices: corners.iter().map(|p| PolyVertex::new(*p)).collect(),
+                closed: true,
+                const_width: 0.0,
+                elevation: 0.0,
+                plinegen: false,
+            }),
+        });
+    }
+
+    /// A circle at station `x` and elevation `y_mm`, `d_mm` across, in the layer of an object of the HVAC family.
+    fn circle_on(&mut self, layer: &'static str, x: f64, y_mm: f64, d_mm: f64) {
+        let r = self.u(d_mm) / 2.0;
+        if r > 1e-9 {
+            self.push(HvacPiece { layer, kind: EntityKind::Circle(crate::Circle { center: v3(Vec2::new(x, self.u(y_mm))), radius: r }) });
+        }
+    }
+
     fn text(&mut self, at: Vec2, height_mm: f64, value: String, halign: HAlign) {
         let t = Text {
             insert: v3(at),
@@ -272,6 +305,7 @@ impl Drawing {
                 }
             }
         }
+        self.section_hvac(&mut pic, &cut, &entities);
         // The ground line and the levels in the margin.
         pic.levels.sort_by(f64::total_cmp);
         pic.levels.dedup_by(|p, q| (*p - *q).abs() < 1.0);
@@ -285,6 +319,81 @@ impl Drawing {
         let title = format!("{:.0}", cut.len * pic.units.mm_per_unit);
         pic.text(Vec2::new(cut.len / 2.0, -pic.u(500.0)), 200.0, title, HAlign::Center);
         Ok((cut.len, pic))
+    }
+
+    /// The air terminals, ducts, units, equipment and pipes the cut line goes through, each at the altitude of its underside.
+    fn section_hvac(&self, pic: &mut Picture, cut: &Cut, entities: &[&crate::Entity]) {
+        use crate::ventilation::{AHU_LAYER, AIR_TERMINAL_LAYER, EQUIPMENT_LAYER};
+        // Where nothing was given: a duct has its underside at 2.50 m, an air terminal is at 2.50 m.
+        const DEFAULT_DUCT_BOTTOM_MM: f64 = 2500.0;
+        // The thickness of a diffuser or a grille, mm, and the height of a unit that has none.
+        const TERMINAL_THICKNESS_MM: f64 = 60.0;
+        const UNIT_HEIGHT_MM: f64 = 1000.0;
+        // A plan rectangle of half sizes (`hx` along its axis, `hy` across) turned like the object it belongs to.
+        let rotated = |i: &Insert, centre: Vec2, hx: f64, hy: f64| -> Vec<Vec2> {
+            let (c, s) = (i.rotation.cos(), i.rotation.sin());
+            [(-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy)].iter().map(|(x, y)| centre + Vec2::new(x * c - y * s, x * s + y * c)).collect()
+        };
+        for e in entities {
+            let EntityKind::Insert(i) = &e.kind else { continue };
+            let at = Vec2::new(i.insert.x, i.insert.y);
+            if let Some(t) = air_terminal_of(e) {
+                let (half, bottom) = (t.half(), t.bottom_mm.unwrap_or(crate::ventilation::DEFAULT_TERMINAL_BOTTOM_MM));
+                for (x0, x1) in cut.inside(&rotated(i, at, half.x, half.y)) {
+                    pic.count.terminals += 1;
+                    pic.rect_on(AIR_TERMINAL_LAYER, x0, x1, bottom, bottom + TERMINAL_THICKNESS_MM);
+                }
+            } else if let Some(p) = duct_of(e) {
+                let (length, half) = (p.length * i.scale.x, p.units.to_units(p.plan_width_mm()) / 2.0);
+                let axis = Vec2::from_angle(i.rotation);
+                let local = [at, at + axis * length];
+                let corners =
+                    [local[0] + axis.perp() * half, local[1] + axis.perp() * half, local[1] - axis.perp() * half, local[0] - axis.perp() * half];
+                let bottom = p.altitude_mm().unwrap_or(DEFAULT_DUCT_BOTTOM_MM);
+                let tall = match p.shape {
+                    crate::ventilation::DuctShape::Round => p.diameter_mm,
+                    crate::ventilation::DuctShape::Rectangular => p.height_mm,
+                };
+                for (x0, x1) in cut.inside(&corners) {
+                    pic.count.ducts += 1;
+                    let wide = (x1 - x0) * pic.units.mm_per_unit;
+                    // A round duct the line crosses squarely is a circle; one it follows, or crosses aslant, is the strip it makes.
+                    if p.shape == crate::ventilation::DuctShape::Round && wide <= 1.3 * p.diameter_mm {
+                        pic.circle_on(p.layer(), (x0 + x1) / 2.0, bottom + tall / 2.0, tall);
+                    } else {
+                        pic.rect_on(p.layer(), x0, x1, bottom, bottom + tall);
+                    }
+                }
+            } else if let Some(a) = ahu_of(e) {
+                let half = a.half();
+                let bottom = a.bottom_mm.unwrap_or(0.0);
+                for (x0, x1) in cut.inside(&rotated(i, at, half.x, half.y)) {
+                    pic.count.equipment += 1;
+                    pic.rect_on(AHU_LAYER, x0, x1, bottom, bottom + a.height_mm.unwrap_or(UNIT_HEIGHT_MM));
+                }
+            } else if let Some(q) = equipment_of(e) {
+                let (hx, hy) = (q.units.to_units(q.length_mm) / 2.0, q.units.to_units(q.width_mm) / 2.0);
+                let bottom = q.bottom_mm.unwrap_or(0.0);
+                for (x0, x1) in cut.inside(&rotated(i, at, hx, hy)) {
+                    pic.count.equipment += 1;
+                    pic.rect_on(EQUIPMENT_LAYER, x0, x1, bottom, bottom + q.height_mm);
+                }
+            } else if let Some((p, a, b)) = pipe_of(e).and_then(|p| self.pipe_ends(e.handle).map(|(_, a, b)| (p, a, b))) {
+                // A pipe is drawn where it has an altitude: as a circle across it, or a strip along it.
+                let Some(bottom) = p.level_mm else { continue };
+                let (half, axis) = (p.units.to_units(p.plan_width_mm()) / 2.0, (b - a).normalized());
+                let corners = [a + axis.perp() * half, b + axis.perp() * half, b - axis.perp() * half, a - axis.perp() * half];
+                for (x0, x1) in cut.inside(&corners) {
+                    pic.count.pipes += 1;
+                    let wide = (x1 - x0) * pic.units.mm_per_unit;
+                    if wide <= 1.3 * p.plan_width_mm() {
+                        pic.circle_on(p.layer(), (x0 + x1) / 2.0, bottom + p.plan_width_mm() / 2.0, p.plan_width_mm());
+                    } else {
+                        pic.rect_on(p.layer(), x0, x1, bottom, bottom + p.plan_width_mm());
+                    }
+                }
+            }
+        }
     }
 
     /// Draws the section along `a` to `b` named `name`, its ground level at `at` (drawing coordinates; to the right of the drawing when `None`),

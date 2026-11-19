@@ -337,7 +337,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         separator(ui);
         header(ui, "Ducts");
         for (kind, label) in [
-            (AhuKind::DoubleFlow, "Double-flow unit"),
+            (AhuKind::DoubleFlow, "Double-flow unit, horizontal"),
             (AhuKind::SupplyUnit, "Supply unit"),
             (AhuKind::ExtractUnit, "Extract unit"),
             (AhuKind::VmcBox, "Ventilation box"),

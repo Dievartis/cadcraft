@@ -125,7 +125,7 @@ fn standard_models_are_valid_and_the_smallest_fitting_one_is_chosen() {
 
 fn terminal(name: &str, flow: f64) -> TerminalParams {
     let model = standard_air_terminal_models().into_iter().find(|m| m.name == name).unwrap();
-    TerminalParams { model, flow_m3h: flow, air: AirDirection::Supply, label_height_mm: 100.0, units: HvacUnits::default() }
+    TerminalParams { model, flow_m3h: flow, air: AirDirection::Supply, label_height_mm: 100.0, bottom_mm: None, units: HvacUnits::default() }
 }
 
 #[test]

@@ -153,6 +153,7 @@ impl PartModel {
             zeta: None,
             network: String::new(),
             label_height_mm: 100.0,
+            bottom_mm: None,
             units,
         }
     }

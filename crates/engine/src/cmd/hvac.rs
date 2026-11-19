@@ -400,8 +400,18 @@ fn choose_model(d: &Drawing, model: &str, kind: TerminalKind, flow: f64) -> Resu
 }
 
 /// Places one terminal of `model` per point; a standard model used is copied into the drawing.
-fn place(s: &mut Session, model: TerminalModel, flow: f64, air: AirDirection, label_mm: f64, at: &[Vec2], rotation: f64) -> Result<Vec<Handle>> {
-    let p = TerminalParams { model, flow_m3h: flow, air, label_height_mm: label_mm, units: HvacUnits::of(s.doc()?) };
+/// `look` is the label's height and the altitude of the underside, mm.
+fn place(
+    s: &mut Session,
+    model: TerminalModel,
+    flow: f64,
+    air: AirDirection,
+    look: (f64, Option<f64>),
+    at: &[Vec2],
+    rotation: f64,
+) -> Result<Vec<Handle>> {
+    let (label_mm, bottom_mm) = look;
+    let p = TerminalParams { model, flow_m3h: flow, air, label_height_mm: label_mm, bottom_mm, units: HvacUnits::of(s.doc()?) };
     p.validate().map_err(doc_err)?;
     let space = s.space();
     let common = s.current_common();
@@ -470,7 +480,9 @@ fn run_airterminaladd(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let model = choose_model(s.doc()?, str_param(p, "model").unwrap_or(""), kind, each)?;
     let name = model.name.clone();
-    let handles = place(s, model, each, air, label_mm, &points, rotation)?;
+    // At 2.50 m unless an altitude was given (null for none).
+    let bottom = super::altitude_param(CMD, p)?.unwrap_or(Some(cadcraft_doc::DEFAULT_TERMINAL_BOTTOM_MM));
+    let handles = place(s, model, each, air, (label_mm, bottom), &points, rotation)?;
     Ok(json!({ "handles": handles.iter().map(|h| h.hex()).collect::<Vec<_>>(), "model": name, "flow": each }))
 }
 
@@ -510,7 +522,7 @@ impl TerminalAddM {
     fn place_at(&mut self, s: &mut Session, at: &[Vec2], flow: f64, rotation: f64) -> Result<()> {
         let model = choose_model(s.doc()?, &self.last.model, self.last.kind, flow)?;
         let name = model.name.clone();
-        let n = place(s, model, flow, self.last.air, 100.0, at, rotation)?.len();
+        let n = place(s, model, flow, self.last.air, (100.0, Some(cadcraft_doc::DEFAULT_TERMINAL_BOTTOM_MM)), at, rotation)?.len();
         s.echo(format!("{n} × {name}, {flow:.0} m³/h"));
         self.remember(s);
         Ok(())
@@ -667,7 +679,14 @@ impl Interactive for TerminalAddM {
         // The terminal as chosen, under the cursor at once, then turned toward it once placed.
         let Ok(d) = s.doc() else { return Vec::new() };
         let Ok(model) = choose_model(d, &self.last.model, self.last.kind, self.last.flow_m3h) else { return Vec::new() };
-        let p = TerminalParams { model, flow_m3h: self.last.flow_m3h, air: self.last.air, label_height_mm: 100.0, units: HvacUnits::of(d) };
+        let p = TerminalParams {
+            model,
+            flow_m3h: self.last.flow_m3h,
+            air: self.last.air,
+            label_height_mm: 100.0,
+            bottom_mm: None,
+            units: HvacUnits::of(d),
+        };
         match self.ask {
             TermAsk::Location => p.preview(c, 0.0),
             TermAsk::Rotation(at) if !c.near(at, 1e-9) => p.preview(at, (c - at).angle()),
@@ -986,6 +1005,8 @@ struct TerminalChange {
     air: Option<AirDirection>,
     /// Radians.
     rotation: Option<f64>,
+    /// The altitude of the underside, mm: given, or cleared.
+    altitude: Option<Option<f64>>,
 }
 
 fn selected_terminals(d: &Drawing, hs: &[Handle]) -> Result<Vec<(Handle, TerminalParams)>> {
@@ -1007,6 +1028,9 @@ fn edit_terminals(s: &mut Session, hs: &[Handle], c: &TerminalChange) -> Result<
         }
         if let Some(a) = c.air {
             p.air = a;
+        }
+        if let Some(b) = c.altitude {
+            p.bottom_mm = b;
         }
         let auto = c.model.as_deref().is_some_and(|m| m.trim().eq_ignore_ascii_case("auto"));
         match (&c.model, c.kind) {
@@ -1110,6 +1134,7 @@ fn run_airterminaledit(s: &mut Session, p: &Value) -> Result<Value> {
             None | Some(Value::Null) => None,
             Some(v) => Some(v.as_f64().filter(|a| a.is_finite()).ok_or_else(|| bad(CMD, "`rotation` must be a number"))?.to_radians()),
         },
+        altitude: super::altitude_param(CMD, p)?,
     };
     let n = edit_terminals(s, &hs, &c)?;
     Ok(json!({ "regenerated": n }))

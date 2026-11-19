@@ -27,7 +27,7 @@ fn drawing() -> (Drawing, SpaceParams, TerminalParams) {
         units: HvacUnits::of(&d),
     };
     d.add_space(&Space::Model, Common::default(), space.clone()).expect("add space");
-    let t = TerminalParams { model, flow_m3h: 180.0, air: AirDirection::Supply, label_height_mm: 100.0, units: HvacUnits::of(&d) };
+    let t = TerminalParams { model, flow_m3h: 180.0, air: AirDirection::Supply, label_height_mm: 100.0, bottom_mm: None, units: HvacUnits::of(&d) };
     d.add_air_terminal(&Space::Model, Common::default(), &t, Vec2::new(2000.0, 2500.0), 0.0).expect("add terminal");
     (d, space, t)
 }
@@ -86,6 +86,7 @@ fn ducted() -> Drawing {
         address: String::new(),
         show_address: true,
         label_height_mm: 100.0,
+        bottom_mm: None,
         units,
     };
     d.add_ahu(&Space::Model, Common::default(), &ahu, Vec2::ZERO, 0.0).expect("add unit");
@@ -132,11 +133,12 @@ fn ducted() -> Drawing {
         zeta: None,
         pressure_drop_pa: Some(35.0),
         label_height_mm: 100.0,
+        bottom_mm: None,
         units,
     };
     d.add_accessory(&Space::Model, Common::default(), &silencer, Vec2::new(3000.0, 0.0), 0.0).expect("add accessory");
     let model = standard_air_terminal_models().into_iter().next().expect("a model");
-    let t = TerminalParams { model, flow_m3h: 150.0, air: AirDirection::Supply, label_height_mm: 100.0, units };
+    let t = TerminalParams { model, flow_m3h: 150.0, air: AirDirection::Supply, label_height_mm: 100.0, bottom_mm: None, units };
     for at in [(9000.0, 0.0), (6000.0, 3000.0)] {
         d.add_air_terminal(&Space::Model, Common::default(), &t, Vec2::new(at.0, at.1), 0.0).expect("add terminal");
     }

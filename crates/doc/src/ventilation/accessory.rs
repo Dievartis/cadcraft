@@ -121,6 +121,9 @@ pub struct AccessoryParams {
     pub pressure_drop_pa: Option<f64>,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
+    /// The altitude of the underside of the element, mm above the drawing's zero, when it is given: written beside it ("Ai:2.50") and kept for the takeoff.
+    #[serde(default)]
+    pub bottom_mm: Option<f64>,
     #[serde(default)]
     pub units: HvacUnits,
 }
@@ -128,6 +131,7 @@ pub struct AccessoryParams {
 impl AccessoryParams {
     pub fn validate(&self) -> Result<()> {
         check_label_height(self.label_height_mm)?;
+        super::check_altitude(self.bottom_mm)?;
         self.units.validate()?;
         if !(self.length_mm.is_finite() && self.length_mm > 0.0 && self.length_mm <= MAX_ACCESSORY_LENGTH_MM) {
             return Err(invalid(format!("An accessory is longer than 0 and at most {MAX_ACCESSORY_LENGTH_MM} mm.")));
@@ -224,6 +228,10 @@ impl AccessoryParams {
         let text = match self.loss() {
             Loss::Pascals(p) if self.kind == AccessoryKind::Silencer => format!("{} {p:.0} Pa", self.kind.code()),
             _ => format!("{} Ø{:.0}", self.kind.code(), self.diameter_mm),
+        };
+        let text = match super::altitude_tag(self.bottom_mm) {
+            Some(t) => format!("{text} {t}"),
+            None => text,
         };
         v.push(HvacPiece { layer, kind: label(Vec2::new(0.0, -half.y - 1.2 * h), h, text) });
         Ok(v)

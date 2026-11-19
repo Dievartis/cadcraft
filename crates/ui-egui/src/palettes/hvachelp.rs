@@ -60,9 +60,9 @@ const HELPS: &[Help] = &[
             "Click the corners of the outline where ducts have less height (under a beam, a low ceiling), seen from above, then press Enter.",
             "Type the height available for the ducts, in mm: the void under the beam. Sizing keeps a margin back for the hangers (100 mm by default), so 250 mm available gives a duct 150 mm high.",
             "The altitude of the underside is optional: ducts under the zone sit at that altitude, and a step (two 45° elbows) is drawn between two runs at other altitudes as soon as they are laid.",
-            "Size Ducts cuts the ducts at the edges of the zone and sizes the part inside flat: a round duct that is too tall becomes rectangular, as wide as the flow needs.",
-            "The duct must be part of a network: start it on a unit's collar and end it on a terminal or a riser. A duct that leads to none is left out of the sizing, and the message says so.",
-            "A section you typed on a duct is kept: a duct you gave Ø355 stays Ø355 under the beam, and the sizing warns that it is too tall. Set its section to Auto in Properties to let the zone change it.",
+            "As soon as a duct is laid across the zone it is cut at its edges and the part inside is made flat: a duct too tall for the height available becomes rectangular, as high as allowed and as wide as it takes to keep the same air section. A section you typed is changed the same way.",
+            "Size Ducts, later, sizes each piece for its flow in the height available (a network: start on a unit's collar, end on a terminal or a riser); a duct that leads to none keeps the flat section it was given.",
+            "The altitude of the zone's underside is given to the pieces inside, unless they have their own, and where two runs are at other altitudes the step (two 45° elbows) is drawn at once, with no sizing.",
             "To change the zone afterwards, select it and edit its height or its altitude in Properties, then run Size Ducts again.",
         ],
         figures: &[

@@ -297,6 +297,52 @@ impl crate::Drawing {
         Ok(cuts)
     }
 
+    /// Gives the ducts that cross a height zone what the zone says, as soon as they are laid (sizing does the same, from the flows, later): each is cut where it enters
+    /// and leaves the zone, the pieces inside take the altitude of the zone's underside (unless they were given theirs) and, where a piece is taller than the zone
+    /// allows (the height available less the margin), it becomes a flat rectangular duct of the same air section: as high as allowed, as wide as it takes (to 50 mm).
+    /// A duct a section was typed for is changed the same way: it could not go under the beam as it was. Returns how many ducts were cut or changed.
+    pub fn draw_height_zones(&mut self, space: &crate::Space) -> Result<usize> {
+        let units = HvacUnits::of(self);
+        let zones: Vec<(Vec<Vec2>, f64, Option<f64>)> =
+            self.model.iter().filter_map(|e| self.zone_outline(e.handle)).map(|(z, outline)| (outline, z.void_height_mm, z.bottom_mm)).collect();
+        if zones.is_empty() {
+            return Ok(0);
+        }
+        let mut changed = self.split_ducts_at_zones(space, units.to_units(MEET_MM))?;
+        let ducts: Vec<Handle> = self.model.iter().filter(|e| self.duct_ends(e.handle).is_some()).map(|e| e.handle).collect();
+        for h in ducts {
+            let Some((p, a, b)) = self.duct_ends(h) else { continue };
+            let Some((_, void, bottom)) = zones.iter().find(|(outline, ..)| cadcraft_geom::point_in_polygon(outline, a.mid(b))) else { continue };
+            if p.flexible {
+                continue;
+            }
+            let mut next = p.clone();
+            if next.level_mm.is_none() {
+                next.bottom_mm = *bottom;
+            }
+            // The tallest the duct may be here, to 10 mm below; a zone too low for the smallest duct is left to the sizing's message.
+            let allowed = ((void - DEFAULT_MARGIN_MM) / 10.0).floor() * 10.0;
+            let (width, height) = match p.shape {
+                super::DuctShape::Round => (p.diameter_mm, p.diameter_mm),
+                super::DuctShape::Rectangular => (p.width_mm, p.height_mm),
+            };
+            if allowed >= 50.0 && height > allowed + 0.5 {
+                let area = match p.shape {
+                    super::DuctShape::Round => std::f64::consts::PI * p.diameter_mm * p.diameter_mm / 4.0,
+                    super::DuctShape::Rectangular => width * height,
+                };
+                let wide = (area / allowed / 50.0).ceil() * 50.0;
+                (next.shape, next.width_mm, next.height_mm) = (super::DuctShape::Rectangular, wide, allowed);
+                next.diameter_mm = cadcraft_hvac::equivalent_diameter_mm(wide, allowed);
+            }
+            if next != p {
+                self.regenerate_duct(h, &next)?;
+                changed += 1;
+            }
+        }
+        Ok(changed)
+    }
+
     /// Cuts every duct where it enters or leaves a height zone, so each piece lies wholly in or out
     /// of it and is sized for the height there.
     fn split_ducts_at_zones(&mut self, space: &crate::Space, tol: f64) -> Result<usize> {

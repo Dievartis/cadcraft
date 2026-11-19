@@ -1995,3 +1995,8 @@ menu	View	视图
 	2. Why 300 mm: the round duct does not fit	2. 为什么是 300 mm：圆管放不下
 	3. What Size Ducts does	3. “风管选型”做什么
 	4. Option: an altitude, and the steps make themselves	4. 可选：设置标高，台阶自动生成
+	As soon as a duct is laid across the zone it is cut at its edges and the part inside is made flat: a duct too tall for the height available becomes rectangular, as high as allowed and as wide as it takes to keep the same air section. A section you typed is changed the same way.	风管一铺设到区域上方，就会在区域边缘被切断，区域内的部分被压扁：对可用高度过高的风管变为矩形，高度取允许值，宽度按保持相同风道截面所需确定。您输入的截面也会同样被修改。
+	Size Ducts, later, sizes each piece for its flow in the height available (a network: start on a unit's collar, end on a terminal or a riser); a duct that leads to none keeps the flat section it was given.	之后“风管选型”会按风量在可用高度内为每一段选型（管网：从机组接口出发，终止于风口或立管）；不通向任何终端的风管保留已给定的扁平截面。
+	The altitude of the zone's underside is given to the pieces inside, unless they have their own, and where two runs are at other altitudes the step (two 45° elbows) is drawn at once, with no sizing.	区域底部标高会赋予区域内的各段（除非它们有自己的标高），两段标高不同的风管之间会立即绘制过渡段（两个 45° 弯头），无需选型。
+	Double-flow unit, horizontal	双流机组，水平
+	Double-flow unit, vertical	双流机组，垂直

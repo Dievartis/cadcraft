@@ -286,6 +286,21 @@ fn reducers<P: RunParams>(
             let through: Vec<usize> =
                 others.iter().copied().filter(|i| runs.get(*i).is_some_and(|o| o.a.dist(p) > tol && o.b.dist(p) > tol)).collect();
             let held = has(&out, k, at_end);
+            // A run that starts where two runs in line meet (a trunk cut in two there) is a branch of that trunk, as one that starts on its side is: the cone is
+            // from the trunk's width.
+            let in_line = |a: usize, b: usize| -> bool {
+                let ends = |i: usize| runs.get(i).and_then(|o| [false, true].into_iter().find(|e| o.end(*e).dist(p) <= tol).map(|e| o.away(e)));
+                matches!((ends(a), ends(b)), (Some(x), Some(y)) if x.dot(y) < -0.97)
+            };
+            if let [a, b] = others[..]
+                && through.is_empty()
+                && in_line(a, b)
+                && can_hold(&out, k, at_end)
+            {
+                let trunk = width(a).max(width(b));
+                set(&mut out, k, at_end, trunk, (trunk - width(k)).abs() > 0.5);
+                continue;
+            }
             match (others.len(), through.first()) {
                 (1, Some(&t)) if can_hold(&out, k, at_end) => set(&mut out, k, at_end, width(t), (width(t) - width(k)).abs() > 0.5),
                 (n, _) if n > 1 && held => {
@@ -393,7 +408,10 @@ impl crate::Drawing {
         // (a unit's collar sizes count: a run that starts on one takes the cone from it)
         let relevant = |e: &std::sync::Arc<crate::Entity>| {
             matches!(e.kind, EntityKind::Insert(_))
-                && (duct_of(e).is_some() || ahu_of(e).is_some() || equipment_of(e).is_some_and(|q| q.kind == EquipmentKind::Ducted))
+                && (duct_of(e).is_some()
+                    || ahu_of(e).is_some()
+                    || super::zone_of(e).is_some()
+                    || equipment_of(e).is_some_and(|q| q.kind == EquipmentKind::Ducted))
         };
         now.iter().any(|e| then.get(e.handle).is_none_or(|old| !std::sync::Arc::ptr_eq(old, e)) && relevant(e))
             || then.iter().any(|e| now.get(e.handle).is_none() && relevant(e))
