@@ -4494,7 +4494,11 @@ fn dangling_block_refs_skips_the_records_a_dropped_block_takes_with_it() {
     d.blocks.insert("*D500".into(), std::sync::Arc::new(holder));
     let mut dropped = Block::new("*D600");
     let h = d.new_handle();
-    dropped.entities.push(Entity { handle: h, common: Common::default(), kind: EntityKind::Line(Line { a: Vec3::ZERO, b: Vec3::new(1.0, 0.0, 0.0) }) });
+    dropped.entities.push(Entity {
+        handle: h,
+        common: Common::default(),
+        kind: EntityKind::Line(Line { a: Vec3::ZERO, b: Vec3::new(1.0, 0.0, 0.0) }),
+    });
     d.blocks.insert("*D600".into(), std::sync::Arc::new(dropped));
     assert!(dangling_block_refs(&d).is_empty());
 }
