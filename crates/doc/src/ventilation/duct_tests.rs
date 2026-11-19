@@ -123,6 +123,11 @@ fn text_of(pieces: &[HvacPiece]) -> crate::Text {
     pieces.iter().find_map(|p| if let EntityKind::Text(t) = &p.kind { Some(t.clone()) } else { None }).expect("a label")
 }
 
+/// The open polylines of `pieces` (the sides of a run, the arcs of its elbows), not the flanges and sleeves that are closed.
+fn open_polylines(pieces: &[HvacPiece]) -> usize {
+    pieces.iter().filter(|p| matches!(&p.kind, EntityKind::LwPolyline(l) if !l.closed)).count()
+}
+
 /// The vertices of each polyline of `pieces`.
 fn polylines(pieces: &[HvacPiece]) -> Vec<Vec<Vec2>> {
     pieces
@@ -1322,7 +1327,7 @@ fn ducts_that_cross_are_found_a_tee_or_a_corner_is_not_one_and_the_one_that_pass
     // Under: the width of the other (200) plus 30 mm on each side, across the crossing at 1500 mm from its start.
     let polylines = |d: &Drawing, h: Handle| {
         let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { return 0 };
-        d.block(&i.block).unwrap().entities.iter().filter(|x| matches!(x.kind, EntityKind::LwPolyline(_))).count()
+        d.block(&i.block).unwrap().entities.iter().filter(|x| matches!(&x.kind, EntityKind::LwPolyline(l) if !l.closed)).count()
     };
     assert_eq!(polylines(&d, under), 2, "two sides, whole");
     let gap = d.pass_duct_under(under, over, 30.0).unwrap();
@@ -1345,7 +1350,7 @@ fn a_duct_that_goes_over_another_makes_four_45_degree_elbows_that_are_drawn_coun
     let duct = add_duct(&mut d, (3000.0, -3000.0), (3000.0, 3000.0));
     let polylines = |d: &Drawing, h: Handle| {
         let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { return 0 };
-        d.block(&i.block).unwrap().entities.iter().filter(|x| matches!(x.kind, EntityKind::LwPolyline(_))).count()
+        d.block(&i.block).unwrap().entities.iter().filter(|x| matches!(&x.kind, EntityKind::LwPolyline(l) if !l.closed)).count()
     };
     assert_eq!(polylines(&d, duct), 2);
     // Both 200 mm: it rises 200 + 50 = 250 mm, which takes 250 mm of length on each side of the flat
@@ -1435,7 +1440,7 @@ fn add_wide(d: &mut Drawing, a: (f64, f64), b: (f64, f64), diameter: f64) -> Han
 fn a_duct_running_inside_the_width_of_another_passes_under_it_along_the_stretch_they_share() {
     let polylines = |d: &Drawing, h: Handle| {
         let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { return 0 };
-        d.block(&i.block).unwrap().entities.iter().filter(|x| matches!(x.kind, EntityKind::LwPolyline(_))).count()
+        d.block(&i.block).unwrap().entities.iter().filter(|x| matches!(&x.kind, EntityKind::LwPolyline(l) if !l.closed)).count()
     };
     // Stacked collars: the supply (200) leaves in the width of the extract (650), 2000 of its 3000 mm, then turns away.
     let mut d = Drawing::new_metric();
@@ -1646,10 +1651,10 @@ fn a_stretch_under_another_duct_inside_an_elbows_trim_does_not_hide_the_run() {
     // Under the other duct only where the run bends (the last 355 mm, of which the elbow trims 710): the sides stay.
     let e = DuctElbow { angle_deg: -90.0, radius_mm: 710.0, at_end: true };
     let mut p = DuctParams { length: 12000.0, elbow: Some(e), trim_end_mm: 710.0, gaps_mm: vec![[11645.0, 12000.0]], ..duct(710.0) };
-    assert_eq!(polylines(&p.generate(false).unwrap()).len(), 2, "both sides drawn");
+    assert_eq!(open_polylines(&p.generate(false).unwrap()), 2, "both sides drawn");
     // A stretch that does cut the straight part still cuts it.
     p.gaps_mm = vec![[5000.0, 6000.0]];
-    assert_eq!(polylines(&p.generate(false).unwrap()).len(), 4, "two stretches, two sides each");
+    assert_eq!(open_polylines(&p.generate(false).unwrap()), 4, "two stretches, two sides each");
 }
 
 #[test]
@@ -1698,7 +1703,7 @@ fn a_duct_passing_under_is_drawn_whole_with_a_mask_and_dashes_on_the_layer_of_th
     let EntityKind::Insert(i) = &d.entity(under).unwrap().kind else { panic!("not a block reference") };
     let block = d.block(&i.block).unwrap();
     let on = |layer: &str, f: &dyn Fn(&EntityKind) -> bool| block.entities.iter().filter(|e| e.common.layer == layer && f(&e.kind)).count();
-    let sides = block.entities.iter().filter(|e| matches!(e.kind, EntityKind::LwPolyline(_)) && e.common.linetype == "ByLayer").count();
+    let sides = block.entities.iter().filter(|e| matches!(&e.kind, EntityKind::LwPolyline(l) if !l.closed) && e.common.linetype == "ByLayer").count();
     assert_eq!(sides, 2, "the duct is whole");
     assert_eq!(on("M-HVAC-DUCT-EXTR", &|k| matches!(k, EntityKind::Wipeout(_))), 1, "one mask, on the layer of the duct over it");
     let dashed: Vec<_> = block.entities.iter().filter(|e| e.common.linetype == "HVAC_HIDDEN").collect();
@@ -2333,4 +2338,42 @@ fn a_duct_that_ends_on_the_side_of_a_ducted_unit_gives_it_a_connection_and_a_con
     assert!(got.iter().any(|g| g.inlet && g.size == RiserSize::Round { diameter_mm: 315.0 } && (g.y_mm + 150.0).abs() < 1.0));
     // Once is enough: nothing more to draw.
     assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
+}
+
+#[test]
+fn a_rectangular_duct_has_flanges_every_1200_mm_and_on_its_elbow_and_a_round_one_a_sleeve_every_3_m() {
+    let closed = |p: &DuctParams| -> Vec<f64> {
+        let mut xs: Vec<f64> = p
+            .generate(false)
+            .unwrap()
+            .iter()
+            .filter_map(|h| match &h.kind {
+                EntityKind::LwPolyline(l) if l.closed => Some(l.vertices.iter().map(|v| v.p.x).sum::<f64>() / l.vertices.len() as f64),
+                _ => None,
+            })
+            .collect();
+        xs.sort_by(f64::total_cmp);
+        xs
+    };
+    let rect = DuctParams { length: 5000.0, shape: DuctShape::Rectangular, width_mm: 400.0, height_mm: 200.0, ..duct(300.0) };
+    assert_eq!(closed(&rect), [1200.0, 2400.0, 3600.0, 4800.0]);
+    // At the joint of an elbow too.
+    let bent = DuctParams { elbow: Some(DuctElbow { angle_deg: 90.0, radius_mm: 400.0, at_end: false }), trim_start_mm: 400.0, ..rect.clone() };
+    assert!(closed(&bent).iter().any(|x| (x - 400.0).abs() < 1e-6), "{:?}", closed(&bent));
+    // A round duct: one sleeve per 3 m; none on a short one or a flexible one.
+    let round = DuctParams { length: 7000.0, ..duct(250.0) };
+    assert_eq!(closed(&round), [3000.0, 6000.0]);
+    assert!(closed(&DuctParams { length: 2500.0, ..duct(250.0) }).is_empty());
+    assert!(closed(&DuctParams { flexible: true, ..round }).is_empty());
+}
+
+#[test]
+fn a_step_is_drawn_with_a_line_and_four_arcs_at_each_elbow() {
+    let p = DuctParams { length: 4000.0, steps: vec![DuctStep { at_mm: 1500.0, shift_mm: 700.0 }], ..duct(250.0) };
+    let pieces = p.generate(false).unwrap();
+    let arcs =
+        pieces.iter().filter(|h| matches!(&h.kind, EntityKind::LwPolyline(l) if !l.closed && l.vertices.iter().any(|v| v.bulge != 0.0))).count();
+    assert_eq!(arcs, 8, "four at each of the two elbows");
+    let lines = pieces.iter().filter(|h| matches!(h.kind, EntityKind::Line(_))).count();
+    assert!(lines >= 2, "the line of each joint");
 }

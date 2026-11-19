@@ -31,6 +31,19 @@ pub const MAX_VOID_MM: f64 = 5_000.0;
 pub const MAX_GAPS: usize = 32;
 /// The bulge of the arc that draws a 45° elbow across a run: its rise over half its chord.
 const ELBOW_BULGE: f64 = 0.25;
+/// Most flanges or sleeves along one run.
+const MAX_JOINTS: usize = 400;
+/// The bulge of the arcs of a step's elbows: deeper than a jog's, so the bend is told at a glance.
+const STEP_BULGE: f64 = 0.4;
+/// The arcs that draw each elbow of a step (a change of level).
+const STEP_GORES: usize = 4;
+/// A rectangular duct has a flange where two pieces are joined: on an elbow's ends and every 1.2 m of straight run, mm (length along the run, how far it
+/// goes beyond each side).
+const FLANGE_SPACING_MM: f64 = 1200.0;
+const FLANGE_MM: (f64, f64) = (40.0, 25.0);
+/// A round duct of one diameter has a sleeve where two lengths meet, every 3 m, mm (length along the run, how far it goes beyond each side).
+const SLEEVE_SPACING_MM: f64 = 3000.0;
+const SLEEVE_MM: (f64, f64) = (100.0, 15.0);
 
 /// Most jogs (a rise or a dip round another duct, four 45° elbows each) one duct makes.
 pub const MAX_JOGS: usize = 8;
@@ -1145,6 +1158,51 @@ impl DuctParams {
         self.length * self.units.mm_per_unit / 1000.0
     }
 
+    /// The flanges of a rectangular duct (at the ends of an elbow and every 1.2 m of straight run) or the sleeves of a round one (every 3 m): thin
+    /// rectangles across the run, a little wider than it. A flexible duct has none.
+    fn joint_pieces(&self, r: f64, solid: &[(f64, f64)], (x0, x1): (f64, f64)) -> Vec<HvacPiece> {
+        let u = |mm: f64| self.units.to_units(mm);
+        let ((len, over), spacing) = match self.shape {
+            _ if self.flexible => return Vec::new(),
+            DuctShape::Rectangular => (FLANGE_MM, FLANGE_SPACING_MM),
+            DuctShape::Round => (SLEEVE_MM, SLEEVE_SPACING_MM),
+        };
+        let band = |x: f64| HvacPiece {
+            layer: self.layer(),
+            kind: EntityKind::LwPolyline(LwPolyline {
+                vertices: [(x - u(len) / 2.0, -1.0), (x + u(len) / 2.0, -1.0), (x + u(len) / 2.0, 1.0), (x - u(len) / 2.0, 1.0)]
+                    .into_iter()
+                    .map(|(x, side)| PolyVertex { p: Vec2::new(x, side * (r + u(over))), bulge: 0.0, start_width: 0.0, end_width: 0.0 })
+                    .collect(),
+                closed: true,
+                const_width: 0.0,
+                elevation: 0.0,
+                plinegen: false,
+            }),
+        };
+        let mut out = Vec::new();
+        // Where an elbow of a rectangular duct meets the straight run, at each end that an elbow takes some of (each run of the bend has its own).
+        if self.shape == DuctShape::Rectangular {
+            for (trimmed, x) in [(self.trim_start_mm, u(self.trim_start_mm)), (self.trim_end_mm, self.length - u(self.trim_end_mm))] {
+                if trimmed > 0.0 && x > 0.0 && x < self.length {
+                    out.push(band(x));
+                }
+            }
+        }
+        // Along the straight run, kept clear of its ends and of the stretches that pass under another duct.
+        let margin = u(2.0 * len);
+        for k in 1..=MAX_JOINTS {
+            let x = u(spacing * k as f64);
+            if x > x1 - margin {
+                break;
+            }
+            if x >= x0 + margin && solid.iter().any(|(s, e)| x >= *s && x <= *e) {
+                out.push(band(x));
+            }
+        }
+        out
+    }
+
     /// The lines that close the free ends of the run (across it, as wide as it is at that end).
     fn cap_pieces(&self, r: f64) -> Vec<HvacPiece> {
         let cone = self.cone(r);
@@ -1262,34 +1320,40 @@ impl DuctParams {
                 });
             }
         }
-        // Each step: two elbows, 45° apart in height as in length, and the change written between them.
+        // Each step: two elbows, 45° apart in height as in length, and the change written between them. Each elbow is the line of its joint and
+        // four arcs close together toward the middle of the step, as plans draw the gores of a bend, so it reads at a glance.
         for t in &self.steps {
             let run = t.shift_mm.abs();
+            let spacing = (0.4 * r).min(self.units.to_units(run) / 6.0);
             for (k, x) in [t.at_mm, t.at_mm + run].into_iter().enumerate() {
-                let x = self.units.to_units(x);
-                pieces.push(HvacPiece {
-                    layer,
-                    kind: EntityKind::LwPolyline(LwPolyline {
-                        vertices: vec![
-                            PolyVertex {
-                                p: Vec2::new(x, -r),
-                                bulge: if k == 0 { ELBOW_BULGE } else { -ELBOW_BULGE },
-                                start_width: 0.0,
-                                end_width: 0.0,
-                            },
-                            PolyVertex { p: Vec2::new(x, r), bulge: 0.0, start_width: 0.0, end_width: 0.0 },
-                        ],
-                        closed: false,
-                        const_width: 0.0,
-                        elevation: 0.0,
-                        plinegen: false,
-                    }),
-                });
+                let (x, toward) = (self.units.to_units(x), if k == 0 { 1.0 } else { -1.0 });
+                pieces.push(HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(Vec2::new(x, -r)), b: v3(Vec2::new(x, r)) }) });
+                for i in 0..STEP_GORES {
+                    pieces.push(HvacPiece {
+                        layer,
+                        kind: EntityKind::LwPolyline(LwPolyline {
+                            vertices: vec![
+                                PolyVertex {
+                                    p: Vec2::new(x + toward * spacing * i as f64, -r),
+                                    bulge: if k == 0 { STEP_BULGE } else { -STEP_BULGE },
+                                    start_width: 0.0,
+                                    end_width: 0.0,
+                                },
+                                PolyVertex { p: Vec2::new(x + toward * spacing * i as f64, r), bulge: 0.0, start_width: 0.0, end_width: 0.0 },
+                            ],
+                            closed: false,
+                            const_width: 0.0,
+                            elevation: 0.0,
+                            plinegen: false,
+                        }),
+                    });
+                }
             }
             let at = Vec2::new(self.units.to_units(t.at_mm + run / 2.0), r + 0.9 * self.units.to_units(self.label_height_mm));
             let value = format!("{}{:.0}", if t.shift_mm < 0.0 { "-" } else { "+" }, run);
             pieces.push(HvacPiece { layer, kind: label(at, 0.8 * self.units.to_units(self.label_height_mm), value) });
         }
+        pieces.extend(self.joint_pieces(r, &solid, (x0, x1)));
         // The arrow and the label sit on the longest stretch that is drawn.
         let (sx, ex) = solid.iter().copied().max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0))).unwrap_or((x0, x1));
         // The bend is under the other duct when the stretches it passes under cover half of what it takes
