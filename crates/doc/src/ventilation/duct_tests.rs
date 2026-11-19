@@ -542,6 +542,7 @@ fn zone(name: &str, void: f64, bottom: Option<f64>, outline: &[(f64, f64)]) -> Z
         name: name.into(),
         void_height_mm: void,
         bottom_mm: bottom,
+        note: String::new(),
         outline: outline.iter().map(|&(x, y)| Vec2::new(x, y)).collect(),
         label_height_mm: 100.0,
         units: HvacUnits::default(),
@@ -624,7 +625,13 @@ fn a_zone_is_drawn_hatched_with_its_height_and_altitude_written_in_it() {
     let pieces = z.generate().unwrap();
     assert!(pieces.iter().any(|p| matches!(p.kind, EntityKind::Hatch(_))));
     assert!(pieces.iter().any(|p| matches!(p.kind, EntityKind::LwPolyline(_))));
-    assert_eq!(text_of(&pieces).value, "Poutre P3 H=280 Ai:2.45", "readable by another program");
+    assert_eq!(text_of(&pieces).value, "Poutre P3 - Hauteur disponible 280 mm Ai:2.45", "readable by another program");
+    // A note is written on a line of its own under it.
+    let noted = ZoneParams { note: "Sous poutre".into(), ..z.clone() };
+    let texts: Vec<String> =
+        noted.generate().unwrap().iter().filter_map(|p| if let EntityKind::Text(t) = &p.kind { Some(t.value.clone()) } else { None }).collect();
+    assert_eq!(texts, ["Poutre P3 - Hauteur disponible 280 mm Ai:2.45", "Sous poutre"]);
+    assert!(ZoneParams { note: "x".repeat(201), ..z.clone() }.validate().is_err());
     assert!(pieces.iter().all(|p| p.layer == ZONE_LAYER));
     assert_eq!(ZoneParams::from_xdata(&z.to_xdata().unwrap()), Some(z.clone()));
     for bad in [

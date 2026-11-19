@@ -1364,6 +1364,13 @@ fn zone_section(ui: &mut egui::Ui, sel: &[Handle], zones: &[ZoneParams], bad: &m
             }
         }
     });
+    // A free line written under the height: "Under the beam", for instance.
+    let note = shared(&zones.iter().map(|z| z.note.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Note", |ui| {
+        if let Some(n) = edit_field(ui, ui.scope_id().with(("zone_note", &ids)), note).filter(|n| n != VARIES) {
+            action = edit("note", json!(n));
+        }
+    });
     action
 }
 

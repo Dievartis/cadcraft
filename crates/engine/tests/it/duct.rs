@@ -1625,3 +1625,21 @@ fn a_building_section_shows_the_terminals_ducts_units_and_equipment_the_line_cro
     }
     assert!(bottoms.iter().filter(|b| (**b - 2500.0).abs() < 1e-6).count() >= 2, "the diffuser and the cassette: {bottoms:?}");
 }
+
+#[test]
+fn a_zone_writes_mm_after_the_height_and_a_free_note_under_it() {
+    let mut s = metric();
+    let z = s
+        .execute("zoneadd", &json!({"points": [[0, 0], [3000, 0], [3000, 600], [0, 600]], "voidHeight": 250, "name": "P3", "note": "Sous poutre"}))
+        .unwrap();
+    let h = hd(&z["handle"]);
+    let zone = |s: &Session| cadcraft_doc::zone_of(s.doc().unwrap().entity(h).unwrap()).unwrap();
+    assert_eq!(zone(&s).note, "Sous poutre");
+    assert_eq!(zone(&s).text(), "P3 - Hauteur disponible 250 mm");
+    s.execute("zoneedit", &json!({"handle": z["handle"], "note": "Sous IPE 600"})).unwrap();
+    assert_eq!(zone(&s).note, "Sous IPE 600");
+    // Nothing clears it; a long one is refused.
+    s.execute("zoneedit", &json!({"handle": z["handle"], "note": ""})).unwrap();
+    assert_eq!(zone(&s).note, "");
+    assert!(s.execute("zoneedit", &json!({"handle": z["handle"], "note": "x".repeat(300)})).is_err());
+}

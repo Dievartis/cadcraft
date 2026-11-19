@@ -33,6 +33,9 @@ pub struct ZoneParams {
     /// the user gives it: written on the ducts' labels (the plan stays two-dimensional).
     #[serde(default)]
     pub bottom_mm: Option<f64>,
+    /// A free line written under the height, such as "Under the beam"; empty for none.
+    #[serde(default)]
+    pub note: String,
     /// The closed outline in the block's coordinates (drawing units), without repeating the first point.
     pub outline: Vec<Vec2>,
     #[serde(default = "default_label_mm")]
@@ -49,6 +52,9 @@ impl ZoneParams {
         if !(self.void_height_mm.is_finite() && (20.0..=super::MAX_VOID_MM).contains(&self.void_height_mm)) {
             return Err(invalid(format!("The height available is 20 to {} mm.", super::MAX_VOID_MM)));
         }
+        if self.note.chars().count() > 200 {
+            return Err(invalid("The note is 200 characters at most."));
+        }
         if self.bottom_mm.is_some_and(|b| !(b.is_finite() && (-100_000.0..=1_000_000.0).contains(&b))) {
             return Err(invalid("The altitude of the underside is a number of millimetres."));
         }
@@ -60,7 +66,7 @@ impl ZoneParams {
 
     /// The text written in the zone, readable by any program.
     pub fn text(&self) -> String {
-        let mut t = format!("{} H={:.0}", self.name, self.void_height_mm);
+        let mut t = format!("{} - Hauteur disponible {:.0} mm", self.name, self.void_height_mm);
         if let Some(b) = self.bottom_mm {
             t.push_str(&format!(" Ai:{:.2}", b / 1000.0));
         }
@@ -92,11 +98,16 @@ impl ZoneParams {
         let centre = polygon_centroid(&self.outline).or_else(|| self.outline.first().copied()).unwrap_or(Vec2::ZERO);
         let top = self.outline.iter().map(|p| p.y).fold(f64::MIN, f64::max);
         let at = Vec2::new(centre.x, top - 1.5 * h);
-        Ok(vec![
+        let mut pieces = vec![
             HvacPiece { layer: ZONE_LAYER, kind: EntityKind::Hatch(hatch) },
             HvacPiece { layer: ZONE_LAYER, kind: EntityKind::LwPolyline(outline) },
             HvacPiece { layer: ZONE_LAYER, kind: label(at, h, self.text()) },
-        ])
+        ];
+        // The note on the line below.
+        if !self.note.trim().is_empty() {
+            pieces.push(HvacPiece { layer: ZONE_LAYER, kind: label(at - Vec2::new(0.0, 1.5 * h), h, self.note.trim().to_string()) });
+        }
+        Ok(pieces)
     }
 
     pub fn to_xdata(&self) -> Result<Vec<RawTag>> {

@@ -17,11 +17,11 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["Draw", "HVAC", "Height Zone"])
             .params(
                 "{points | handle (closed polyline), voidHeight (mm available for ducts), name?, altitude? (metres: the underside of the ducts, \\
-                 written on their labels), labelHeight? (mm)} → {handle, name}",
+                 written on their labels), note? (free text written under the height, e.g. \"Under the beam\"), labelHeight? (mm)} → {handle, name}",
             )
             .interactive(|s| Ok(Box::new(ZoneAddM::new(s)))),
         CommandSpec::new("zoneedit", "Edit Height Zone", run_edit)
-            .params("{handle | handles, name?, voidHeight? (mm), altitude? (metres, or null for none)} → {changed}"),
+            .params("{handle | handles, name?, voidHeight? (mm), altitude? (metres, or null for none), note? (text, empty for none)} → {changed}"),
     ]
 }
 
@@ -80,6 +80,7 @@ fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
         name,
         void_height_mm: void,
         bottom_mm: number(CMD, p, "altitude")?.map(|m| m * 1000.0),
+        note: str_param(p, "note").unwrap_or_default().to_string(),
         outline,
         label_height_mm: number(CMD, p, "labelHeight")?.unwrap_or(100.0),
         units: HvacUnits::of(s.doc()?),
@@ -109,6 +110,9 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         if let Some(n) = str_param(p, "name") {
             z.name = n.to_string();
         }
+        if let Some(n) = str_param(p, "note") {
+            z.note = n.to_string();
+        }
         z.void_height_mm = void.unwrap_or(z.void_height_mm);
         if let Some(b) = bottom {
             z.bottom_mm = b;
@@ -130,11 +134,13 @@ enum Ask {
     Name,
     Height,
     Altitude,
+    Note,
 }
 
 struct ZoneAddM {
     pts: Vec<Vec2>,
     name: String,
+    note: String,
     last: ZoneLastUsed,
     ask: Ask,
 }
@@ -142,7 +148,7 @@ struct ZoneAddM {
 impl ZoneAddM {
     fn new(s: &Session) -> Self {
         let n = s.doc().map(zones_count).unwrap_or(0) + 1;
-        ZoneAddM { pts: Vec::new(), name: format!("Zone {n}"), last: s.last_used.zone.clone(), ask: Ask::Point }
+        ZoneAddM { pts: Vec::new(), name: format!("Zone {n}"), note: String::new(), last: s.last_used.zone.clone(), ask: Ask::Point }
     }
     fn settings(&self, s: &mut Session) {
         let alt = self.last.bottom_m.map_or("none".to_string(), |m| format!("{m:.2} m"));
@@ -153,6 +159,7 @@ impl ZoneAddM {
             name: self.name.clone(),
             void_height_mm: self.last.void_height_mm,
             bottom_mm: self.last.bottom_m.map(|m| m * 1000.0),
+            note: self.note.clone(),
             outline,
             label_height_mm: 100.0,
             units: HvacUnits::of(s.doc()?),
@@ -186,6 +193,8 @@ impl ZoneAddM {
                 };
             }
             (Ask::Name, _, Some(t)) if !t.is_empty() => self.name = t.to_string(),
+            // Nothing clears the note.
+            (Ask::Note, _, Some(t)) => self.note = t.to_string(),
             (Ask::Height, _, Some(t)) => {
                 self.last.void_height_mm = t
                     .parse::<f64>()
@@ -220,6 +229,7 @@ impl Interactive for ZoneAddM {
         match self.ask {
             Ask::Object => return Prompt::new("Select a closed polyline", Accept::SELECT),
             Ask::Name => return Prompt::new("Enter zone name", Accept::TEXT).default(self.name.clone()),
+            Ask::Note => return Prompt::new("Enter a note written under the height (for instance Under the beam), or nothing", Accept::TEXT),
             Ask::Height => {
                 return Prompt::new("Enter the height available for ducts (mm)", Accept::NUMBER).default(format!("{}", self.last.void_height_mm));
             }
@@ -231,7 +241,7 @@ impl Interactive for ZoneAddM {
         }
         let last = self.pts.last().copied();
         match self.pts.len() {
-            0 => Prompt::new("Specify first point of zone", Accept::POINT).kw(&["OBject", "Name", "Height", "Altitude"]),
+            0 => Prompt::new("Specify first point of zone", Accept::POINT).kw(&["OBject", "Name", "Height", "Altitude", "COmment"]),
             1 | 2 => Prompt::new("Specify next point", Accept::POINT).kw(&["Undo"]).base_opt(last),
             _ => Prompt::new("Specify next point", Accept::POINT).kw(&["Close", "Undo"]).base_opt(last),
         }
@@ -247,6 +257,7 @@ impl Interactive for ZoneAddM {
                     "Name" => self.ask = Ask::Name,
                     "Height" => self.ask = Ask::Height,
                     "Altitude" => self.ask = Ask::Altitude,
+                    "COmment" => self.ask = Ask::Note,
                     "Undo" => {
                         self.pts.pop();
                     }
