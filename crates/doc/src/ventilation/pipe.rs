@@ -528,7 +528,7 @@ impl PipeParams {
         let layer = self.layer();
         let line = |layer: &'static str, a: Vec2, b: Vec2| HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
         let tubes = self.tubes();
-        let (x0, x1) = if tubes.is_empty() { self.straight_range() } else { (0.0, self.length) };
+        let (x0, x1) = self.straight_range();
         let mut pieces = if tubes.is_empty() {
             // The two sides of the straight run, the cone of a reducer at the end that has one, and the arcs of an elbow.
             let mut v = vec![line(layer, Vec2::new(x0, -r), Vec2::new(x1, -r)), line(layer, Vec2::new(x0, r), Vec2::new(x1, r))];
@@ -542,17 +542,29 @@ impl PipeParams {
                 v.push(line(layer, Vec2::new(cross, -r), Vec2::new(cross, r)));
             }
             if let Some(e) = self.elbow {
-                v.extend(super::duct::elbow_arcs(e, r, self.length, self.units, layer));
+                v.extend(super::duct::elbow_arcs(e, r, 0.0, self.length, self.units, layer));
             }
             v
         } else {
-            // Each tube as two lines on its own layer, side by side with a small gap.
+            // Each tube as two lines on its own layer, side by side with a small gap; at an elbow each tube turns about the same centre at its own radius, and at a
+            // reducer the tubes close up (or open out) together.
             let mut v = Vec::new();
             let mut y = -r;
+            let cone = self.cone(r);
+            let (trim0, trim1) = (self.units.to_units(self.trim_start_mm), self.units.to_units(self.trim_end_mm));
+            let k = cone.map_or(1.0, |(r0, ..)| if r > 0.0 { r0 / r } else { 1.0 });
             for (tube_layer, width) in &tubes {
                 let w = self.units.to_units(*width);
-                v.push(line(tube_layer, Vec2::new(0.0, y), Vec2::new(self.length, y)));
-                v.push(line(tube_layer, Vec2::new(0.0, y + w), Vec2::new(self.length, y + w)));
+                for edge in [y, y + w] {
+                    v.push(line(tube_layer, Vec2::new(x0, edge), Vec2::new(x1, edge)));
+                    if let Some((_, _, at_end)) = cone {
+                        let (from, to) = if at_end { ((x1, edge), (self.length - trim1, k * edge)) } else { ((trim0, k * edge), (x0, edge)) };
+                        v.push(line(tube_layer, Vec2::new(from.0, from.1), Vec2::new(to.0, to.1)));
+                    }
+                }
+                if let Some(e) = self.elbow {
+                    v.extend(super::duct::elbow_arcs(e, w / 2.0, y + w / 2.0, self.length, self.units, tube_layer));
+                }
                 y += w + self.units.to_units(PAIR_GAP_MM);
             }
             v

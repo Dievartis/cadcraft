@@ -409,8 +409,8 @@ impl crate::Drawing {
 
     /// Gives the elbows and the cones to the pipes of `space`, as it does the ducts: where two pipes of one service (and leg) meet end to end and turn, one of them
     /// gets the elbow, a short-radius one, the two giving up what it takes; where they are of another size, a cone from the size of the other (on the pipe
-    /// that has no elbow, where there is one). A pipe that moved away loses them. The pipes of a refrigerant link (several tubes side by side) are left as they are.
-    /// Returns how many pipes were redrawn.
+    /// that has no elbow, where there is one). A pipe that moved away loses them. The links of refrigerant (two or three tubes side by side) have them too: their tubes
+    /// turn about one centre, each at its own radius, and close up together at a cone. Returns how many pipes were redrawn.
     pub fn draw_pipe_elbows(&mut self, space: &Space) -> Result<usize> {
         let tol = HvacUnits::of(self).to_units(MEET_MM);
         let runs: Vec<Run<super::PipeParams>> = self
@@ -418,7 +418,6 @@ impl crate::Drawing {
             .into_iter()
             .flat_map(|s| s.iter())
             .filter_map(|e| self.pipe_ends(e.handle).map(|(params, a, b)| Run { handle: e.handle, params, a, b }))
-            .filter(|r| r.params.tubes().is_empty())
             .take(super::MAX_FITTING_PIPES + 1)
             .collect();
         if runs.len() > super::MAX_FITTING_PIPES {

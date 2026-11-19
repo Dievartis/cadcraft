@@ -1351,12 +1351,13 @@ impl DuctParams {
     /// The two arcs of an elbow, in the run's block coordinates: the entry end is the origin (or, if
     /// the run is entered by its far end, the end turned half a turn about the middle).
     fn elbow_pieces(&self, e: DuctElbow, half_width: f64, layer: &'static str) -> Vec<HvacPiece> {
-        elbow_arcs(e, half_width, self.length, self.units, layer)
+        elbow_arcs(e, half_width, 0.0, self.length, self.units, layer)
     }
 }
 
-/// The two arcs of an elbow of a run `length` drawing units long, in the run's block coordinates (see [`DuctParams::elbow_pieces`]).
-pub(super) fn elbow_arcs(e: DuctElbow, half_width: f64, length: f64, units: HvacUnits, layer: &'static str) -> Vec<HvacPiece> {
+/// The two arcs of an elbow of a run `length` drawing units long, in the run's block coordinates (see [`DuctParams::elbow_pieces`]). `offset` is where the
+/// centre of the tube drawn is across the run (block y, drawing units; 0 for the axis): the tubes of a link turn about one centre, each at its own radius.
+pub(super) fn elbow_arcs(e: DuctElbow, half_width: f64, offset: f64, length: f64, units: HvacUnits, layer: &'static str) -> Vec<HvacPiece> {
     {
         let phi = e.angle_deg.to_radians();
         let radius = units.to_units(e.radius_mm);
@@ -1373,7 +1374,10 @@ pub(super) fn elbow_arcs(e: DuctElbow, half_width: f64, length: f64, units: Hvac
         } else {
             (centre, start, end)
         };
-        [radius + half_width, (radius - half_width).max(0.0)]
+        // A run entered by its far end is the one entered by the start turned half a turn: its sides change places.
+        let across = if e.at_end { -offset } else { offset };
+        let axis = (radius - side * across).max(0.0);
+        [axis + half_width, (axis - half_width).max(0.0)]
             .into_iter()
             .map(|r| HvacPiece { layer, kind: EntityKind::Arc(crate::Arc { center: v3(centre), radius: r, start, end }) })
             .collect()

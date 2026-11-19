@@ -503,3 +503,59 @@ fn pipes_of_one_service_get_their_elbows_and_cones_as_soon_as_they_are_laid_and_
     d.draw_pipe_elbows(&Space::Model).unwrap();
     assert!(get(&d, e2).reducer.is_none());
 }
+
+#[test]
+fn the_links_of_refrigerant_get_their_elbows_and_cones_too_with_each_tube_at_its_own_radius() {
+    let mut d = Drawing::new_metric();
+    let units = HvacUnits { mm_per_unit: 1.0 };
+    let link = |d: &mut Drawing, service, liquid: f64, a: (f64, f64), b: (f64, f64)| {
+        let p = PipeParams::new(service, liquid, units);
+        d.add_pipe(&Space::Model, Common::default(), p, Vec2::new(a.0, a.1), Vec2::new(b.0, b.1)).unwrap()
+    };
+    let get = |d: &Drawing, h| pipe_of(d.entity(h).unwrap()).unwrap();
+    // Liquid and gas: two pipes that turn.
+    let (a, b) = (
+        link(&mut d, PipeService::RefrigerantPair, 9.52, (0.0, 0.0), (3000.0, 0.0)),
+        link(&mut d, PipeService::RefrigerantPair, 9.52, (3000.0, 0.0), (3000.0, 3000.0)),
+    );
+    assert_eq!(d.draw_pipe_elbows(&Space::Model).unwrap(), 2);
+    let (pa, pb) = (get(&d, a), get(&d, b));
+    let e = pb.elbow.expect("an elbow on the link");
+    assert!((e.radius_mm - 1.5 * pb.plan_width_mm()).abs() < 1e-6 && (pa.trim_end_mm - e.tangent_mm()).abs() < 1e-6);
+    // Each tube has its own two arcs, about one centre, at radii that differ by the offsets of the tubes.
+    let arcs: Vec<(Vec2, f64)> = pb
+        .generate(false)
+        .unwrap()
+        .iter()
+        .filter_map(|x| if let EntityKind::Arc(a) = &x.kind { Some((a.center.xy(), a.radius)) } else { None })
+        .collect();
+    assert_eq!(arcs.len(), 4, "two tubes, two arcs each: {arcs:?}");
+    assert!(arcs.iter().all(|c| c.0.dist(arcs[0].0) < 1e-9), "one centre");
+    let mut radii: Vec<f64> = arcs.iter().map(|c| c.1).collect();
+    radii.sort_by(f64::total_cmp);
+    assert!(radii[0] < radii[1] && radii[2] < radii[3] && radii[0] > 0.0, "{radii:?}");
+    // The outermost arc is the axis radius plus half the link's width, the innermost that minus half of it (the gap between the tubes included).
+    let half = pb.plan_width_mm() / 2.0;
+    assert!((radii[3] - (e.radius_mm + half)).abs() < 1e-6 && (radii[0] - (e.radius_mm - half)).abs() < 1e-6, "{radii:?} {half}");
+    // A bigger link joined to it: a cone from its width, on the pipe that has no elbow.
+    let mut big = get(&d, b);
+    (big.dn_mm, big.gas_dn_mm) = (12.7, 28.58);
+    d.regenerate_pipe(b, &big).unwrap();
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    let (pa, pb) = (get(&d, a), get(&d, b));
+    assert_eq!(pa.reducer.map(|r| (r.at_end, (r.from_mm - pb.plan_width_mm()).abs() < 1e-6)), Some((true, true)), "{:?}", pa.reducer);
+    assert!(pa.generate(false).unwrap().len() > pb.generate(false).unwrap().len() - 8);
+    // Three tubes (heat recovery): the same.
+    let (c, e2) = (
+        link(&mut d, PipeService::RefrigerantTriple, 9.52, (0.0, 9000.0), (3000.0, 9000.0)),
+        link(&mut d, PipeService::RefrigerantTriple, 9.52, (3000.0, 9000.0), (3000.0, 12000.0)),
+    );
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    assert!(get(&d, e2).elbow.is_some() && get(&d, c).elbow.is_none());
+    let arcs = get(&d, e2).generate(false).unwrap().iter().filter(|x| matches!(x.kind, EntityKind::Arc(_))).count();
+    assert_eq!(arcs, 6, "three tubes, two arcs each");
+    // A pair meeting a triple is not one network: no elbow between them.
+    let single = link(&mut d, PipeService::RefrigerantPair, 9.52, (3000.0, 12000.0), (6000.0, 12000.0));
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    assert!(get(&d, single).elbow.is_none());
+}
