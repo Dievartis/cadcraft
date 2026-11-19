@@ -1448,7 +1448,21 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
         let size_text = |sizes: Vec<cadcraft_doc::RiserSize>| -> String {
             sizes.iter().map(|z| z.label().replace('Ø', "").replace('×', "x")).collect::<Vec<_>>().join(", ")
         };
-        for (label, key, inlet) in [("Air inlets (sizes, mm)", "inlets", true), ("Air outlets (sizes, mm)", "outlets", false)] {
+        for (count_label, label, key, inlet) in [
+            ("Number of air inlets", "Air inlets (sizes, mm)", "inlets", true),
+            ("Number of air outlets", "Air outlets (sizes, mm)", "outlets", false),
+        ] {
+            // How many: a unit that was given none has one of each, as it is drawn.
+            let n = shared(&items.iter().map(|e| if e.air_ports.is_empty() { 1 } else { e.air_sizes(inlet).len() }).collect::<Vec<_>>());
+            let shown = n.map_or_else(|| VARIES.to_string(), |n| n.to_string());
+            prop_row(ui, count_label, |ui| {
+                if let Some(c) = edit_field(ui, ui.scope_id().with(("equip_air_count", key, &ids)), shown)
+                    .filter(|t| t != VARIES)
+                    .and_then(|t| number(Some(t), bad))
+                {
+                    action = edit(if inlet { "inletCount" } else { "outletCount" }, json!(c));
+                }
+            });
             let v = shared(&items.iter().map(|e| size_text(e.air_sizes(inlet))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
             prop_row(ui, label, |ui| {
                 if let Some(t) = edit_field(ui, ui.scope_id().with(("equip_air", key, &ids)), v).filter(|t| t != VARIES) {

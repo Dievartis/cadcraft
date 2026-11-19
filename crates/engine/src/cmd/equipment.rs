@@ -27,7 +27,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .interactive(|s| Ok(Box::new(EquipAddM::new(s)))),
         CommandSpec::new("equipmentedit", "Edit Equipment", run_edit).params(
             "{handle | handles, model? (take that library model's values), kind?, name?, reference?, capacityKw? or null, heatingKw? or null, electricKw? (the electrical power it draws, or null), circuit? (the circuit that feeds it), address? (its address, written beside it), length? width? height? (mm), \\
-             weight? or null, fans?, clearance? (mm), connections? (text written beside it), inlets? / outlets? (a ducted unit: the sizes of the duct connections the air comes in by, on the left, and goes out by, on the right: a list or text, \"315, 400x250\"; spread along the side; a duct that ends on a side gives the unit its connection, as wide as the duct, by itself)} → {changed}",
+             weight? or null, fans?, clearance? (mm), connections? (text written beside it), inlets? / outlets? (a ducted unit: the sizes of the duct connections the air comes in by, on the left, and goes out by, on the right: a list or text, \"315, 400x250\"; spread along the side), inletCount? / outletCount? (how many connections, 0 to 16: each takes the size of the last one, Ø200 when there is none; a duct that ends on a side gives the unit its connection, as wide as the duct, by itself)} → {changed}",
         ),
     ]
 }
@@ -170,15 +170,25 @@ fn sizes_param(cmd: &str, key: &str, v: &Value) -> Result<Vec<cadcraft_doc::Rise
 /// `inlets` (the connections the air comes in by, on the left of a ducted unit) and `outlets` (the ones it goes out by, on the right): the sizes, one for
 /// each connection; the connections are spread along their side.
 fn apply_air_ports(cmd: &str, p: &Value, e: &mut EquipmentParams) -> Result<()> {
-    let (inlets, outlets) = (p.get("inlets"), p.get("outlets"));
-    if inlets.is_none() && outlets.is_none() {
+    let keys = ["inlets", "outlets", "inletCount", "outletCount"];
+    if keys.iter().all(|k| p.get(*k).is_none()) {
         return Ok(());
     }
     if e.kind != EquipmentKind::Ducted {
-        return Err(bad(cmd, "`inlets` and `outlets` are for a ducted unit"));
+        return Err(bad(cmd, "`inlets`, `outlets`, `inletCount` and `outletCount` are for a ducted unit"));
     }
-    let ins = inlets.map(|v| sizes_param(cmd, "inlets", v)).transpose()?.unwrap_or_else(|| e.air_sizes(true));
-    let outs = outlets.map(|v| sizes_param(cmd, "outlets", v)).transpose()?.unwrap_or_else(|| e.air_sizes(false));
+    let sizes_of = |key: &str, now: Vec<cadcraft_doc::RiserSize>| p.get(key).map(|v| sizes_param(cmd, key, v)).transpose().map(|o| o.unwrap_or(now));
+    let (mut ins, mut outs) = (sizes_of("inlets", e.air_sizes(true))?, sizes_of("outlets", e.air_sizes(false))?);
+    // How many: each connection takes the size of the last one named (Ø200 when none was), so that "3 outlets" of "160" are three of Ø160.
+    for (key, sizes) in [("inletCount", &mut ins), ("outletCount", &mut outs)] {
+        let Some(v) = p.get(key).filter(|v| !v.is_null()) else { continue };
+        let n = v
+            .as_u64()
+            .filter(|n| *n as usize <= cadcraft_doc::MAX_AIR_PORTS)
+            .ok_or_else(|| bad(cmd, format!("`{key}` is a whole number from 0 to {}", cadcraft_doc::MAX_AIR_PORTS)))? as usize;
+        let fill = sizes.last().copied().unwrap_or(cadcraft_doc::RiserSize::Round { diameter_mm: 200.0 });
+        sizes.resize(n, fill);
+    }
     e.set_air_ports(&ins, &outs);
     Ok(())
 }

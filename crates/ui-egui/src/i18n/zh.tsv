@@ -1991,3 +1991,7 @@ menu	View	视图
 	A section you typed on a duct is kept: a duct you gave Ø355 stays Ø355 under the beam, and the sizing warns that it is too tall. Set its section to Auto in Properties to let the zone change it.	您为风管输入的截面会被保留：设为 Ø355 的风管在梁下仍是 Ø355，选型会警告其过高。请在“特性”中把截面设为“自动”，让区域来改变它。
 	To change the zone afterwards, select it and edit its height or its altitude in Properties, then run Size Ducts again.	之后要修改区域，请选中它并在“特性”中修改高度或标高，然后重新运行“风管选型”。
 	Addresses	地址
+	1. Draw the outline, like a room	1. 像房间一样绘制轮廓
+	2. Why 300 mm: the round duct does not fit	2. 为什么是 300 mm：圆管放不下
+	3. What Size Ducts does	3. “风管选型”做什么
+	4. Option: an altitude, and the steps make themselves	4. 可选：设置标高，台阶自动生成

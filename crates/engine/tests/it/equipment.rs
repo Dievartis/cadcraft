@@ -240,3 +240,30 @@ fn a_ducted_unit_takes_the_sizes_of_its_connections_and_a_duct_laid_on_it_gives_
     assert_eq!(e.air_sizes(false), vec![cadcraft_doc::RiserSize::Round { diameter_mm: 250.0 }]);
     assert!((e.air_ports[0].y_mm - 100.0).abs() < 1.0, "{:?}", e.air_ports);
 }
+
+#[test]
+fn a_ducted_unit_takes_a_number_of_inlets_and_outlets_each_with_the_size_of_the_last_one() {
+    let mut s = metric();
+    let r = s.execute("equipmentadd", &json!({"at": [0, 0], "kind": "ducted"})).unwrap();
+    let round = |d: f64| cadcraft_doc::RiserSize::Round { diameter_mm: d };
+    // Three outlets of Ø160: typed as a count after the size.
+    s.execute("equipmentedit", &json!({"handle": r["handle"], "outlets": "160", "outletCount": 3})).unwrap();
+    let e = equip(&s, &r["handle"]);
+    assert_eq!((e.air_sizes(false), e.air_sizes(true)), (vec![round(160.0); 3], Vec::new()));
+    // A count alone gives that many of the size the last one had, or Ø200 when there was none: two inlets.
+    s.execute("equipmentedit", &json!({"handle": r["handle"], "inletCount": 2})).unwrap();
+    assert_eq!(equip(&s, &r["handle"]).air_sizes(true), vec![round(200.0); 2]);
+    s.execute("equipmentedit", &json!({"handle": r["handle"], "outletCount": 5})).unwrap();
+    assert_eq!(equip(&s, &r["handle"]).air_sizes(false), vec![round(160.0); 5], "more: the size of the last");
+    s.execute("equipmentedit", &json!({"handle": r["handle"], "outletCount": 2})).unwrap();
+    assert_eq!(equip(&s, &r["handle"]).air_sizes(false).len(), 2, "fewer: the first ones stay");
+    // Spread along the side: the ports are not on one another.
+    let ys: Vec<f64> = equip(&s, &r["handle"]).air_ports.iter().filter(|p| !p.inlet).map(|p| p.y_mm).collect();
+    assert!(ys.windows(2).all(|w| w[1] > w[0]), "{ys:?}");
+    // Refused: too many, not a whole number, not a ducted unit.
+    assert!(s.execute("equipmentedit", &json!({"handle": r["handle"], "outletCount": 40})).is_err());
+    assert!(s.execute("equipmentedit", &json!({"handle": r["handle"], "outletCount": -1})).is_err());
+    assert!(s.execute("equipmentedit", &json!({"handle": r["handle"], "inletCount": 1.5})).is_err());
+    let chiller = s.execute("equipmentadd", &json!({"at": [5000, 0], "kind": "chiller"})).unwrap();
+    assert!(s.execute("equipmentedit", &json!({"handle": chiller["handle"], "outletCount": 2})).is_err());
+}

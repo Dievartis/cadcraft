@@ -3480,3 +3480,9 @@ echo	Current settings: Name = {a}, Circuit = {b}, Direction = {c}	Paramètres ac
 	The cables, devices, boards and loads of the level, for Excel.	Les câbles, appareils, tableaux et charges du niveau, pour Excel.
 	The cable of a control bus: its circuit has the name of the bus.	Le câble d'un bus de régulation : son circuit porte le nom du bus.
 	Says what is wrong with the controls: points, controllers, buses and addresses.	Dit ce qui ne va pas dans la régulation : points, automates, bus et adresses.
+	Number of air inlets	Nombre d'entrées d'air
+	Number of air outlets	Nombre de sorties d'air
+	1. Draw the outline, like a room	1. On dessine le contour, comme un local
+	2. Why 300 mm: the round duct does not fit	2. Pourquoi 300 mm : la gaine ronde ne passe pas
+	3. What Size Ducts does	3. Ce que fait « Dimensionner les gaines »
+	4. Option: an altitude, and the steps make themselves	4. Option : une altitude, et les marches se font toutes seules

@@ -9,7 +9,8 @@ use crate::theme::Tokens;
 struct Help {
     id: &'static str,
     steps: &'static [&'static str],
-    figure: fn(&Painter, Rect),
+    /// Its drawings, each with a caption ("" for none): most tools have one.
+    figures: &'static [(&'static str, fn(&Painter, Rect))],
 }
 
 const OPEN: &str = "hvac_help_open";
@@ -23,7 +24,7 @@ const HELPS: &[Help] = &[
             "Check Controls tells what is wrong: a device wired to nothing, a controller with more points than it offers, no circuit that feeds it, a bus with no cable.",
             "The Points List shows the load and the reserve of each controller and writes the workbook: one line for each point, with the room it is in.",
         ],
-        figure: points_list,
+        figures: &[("", points_list)],
     },
     Help {
         id: "Distribute in a Space",
@@ -33,7 +34,7 @@ const HELPS: &[Help] = &[
             "A grid cell whose centre is outside the space gets nothing, so an L-shaped room is filled by its two arms.",
             "Terminals share the space's flow; units get their model's power. Edit one afterwards, or move it by its grip.",
         ],
-        figure: distribute,
+        figures: &[("", distribute)],
     },
     Help {
         id: "Riser",
@@ -42,7 +43,7 @@ const HELPS: &[Help] = &[
             "Type the flow that comes from the other floors in Properties.",
             "Size Ducts gives the riser its section; the arrow shows if the air goes up or down.",
         ],
-        figure: riser,
+        figures: &[("", riser)],
     },
     Help {
         id: "Duct",
@@ -51,7 +52,7 @@ const HELPS: &[Help] = &[
             "Start on a unit's collar, end on a terminal; start on another duct to make a tee.",
             "Leave the direction on auto: Size Ducts finds supply or extract from the terminals the run reaches.",
         ],
-        figure: duct,
+        figures: &[("", duct)],
     },
     Help {
         id: "Height Zone",
@@ -64,7 +65,12 @@ const HELPS: &[Help] = &[
             "A section you typed on a duct is kept: a duct you gave Ø355 stays Ø355 under the beam, and the sizing warns that it is too tall. Set its section to Auto in Properties to let the zone change it.",
             "To change the zone afterwards, select it and edit its height or its altitude in Properties, then run Size Ducts again.",
         ],
-        figure: zone,
+        figures: &[
+            ("1. Draw the outline, like a room", zone_plan),
+            ("2. Why 300 mm: the round duct does not fit", zone_section),
+            ("3. What Size Ducts does", zone),
+            ("4. Option: an altitude, and the steps make themselves", zone_altitude),
+        ],
     },
     Help {
         id: "Connect Terminals",
@@ -73,7 +79,7 @@ const HELPS: &[Help] = &[
             "A flexible duct is drawn from each one to the nearest duct, 3 m at most.",
             "Terminals too far from any duct are listed and left alone.",
         ],
-        figure: connect,
+        figures: &[("", connect)],
     },
     Help {
         id: "Size Ducts",
@@ -82,7 +88,7 @@ const HELPS: &[Help] = &[
             "Each duct gets its section, and its flow and velocity are written on it.",
             "Run it again after any change: sections and flows are recalculated.",
         ],
-        figure: size,
+        figures: &[("", size)],
     },
     Help {
         id: "Duct Crossing",
@@ -91,7 +97,7 @@ const HELPS: &[Help] = &[
             "Choose which one passes under or over the other.",
             "It is drawn broken, or with four 45° elbows when the duct has to go round the other.",
         ],
-        figure: crossing,
+        figures: &[("", crossing)],
     },
     Help {
         id: "HVAC Quantities",
@@ -100,7 +106,7 @@ const HELPS: &[Help] = &[
             "The tables count ducts by section, fittings, terminals, units, risers and equipment.",
             "The spreadsheet button saves them for Excel; each level makes its own file.",
         ],
-        figure: quantities,
+        figures: &[("", quantities)],
     },
     Help {
         id: "Piping",
@@ -110,7 +116,7 @@ const HELPS: &[Help] = &[
             "Each service has its own colour. To size a network, mark the run that starts at the source, type the loads at the free ends, then use Size Pipes.",
             "A pipe is joined to another only where their ends meet: start a branch at the end of a run.",
         ],
-        figure: piping,
+        figures: &[("", piping)],
     },
     Help {
         id: "Size Pipes",
@@ -120,7 +126,7 @@ const HELPS: &[Help] = &[
             "Type the load at each free end (kW, l/h for a drain), or end the run in a unit or an air handling unit that has a power: its coil counts.",
             "Run it: each pipe gets its size, flow and velocity, and the pressure lost on the most unfavourable circuit is told. A size you typed is checked, not changed. Run it again after any change.",
         ],
-        figure: size_pipes,
+        figures: &[("", size_pipes)],
     },
     Help {
         id: "Pipe Riser",
@@ -130,7 +136,7 @@ const HELPS: &[Help] = &[
             "In Properties: the size of each line (inches for refrigerant) and what it carries to the other floors (kW, l/h for a drain, capacity index for refrigerant). Add or remove lines there, and type the height from floor to floor.",
             "End the pipes of the floor in the shaft, or start them there: they are read through it. Size Pipes sizes the lines, and the takeoff counts them by the height.",
         ],
-        figure: pipe_riser,
+        figures: &[("", pipe_riser)],
     },
     Help {
         id: "Name Networks",
@@ -140,7 +146,7 @@ const HELPS: &[Help] = &[
             "Type a name on one pipe in Properties to name its whole network; there you also choose its colour and, for a print without colour, its line type.",
             "A pipe or a part drawn on a named network takes its name. The legend and the takeoff follow the names.",
         ],
-        figure: name_networks,
+        figures: &[("", name_networks)],
     },
     Help {
         id: "Network Legend",
@@ -149,7 +155,7 @@ const HELPS: &[Help] = &[
             "It has a row for each network: a sample in its colour and line type, its name, its pipes and their length.",
             "It is redrawn by itself when a network is named, renamed or restyled.",
         ],
-        figure: network_legend,
+        figures: &[("", network_legend)],
     },
     Help {
         id: "Library…",
@@ -159,7 +165,7 @@ const HELPS: &[Help] = &[
             "In Properties: its tag, its size (height, width, depth), volume, power, pressure loss, the outlets of a box or a header, and another model of the same kind.",
             "Keep a part of the drawing as a model of your own (My models): it is saved with the drawing.",
         ],
-        figure: library,
+        figures: &[("", library)],
     },
     Help {
         id: "Check Refrigerant",
@@ -169,7 +175,7 @@ const HELPS: &[Help] = &[
             "It tells what is over the limits: 5 units and index 140 per outlet of a box, and the joint or header that suits the index below it.",
             "A network can start or end at a pipe riser: what the other floors serve is typed on its line.",
         ],
-        figure: check_refrigerant,
+        figures: &[("", check_refrigerant)],
     },
     Help {
         id: "Convert to Openings",
@@ -178,7 +184,7 @@ const HELPS: &[Help] = &[
             "It lists what it found; accept, and each becomes an opening you can change in Properties.",
             "The old blocks are kept on a frozen layer, A-OPENING-OLD: thaw it to see them.",
         ],
-        figure: convert_openings,
+        figures: &[("", convert_openings)],
     },
     Help {
         id: "Wall Elevation",
@@ -187,7 +193,7 @@ const HELPS: &[Help] = &[
             "It shows the wall seen from the side, with its openings, sills and heights.",
             "Run it again after changing the wall or its openings.",
         ],
-        figure: wall_elevation,
+        figures: &[("", wall_elevation)],
     },
     Help {
         id: "Wall Junctions",
@@ -196,7 +202,7 @@ const HELPS: &[Help] = &[
             "After moving, copying or erasing walls, run this tool: it joins them again.",
             "A wall drawn first gives way to a wall of higher priority; layers of equal priority are joined without a line.",
         ],
-        figure: wall_junctions,
+        figures: &[("", wall_junctions)],
     },
     Help {
         id: "Corner Window",
@@ -205,7 +211,7 @@ const HELPS: &[Help] = &[
             "A window is put on each wall, from the corner, of the length given by the Width option (1200 mm by default).",
             "They are two ordinary openings: change each of them in Properties.",
         ],
-        figure: corner_window,
+        figures: &[("", corner_window)],
     },
     Help {
         id: "Ceiling Grid",
@@ -214,7 +220,7 @@ const HELPS: &[Help] = &[
             "In Properties type the tile (600x600, 600x1200…) and the height of the false ceiling.",
             "The whole and cut tiles are counted in the Structure Takeoff; the tile centres are where a diffuser or a luminaire snaps.",
         ],
-        figure: ceiling_grid,
+        figures: &[("", ceiling_grid)],
     },
     Help {
         id: "Stair",
@@ -223,7 +229,7 @@ const HELPS: &[Help] = &[
             "In Properties type the rise from floor to floor, the largest riser, the tread and the width: the number of risers follows.",
             "The label says whether the stair is comfortable: twice the riser plus the tread within 600 to 650 mm (Blondel).",
         ],
-        figure: stair,
+        figures: &[("", stair)],
     },
     Help {
         id: "Railing",
@@ -232,7 +238,7 @@ const HELPS: &[Help] = &[
             "In Properties type the height and the spacing of the posts.",
             "The railings and their length are counted in the Structure Takeoff.",
         ],
-        figure: railing,
+        figures: &[("", railing)],
     },
     Help {
         id: "Curtain Wall",
@@ -241,7 +247,7 @@ const HELPS: &[Help] = &[
             "In Properties type the spacing of the mullions and of the transoms, and the depth of the frame.",
             "The panels, the mullions, the transoms and the area are counted in the Structure Takeoff.",
         ],
-        figure: curtain_wall,
+        figures: &[("", curtain_wall)],
     },
     Help {
         id: "Building Section",
@@ -251,7 +257,7 @@ const HELPS: &[Help] = &[
             "The cut walls are drawn with their openings, with the slabs, steel columns and beams and false ceilings at their elevations, and the levels in the margin.",
             "It is a picture made now: draw a new section after changing the plan. Slopes are not drawn.",
         ],
-        figure: building_section,
+        figures: &[("", building_section)],
     },
     Help {
         id: "Roof",
@@ -261,7 +267,7 @@ const HELPS: &[Help] = &[
             "The label gives the top of the roof. In Properties change the kind, the pitch, the direction of the ridge and the height of the eaves.",
             "The area in plan, the area of the slopes, the rise and the ridge are counted in the Structure Takeoff.",
         ],
-        figure: roof,
+        figures: &[("", roof)],
     },
     Help {
         id: "Column",
@@ -270,7 +276,7 @@ const HELPS: &[Help] = &[
             "Click where the columns stand: near the corner of two walls, the end of a beam or another column, the click lands on it.",
             "In Properties type the height of the column and the elevation of its foot.",
         ],
-        figure: column,
+        figures: &[("", column)],
     },
     Help {
         id: "Beam",
@@ -279,7 +285,7 @@ const HELPS: &[Help] = &[
             "Click the points of the beams: one beam is drawn for each segment.",
             "A beam is cut where it meets a column or another beam. In Properties type the elevation of its underside.",
         ],
-        figure: beam,
+        figures: &[("", beam)],
     },
     Help {
         id: "Edit Structure",
@@ -288,7 +294,7 @@ const HELPS: &[Help] = &[
             "Choose what to change: the section, the height, the elevation or the rotation, and type the new value.",
             "The same values are changed in Properties, with the section list above the tools.",
         ],
-        figure: edit_structure,
+        figures: &[("", edit_structure)],
     },
     Help {
         id: "Structure Joints",
@@ -297,7 +303,7 @@ const HELPS: &[Help] = &[
             "After moving, copying or erasing columns or beams, run this tool: it cuts them again.",
             "Nothing is asked: every column and beam of the drawing is redrawn.",
         ],
-        figure: structure_joints,
+        figures: &[("", structure_joints)],
     },
     Help {
         id: "Structure Takeoff",
@@ -307,7 +313,7 @@ const HELPS: &[Help] = &[
             "The slabs, the false ceilings, the stairs, the railings, the curtain walls and the roofs are counted too.",
             "It saves a workbook (.xlsx) or a text file.",
         ],
-        figure: structure_takeoff,
+        figures: &[("", structure_takeoff)],
     },
     Help {
         id: "Slab Opening",
@@ -316,7 +322,7 @@ const HELPS: &[Help] = &[
             "The area of the opening is taken out of the area and the volume of the slab.",
             "Edit Slab changes its kind, its thickness and its elevation afterwards.",
         ],
-        figure: slab_opening,
+        figures: &[("", slab_opening)],
     },
     Help {
         id: "Electrical Device",
@@ -327,7 +333,7 @@ const HELPS: &[Help] = &[
             "A ceiling light can snap to the centre of the ceiling tile it is on (Ceiling Snap, see Ceiling Grid). The address of a KNX or DALI device is written beside it.",
             "Everything can be changed later in Properties: name, circuit, power, height, address. Several selected devices change together.",
         ],
-        figure: elec_device,
+        figures: &[("", elec_device)],
     },
     Help {
         id: "Cable",
@@ -338,7 +344,7 @@ const HELPS: &[Help] = &[
             "The length counted for a cable is its drawing plus Extra (metres of rises and slack for the run). Use an Electrical Riser for the height between floors.",
             "Cables that carry several circuits in one bundle are marked Grouped: the current capacity is reduced as the standard says.",
         ],
-        figure: cable_fig,
+        figures: &[("", cable_fig)],
     },
     Help {
         id: "Assign to Circuit",
@@ -348,7 +354,7 @@ const HELPS: &[Help] = &[
             "The power of an HVAC unit or equipment (its electrical kW in Properties) then counts on that circuit, and its cables are sized for it.",
             "Run Check Circuits afterwards: it says what the circuit carries and what is wrong with it.",
         ],
-        figure: circuit_fig,
+        figures: &[("", circuit_fig)],
     },
     Help {
         id: "Check Circuits",
@@ -359,7 +365,7 @@ const HELPS: &[Help] = &[
             "Boards fed by a circuit of another board are followed: the load, the short-circuit current and the voltage drop add up down the chain.",
             "Options: the short-circuit current at the origin (kA, given by the network operator: 10 by default), the breakers' breaking capacity, the curve B, C or D and the share of power on at once. The values are design values: check them with the manufacturer.",
         ],
-        figure: circuit_fig,
+        figures: &[("", circuit_fig)],
     },
     Help {
         id: "Size Circuits",
@@ -369,7 +375,7 @@ const HELPS: &[Help] = &[
             "A section you typed is kept, unless you ask to overwrite the sections already given.",
             "Run Check Circuits again: it confirms the voltage drop and the short-circuit current with the new sections.",
         ],
-        figure: circuit_fig,
+        figures: &[("", circuit_fig)],
     },
     Help {
         id: "Check Lighting",
@@ -379,7 +385,7 @@ const HELPS: &[Help] = &[
             "It compares the result with the minimum of the Code du travail (article R4223-4: 40 lux for a circulation, 120 for a room…) and lists the spaces that are too dark.",
             "It is a quick estimate, not a lighting study: the minimum values are the ones of the regulation, to be confirmed for your building.",
         ],
-        figure: lighting_fig,
+        figures: &[("", lighting_fig)],
     },
     Help {
         id: "Check Emergency Lighting",
@@ -388,7 +394,7 @@ const HELPS: &[Help] = &[
             "The check says where nothing is drawn: an escape route with no emergency light or exit sign, and a room of 100 people or more, or with more than one person for 10 m², with no emergency light.",
             "It checks the presence only. The levels and the autonomy are those of the arrêté of 14 December 2011 and of the standard NF EN 1838, to be confirmed.",
         ],
-        figure: lighting_fig,
+        figures: &[("", lighting_fig)],
     },
     Help {
         id: "Circuit Legend",
@@ -397,7 +403,7 @@ const HELPS: &[Help] = &[
             "It draws one row for each circuit: a sample of its cable in its colour and line type, its name, its use, its cable, its length, its power and its breaker.",
             "It is redrawn by itself when a circuit is named, renamed, sized or changed: there is nothing to run again.",
         ],
-        figure: circuit_fig,
+        figures: &[("", circuit_fig)],
     },
     Help {
         id: "Single-Line Diagram",
@@ -408,7 +414,7 @@ const HELPS: &[Help] = &[
             "A board fed by a circuit of another board shows “-> TD1” in the box of that circuit, and the load, the short-circuit current and the voltage drop follow the chain.",
             "It is redrawn by itself when a circuit is named, sized or changed. The options (source current, breaking capacity, curve) are those of Check Circuits.",
         ],
-        figure: single_line_fig,
+        figures: &[("", single_line_fig)],
     },
     Help {
         id: "Electrical Riser",
@@ -419,7 +425,7 @@ const HELPS: &[Help] = &[
             "The arrows show the way the current goes (up or down); the end on the side of the source has the whole load of this level, the other the part that goes on to the other floors. The arrows never overlap, whatever the number of lines.",
             "Each floor is its own drawing: the risers of two floors meet by their name.",
         ],
-        figure: elec_riser_fig,
+        figures: &[("", elec_riser_fig)],
     },
     Help {
         id: "Electrical Quantities",
@@ -429,7 +435,7 @@ const HELPS: &[Help] = &[
             "The circuits are listed as they are checked: power, current, sections, voltage drop, short circuit, breakers.",
             "The spreadsheet button saves them for Excel, with the prices you type; each level makes its own file.",
         ],
-        figure: quantities,
+        figures: &[("", quantities)],
     },
     Help {
         id: "Control Device",
@@ -439,7 +445,7 @@ const HELPS: &[Help] = &[
             "A controller or a module offers inputs and outputs (AI, AO, DI, DO); each device asks for points, a thermostat for two, a sensor for one.",
             "Give an automation device the circuit that feeds it and, if it is on a bus, the bus and its address.",
         ],
-        figure: points_list,
+        figures: &[("", points_list)],
     },
     Help {
         id: "Bus cable",
@@ -449,7 +455,7 @@ const HELPS: &[Help] = &[
             "Say the protocol on a controller or a gateway (Modbus RTU, BACnet MS/TP, KNX TP, M-Bus): the check then tests the addresses, the number of devices on a segment and the length of cable.",
             "The length counted is the cable drawn plus the height of the bus risers that carry the bus between floors.",
         ],
-        figure: control_schema_fig,
+        figures: &[("", control_schema_fig)],
     },
     Help {
         id: "Check Controls",
@@ -459,7 +465,7 @@ const HELPS: &[Help] = &[
             "It tells what is wrong: a device wired to nothing or to a controller that is not drawn, a controller over its capacity, an automation device that no circuit feeds, a bus with no cable, a device that serves an object that is not drawn.",
             "With a protocol on the bus it also checks the addresses (Modbus 1–247, BACnet MS/TP 0–127, KNX 1.1.5, M-Bus 1–250), the devices per segment and the cable length. These are usual design values: confirm them with the manufacturer.",
         ],
-        figure: points_list,
+        figures: &[("", points_list)],
     },
     Help {
         id: "Addresses",
@@ -468,7 +474,7 @@ const HELPS: &[Help] = &[
             "The address is a Modbus number, a BACnet MAC or a KNX address (1.1.5), typed in the Address line of the object's Properties.",
             "The list tells the addresses used twice on one bus or on one controller: those are the clashes to fix.",
         ],
-        figure: points_list,
+        figures: &[("", points_list)],
     },
     Help {
         id: "Principle Diagram",
@@ -478,7 +484,7 @@ const HELPS: &[Help] = &[
             "Under each controller are the points wired to it, with their address and type (“@3  TA1  AI”). Controllers with no bus are drawn together.",
             "It is redrawn by itself when a control device is added, changed or erased: there is nothing to run again.",
         ],
-        figure: control_schema_fig,
+        figures: &[("", control_schema_fig)],
     },
     Help {
         id: "Bus Riser",
@@ -488,7 +494,7 @@ const HELPS: &[Help] = &[
             "Type the height from floor to floor: it is added to the length of the bus, which Check Controls compares with what the protocol allows (1200 m in RS-485, 1000 m in KNX, 350 m in M-Bus).",
             "A bus riser counts as a bus cable drawn: Check Controls no longer says there is none.",
         ],
-        figure: elec_riser_fig,
+        figures: &[("", elec_riser_fig)],
     },
 ];
 
@@ -502,23 +508,43 @@ pub(super) fn show(ctx: &egui::Context) {
     let Some(id) = ctx.data(|d| d.get_temp::<&'static str>(egui::Id::unique(OPEN))) else { return };
     let Some(help) = HELPS.iter().find(|h| h.id == id) else { return };
     let mut open = true;
-    egui::Window::new(crate::i18n::t(help.id)).id(egui::Id::unique("hvac_help_window")).open(&mut open).collapsible(false).resizable(false).show(
-        ctx,
-        |ui| {
+    // A page with several drawings opens tall (it scrolls inside).
+    let height = if help.figures.len() > 1 { 600.0 } else { 0.0 };
+    egui::Window::new(crate::i18n::t(help.id))
+        .id(egui::Id::unique("hvac_help_window"))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .default_height(height)
+        .show(ctx, |ui| {
             ui.set_width(440.0);
-            let (r, _) = ui.allocate_exact_size(vec2(440.0, 170.0), egui::Sense::hover());
-            let t = Tokens::get();
-            ui.painter().rect_filled(r, 4.0, t.chrome_dark);
-            (help.figure)(&ui.painter().with_clip_rect(r), r.shrink(10.0));
-            ui.add_space(8.0);
-            for (i, step) in help.steps.iter().enumerate() {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(format!("{}.", i + 1));
-                    ui.label(crate::i18n::t(step));
-                });
+            // A page with several drawings (and captions) can be taller than the screen: it scrolls.
+            let tall = help.figures.len() > 1;
+            let content = |ui: &mut egui::Ui| {
+                for (caption, figure) in help.figures {
+                    if !caption.is_empty() {
+                        ui.label(egui::RichText::new(crate::i18n::t(caption)).strong());
+                    }
+                    let (r, _) = ui.allocate_exact_size(vec2(440.0, if tall { 150.0 } else { 170.0 }), egui::Sense::hover());
+                    let t = Tokens::get();
+                    ui.painter().rect_filled(r, 4.0, t.chrome_dark);
+                    figure(&ui.painter().with_clip_rect(r), r.shrink(10.0));
+                    ui.add_space(6.0);
+                }
+                ui.add_space(2.0);
+                for (i, step) in help.steps.iter().enumerate() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(format!("{}.", i + 1));
+                        ui.label(crate::i18n::t(step));
+                    });
+                }
+            };
+            if tall {
+                egui::ScrollArea::vertical().max_height(560.0).auto_shrink([false, true]).show(ui, content);
+            } else {
+                content(ui);
             }
-        },
-    );
+        });
     if !open {
         ctx.data_mut(|d| d.remove::<&'static str>(egui::Id::unique(OPEN)));
     }
@@ -613,6 +639,76 @@ fn zone(p: &Painter, r: Rect) {
     text(p, pos2(z.left() + 8.0, y + 34.0), "600×200", DUCT);
     text(p, pos2(r.left() + 6.0, y - 20.0), "Ø400", DUCT);
     text(p, pos2(r.right() - 44.0, y - 20.0), "Ø400", DUCT);
+    // Where the duct is cut: at the edges of the zone.
+    for x in [z.left(), z.right()] {
+        p.line_segment([pos2(x, y - 30.0), pos2(x, y + 30.0)], Stroke::new(2.0, ZONE));
+    }
+    text(p, pos2(r.left() + 6.0, y + 32.0), "cut at the edges", GREY);
+}
+
+/// Step 1: the outline of the zone drawn over a round duct that crosses it.
+fn zone_plan(p: &Painter, r: Rect) {
+    let y = r.center().y;
+    let z = Rect::from_min_max(pos2(r.center().x - 70.0, r.top()), pos2(r.center().x + 70.0, r.bottom()));
+    p.rect_filled(z, 0.0, ZONE.gamma_multiply(0.18));
+    hatch(p, z);
+    p.rect_stroke(z, 0.0, Stroke::new(1.6, ZONE), egui::StrokeKind::Inside);
+    hduct(p, r.left(), r.right(), y, 24.0);
+    let patch = |at: egui::Pos2, w: f32| p.rect_filled(Rect::from_min_size(at, vec2(w, 16.0)), 2.0, Tokens::get().chrome_dark);
+    patch(pos2(z.left() + 4.0, r.top() + 4.0), 120.0);
+    text(p, pos2(z.left() + 8.0, r.top() + 12.0), "ZONE 1  H 300 mm", ZONE);
+    text(p, pos2(r.left() + 6.0, y - 20.0), "Ø400", DUCT);
+    text(p, pos2(r.right() - 150.0, r.bottom() - 4.0), "seen from above", GREY);
+}
+
+/// Step 2: a section under the beam: 300 mm are left, the round Ø400 does not fit, a flat 600×200 does.
+fn zone_section(p: &Painter, r: Rect) {
+    let ceiling = Rect::from_min_max(pos2(r.left(), r.top()), pos2(r.right(), r.top() + 14.0));
+    p.rect_filled(ceiling, 0.0, GREY.gamma_multiply(0.35));
+    text(p, pos2(r.left() + 4.0, ceiling.center().y), "ceiling / slab", GREY);
+    let beam = Rect::from_min_max(pos2(r.center().x - 80.0, ceiling.bottom()), pos2(r.center().x + 80.0, ceiling.bottom() + 34.0));
+    p.rect_filled(beam, 0.0, ZONE.gamma_multiply(0.18));
+    p.rect_stroke(beam, 0.0, Stroke::new(1.4, ZONE), egui::StrokeKind::Inside);
+    text(p, beam.left_top() + vec2(6.0, 10.0), "beam", ZONE);
+    let low = beam.bottom();
+    p.line_segment([pos2(beam.left() - 6.0, low), pos2(beam.right() + 6.0, low)], Stroke::new(1.0, ZONE));
+    // The round duct outside, too tall for what is under the beam; the flat one inside.
+    let cy = low + 20.0;
+    p.circle_filled(pos2(r.left() + 50.0, cy), 28.0, DUCT_FILL);
+    p.circle_stroke(pos2(r.left() + 50.0, cy), 28.0, stroke());
+    text(p, pos2(r.left() + 30.0, cy), "Ø400", DUCT);
+    p.circle_filled(pos2(r.right() - 50.0, cy), 28.0, DUCT_FILL);
+    p.circle_stroke(pos2(r.right() - 50.0, cy), 28.0, stroke());
+    text(p, pos2(r.right() - 70.0, cy), "Ø400", DUCT);
+    let flat = Rect::from_center_size(pos2(r.center().x, low + 14.0), vec2(70.0, 22.0));
+    p.rect_filled(flat, 0.0, DUCT_FILL);
+    p.rect_stroke(flat, 0.0, stroke(), egui::StrokeKind::Inside);
+    text(p, flat.left_top() + vec2(8.0, 11.0), "600×200", DUCT);
+    text(p, pos2(beam.left() + 6.0, beam.bottom() + 40.0), "300 mm under the beam", ZONE);
+    text(p, pos2(r.left() + 26.0, r.bottom() - 4.0), "outside", GREY);
+    text(p, pos2(r.center().x - 24.0, r.bottom() - 4.0), "in the zone", GREY);
+}
+
+/// Step 4: a section with an altitude: the duct goes down by two 45° elbows into the zone and up again.
+fn zone_altitude(p: &Painter, r: Rect) {
+    let (hi, lo) = (r.top() + 40.0, r.top() + 78.0);
+    for (y, label) in [(hi, "3.00 m"), (lo, "2.60 m")] {
+        p.line_segment([pos2(r.left(), y), pos2(r.right(), y)], Stroke::new(0.8, GREY.gamma_multiply(0.6)));
+        text(p, pos2(r.left() + 2.0, y - 8.0), label, GREY);
+    }
+    let zone_box = Rect::from_min_max(pos2(r.center().x - 60.0, r.top() + 6.0), pos2(r.center().x + 60.0, hi));
+    p.rect_filled(zone_box, 0.0, ZONE.gamma_multiply(0.18));
+    p.rect_stroke(zone_box, 0.0, Stroke::new(1.2, ZONE), egui::StrokeKind::Inside);
+    text(p, zone_box.left_top() + vec2(6.0, 12.0), "zone: altitude 2.60 m", ZONE);
+    let (x0, x1, x2, x3) = (r.left() + 10.0, r.center().x - 60.0, r.center().x + 60.0, r.right() - 10.0);
+    let path = [pos2(x0, hi), pos2(x1 - 26.0, hi), pos2(x1, lo), pos2(x2, lo), pos2(x2 + 26.0, hi), pos2(x3, hi)];
+    p.add(egui::Shape::line(path.to_vec(), Stroke::new(8.0, DUCT_FILL)));
+    p.add(egui::Shape::line(path.to_vec(), Stroke::new(1.5, DUCT)));
+    text(p, pos2(x0 + 46.0, hi - 12.0), "Al: 3.00", DUCT);
+    text(p, pos2(r.center().x - 24.0, lo + 18.0), "Al: 2.60", DUCT);
+    text(p, pos2(x3 - 70.0, hi - 12.0), "Al: 3.00", DUCT);
+    text(p, pos2(x1 - 70.0, lo + 4.0), "2 × 45°", GREY);
+    text(p, pos2(x2 + 4.0, lo + 4.0), "2 × 45°", GREY);
 }
 
 fn connect(p: &Painter, r: Rect) {
@@ -765,11 +861,11 @@ mod shots {
     fn drawings_can_be_saved_to_look_at() {
         let Some(dir) = std::env::var_os("CADCRAFT_HELP_SHOTS") else { return };
         for help in HELPS {
-            let mut h = Harness::builder().with_size(vec2(480.0, 380.0)).build_ui(|ui| {
+            let mut h = Harness::builder().with_size(vec2(480.0, 800.0)).build_ui(|ui| {
                 show(ui.ctx());
             });
             request(&h.ctx, help.id);
-            h.run_steps(3);
+            h.run_steps(8);
             if let Ok(img) = h.render() {
                 let _ = img.save(std::path::Path::new(&dir).join(format!("{}.png", help.id.replace(' ', "_"))));
             }
@@ -1305,12 +1401,18 @@ mod coverage_tests {
                 assert_ne!(crate::i18n::tr("fr", step), *step, "{}: not translated into French: {step}", h.id);
                 assert_ne!(crate::i18n::tr("zh", step), *step, "{}: not translated into Chinese: {step}", h.id);
             }
+            for (caption, _) in h.figures.iter().filter(|(c, _)| !c.is_empty()) {
+                assert_ne!(crate::i18n::tr("fr", caption), *caption, "{}: caption not translated into French: {caption}", h.id);
+                assert_ne!(crate::i18n::tr("zh", caption), *caption, "{}: caption not translated into Chinese: {caption}", h.id);
+            }
         }
         // Every figure draws without panicking, in a box of the size the window gives it.
         let mut hn = egui_kittest::Harness::new_ui(|ui| {
             for h in HELPS {
-                let (r, _) = ui.allocate_exact_size(vec2(440.0, 170.0), egui::Sense::hover());
-                (h.figure)(&ui.painter().with_clip_rect(r), r.shrink(10.0));
+                for (_, figure) in h.figures {
+                    let (r, _) = ui.allocate_exact_size(vec2(440.0, 170.0), egui::Sense::hover());
+                    figure(&ui.painter().with_clip_rect(r), r.shrink(10.0));
+                }
             }
         });
         hn.run_steps(2);
