@@ -1528,7 +1528,7 @@ fn a_change_of_level_between_runs_counts_two_elbows_in_the_losses_and_a_run_too_
     assert!(duct_of(short.entity(b3).unwrap()).unwrap().steps.is_empty());
     // A step is drawn: two elbows across the run and the change written.
     let drawn = d.entity(b).and_then(|e| if let EntityKind::Insert(i) = &e.kind { d.block(&i.block) } else { None }).unwrap();
-    assert!(drawn.entities.iter().any(|e| matches!(&e.kind, EntityKind::Text(t) if t.value == "+300")));
+    assert!(drawn.entities.iter().any(|e| matches!(&e.kind, EntityKind::Text(t) if t.value == "+300 \u{b7} 45\u{b0}")));
     assert!(
         DuctParams { steps: vec![DuctStep { at_mm: 0.0, shift_mm: 5.0 }], ..duct_with_length(1000.0) }.validate().is_err(),
         "a step is 20 mm or more"
@@ -2368,17 +2368,6 @@ fn a_rectangular_duct_has_flanges_every_1200_mm_and_on_its_elbow_and_a_round_one
 }
 
 #[test]
-fn a_step_is_drawn_with_a_line_and_four_arcs_at_each_elbow() {
-    let p = DuctParams { length: 4000.0, steps: vec![DuctStep { at_mm: 1500.0, shift_mm: 700.0 }], ..duct(250.0) };
-    let pieces = p.generate(false).unwrap();
-    let arcs =
-        pieces.iter().filter(|h| matches!(&h.kind, EntityKind::LwPolyline(l) if !l.closed && l.vertices.iter().any(|v| v.bulge != 0.0))).count();
-    assert_eq!(arcs, 8, "four at each of the two elbows");
-    let lines = pieces.iter().filter(|h| matches!(h.kind, EntityKind::Line(_))).count();
-    assert!(lines >= 2, "the line of each joint");
-}
-
-#[test]
 fn a_step_written_for_an_older_bend_is_replaced_not_kept_beside_the_new_one() {
     let mut d = Drawing::new_metric();
     let a = add_duct(&mut d, (0.0, 0.0), (8000.0, 0.0));
@@ -2398,4 +2387,62 @@ fn a_step_written_for_an_older_bend_is_replaced_not_kept_beside_the_new_one() {
     let now = steps(&d);
     assert_eq!(now.len(), 1, "{now:?}");
     assert!((now[0].at_mm - p.trim_start_mm).abs() < 1.5, "{now:?} after a bend of {}", p.trim_start_mm);
+}
+
+#[test]
+fn a_step_is_drawn_as_the_duct_seen_from_above_rings_on_a_round_duct_and_folds_on_a_rectangular_one() {
+    let ellipses = |p: &DuctParams| -> Vec<crate::Ellipse> {
+        p.generate(false).unwrap().into_iter().filter_map(|h| if let EntityKind::Ellipse(e) = h.kind { Some(e) } else { None }).collect()
+    };
+    let lines = |p: &DuctParams| p.generate(false).unwrap().iter().filter(|h| matches!(h.kind, EntityKind::Line(_))).count();
+    let texts = |p: &DuctParams| -> Vec<String> {
+        p.generate(false).unwrap().into_iter().filter_map(|h| if let EntityKind::Text(t) = h.kind { Some(t.value) } else { None }).collect()
+    };
+    // A round Ø250 duct that goes 700 mm down at its start: a line at each joint and three rings per elbow (11.25°, 33.75°, 45°), each a half ellipse
+    // as deep as the radius times the sine of the lean, at the bend's radius (the duct's width) times that sine from the joint.
+    let down = DuctParams { length: 4000.0, steps: vec![DuctStep { at_mm: 1500.0, shift_mm: -700.0 }], ..duct(250.0) };
+    let rings = ellipses(&down);
+    assert_eq!(rings.len(), 6);
+    assert_eq!(lines(&down), 2, "the joints");
+    let mut xs: Vec<f64> = rings.iter().map(|e| e.center.x).collect();
+    xs.sort_by(f64::total_cmp);
+    let lean = |deg: f64| deg.to_radians().sin();
+    let want = [
+        1500.0 + 250.0 * lean(11.25),
+        1500.0 + 250.0 * lean(33.75),
+        1500.0 + 250.0 * lean(45.0),
+        2200.0 - 250.0 * lean(45.0),
+        2200.0 - 250.0 * lean(33.75),
+        2200.0 - 250.0 * lean(11.25),
+    ];
+    assert!(xs.iter().zip(want).all(|(x, w)| (x - w).abs() < 1e-6), "{xs:?}");
+    assert!(rings.iter().all(|e| (e.major.y - 125.0).abs() < 1e-9 && [11.25, 33.75, 45.0].iter().any(|d| (e.ratio - lean(*d)).abs() < 1e-9)));
+    // Going down along the duct, the rings bulge forward (the half at π..2π is on +x); going up, backward.
+    assert!(rings.iter().all(|e| (e.start, e.end) == (std::f64::consts::PI, std::f64::consts::TAU)));
+    let up = DuctParams { steps: vec![DuctStep { at_mm: 1500.0, shift_mm: 700.0 }], ..down.clone() };
+    assert!(ellipses(&up).iter().all(|e| (e.start, e.end) == (0.0, std::f64::consts::PI)));
+    // The same step written for the far end of the run goes the other way along it.
+    let far = DuctParams { steps: vec![DuctStep { at_mm: 3000.0, shift_mm: 700.0 }], ..down.clone() };
+    assert!(ellipses(&far).iter().all(|e| e.start == std::f64::consts::PI));
+    assert_eq!(texts(&down).iter().filter(|t| t.as_str() == "-700 \u{b7} 45\u{b0}").count(), 1, "{:?}", texts(&down));
+    // A short step: the elbows meet, their radius shrinks so that both fit.
+    let short = DuctParams { steps: vec![DuctStep { at_mm: 1500.0, shift_mm: -200.0 }], ..down.clone() };
+    let far_ring = ellipses(&short).iter().map(|e| e.center.x).fold(f64::MIN, f64::max);
+    assert!(far_ring <= 1700.0 + 1e-6, "{far_ring}");
+    // A rectangular duct is folded: three straight lines per elbow, no ring.
+    let rect = DuctParams { shape: DuctShape::Rectangular, width_mm: 400.0, height_mm: 200.0, ..down.clone() };
+    assert!(ellipses(&rect).is_empty());
+    assert_eq!(lines(&rect), 6);
+    let arcs = rect
+        .generate(false)
+        .unwrap()
+        .iter()
+        .filter(|h| matches!(&h.kind, EntityKind::LwPolyline(l) if l.vertices.iter().any(|v| v.bulge != 0.0)))
+        .count();
+    assert_eq!(arcs, 0);
+    // A jog of a rectangular duct is folded too.
+    let jogged = DuctParams { steps: Vec::new(), jogs: vec![DuctJog { centre_mm: 2000.0, half_mm: 200.0, shift_mm: 600.0, down: false }], ..rect };
+    assert!(
+        jogged.generate(false).unwrap().iter().all(|h| !matches!(&h.kind, EntityKind::LwPolyline(l) if l.vertices.iter().any(|v| v.bulge != 0.0)))
+    );
 }

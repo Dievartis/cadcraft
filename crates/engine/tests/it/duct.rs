@@ -1064,7 +1064,7 @@ fn a_height_given_to_a_run_makes_the_step_between_runs_at_other_levels_and_the_l
             .collect()
     };
     assert!(labels(&s, &b).iter().any(|t| t.contains("Ai:2.75")), "{:?}", labels(&s, &b));
-    assert!(labels(&s, &b).iter().any(|t| t == "+250"), "the step is written: {:?}", labels(&s, &b));
+    assert!(labels(&s, &b).iter().any(|t| t == "+250 \u{b7} 45\u{b0}"), "the step is written: {:?}", labels(&s, &b));
     // The lower duct passes under where it crosses; the one at the same level is left.
     assert_eq!(out["autoCrossed"], 1, "{out}");
     assert_eq!(p(&s, &low).gaps_mm.len(), 1);
