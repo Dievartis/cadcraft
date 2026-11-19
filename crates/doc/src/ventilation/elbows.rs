@@ -179,10 +179,11 @@ fn steps(runs: &[Run], joints: &[[(usize, bool); 2]], next: &[(Option<DuctElbow>
     let mut out: Vec<Vec<DuctStep>> = runs.iter().map(|r| r.params.steps.clone()).collect();
     let length = |k: usize| runs.get(k).map_or(0.0, |r| r.params.length * mm_per_unit);
     let trims = |k: usize| next.get(k).map_or((0.0, 0.0), |n| (n.1, n.2));
-    // The step a run has at its `at_end` end is the one whose elbows are there.
+    // The step a run has at its `at_end` end is the one whose elbows are there: one that starts (or ends) at the straight part, or within the clearance of
+    // it, or in the bend (a step drawn when the bend was shorter or longer than now must not stay beside the new one).
     let at_end_of = |k: usize, st: &DuctStep, at_end: bool| {
         let (lo, hi) = (trims(k).0, length(k) - trims(k).1);
-        if at_end { (st.at_mm + st.shift_mm.abs() - hi).abs() < 1.5 } else { (st.at_mm - lo).abs() < 1.5 }
+        if at_end { st.at_mm + st.shift_mm.abs() > hi - STEP_CLEARANCE_MM } else { st.at_mm < lo + STEP_CLEARANCE_MM }
     };
     for j in joints {
         let [(a, ae), (b, be)] = *j;

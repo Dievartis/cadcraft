@@ -2377,3 +2377,25 @@ fn a_step_is_drawn_with_a_line_and_four_arcs_at_each_elbow() {
     let lines = pieces.iter().filter(|h| matches!(h.kind, EntityKind::Line(_))).count();
     assert!(lines >= 2, "the line of each joint");
 }
+
+#[test]
+fn a_step_written_for_an_older_bend_is_replaced_not_kept_beside_the_new_one() {
+    let mut d = Drawing::new_metric();
+    let a = add_duct(&mut d, (0.0, 0.0), (8000.0, 0.0));
+    let b = add_duct(&mut d, (8000.0, 0.0), (8000.0, 8000.0));
+    for (h, level) in [(a, 1000.0), (b, 1500.0)] {
+        let p = DuctParams { level_mm: Some(level), ..duct_of(d.entity(h).unwrap()).unwrap() };
+        d.regenerate_duct(h, &p).unwrap();
+    }
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    let steps = |d: &Drawing| duct_of(d.entity(b).unwrap()).unwrap().steps;
+    assert_eq!(steps(&d).len(), 1, "the change of level, after the bend");
+    // The step of a bend that was shorter (as a file written by an older version holds it): the bend is now where it is, and the step goes with it.
+    let mut p = duct_of(d.entity(b).unwrap()).unwrap();
+    p.steps = vec![DuctStep { at_mm: p.steps[0].at_mm - 82.0, shift_mm: 500.0 }];
+    d.regenerate_duct(b, &p).unwrap();
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    let now = steps(&d);
+    assert_eq!(now.len(), 1, "{now:?}");
+    assert!((now[0].at_mm - p.trim_start_mm).abs() < 1.5, "{now:?} after a bend of {}", p.trim_start_mm);
+}
