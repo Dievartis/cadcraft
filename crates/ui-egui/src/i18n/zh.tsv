@@ -2000,3 +2000,4 @@ menu	View	视图
 	The altitude of the zone's underside is given to the pieces inside, unless they have their own, and where two runs are at other altitudes the step (two 45° elbows) is drawn at once, with no sizing.	区域底部标高会赋予区域内的各段（除非它们有自己的标高），两段标高不同的风管之间会立即绘制过渡段（两个 45° 弯头），无需选型。
 	Double-flow unit, horizontal	双流机组，水平
 	Double-flow unit, vertical	双流机组，垂直
+	Text Style	文字样式

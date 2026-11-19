@@ -3495,3 +3495,4 @@ echo	Current settings: Name = {a}, Circuit = {b}, Direction = {c}	Paramètres ac
 	Double-flow unit, horizontal	CTA double flux horizontale
 	Note	Note
 	Enter a note written under the height (for instance Under the beam), or nothing	Entrez une note écrite sous la hauteur (par exemple Sous poutre), ou rien
+	Text Style	Style de texte
