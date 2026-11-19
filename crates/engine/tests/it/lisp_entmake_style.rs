@@ -4,7 +4,11 @@ use cadcraft_engine::Session;
 use cadcraft_engine::cmd::file::{EntityCodec, set_entity_codec};
 
 fn session() -> Session {
-    set_entity_codec(EntityCodec { groups: cadcraft_io::entity_groups, entity: cadcraft_io::entity_from_groups });
+    set_entity_codec(EntityCodec {
+        groups: cadcraft_io::entity_groups,
+        entity: cadcraft_io::entity_from_groups,
+        objects: cadcraft_io::object_records,
+    });
     Session::new()
 }
 

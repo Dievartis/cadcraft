@@ -1033,12 +1033,12 @@ fn marks(
     let mut batch: Option<(StrokeStyle, PathBuilder)> = None;
     let mut layer: Option<OcgId> = None;
     // PDF underlays' pages, each before the primitive it comes before.
-    let mut images: Vec<&(crate::underlay_plot::PlotImage, [f64; 6])> = p.images.iter().collect();
-    images.sort_by_key(|(im, _)| im.at);
-    let mut images = images.into_iter().peekable();
+    let mut pages: Vec<&(crate::underlay_plot::PlotImage, [f64; 6])> = p.images.iter().collect();
+    pages.sort_by_key(|(im, _)| im.at);
+    let mut pages = pages.into_iter().peekable();
     for (i, prim) in list.prims.iter().enumerate() {
         // A page is drawn outside the marks' layer.
-        while let Some((im, m)) = images.next_if(|(im, _)| im.at <= i) {
+        while let Some((im, m)) = pages.next_if(|(im, _)| im.at <= i) {
             flush(s, &mut batch);
             layer_changed(s, layer.take(), None)?;
             underlay(s, im, m, &p.map);
@@ -1083,7 +1083,7 @@ fn marks(
     }
     flush(s, &mut batch);
     layer_changed(s, layer, None)?;
-    for (im, m) in images {
+    for (im, m) in pages {
         underlay(s, im, m, &p.map);
     }
     Ok(())
