@@ -16,6 +16,8 @@ mod hvachelp;
 #[cfg(test)]
 mod layer_menu_tests;
 mod objects;
+mod plumbing;
+pub(crate) use objects::pipe_service_label;
 mod regulation;
 mod thumbs;
 pub(crate) use objects::is_parametric;

@@ -20,7 +20,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("pipeadd", "Pipe", run_pipeadd)
             .menu(&["Draw", "HVAC", "Pipe"])
             .params(
-                "{points (2 or more; one pipe per segment), service?: chilledWater|hotWater|changeOver|condensate|refrigerantLiquid|refrigerantGas|refrigerantPair (the liquid and the gas lines drawn as one run)|refrigerantTriple (heat recovery: liquid, suction gas and high/low-pressure gas drawn as one run), \
+                "{points (2 or more; one pipe per segment), service?: chilledWater|hotWater|changeOver|condensate|refrigerantLiquid|refrigerantGas|refrigerantPair (the liquid and the gas lines drawn as one run)|refrigerantTriple (heat recovery: liquid, suction gas and high/low-pressure gas drawn as one run)|wasteWater (EU)|soilWater (EV)|rainWater (EP)|coldWater (EF)|domesticHotWater (ECS)|hotWaterLoop (its return loop; the plumbing sizes are the tube's outer diameter, mm), slope? (% of a drain, written on it), \
                  leg?: supply|return (the water networks), dn? (mm: the nominal diameter of a steel pipe; a refrigerant tube takes its outer diameter in mm or in inches, \"3/8\", \"1 1/8\"; for a pair, the liquid tube), gas? (the gas tube of a link, as dn; for a heat-recovery link, the suction gas), hpGas? (the high/low-pressure gas tube of a heat-recovery link), \
                  insulation? (mm), altitude? (m, the underside), load? (kW at the free end; l/h for a condensate drain), source? (true: the run starts at the source of its network), \
                  labelHeight? (mm), network? (a name: the pipes are on that network; one connected to a named network takes its name by itself)} → {handles}",
@@ -36,7 +36,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         CommandSpec::new("pipeedit", "Edit Pipe", run_pipeedit).params(
             "{handle | handles, service?, leg?, dn? (mm, inches for a refrigerant tube, or auto: sizing chooses the size), gas? (mm or inches: the gas tube of a link), hpGas? (the high/low-pressure gas tube of a heat-recovery link), insulation? (mm), altitude? (m or null), load? (kW, l/h for a condensate drain, or null), \
-             source? (true or false), network? (a name: it is the name of the whole network of each pipe)} → {changed}",
+             source? (true or false), network? (a name: it is the name of the whole network of each pipe), slope? (% of a drain, or null)} → {changed}",
         ),
     ]
 }
@@ -88,6 +88,11 @@ pub fn default_dn_mm(service: PipeService) -> f64 {
         PipeService::RefrigerantGas => 15.88,
         // The liquid tube of a link.
         PipeService::RefrigerantPair | PipeService::RefrigerantTriple => 9.52,
+        // A collector of waste water, soil water (a water closet's Ø100) and rain water; copper or multilayer tube for domestic water.
+        PipeService::WasteWater => 50.0,
+        PipeService::SoilWater | PipeService::RainWater => 100.0,
+        PipeService::ColdWater | PipeService::DomesticHotWater => 20.0,
+        PipeService::HotWaterLoop => 16.0,
     }
 }
 
@@ -203,6 +208,7 @@ fn run_pipeadd(s: &mut Session, p: &Value) -> Result<Value> {
     }
     params.load_kw = number(CMD, p, "load", 0.0)?;
     params.source = flag(CMD, p, "source")?.unwrap_or(false);
+    params.slope_pct = number(CMD, p, "slope", 0.0)?;
     if let Some(n) = str_param(p, "network") {
         params.network = n.trim().to_string();
     }
@@ -232,6 +238,12 @@ fn run_pipeedit(s: &mut Session, p: &Value) -> Result<Value> {
     let hp_gas: Option<f64> = p.get("hpGas").filter(|v| !v.is_null()).map(|v| size_value(CMD, "hpGas", v, true)).transpose()?;
     let insulation = number(CMD, p, "insulation", 0.0)?;
     let altitude = altitude_param(CMD, p)?;
+    // Null clears the slope.
+    let slope: Option<Option<f64>> = match p.get("slope") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(_) => Some(number(CMD, p, "slope", 0.0)?),
+    };
     let load: Option<Option<f64>> = match p.get("load") {
         None => None,
         Some(Value::Null) => Some(None),
@@ -273,6 +285,9 @@ fn run_pipeedit(s: &mut Session, p: &Value) -> Result<Value> {
             pp.gas2_dn_mm = hp_gas.unwrap_or(pp.gas2_dn_mm);
         }
         pp.insulation_mm = insulation.unwrap_or(pp.insulation_mm);
+        if let Some(i) = slope {
+            pp.slope_pct = i;
+        }
         if let Some(a) = altitude {
             pp.level_mm = a;
         }

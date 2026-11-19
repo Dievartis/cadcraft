@@ -95,6 +95,10 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     if !controls.is_empty() && controls.len() == sel.len() {
         return control_section(ui, sel, &controls, bad);
     }
+    let fixtures: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::sanitary_of(e))).collect();
+    if !fixtures.is_empty() && fixtures.len() == sel.len() {
+        return sanitary_section(ui, sel, &fixtures, bad);
+    }
     let devices: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::device_of(e))).collect();
     if !devices.is_empty() && devices.len() == sel.len() {
         return device_section(ui, sel, &devices, bad);
@@ -358,6 +362,38 @@ fn elec_number(
             }
         }
     });
+}
+
+/// The Properties group of sanitary fixtures: their type, name, size, drain, flows and altitude.
+fn sanitary_section(ui: &mut egui::Ui, sel: &[Handle], fs: &[cadcraft_doc::SanitaryParams], bad: &mut Option<String>) -> Action {
+    use cadcraft_doc::{PipeService, SanitaryKind};
+    const CMD: &str = "fixtureedit";
+    let ids = handles(sel);
+    let mut action: Action = None;
+    group(ui, "Sanitary Fixture");
+    let kind = shared(&fs.iter().map(|f| f.kind).collect::<Vec<_>>());
+    prop_row(ui, "Type", |ui| {
+        let all: Vec<(&'static str, &'static str)> = SanitaryKind::ALL.iter().map(|k| (k.name(), super::plumbing::sanitary_kind_label(*k))).collect();
+        if let Some(k) = choice(ui, kind.map_or(VARIES, super::plumbing::sanitary_kind_label), &all) {
+            action = Some((CMD, json!({ "handles": ids, "kind": k })));
+        }
+    });
+    elec_text(ui, CMD, "Name", "name", &ids, fs.iter().map(|f| f.name.clone()).collect(), &mut action);
+    elec_number(ui, (CMD, "Width (mm)", "width", false), &ids, fs.iter().map(|f| Some(f.width_mm)).collect(), bad, &mut action);
+    elec_number(ui, (CMD, "Depth (mm)", "depth", false), &ids, fs.iter().map(|f| Some(f.depth_mm)).collect(), bad, &mut action);
+    let drain = shared(&fs.iter().map(|f| f.drain).collect::<Vec<_>>());
+    let drain_label = |d: Option<PipeService>| d.map_or("None", super::pipe_service_label);
+    prop_row(ui, "Drain", |ui| {
+        let items = [("wasteWater", "Waste water (EU)"), ("soilWater", "Soil water (EV)"), ("rainWater", "Rain water (EP)"), ("none", "None")];
+        if let Some(v) = choice(ui, drain.map_or(VARIES, drain_label), &items) {
+            action = Some((CMD, json!({ "handles": ids, "drain": if v == "none" { Value::Null } else { json!(v) } })));
+        }
+    });
+    elec_number(ui, (CMD, "Drain diameter (mm)", "drainDn", false), &ids, fs.iter().map(|f| Some(f.drain_dn_mm)).collect(), bad, &mut action);
+    elec_number(ui, (CMD, "Cold water (l/s)", "cold", true), &ids, fs.iter().map(|f| f.cold_ls).collect(), bad, &mut action);
+    elec_number(ui, (CMD, "Hot water (l/s)", "hot", true), &ids, fs.iter().map(|f| f.hot_ls).collect(), bad, &mut action);
+    altitude_row(ui, CMD, &ids, fs.iter().map(|f| f.bottom_mm).collect(), bad, &mut action);
+    action
 }
 
 /// The Properties group of control devices: tag, the controller it is wired to, what it serves, its circuit, and what a controller offers.
@@ -773,7 +809,7 @@ pub(crate) fn is_parametric(d: &Drawing, h: Handle) -> bool {
 }
 
 /// The label of a pipe service in Properties.
-pub(super) fn pipe_service_label(s: PipeService) -> &'static str {
+pub(crate) fn pipe_service_label(s: PipeService) -> &'static str {
     match s {
         PipeService::ChilledWater => "Chilled water",
         PipeService::HotWater => "Hot water",
@@ -783,6 +819,12 @@ pub(super) fn pipe_service_label(s: PipeService) -> &'static str {
         PipeService::RefrigerantGas => "Refrigerant gas line",
         PipeService::RefrigerantPair => "Refrigerant link (liquid + gas)",
         PipeService::RefrigerantTriple => "Refrigerant link, heat recovery (3 tubes)",
+        PipeService::WasteWater => "Waste water (EU)",
+        PipeService::SoilWater => "Soil water (EV)",
+        PipeService::RainWater => "Rain water (EP)",
+        PipeService::ColdWater => "Cold water (EF)",
+        PipeService::DomesticHotWater => "Domestic hot water (ECS)",
+        PipeService::HotWaterLoop => "Hot water return loop",
     }
 }
 

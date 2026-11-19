@@ -142,6 +142,7 @@ mod pipe;
 mod pipe_riser;
 mod pline_arc_xline_options;
 mod plot_styles;
+mod plumbing;
 mod point_modifiers;
 mod polyface_explode;
 mod post_command_passes;

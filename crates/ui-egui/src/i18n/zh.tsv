@@ -2029,3 +2029,44 @@ menu	View	视图
 	Double-flow unit, horizontal	双流机组，水平
 	Double-flow unit, vertical	双流机组，垂直
 	Text Style	文字样式
+	Plumbing	给排水
+	Sanitary Fixture	卫生器具
+	Edit Sanitary Fixture	编辑卫生器具
+	Connect Fixtures	连接卫生器具
+	Sanitary fixtures	卫生器具
+	Wall-hung WC	壁挂式坐便器
+	Floor-standing WC	落地式坐便器
+	Accessible WC	无障碍坐便器
+	Urinal	小便器
+	Washbasin	洗脸盆
+	Hand basin	洗手盆
+	Double vanity basin	双台盆
+	Sink, one bowl	单槽洗涤盆
+	Sink, two bowls	双槽洗涤盆
+	Shower	淋浴
+	Bath	浴缸
+	Bidet	净身盆
+	Slop sink	污水池
+	Floor drain	地漏
+	Washing machine	洗衣机
+	Dishwasher	洗碗机
+	Water heater	热水器
+	Draw-off tap	取水龙头
+	Waste water (EU)	废水 (EU)
+	Soil water (EV)	污水 (EV)
+	Rain water (EP)	雨水 (EP)
+	Cold water (EF)	冷水 (EF)
+	Domestic hot water (ECS)	生活热水 (ECS)
+	Hot water return loop	热水回水
+	Choose the fixture in the list, then click where the middle of its back goes, against the wall. Rotate (R) turns the next ones; Type (T) changes the kind.	在列表中选择器具，然后在墙边点击其背面中点的位置。旋转 (R) 转动后续器具；类型 (T) 更换种类。
+	It is drawn seen from above at its usual size, with its drain written beside it: WC EV Ø100, LAV EU Ø40.	它以常用尺寸按俯视图绘制，旁边标注其排水：WC EV Ø100，LAV EU Ø40。
+	Water closets, urinals and slop sinks drain to soil water (EV), the others to waste water (EU). In Properties change its size, its drain, the drain's diameter, its cold and hot water flows (l/s) and its altitude.	坐便器、小便器和污水池排入污水 (EV)，其他器具排入废水 (EU)。在特性中可修改其尺寸、排水、排水管径、冷热水流量 (l/s) 和标高。
+	The values are the usual ones in France (DTU 60.11), to be checked against the fixture chosen.	这些数值是法国的常用值 (DTU 60.11)，需按所选器具核对。
+	Choose the network, then click the points of the pipe, as for any pipe: the elbows and the reducers are drawn as soon as the pipes are laid.	选择管网，然后像任何管道一样点击管道的各点：铺设管道时即绘制弯头和变径。
+	Waste water (EU), soil water (EV) and rain water (EP) flow by gravity: give the slope in Properties (i = 1 %, 2 %…); it is written on the pipe with its outer diameter (Ø100 EV i=2 %).	废水 (EU)、污水 (EV) 和雨水 (EP) 靠重力流动：在特性中给出坡度 (i = 1 %、2 %…)；坡度与外径一起标注在管道上 (Ø100 EV i=2 %)。
+	Cold water (EF), domestic hot water (ECS) and its return loop are written with the outer diameter of their tube (Ø20 EF).	冷水 (EF)、生活热水 (ECS) 及其回水以管材外径标注 (Ø20 EF)。
+	A stack between the floors is a pipe riser: draw the shaft, then add a line for each network that goes up or down in it.	楼层之间的立管是管道竖井：绘制竖井，然后为其中上行或下行的每个管网添加一条管线。
+	Draw the collectors first: a waste-water pipe and a soil-water pipe along the rooms, toward the stack.	先绘制横干管：沿房间朝立管方向的一根废水管和一根污水管。
+	Put the fixtures, then start this tool: from each fixture's drain it draws the branch to the nearest collector of its kind, within 6 m.	放置器具后启动此工具：它从每个器具的排水口绘制支管，接到 6 m 内最近的同类横干管。
+	Each branch is as wide as the fixture's drain (Ø100 for a WC, Ø40 for a basin) with a slope of 2 % for soil water and 1 % for waste water.	每根支管与器具排水管径相同 (坐便器 Ø100，洗脸盆 Ø40)，污水坡度 2 %，废水坡度 1 %。
+	A fixture with no collector of its kind in reach is named on the command line; run the tool again once the collector is drawn: the fixtures already connected are left.	附近没有同类横干管的器具会在命令行中列出；绘制横干管后再次运行此工具：已连接的器具保持不变。

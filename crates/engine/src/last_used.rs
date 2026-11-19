@@ -60,6 +60,8 @@ pub struct LastUsed {
     pub riser: cmd::RiserLastUsed,
     /// OPENINGADD's type, size and swing.
     pub opening: cmd::OpeningLastUsed,
+    /// FIXTUREADD's type and rotation.
+    pub sanitary: cmd::SanitaryLastUsed,
 }
 
 impl Default for LastUsed {
@@ -94,6 +96,7 @@ impl Default for LastUsed {
             equipment: cmd::EquipmentLastUsed::default(),
             riser: cmd::RiserLastUsed::default(),
             opening: cmd::OpeningLastUsed::default(),
+            sanitary: cmd::SanitaryLastUsed::default(),
         }
     }
 }

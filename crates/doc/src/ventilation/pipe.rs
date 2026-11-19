@@ -39,6 +39,16 @@ pub const PIPE_REFRIGERANT_PAIR_LAYER: &str = "M-PIPE-REFP";
 /// layer of the third tube.
 pub const PIPE_REFRIGERANT_TRIPLE_LAYER: &str = "M-PIPE-REFT";
 pub const PIPE_REFRIGERANT_HPLP_LAYER: &str = "M-PIPE-REFH";
+/// The plumbing networks: waste water (eaux usées), soil water (eaux vannes), rain water (eaux pluviales), cold water, domestic hot water and its
+/// return loop.
+pub const PIPE_EU_LAYER: &str = "P-SANR-EU";
+pub const PIPE_EV_LAYER: &str = "P-SANR-EV";
+pub const PIPE_EP_LAYER: &str = "P-STRM-EP";
+pub const PIPE_EF_LAYER: &str = "P-DOMW-EF";
+pub const PIPE_ECS_LAYER: &str = "P-DOMW-ECS";
+pub const PIPE_BECS_LAYER: &str = "P-DOMW-BECS";
+/// The steepest slope a drain is given, %.
+pub const MAX_PIPE_SLOPE_PCT: f64 = 100.0;
 
 /// Copper refrigeration tube sizes, which are given in inches: the label and the outer diameter, mm.
 pub const REFRIGERANT_TUBES: [(&str, f64); 12] = [
@@ -153,10 +163,22 @@ pub enum PipeService {
     RefrigerantPair,
     /// The three lines of a heat-recovery link (liquid, suction gas, high/low-pressure gas), drawn together as one run.
     RefrigerantTriple,
+    /// Waste water (eaux usées, EU): basins, sinks, showers, baths, by gravity.
+    WasteWater,
+    /// Soil water (eaux vannes, EV): water closets, urinals, by gravity.
+    SoilWater,
+    /// Rain water (eaux pluviales, EP), by gravity.
+    RainWater,
+    /// Domestic cold water (eau froide, EF).
+    ColdWater,
+    /// Domestic hot water (eau chaude sanitaire, ECS).
+    DomesticHotWater,
+    /// The return loop of the domestic hot water (bouclage ECS).
+    HotWaterLoop,
 }
 
 impl PipeService {
-    pub const ALL: [PipeService; 8] = [
+    pub const ALL: [PipeService; 14] = [
         PipeService::ChilledWater,
         PipeService::HotWater,
         PipeService::ChangeOver,
@@ -165,6 +187,12 @@ impl PipeService {
         PipeService::RefrigerantGas,
         PipeService::RefrigerantPair,
         PipeService::RefrigerantTriple,
+        PipeService::WasteWater,
+        PipeService::SoilWater,
+        PipeService::RainWater,
+        PipeService::ColdWater,
+        PipeService::DomesticHotWater,
+        PipeService::HotWaterLoop,
     ];
 
     /// The name a command takes.
@@ -178,6 +206,12 @@ impl PipeService {
             PipeService::RefrigerantGas => "refrigerantGas",
             PipeService::RefrigerantPair => "refrigerantPair",
             PipeService::RefrigerantTriple => "refrigerantTriple",
+            PipeService::WasteWater => "wasteWater",
+            PipeService::SoilWater => "soilWater",
+            PipeService::RainWater => "rainWater",
+            PipeService::ColdWater => "coldWater",
+            PipeService::DomesticHotWater => "domesticHotWater",
+            PipeService::HotWaterLoop => "hotWaterLoop",
         }
     }
 
@@ -201,6 +235,12 @@ impl PipeService {
             | "récupérationdénergie"
             | "heatrecovery"
             | "hr" => Some(PipeService::RefrigerantTriple),
+            "eu" | "eauxusees" | "eauxusées" | "waste" => Some(PipeService::WasteWater),
+            "ev" | "eauxvannes" | "soil" => Some(PipeService::SoilWater),
+            "ep" | "eauxpluviales" | "rain" | "pluvial" => Some(PipeService::RainWater),
+            "ef" | "eaufroide" | "cold" | "afs" => Some(PipeService::ColdWater),
+            "ecs" | "eauchaudesanitaire" | "dhw" => Some(PipeService::DomesticHotWater),
+            "becs" | "bouclage" | "bouclageecs" | "recirculation" | "rcs" => Some(PipeService::HotWaterLoop),
             _ => None,
         })
     }
@@ -208,6 +248,29 @@ impl PipeService {
     /// Whether a pipe of the service draws a gas tube beside its liquid tube (the links).
     pub fn has_gas_tube(self) -> bool {
         matches!(self, PipeService::RefrigerantPair | PipeService::RefrigerantTriple)
+    }
+
+    /// Whether the service drains by gravity, with a slope: condensate, waste, soil and rain water.
+    pub fn is_gravity_drain(self) -> bool {
+        matches!(self, PipeService::Condensate | PipeService::WasteWater | PipeService::SoilWater | PipeService::RainWater)
+    }
+
+    /// Whether the service is a plumbing network (drains, cold and hot domestic water): its size is the outer diameter of the tube ("Ø40").
+    pub fn is_plumbing(self) -> bool {
+        matches!(
+            self,
+            PipeService::WasteWater
+                | PipeService::SoilWater
+                | PipeService::RainWater
+                | PipeService::ColdWater
+                | PipeService::DomesticHotWater
+                | PipeService::HotWaterLoop
+        )
+    }
+
+    /// The short code of the service ("EU", "CHW"…), the one its pipes write without the leg.
+    pub fn tag_code(self) -> &'static str {
+        PipeParams::new(self, 50.0, HvacUnits::default()).tag()
     }
 
     /// Whether the service has a supply and a return pipe (the water networks).
@@ -299,6 +362,9 @@ pub struct PipeParams {
     /// The altitude of the run's underside, mm above the drawing's zero, when the user gave it.
     #[serde(default)]
     pub level_mm: Option<f64>,
+    /// The slope of a drain, %, written on it ("i=1 %").
+    #[serde(default)]
+    pub slope_pct: Option<f64>,
     /// The name of the network the run belongs to (see [`super::pipe_networks`]): its layers, colour and line type, and its text.
     #[serde(default)]
     pub network: String,
@@ -338,6 +404,7 @@ impl PipeParams {
             loss_pa_m: None,
             flow_forward: None,
             level_mm: None,
+            slope_pct: None,
             network: String::new(),
             elbow: None,
             reducer: None,
@@ -367,6 +434,9 @@ impl PipeParams {
         }
         if self.level_mm.is_some_and(|l| !(l.is_finite() && l.abs() <= 1e6)) {
             return Err(invalid("The altitude of a pipe is not usable."));
+        }
+        if self.slope_pct.is_some_and(|i| !(i.is_finite() && (0.0..=MAX_PIPE_SLOPE_PCT).contains(&i))) {
+            return Err(invalid(format!("The slope of a drain is 0 to {MAX_PIPE_SLOPE_PCT} %.")));
         }
         if self.network.chars().count() > super::MAX_NETWORK_NAME_CHARS || self.network.chars().any(char::is_control) {
             return Err(invalid(format!("A network's name has at most {} characters, without control characters.", super::MAX_NETWORK_NAME_CHARS)));
@@ -412,7 +482,7 @@ impl PipeParams {
 
     /// The outer diameter of the pipe, mm: the steel pipe of the nominal diameter, or the copper tube.
     pub fn outer_diameter_mm(&self) -> f64 {
-        if self.service.is_refrigerant() {
+        if self.service.is_refrigerant() || self.service.is_plumbing() {
             return self.dn_mm;
         }
         STEEL_PIPE_SIZES.iter().min_by(|a, b| (a.0 - self.dn_mm).abs().total_cmp(&(b.0 - self.dn_mm).abs())).map_or(self.dn_mm, |(_, od)| *od)
@@ -469,6 +539,7 @@ impl PipeParams {
             PipeService::RefrigerantPair => format!("{} - {}", inch(self.dn_mm), inch(self.gas_dn_mm)),
             PipeService::RefrigerantTriple => format!("{} - {} - {}", inch(self.dn_mm), inch(self.gas_dn_mm), inch(self.gas2_dn_mm)),
             PipeService::RefrigerantLiquid | PipeService::RefrigerantGas => inch(self.dn_mm),
+            s if s.is_plumbing() => format!("\u{d8}{:.0}", self.dn_mm),
             _ => format!("DN{:.0}", self.dn_mm),
         }
     }
@@ -497,6 +568,12 @@ impl PipeParams {
             (PipeService::RefrigerantGas, _) => "REF-G",
             (PipeService::RefrigerantPair, _) => "REF",
             (PipeService::RefrigerantTriple, _) => "REF-HR",
+            (PipeService::WasteWater, _) => "EU",
+            (PipeService::SoilWater, _) => "EV",
+            (PipeService::RainWater, _) => "EP",
+            (PipeService::ColdWater, _) => "EF",
+            (PipeService::DomesticHotWater, _) => "ECS",
+            (PipeService::HotWaterLoop, _) => "BECS",
         }
     }
 
@@ -512,6 +589,9 @@ impl PipeParams {
             } else {
                 text.push_str(&format!(" {f:.2} m³/h"));
             }
+        }
+        if let Some(i) = self.slope_pct {
+            text.push_str(&format!(" i={} %", trim_number(i)));
         }
         if let Some(l) = self.level_mm {
             text.push_str(&format!(" Ai:{:.2}", l / 1000.0));
@@ -639,6 +719,12 @@ fn layer_of(service: PipeService, leg: PipeLeg) -> &'static str {
         (PipeService::RefrigerantGas, _) => PIPE_REFRIGERANT_GAS_LAYER,
         (PipeService::RefrigerantPair, _) => PIPE_REFRIGERANT_PAIR_LAYER,
         (PipeService::RefrigerantTriple, _) => PIPE_REFRIGERANT_TRIPLE_LAYER,
+        (PipeService::WasteWater, _) => PIPE_EU_LAYER,
+        (PipeService::SoilWater, _) => PIPE_EV_LAYER,
+        (PipeService::RainWater, _) => PIPE_EP_LAYER,
+        (PipeService::ColdWater, _) => PIPE_EF_LAYER,
+        (PipeService::DomesticHotWater, _) => PIPE_ECS_LAYER,
+        (PipeService::HotWaterLoop, _) => PIPE_BECS_LAYER,
     }
 }
 
@@ -669,6 +755,13 @@ pub fn pipe_layer_color(name: &str) -> Option<cadcraft_color::Color> {
         PIPE_REFRIGERANT_GAS_LAYER => Some(Color::True(Rgb(0x8d, 0x99, 0xa3))),
         PIPE_REFRIGERANT_PAIR_LAYER | PIPE_REFRIGERANT_TRIPLE_LAYER => Some(Color::True(Rgb(0xc8, 0x9a, 0x6a))),
         PIPE_REFRIGERANT_HPLP_LAYER => Some(Color::True(Rgb(0xc0, 0x5a, 0x6e))),
+        // Plumbing: waste water blue, soil water violet, rain water teal, cold water green, hot water red and its loop orange.
+        PIPE_EU_LAYER => Some(Color::True(Rgb(0x3f, 0xa3, 0xff))),
+        PIPE_EV_LAYER => Some(Color::True(Rgb(0xb6, 0x7c, 0xff))),
+        PIPE_EP_LAYER => Some(Color::True(Rgb(0x39, 0xc2, 0xb0))),
+        PIPE_EF_LAYER => Some(Color::True(Rgb(0x4f, 0xc3, 0x5a))),
+        PIPE_ECS_LAYER => Some(Color::True(Rgb(0xff, 0x5d, 0x5d))),
+        PIPE_BECS_LAYER => Some(Color::True(Rgb(0xff, 0x9a, 0x3c))),
         _ => None,
     }
 }
@@ -769,4 +862,10 @@ impl crate::Drawing {
         let b = a + Vec2::from_angle(i.rotation) * (p.length * i.scale.x);
         Some((p, a, b))
     }
+}
+
+/// A number as a slope is written: "1", "1.5", "2.25".
+fn trim_number(v: f64) -> String {
+    let t = format!("{v:.2}");
+    t.trim_end_matches('0').trim_end_matches('.').to_string()
 }

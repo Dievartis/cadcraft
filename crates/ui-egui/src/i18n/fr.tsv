@@ -3522,3 +3522,57 @@ echo	Current settings: Name = {a}, Circuit = {b}, Direction = {c}	Paramètres ac
 	Note	Note
 	Enter a note written under the height (for instance Under the beam), or nothing	Entrez une note écrite sous la hauteur (par exemple Sous poutre), ou rien
 	Text Style	Style de texte
+	Plumbing	Plomberie
+	Sanitary Fixture	Appareil sanitaire
+	Edit Sanitary Fixture	Modifier l'appareil sanitaire
+	Connect Fixtures	Raccorder les appareils
+	Sanitary fixtures	Appareils sanitaires
+	Wall-hung WC	WC suspendu
+	Floor-standing WC	WC au sol
+	Accessible WC	WC PMR
+	Urinal	Urinoir
+	Washbasin	Lavabo
+	Hand basin	Lave-mains
+	Double vanity basin	Plan double vasque
+	Sink, one bowl	Évier 1 bac
+	Sink, two bowls	Évier 2 bacs
+	Shower	Douche
+	Bath	Baignoire
+	Bidet	Bidet
+	Slop sink	Vidoir
+	Floor drain	Siphon de sol
+	Washing machine	Lave-linge
+	Dishwasher	Lave-vaisselle
+	Water heater	Chauffe-eau
+	Draw-off tap	Robinet de puisage
+	Waste water (EU)	Eaux usées (EU)
+	Soil water (EV)	Eaux vannes (EV)
+	Rain water (EP)	Eaux pluviales (EP)
+	Cold water (EF)	Eau froide (EF)
+	Domestic hot water (ECS)	Eau chaude sanitaire (ECS)
+	Hot water return loop	Bouclage ECS
+	The shaft where a stack (soil or waste water) or the supply pipes go up or down between the floors.	La gaine où une chute (eaux vannes ou eaux usées) ou les alimentations montent ou descendent d'un étage à l'autre.
+	Draws from each fixture's drain the branch to the nearest drain of its kind, as wide as the fixture's drain and with its slope.	Trace depuis la vidange de chaque appareil le raccordement vers le collecteur le plus proche de son type, au diamètre de la vidange et avec sa pente.
+	Connect Fixtures: {n} branches drawn	Raccorder les appareils : {n} raccordements tracés
+	no drain of its kind within reach	aucun collecteur de son type à portée
+	already on its drain	déjà sur son collecteur
+	Drain	Évacuation
+	Drain diameter (mm)	Diamètre de la vidange (mm)
+	Cold water (l/s)	Eau froide (l/s)
+	Hot water (l/s)	Eau chaude (l/s)
+	Specify the middle of the fixture's back	Indiquez le milieu de l'arrière de l'appareil
+	Enter the type of fixture	Entrez le type d'appareil
+echo	Current settings: Type = {a}, Rotation = {b}	Paramètres actuels : Type = {a}, Rotation = {b}
+echo	Not a type of fixture: see FIXTUREADD.	Ce n'est pas un type d'appareil : voir FIXTUREADD.
+	Choose the fixture in the list, then click where the middle of its back goes, against the wall. Rotate (R) turns the next ones; Type (T) changes the kind.	Choisissez l'appareil dans la liste, puis cliquez où va le milieu de son arrière, contre le mur. Rotation (R) tourne les suivants ; Type (T) change de type.
+	It is drawn seen from above at its usual size, with its drain written beside it: WC EV Ø100, LAV EU Ø40.	Il est dessiné vu de dessus à sa taille courante, avec son évacuation écrite à côté : WC EV Ø100, LAV EU Ø40.
+	Water closets, urinals and slop sinks drain to soil water (EV), the others to waste water (EU). In Properties change its size, its drain, the drain's diameter, its cold and hot water flows (l/s) and its altitude.	Les WC, urinoirs et vidoirs vont aux eaux vannes (EV), les autres aux eaux usées (EU). Dans Propriétés, changez sa taille, son évacuation, le diamètre de la vidange, ses débits d'eau froide et d'eau chaude (l/s) et son altitude.
+	The values are the usual ones in France (DTU 60.11), to be checked against the fixture chosen.	Les valeurs sont les valeurs courantes en France (DTU 60.11), à vérifier avec l'appareil choisi.
+	Choose the network, then click the points of the pipe, as for any pipe: the elbows and the reducers are drawn as soon as the pipes are laid.	Choisissez le réseau, puis cliquez les points du tuyau, comme pour tout tuyau : les coudes et les réductions se dessinent dès la pose.
+	Waste water (EU), soil water (EV) and rain water (EP) flow by gravity: give the slope in Properties (i = 1 %, 2 %…); it is written on the pipe with its outer diameter (Ø100 EV i=2 %).	Les eaux usées (EU), les eaux vannes (EV) et les eaux pluviales (EP) s'écoulent par gravité : donnez la pente dans Propriétés (i = 1 %, 2 %…) ; elle est écrite sur le tuyau avec son diamètre extérieur (Ø100 EV i=2 %).
+	Cold water (EF), domestic hot water (ECS) and its return loop are written with the outer diameter of their tube (Ø20 EF).	L'eau froide (EF), l'eau chaude sanitaire (ECS) et son bouclage sont écrits avec le diamètre extérieur de leur tube (Ø20 EF).
+	A stack between the floors is a pipe riser: draw the shaft, then add a line for each network that goes up or down in it.	Une chute entre les étages est une colonne de tuyauterie : tracez la gaine, puis ajoutez une ligne pour chaque réseau qui y monte ou y descend.
+	Draw the collectors first: a waste-water pipe and a soil-water pipe along the rooms, toward the stack.	Tracez d'abord les collecteurs : un tuyau d'eaux usées et un tuyau d'eaux vannes le long des pièces, vers la chute.
+	Put the fixtures, then start this tool: from each fixture's drain it draws the branch to the nearest collector of its kind, within 6 m.	Posez les appareils, puis lancez cet outil : depuis la vidange de chaque appareil, il trace le raccordement vers le collecteur le plus proche de son type, à moins de 6 m.
+	Each branch is as wide as the fixture's drain (Ø100 for a WC, Ø40 for a basin) with a slope of 2 % for soil water and 1 % for waste water.	Chaque raccordement a le diamètre de la vidange de l'appareil (Ø100 pour un WC, Ø40 pour un lavabo), avec une pente de 2 % pour les eaux vannes et 1 % pour les eaux usées.
+	A fixture with no collector of its kind in reach is named on the command line; run the tool again once the collector is drawn: the fixtures already connected are left.	Un appareil sans collecteur de son type à portée est cité sur la ligne de commande ; relancez l'outil une fois le collecteur tracé : les appareils déjà raccordés sont laissés.

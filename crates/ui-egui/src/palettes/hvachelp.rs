@@ -428,6 +428,36 @@ const HELPS: &[Help] = &[
         figures: &[("", elec_riser_fig)],
     },
     Help {
+        id: "Sanitary Fixture",
+        steps: &[
+            "Choose the fixture in the list, then click where the middle of its back goes, against the wall. Rotate (R) turns the next ones; Type (T) changes the kind.",
+            "It is drawn seen from above at its usual size, with its drain written beside it: WC EV Ø100, LAV EU Ø40.",
+            "Water closets, urinals and slop sinks drain to soil water (EV), the others to waste water (EU). In Properties change its size, its drain, the drain's diameter, its cold and hot water flows (l/s) and its altitude.",
+            "The values are the usual ones in France (DTU 60.11), to be checked against the fixture chosen.",
+        ],
+        figures: &[("", sanitary_fig)],
+    },
+    Help {
+        id: "Plumbing Networks",
+        steps: &[
+            "Choose the network, then click the points of the pipe, as for any pipe: the elbows and the reducers are drawn as soon as the pipes are laid.",
+            "Waste water (EU), soil water (EV) and rain water (EP) flow by gravity: give the slope in Properties (i = 1 %, 2 %…); it is written on the pipe with its outer diameter (Ø100 EV i=2 %).",
+            "Cold water (EF), domestic hot water (ECS) and its return loop are written with the outer diameter of their tube (Ø20 EF).",
+            "A stack between the floors is a pipe riser: draw the shaft, then add a line for each network that goes up or down in it.",
+        ],
+        figures: &[("", plumbing_networks_fig)],
+    },
+    Help {
+        id: "Connect Fixtures",
+        steps: &[
+            "Draw the collectors first: a waste-water pipe and a soil-water pipe along the rooms, toward the stack.",
+            "Put the fixtures, then start this tool: from each fixture's drain it draws the branch to the nearest collector of its kind, within 6 m.",
+            "Each branch is as wide as the fixture's drain (Ø100 for a WC, Ø40 for a basin) with a slope of 2 % for soil water and 1 % for waste water.",
+            "A fixture with no collector of its kind in reach is named on the command line; run the tool again once the collector is drawn: the fixtures already connected are left.",
+        ],
+        figures: &[("", connect_fixtures_fig)],
+    },
+    Help {
         id: "Electrical Quantities",
         steps: &[
             "Draw one drawing per level, then open this tool on the level and type its name.",
@@ -835,7 +865,7 @@ mod tests {
 
     #[test]
     fn every_tool_has_a_help_window_that_draws_and_closes() {
-        assert_eq!(HELPS.len(), 49);
+        assert_eq!(HELPS.len(), 52);
         for help in HELPS {
             let mut h = Harness::builder().with_size(vec2(700.0, 500.0)).build_ui(|ui| {
                 show(ui.ctx());
@@ -1251,6 +1281,9 @@ fn slab_opening(p: &Painter, r: Rect) {
 const CABLE_RED: Color32 = Color32::from_rgb(0xd0, 0x45, 0x45);
 const LIGHT_YELLOW: Color32 = Color32::from_rgb(0xe6, 0xc2, 0x2e);
 const BUS_PURPLE: Color32 = Color32::from_rgb(0x90, 0x60, 0xd0);
+/// The waste water and the soil water of the plumbing figures.
+const BLUE_EU: Color32 = Color32::from_rgb(0x3f, 0xa3, 0xff);
+const PURPLE_EV: Color32 = Color32::from_rgb(0xb6, 0x7c, 0xff);
 
 /// A point of the figure's box from fractions of its width and height.
 fn frac(r: Rect) -> impl Fn(f32, f32) -> egui::Pos2 {
@@ -1349,6 +1382,61 @@ fn single_line_fig(p: &Painter, r: Rect) {
         p.rect_stroke(b, 2.0, Stroke::new(1.2, GREY), egui::StrokeKind::Inside);
         p.text(b.center(), egui::Align2::CENTER_CENTER, load, egui::FontId::proportional(10.0), GREY);
     }
+}
+
+/// A water closet and a basin against a wall, seen from above, with the text of their drains.
+fn sanitary_fig(p: &Painter, r: Rect) {
+    let at = frac(r);
+    let s = Stroke::new(1.3, Color32::WHITE);
+    p.line_segment([at(0.05, 0.12), at(0.95, 0.12)], Stroke::new(3.0, GREY));
+    let back = Rect::from_min_max(at(0.14, 0.12), at(0.3, 0.24));
+    p.rect_stroke(back, 0.0, s, egui::StrokeKind::Inside);
+    let bowl = |c: egui::Pos2, rx: f32, ry: f32| {
+        let pts: Vec<egui::Pos2> = (0..32)
+            .map(|k| c + vec2(rx * (k as f32 / 32.0 * std::f32::consts::TAU).cos(), ry * (k as f32 / 32.0 * std::f32::consts::TAU).sin()))
+            .collect();
+        p.add(egui::Shape::closed_line(pts, s));
+    };
+    bowl(at(0.22, 0.48), 0.07 * r.width(), 0.22 * r.height());
+    let basin = Rect::from_min_max(at(0.55, 0.12), at(0.8, 0.5));
+    p.rect_stroke(basin, 2.0, s, egui::StrokeKind::Inside);
+    bowl(at(0.675, 0.33), 0.08 * r.width(), 0.1 * r.height());
+    text(p, at(0.12, 0.8), "WC EV \u{d8}100", PURPLE_EV);
+    text(p, at(0.55, 0.6), "LAV EU \u{d8}40", BLUE_EU);
+}
+
+/// The plumbing networks as they are drawn: their colours and texts.
+fn plumbing_networks_fig(p: &Painter, r: Rect) {
+    let at = frac(r);
+    for (i, (colour, label, width)) in [
+        (BLUE_EU, "\u{d8}50 EU i=1 %", 3.0),
+        (PURPLE_EV, "\u{d8}100 EV i=2 %", 5.0),
+        (Color32::from_rgb(0x39, 0xc2, 0xb0), "\u{d8}100 EP i=1 %", 5.0),
+        (Color32::from_rgb(0x4f, 0xc3, 0x5a), "\u{d8}20 EF", 1.6),
+        (Color32::from_rgb(0xff, 0x5d, 0x5d), "\u{d8}20 ECS", 1.6),
+        (Color32::from_rgb(0xff, 0x9a, 0x3c), "\u{d8}16 BECS", 1.4),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let y = 0.1 + 0.15 * i as f32;
+        p.line_segment([at(0.05, y), at(0.5, y)], Stroke::new(width, colour));
+        text(p, at(0.55, y - 0.05), label, colour);
+    }
+}
+
+/// Two fixtures and the branches the tool draws to their collectors.
+fn connect_fixtures_fig(p: &Painter, r: Rect) {
+    let at = frac(r);
+    let s = Stroke::new(1.3, Color32::WHITE);
+    p.rect_stroke(Rect::from_min_max(at(0.15, 0.05), at(0.35, 0.3)), 2.0, s, egui::StrokeKind::Inside);
+    p.rect_stroke(Rect::from_min_max(at(0.6, 0.05), at(0.72, 0.3)), 0.0, s, egui::StrokeKind::Inside);
+    p.line_segment([at(0.05, 0.62), at(0.95, 0.62)], Stroke::new(3.0, BLUE_EU));
+    p.line_segment([at(0.05, 0.85), at(0.95, 0.85)], Stroke::new(5.0, PURPLE_EV));
+    p.line_segment([at(0.25, 0.22), at(0.25, 0.62)], Stroke::new(2.2, BLUE_EU));
+    p.line_segment([at(0.66, 0.2), at(0.66, 0.85)], Stroke::new(4.0, PURPLE_EV));
+    text(p, at(0.27, 0.36), "EU \u{d8}40 i=1 %", BLUE_EU);
+    text(p, at(0.68, 0.42), "EV \u{d8}100 i=2 %", PURPLE_EV);
 }
 
 fn elec_riser_fig(p: &Painter, r: Rect) {

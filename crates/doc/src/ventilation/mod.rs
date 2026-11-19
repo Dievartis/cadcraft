@@ -36,6 +36,7 @@ mod pipe_riser;
 mod refrigerant;
 mod riser;
 mod roof;
+mod sanitary;
 mod single_line;
 mod slab;
 mod space;
@@ -79,6 +80,7 @@ pub use pipe_riser::*;
 pub use refrigerant::{OutletReport, PartReport, RefrigerantNetwork, RefrigerantReport};
 pub use riser::*;
 pub use roof::*;
+pub use sanitary::*;
 pub use single_line::*;
 pub use slab::*;
 pub use space::*;
@@ -128,6 +130,7 @@ fn hvac_layer_color(name: &str) -> Option<cadcraft_color::Color> {
             .or_else(|| roof::roof_layer_color(name))
             .or_else(|| part::part_layer_color(name))
             .or_else(|| elec::elec_layer_color(name))
+            .or_else(|| sanitary::sanitary_layer_color(name))
             .or_else(|| control::control_layer_color(name))
             .or_else(|| pipe_networks::network_base(name).and_then(hvac_layer_color)),
     }

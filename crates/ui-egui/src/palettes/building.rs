@@ -11,7 +11,7 @@ use crate::CadApp;
 use crate::theme::Tokens;
 
 /// The building tabs, after Drafting and Modeling.
-pub(super) const TABS: &[&str] = &["Architecture", "HVAC", "Regulation", "Electricity"];
+pub(super) const TABS: &[&str] = &["Architecture", "HVAC", "Plumbing", "Regulation", "Electricity"];
 
 /// Where the state of the sections travels while a tab is drawn, and whether the section being drawn is open.
 pub(super) fn sections_id() -> egui::Id {
@@ -151,6 +151,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui, tab: &str) {
     match tab {
         "Architecture" => architecture(app, ui),
         "HVAC" => hvac(app, ui),
+        "Plumbing" => super::plumbing::body(app, ui),
         "Regulation" => super::regulation::body(app, ui),
         "Electricity" => super::electricity::body(app, ui),
         _ => {}
