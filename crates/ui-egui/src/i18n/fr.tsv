@@ -2203,7 +2203,6 @@
 	Define each corner of the selection window with a separate click.	Définissez chaque coin de la fenêtre de sélection par un clic distinct.
 	Degrees of freedom: {n}	Degrés de liberté : {n}
 	Detach	Détacher
-	Details	Détails
 	Discard	Abandonner
 	Drawings with no file yet are saved in the default version. 0 minutes turns automatic save off.	Les dessins sans fichier sont enregistrés dans la version par défaut. 0 minute désactive l'enregistrement automatique.
 	Edit…	Modifier…
@@ -2277,7 +2276,6 @@
 	Only in this drawing: {n}	Seulement dans ce dessin : {n}
 	Open	Ouvrir
 	Open in Block Editor	Ouvrir dans l'éditeur de blocs
-	Options	Options
 	Origin: {x}, {y}	Origine : {x}, {y}
 	Outer	Extérieur
 	Over-constrained	Sur-contraint
