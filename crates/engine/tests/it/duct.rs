@@ -1643,3 +1643,19 @@ fn a_zone_writes_mm_after_the_height_and_a_free_note_under_it() {
     assert_eq!(zone(&s).note, "");
     assert!(s.execute("zoneedit", &json!({"handle": z["handle"], "note": "x".repeat(300)})).is_err());
 }
+
+#[test]
+fn a_duct_of_another_air_going_through_a_joint_does_not_stop_its_elbow_and_two_stacked_ducts_are_not_a_joint() {
+    let mut s = metric();
+    let elbow_of = |s: &Session, h: &Value| duct_of(s.doc().unwrap().entity(hd(h)).unwrap()).unwrap().elbow;
+    // An extract duct turns at (2000, 0) while a supply duct goes straight through that point, at another height.
+    s.execute("ductadd", &json!({"points": [[0, 0], [2000, 0]], "air": "extract", "diameter": 250})).unwrap();
+    let turn = s.execute("ductadd", &json!({"points": [[2000, 0], [2000, 2000]], "air": "extract", "diameter": 250})).unwrap();
+    s.execute("ductadd", &json!({"points": [[1000, 0], [3000, 0]], "air": "supply", "diameter": 250, "altitude": 2.0})).unwrap();
+    s.execute("ductedit", &json!({"handle": turn["handles"][0], "diameter": 250})).unwrap();
+    assert!(elbow_of(&s, &turn["handles"][0]).is_some(), "the supply duct that goes through is another network");
+    // Two ducts of two airs that start at the same point (the stacked outlets of a unit) are not an elbow between them.
+    let sup = s.execute("ductadd", &json!({"points": [[0, 5000], [2000, 5000]], "air": "supply", "diameter": 400})).unwrap();
+    let ext = s.execute("ductadd", &json!({"points": [[0, 5000], [0, 7000]], "air": "extract", "diameter": 400})).unwrap();
+    assert!(elbow_of(&s, &sup["handles"][0]).is_none() && elbow_of(&s, &ext["handles"][0]).is_none());
+}

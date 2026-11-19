@@ -50,6 +50,11 @@ trait RunParams {
 }
 
 impl RunParams for DuctParams {
+    /// Ducts of two air directions are two networks (stacked in a unit, or crossing at another height), unless one has no direction yet.
+    fn same_network(&self, other: &Self) -> bool {
+        !(self.air_set && other.air_set) || self.air == other.air
+    }
+
     const ELBOW_RADIUS_PER_WIDTH: f64 = 1.0;
     fn width_mm(&self) -> f64 {
         self.plan_width_mm()
@@ -133,8 +138,9 @@ fn near_segment(p: Vec2, a: Vec2, b: Vec2, tol: f64) -> bool {
     p.dist(a + ab * t) <= tol
 }
 
-/// The joints where exactly two runs meet end to end: (run, at its end?) of each.
-fn joints<P>(runs: &[Run<P>], tol: f64) -> Vec<[(usize, bool); 2]> {
+/// The joints where exactly two runs of one network meet end to end: (run, at its end?) of each. A run of another network (an extract duct stacked under a
+/// supply one, starting at the same point of a unit; a run of another air going through) is not part of the joint.
+fn joints<P: RunParams>(runs: &[Run<P>], tol: f64) -> Vec<[(usize, bool); 2]> {
     let mut out = Vec::new();
     for (i, r) in runs.iter().enumerate() {
         for at_end in [false, true] {
@@ -142,7 +148,7 @@ fn joints<P>(runs: &[Run<P>], tol: f64) -> Vec<[(usize, bool); 2]> {
             let mut partners = Vec::new();
             let mut crossing = false;
             for (k, o) in runs.iter().enumerate() {
-                if k == i {
+                if k == i || !r.params.same_network(&o.params) {
                     continue;
                 }
                 let ends = [false, true].into_iter().filter(|e| o.end(*e).dist(p) <= tol).collect::<Vec<_>>();
