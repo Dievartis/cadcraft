@@ -389,6 +389,12 @@ pub enum RoomLighting {
     StairsWarehouse,
     /// Workrooms, cloakrooms and toilets: 120 lux.
     WorkRoom,
+    /// Windowless rooms where permanent work is done: 200 lux.
+    BlindWorkRoom,
+    /// Outdoor circulation routes and areas: 10 lux.
+    OutdoorCirculation,
+    /// Outdoor places where permanent work is done: 40 lux.
+    OutdoorWork,
 }
 
 /// The minimum illuminance of a room, lux, measured at the work plane or on the floor.
@@ -397,12 +403,31 @@ pub fn minimum_illuminance(room: RoomLighting) -> f64 {
         RoomLighting::Circulation => 40.0,
         RoomLighting::StairsWarehouse => 60.0,
         RoomLighting::WorkRoom => 120.0,
+        RoomLighting::BlindWorkRoom => 200.0,
+        RoomLighting::OutdoorCirculation => 10.0,
+        RoomLighting::OutdoorWork => 40.0,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_minimum_illuminances_are_those_of_the_table_of_article_r4223_4() {
+        let lux = minimum_illuminance;
+        assert_eq!(
+            [
+                lux(RoomLighting::Circulation),
+                lux(RoomLighting::StairsWarehouse),
+                lux(RoomLighting::WorkRoom),
+                lux(RoomLighting::BlindWorkRoom),
+                lux(RoomLighting::OutdoorCirculation),
+                lux(RoomLighting::OutdoorWork)
+            ],
+            [40.0, 60.0, 120.0, 200.0, 10.0, 40.0]
+        );
+    }
 
     #[test]
     fn the_tables_read_the_guide() {

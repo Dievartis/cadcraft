@@ -5,9 +5,10 @@
 //! the ducts; the network the runs make is read back from where their ends meet.
 //!
 //! Colours. Condensate drains are blue with a yellow band and chilled water blue with a white one
-//! (ISO 14726, the identification colours of piping: BU–YE–BU and BU–WH–BU); a plan shows the band
-//! as a line along the axis between the two blue sides. The other services have no colour taken
-//! from a standard here: hot water is red, the change-over network violet, the refrigerant liquid
+//! (ISO 14726:2008, table 3: BU–YE–BU and BU–WH–BU, read in the free copy of the standard; it is a standard of ships, which its scope allows for land
+//! installations and for drawings, and its "condensate" is condensed steam: giving it to the drains of an air-conditioning plant is a plan convention);
+//! a plan shows the band as a line along the axis between the two blue sides. The refrigerant has GY–MN–GY in the same table, not used here. The other
+//! services have no colour taken from a standard here: hot water is red, the change-over network violet, the refrigerant liquid
 //! line orange and the gas line grey, the supply of a water network in the strong tone and its
 //! return in the light one.
 

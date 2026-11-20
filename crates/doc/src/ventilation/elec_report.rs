@@ -37,17 +37,22 @@ pub struct LightingReport {
     pub flux_lm: f64,
     pub lux: f64,
     pub minimum_lux: f64,
-    /// "circulation", "stairsWarehouse" or "workRoom".
+    /// "circulation", "stairsWarehouse", "workRoom", "blindWorkRoom", "outdoorCirculation" or "outdoorWork".
     pub class: String,
     pub ok: bool,
     pub warning: Option<String>,
 }
 
-/// The class of a room by its name: circulation, stairs and stores, else a workroom (which holds the cloakrooms and the toilets).
+/// The class of a room by its name: outdoors (circulation, or a place of permanent work), a windowless room, circulation, stairs and stores, else a
+/// workroom (which holds the cloakrooms and the toilets). The name is all there is to go by: the class can be corrected by naming the space.
 fn class_of(name: &str) -> RoomLighting {
     let n = name.to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
-    if has(&["circulation", "couloir", "corridor", "hall", "dégagement", "degagement", "passage", "sas"]) {
+    if has(&["extérieur", "exterieur", "outdoor", "parvis", "cour "]) {
+        if has(&["travail", "atelier", "quai", "work", "chantier"]) { RoomLighting::OutdoorWork } else { RoomLighting::OutdoorCirculation }
+    } else if has(&["aveugle", "blind", "windowless", "sans fenêtre", "sans fenetre"]) {
+        RoomLighting::BlindWorkRoom
+    } else if has(&["circulation", "couloir", "corridor", "hall", "dégagement", "degagement", "passage", "sas"]) {
         RoomLighting::Circulation
     } else if has(&["escalier", "stair", "entrepôt", "entrepot", "stock", "réserve", "reserve", "archive", "magasin"]) {
         RoomLighting::StairsWarehouse
@@ -61,6 +66,9 @@ fn class_name(c: RoomLighting) -> &'static str {
         RoomLighting::Circulation => "circulation",
         RoomLighting::StairsWarehouse => "stairsWarehouse",
         RoomLighting::WorkRoom => "workRoom",
+        RoomLighting::BlindWorkRoom => "blindWorkRoom",
+        RoomLighting::OutdoorCirculation => "outdoorCirculation",
+        RoomLighting::OutdoorWork => "outdoorWork",
     }
 }
 

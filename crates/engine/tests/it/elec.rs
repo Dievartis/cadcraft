@@ -313,3 +313,25 @@ fn a_board_fed_by_a_circuit_of_another_gives_it_its_load_its_short_circuit_curre
     s.execute("elecdeviceadd", &json!({"at": [-6000, 0], "kind": "socket", "circuit": "TGBT2-X", "power": 1000})).unwrap();
     assert!(s.execute("circuitcheck", &json!({})).is_ok());
 }
+
+#[test]
+fn the_lighting_classes_of_the_table_of_article_r4223_4_are_told_by_the_name_of_the_space() {
+    let mut s = metric();
+    let rooms = [
+        ("Bureau", "workRoom", 120.0),
+        ("Salle de tri aveugle", "blindWorkRoom", 200.0),
+        ("Couloir RDC", "circulation", 40.0),
+        ("Escalier A", "stairsWarehouse", 60.0),
+        ("Parvis extérieur", "outdoorCirculation", 10.0),
+        ("Quai de travail extérieur", "outdoorWork", 40.0),
+    ];
+    for (k, (name, ..)) in rooms.iter().enumerate() {
+        let y = k as f64 * 4000.0;
+        s.execute("spaceadd", &json!({"points": [[0, y], [3000, y], [3000, y + 3000.0], [0, y + 3000.0]], "name": name, "flow": 10})).unwrap();
+    }
+    let r = s.execute("lightingcheck", &json!({})).unwrap();
+    for (name, class, minimum) in rooms {
+        let row = r["spaces"].as_array().unwrap().iter().find(|x| x["space"] == name).unwrap();
+        assert_eq!((row["class"].as_str(), row["minimumLux"].as_f64()), (Some(class), Some(minimum)), "{name}");
+    }
+}
