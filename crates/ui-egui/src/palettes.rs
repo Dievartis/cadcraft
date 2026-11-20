@@ -154,53 +154,122 @@ fn command_known(id: &str) -> bool {
     cadcraft_engine::find_command(id).is_some() || crate::menus::is_ui_command(id)
 }
 
+/// How wide the column of tabs of the Tool Sets is, points.
+const TAB_COLUMN_WIDTH: f32 = 124.0;
+/// The column of icons of a panel narrower than [`NARROW_PANEL_WIDTH`], and that width.
+const TAB_COLUMN_ICONS_WIDTH: f32 = 44.0;
+const NARROW_PANEL_WIDTH: f32 = 300.0;
+
+/// A small picture for tab `name` of the Tool Sets in `r`.
+fn paint_tab_icon(p: &egui::Painter, r: Rect, name: &str, colour: Color32) {
+    let s = Stroke::new(1.4, colour);
+    let at = |x: f32, y: f32| pos2(r.left() + r.width() * x, r.top() + r.height() * y);
+    let poly = |pts: &[(f32, f32)], closed: bool| {
+        let v: Vec<egui::Pos2> = pts.iter().map(|(x, y)| at(*x, *y)).collect();
+        p.add(if closed { egui::Shape::closed_line(v, s) } else { egui::Shape::line(v, s) });
+    };
+    let dot = |x: f32, y: f32, rad: f32| {
+        p.circle_stroke(at(x, y), rad, s);
+    };
+    match name {
+        "Drafting" => {
+            poly(&[(0.1, 0.85), (0.4, 0.3), (0.65, 0.65), (0.9, 0.15)], false);
+            dot(0.1, 0.85, 1.8);
+            dot(0.9, 0.15, 1.8);
+        }
+        "Modeling" => {
+            poly(&[(0.5, 0.05), (0.92, 0.28), (0.92, 0.72), (0.5, 0.95), (0.08, 0.72), (0.08, 0.28)], true);
+            poly(&[(0.08, 0.28), (0.5, 0.5), (0.92, 0.28)], false);
+            poly(&[(0.5, 0.5), (0.5, 0.95)], false);
+        }
+        "Architecture" => {
+            poly(&[(0.08, 0.92), (0.08, 0.4), (0.5, 0.1), (0.92, 0.4), (0.92, 0.92)], true);
+            poly(&[(0.4, 0.92), (0.4, 0.6), (0.6, 0.6), (0.6, 0.92)], false);
+        }
+        "HVAC" => {
+            dot(0.5, 0.5, 2.6);
+            poly(&[(0.5, 0.05), (0.5, 0.3)], false);
+            poly(&[(0.5, 0.7), (0.5, 0.95)], false);
+            poly(&[(0.05, 0.5), (0.3, 0.5)], false);
+            poly(&[(0.7, 0.5), (0.95, 0.5)], false);
+        }
+        "Plumbing" => {
+            poly(&[(0.12, 0.35), (0.62, 0.35), (0.8, 0.5), (0.8, 0.92)], false);
+            poly(&[(0.12, 0.15), (0.12, 0.55)], false);
+            poly(&[(0.62, 0.1), (0.62, 0.35)], false);
+        }
+        "Regulation" => {
+            poly(&[(0.05, 0.9), (0.95, 0.9)], false);
+            poly(&[(0.2, 0.9), (0.2, 0.5)], false);
+            poly(&[(0.5, 0.9), (0.5, 0.25)], false);
+            poly(&[(0.8, 0.9), (0.8, 0.6)], false);
+            dot(0.2, 0.4, 1.6);
+            dot(0.5, 0.15, 1.6);
+            dot(0.8, 0.5, 1.6);
+        }
+        "Electricity" => poly(&[(0.6, 0.05), (0.2, 0.55), (0.5, 0.55), (0.4, 0.95), (0.82, 0.4), (0.52, 0.4)], true),
+        _ => {
+            p.rect_stroke(r.shrink(2.0), 1.0, s, egui::StrokeKind::Inside);
+        }
+    }
+}
+
 /// Tool Sets strip with Drafting/Modeling tabs, their command buttons and the collapse control.
 pub fn toolsets(app: &mut CadApp, ui: &mut egui::Ui) {
     let t = Tokens::get();
     egui::Frame::NONE.fill(t.panel).show(ui, |ui| {
         let r = ui.max_rect();
         let p = ui.painter().clone();
-        // Tabs.
-        let tab_h = 28.0;
-        // Drafting and Modeling on the first row, the building tabs on a second one: the panel
-        // is too narrow for all of them side by side.
-        let rows: Vec<Vec<&str>> =
-            std::iter::once(vec!["Drafting", "Modeling"]).chain((!building::TABS.is_empty()).then(|| building::TABS.to_vec())).collect();
-        for (row, tabs) in rows.iter().enumerate() {
-            let top = r.top() + tab_h * row as f32;
-            let room = if row == 0 { r.width() - 28.0 } else { r.width() };
-            let w = (room / tabs.len().max(1) as f32).min(if row == 0 { 92.0 } else { room });
-            let mut x = r.left();
-            for name in tabs.iter().copied() {
-                let tr = Rect::from_min_size(pos2(x, top), vec2(w, tab_h));
-                let active = app.ui.toolset_tab == name;
-                let resp = ui.interact(tr, ui.scope_id().with(("ts", name)), Sense::click());
-                p.rect_filled(tr, 0.0, if active { t.tab_active } else { t.chrome });
-                p.text(
-                    tr.center(),
-                    egui::Align2::CENTER_CENTER,
+        // The tabs are a column on the left, each with its icon and its name; a line sets the building tabs apart from Drafting and Modeling.
+        // A panel too narrow for the names keeps the icons only; the name is in the tooltip.
+        let icons_only = r.width() < NARROW_PANEL_WIDTH;
+        let (tab_h, col_w) = (30.0, if icons_only { TAB_COLUMN_ICONS_WIDTH } else { TAB_COLUMN_WIDTH });
+        let column = Rect::from_min_max(r.min, pos2(r.left() + col_w, r.max.y));
+        p.rect_filled(column, 0.0, t.chrome);
+        let mut y = r.top() + 6.0;
+        for (i, name) in toolset_tabs().into_iter().enumerate() {
+            if i == 2 {
+                p.hline(column.x_range().shrink(10.0), y + 3.0, Stroke::new(1.0, t.border));
+                y += 8.0;
+            }
+            let tr = Rect::from_min_size(pos2(column.left(), y), vec2(col_w, tab_h));
+            let active = app.ui.toolset_tab == name;
+            let resp = ui.interact(tr, ui.scope_id().with(("ts", name)), Sense::click());
+            if active || resp.hovered() {
+                p.rect_filled(tr, 0.0, if active { t.tab_active } else { t.chrome_dark });
+            }
+            if active {
+                p.rect_filled(Rect::from_min_size(tr.min, vec2(3.0, tab_h)), 0.0, t.icon_accent);
+            }
+            let icon_x = if icons_only { tr.center().x } else { tr.left() + 19.0 };
+            paint_tab_icon(&p, Rect::from_center_size(pos2(icon_x, tr.center().y), vec2(17.0, 17.0)), name, t.icon_accent);
+            if !icons_only {
+                p.with_clip_rect(tr.shrink2(vec2(2.0, 0.0))).text(
+                    pos2(tr.left() + 34.0, tr.center().y),
+                    egui::Align2::LEFT_CENTER,
                     crate::i18n::t(name),
-                    egui::FontId::proportional(13.5),
+                    egui::FontId::proportional(12.5),
                     if active { t.text } else { t.text_dim },
                 );
-                icons::describe_control(ui, &resp, crate::i18n::t(name), Some(active), true);
-                if resp.clicked() {
-                    app.ui.toolset_tab = name.into();
-                }
-                x += w;
             }
+            let resp = resp.on_hover_text(crate::i18n::t(name));
+            icons::describe_control(ui, &resp, crate::i18n::t(name), Some(active), true);
+            if resp.clicked() {
+                app.ui.toolset_tab = name.into();
+            }
+            y += tab_h;
         }
-        let x = r.left() + ((r.width() - 28.0) / 2.0).min(92.0) * 2.0;
-        let tabs_h = tab_h * rows.len() as f32;
-        p.rect_filled(Rect::from_min_max(pos2(x, r.top()), pos2(r.right(), r.top() + tab_h)), 0.0, t.chrome);
-        let cr = Rect::from_center_size(pos2(r.right() - 14.0, r.top() + tab_h / 2.0), vec2(14.0, 14.0));
+        // The strip over the tools holds the control that folds the panel.
+        let head_h = 22.0;
+        p.rect_filled(Rect::from_min_max(pos2(column.right(), r.top()), pos2(r.right(), r.top() + head_h)), 0.0, t.chrome);
+        let cr = Rect::from_center_size(pos2(r.right() - 14.0, r.top() + head_h / 2.0), vec2(14.0, 14.0));
         let cresp = ui.interact(cr, ui.scope_id().with("ts_collapse"), Sense::click());
         icons::paint(&p, cr, Icon::ChevronLeft, false);
         icons::describe_control(ui, &cresp, "Collapse Tool Sets", None, false);
         if cresp.on_hover_text(crate::tl!("Collapse Tool Sets")).clicked() {
             app.ui.show_toolsets = false;
         }
-        let body = Rect::from_min_max(pos2(r.left(), r.top() + tabs_h), r.max);
+        let body = Rect::from_min_max(pos2(column.right(), r.top() + head_h), r.max);
         if let Some(tab) = building::TABS.iter().find(|t| app.ui.toolset_tab == **t) {
             ui.scope_builder(egui::UiBuilder::new().max_rect(body), |ui| building::body(app, ui, tab));
             return;

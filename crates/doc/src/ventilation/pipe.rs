@@ -741,7 +741,7 @@ fn band_colour(service: PipeService) -> Option<&'static str> {
 pub fn pipe_layer_color(name: &str) -> Option<cadcraft_color::Color> {
     use cadcraft_color::{Color, Rgb};
     match name {
-        // ISO 14726: blue, with a white band for chilled water and a yellow one for condensate.
+        // Blue, with a white band for chilled water and a yellow one for condensate (a plan convention, to be checked against NF X 08-100 where it matters).
         PIPE_CHW_SUPPLY_LAYER | PIPE_CONDENSATE_LAYER => Some(Color::True(Rgb(0x1e, 0x6f, 0xd9))),
         PIPE_CHW_RETURN_LAYER => Some(Color::True(Rgb(0x66, 0xb3, 0xff))),
         "M-PIPE-BAND-WHITE" => Some(Color::Index(7)),
@@ -755,13 +755,15 @@ pub fn pipe_layer_color(name: &str) -> Option<cadcraft_color::Color> {
         PIPE_REFRIGERANT_GAS_LAYER => Some(Color::True(Rgb(0x8d, 0x99, 0xa3))),
         PIPE_REFRIGERANT_PAIR_LAYER | PIPE_REFRIGERANT_TRIPLE_LAYER => Some(Color::True(Rgb(0xc8, 0x9a, 0x6a))),
         PIPE_REFRIGERANT_HPLP_LAYER => Some(Color::True(Rgb(0xc0, 0x5a, 0x6e))),
-        // Plumbing: waste water blue, soil water violet, rain water teal, cold water green, hot water red and its loop orange.
-        PIPE_EU_LAYER => Some(Color::True(Rgb(0x3f, 0xa3, 0xff))),
-        PIPE_EV_LAYER => Some(Color::True(Rgb(0xb6, 0x7c, 0xff))),
-        PIPE_EP_LAYER => Some(Color::True(Rgb(0x39, 0xc2, 0xb0))),
-        PIPE_EF_LAYER => Some(Color::True(Rgb(0x4f, 0xc3, 0x5a))),
-        PIPE_ECS_LAYER => Some(Color::True(Rgb(0xff, 0x5d, 0x5d))),
+        // Plumbing: the colours plans of this trade use, not those of NF X 08-100 (which marks the pipes on site: all water has a yellow-green ground): cold
+        // water blue, domestic hot water red, its loop orange; waste water green, soil water brown, rain water teal. They are the layers' colours: change them
+        // in the layer manager.
+        PIPE_EF_LAYER => Some(Color::True(Rgb(0x2f, 0x8c, 0xff))),
+        PIPE_ECS_LAYER => Some(Color::True(Rgb(0xe0, 0x24, 0x24))),
         PIPE_BECS_LAYER => Some(Color::True(Rgb(0xff, 0x9a, 0x3c))),
+        PIPE_EU_LAYER => Some(Color::True(Rgb(0x3f, 0xb5, 0x6a))),
+        PIPE_EV_LAYER => Some(Color::True(Rgb(0xa8, 0x6a, 0x38))),
+        PIPE_EP_LAYER => Some(Color::True(Rgb(0x39, 0xc2, 0xb0))),
         _ => None,
     }
 }

@@ -1282,8 +1282,8 @@ const CABLE_RED: Color32 = Color32::from_rgb(0xd0, 0x45, 0x45);
 const LIGHT_YELLOW: Color32 = Color32::from_rgb(0xe6, 0xc2, 0x2e);
 const BUS_PURPLE: Color32 = Color32::from_rgb(0x90, 0x60, 0xd0);
 /// The waste water and the soil water of the plumbing figures.
-const BLUE_EU: Color32 = Color32::from_rgb(0x3f, 0xa3, 0xff);
-const PURPLE_EV: Color32 = Color32::from_rgb(0xb6, 0x7c, 0xff);
+const GREEN_EU: Color32 = Color32::from_rgb(0x3f, 0xb5, 0x6a);
+const BROWN_EV: Color32 = Color32::from_rgb(0xa8, 0x6a, 0x38);
 
 /// A point of the figure's box from fractions of its width and height.
 fn frac(r: Rect) -> impl Fn(f32, f32) -> egui::Pos2 {
@@ -1401,19 +1401,19 @@ fn sanitary_fig(p: &Painter, r: Rect) {
     let basin = Rect::from_min_max(at(0.55, 0.12), at(0.8, 0.5));
     p.rect_stroke(basin, 2.0, s, egui::StrokeKind::Inside);
     bowl(at(0.675, 0.33), 0.08 * r.width(), 0.1 * r.height());
-    text(p, at(0.12, 0.8), "WC EV \u{d8}100", PURPLE_EV);
-    text(p, at(0.55, 0.6), "LAV EU \u{d8}40", BLUE_EU);
+    text(p, at(0.12, 0.8), "WC EV \u{d8}100", BROWN_EV);
+    text(p, at(0.55, 0.6), "LAV EU \u{d8}40", GREEN_EU);
 }
 
 /// The plumbing networks as they are drawn: their colours and texts.
 fn plumbing_networks_fig(p: &Painter, r: Rect) {
     let at = frac(r);
     for (i, (colour, label, width)) in [
-        (BLUE_EU, "\u{d8}50 EU i=1 %", 3.0),
-        (PURPLE_EV, "\u{d8}100 EV i=2 %", 5.0),
+        (GREEN_EU, "\u{d8}50 EU i=1 %", 3.0),
+        (BROWN_EV, "\u{d8}100 EV i=2 %", 5.0),
         (Color32::from_rgb(0x39, 0xc2, 0xb0), "\u{d8}100 EP i=1 %", 5.0),
-        (Color32::from_rgb(0x4f, 0xc3, 0x5a), "\u{d8}20 EF", 1.6),
-        (Color32::from_rgb(0xff, 0x5d, 0x5d), "\u{d8}20 ECS", 1.6),
+        (Color32::from_rgb(0x2f, 0x8c, 0xff), "\u{d8}20 EF", 1.6),
+        (Color32::from_rgb(0xe0, 0x24, 0x24), "\u{d8}20 ECS", 1.6),
         (Color32::from_rgb(0xff, 0x9a, 0x3c), "\u{d8}16 BECS", 1.4),
     ]
     .into_iter()
@@ -1431,12 +1431,12 @@ fn connect_fixtures_fig(p: &Painter, r: Rect) {
     let s = Stroke::new(1.3, Color32::WHITE);
     p.rect_stroke(Rect::from_min_max(at(0.15, 0.05), at(0.35, 0.3)), 2.0, s, egui::StrokeKind::Inside);
     p.rect_stroke(Rect::from_min_max(at(0.6, 0.05), at(0.72, 0.3)), 0.0, s, egui::StrokeKind::Inside);
-    p.line_segment([at(0.05, 0.62), at(0.95, 0.62)], Stroke::new(3.0, BLUE_EU));
-    p.line_segment([at(0.05, 0.85), at(0.95, 0.85)], Stroke::new(5.0, PURPLE_EV));
-    p.line_segment([at(0.25, 0.22), at(0.25, 0.62)], Stroke::new(2.2, BLUE_EU));
-    p.line_segment([at(0.66, 0.2), at(0.66, 0.85)], Stroke::new(4.0, PURPLE_EV));
-    text(p, at(0.27, 0.36), "EU \u{d8}40 i=1 %", BLUE_EU);
-    text(p, at(0.68, 0.42), "EV \u{d8}100 i=2 %", PURPLE_EV);
+    p.line_segment([at(0.05, 0.62), at(0.95, 0.62)], Stroke::new(3.0, GREEN_EU));
+    p.line_segment([at(0.05, 0.85), at(0.95, 0.85)], Stroke::new(5.0, BROWN_EV));
+    p.line_segment([at(0.25, 0.22), at(0.25, 0.62)], Stroke::new(2.2, GREEN_EU));
+    p.line_segment([at(0.66, 0.2), at(0.66, 0.85)], Stroke::new(4.0, BROWN_EV));
+    text(p, at(0.27, 0.36), "EU \u{d8}40 i=1 %", GREEN_EU);
+    text(p, at(0.68, 0.42), "EV \u{d8}100 i=2 %", BROWN_EV);
 }
 
 fn elec_riser_fig(p: &Painter, r: Rect) {
