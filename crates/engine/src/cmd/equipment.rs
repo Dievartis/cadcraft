@@ -375,17 +375,21 @@ enum Ask {
     Name,
     Space,
     Count(cadcraft_doc::Handle),
+    /// The unit is put at this point and waits for its direction (a second click or an angle).
+    Aim(Vec2),
 }
 
 struct EquipAddM {
     last: EquipmentLastUsed,
     name: Option<String>,
     ask: Ask,
+    /// The turn of the last unit put, in degrees: Enter at the direction prompt keeps it.
+    rotation_deg: f64,
 }
 
 impl EquipAddM {
     fn new(s: &Session) -> Self {
-        EquipAddM { last: s.last_used.equipment.clone(), name: None, ask: Ask::Location }
+        EquipAddM { last: s.last_used.equipment.clone(), name: None, ask: Ask::Location, rotation_deg: 0.0 }
     }
     fn params(&self, s: &Session) -> Result<EquipmentParams> {
         let mut p = json!({ "kind": self.last.kind.name() });
@@ -494,9 +498,24 @@ impl Interactive for EquipAddM {
             Ask::Location => Prompt::new("Specify insertion point", Accept::POINT).kw(&["Type", "Size", "Name", "Distribute"]),
             Ask::Space => Prompt::new("Select space", Accept::SELECT),
             Ask::Count(_) => Prompt::new("Enter number of units or rows x columns", Accept::TEXT).default("1"),
+            Ask::Aim(at) => Prompt::new("Specify rotation angle", Accept::POINT_OR_NUMBER).base(at).default(format!("{}", self.rotation_deg)),
         }
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
+        if let Ask::Aim(at) = self.ask {
+            if matches!(i, Input::Cancel) {
+                self.ask = Ask::Location;
+                return Ok(Step::Continue);
+            }
+            if let Some(a) = super::aimed_degrees(&i, at)? {
+                self.rotation_deg = a;
+            }
+            let e = self.params(s)?;
+            place(s, &e, at, self.rotation_deg.to_radians())?;
+            self.name = None;
+            self.ask = Ask::Location;
+            return Ok(Step::Continue);
+        }
         if self.ask != Ask::Location {
             return self.option(s, i);
         }
@@ -513,9 +532,7 @@ impl Interactive for EquipAddM {
             }
             // Equipment keeps being placed, each under the next name, until Enter or Esc.
             Input::Point(at) => {
-                let e = self.params(s)?;
-                place(s, &e, at, 0.0)?;
-                self.name = None;
+                self.ask = Ask::Aim(at);
                 Ok(Step::Continue)
             }
             Input::Enter | Input::Cancel => Ok(Step::Done),
@@ -523,9 +540,12 @@ impl Interactive for EquipAddM {
         }
     }
     fn preview_objects(&self, s: &Session, c: Vec2) -> Vec<cadcraft_doc::Entity> {
-        if self.ask != Ask::Location {
-            return Vec::new();
-        }
-        self.params(s).map(|e| e.preview(c, 0.0)).unwrap_or_default()
+        let (at, deg) = match self.ask {
+            Ask::Location => (c, self.rotation_deg),
+            Ask::Aim(at) if !c.near(at, 1e-9) => (at, (c - at).angle().to_degrees()),
+            Ask::Aim(at) => (at, self.rotation_deg),
+            _ => return Vec::new(),
+        };
+        self.params(s).map(|e| e.preview(at, deg.to_radians())).unwrap_or_default()
     }
 }

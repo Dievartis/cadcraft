@@ -259,6 +259,8 @@ enum Ask {
     Place,
     Kind,
     Rotation,
+    /// The fixture is put at this point and waits for its direction (a second click or an angle).
+    Aim(Vec2),
 }
 
 struct FixtureAddM {
@@ -291,6 +293,7 @@ impl Interactive for FixtureAddM {
             Ask::Kind => Prompt::new("Enter the type of fixture", Accept::TEXT).default(self.last.kind.name()),
             Ask::Rotation => Prompt::new("Specify rotation angle", Accept::NUMBER).default(format!("{}", self.last.rotation_deg)),
             Ask::Place => Prompt::new("Specify the middle of the fixture's back", Accept::POINT).kw(&["Type", "Rotate"]),
+            Ask::Aim(at) => Prompt::new("Specify rotation angle", Accept::POINT_OR_NUMBER).base(at).default(format!("{}", self.last.rotation_deg)),
         }
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
@@ -317,12 +320,18 @@ impl Interactive for FixtureAddM {
             }
             (Ask::Place, Input::Keyword(k), _) if k == "Type" => self.ask = Ask::Kind,
             (Ask::Place, Input::Keyword(k), _) if k == "Rotate" => self.ask = Ask::Rotation,
-            (Ask::Place, Input::Point(at), _) => {
+            (Ask::Place, Input::Point(at), _) => self.ask = Ask::Aim(at),
+            (Ask::Aim(_), Input::Cancel, _) => self.ask = Ask::Place,
+            (Ask::Aim(at), i, _) => {
+                if let Some(a) = super::aimed_degrees(&i, at)? {
+                    self.last.rotation_deg = a;
+                }
                 let f = self.params(s)?;
                 match put(s, &f, at, self.last.rotation_deg.to_radians()) {
                     Ok(_) => s.last_used.sanitary = self.last.clone(),
                     Err(e) => s.echo(e.to_string()),
                 }
+                self.ask = Ask::Place;
             }
             (Ask::Place, Input::Enter | Input::Cancel, _) => return Ok(Step::Done),
             (_, Input::Enter | Input::Cancel, _) => self.ask = Ask::Place,
@@ -332,6 +341,11 @@ impl Interactive for FixtureAddM {
     }
     fn preview_objects(&self, s: &Session, c: Vec2) -> Vec<cadcraft_doc::Entity> {
         let Ok(f) = self.params(s) else { return Vec::new() };
-        f.generate().map(|pieces| cadcraft_doc::preview_entities(pieces, c, self.last.rotation_deg.to_radians())).unwrap_or_default()
+        let (at, deg) = match self.ask {
+            Ask::Aim(at) if !c.near(at, 1e-9) => (at, (c - at).angle().to_degrees()),
+            Ask::Aim(at) => (at, self.last.rotation_deg),
+            _ => (c, self.last.rotation_deg),
+        };
+        f.generate().map(|pieces| cadcraft_doc::preview_entities(pieces, at, deg.to_radians())).unwrap_or_default()
     }
 }

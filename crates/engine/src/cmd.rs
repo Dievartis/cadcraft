@@ -331,6 +331,21 @@ pub(crate) fn reject_unknown_params(cmd: &str, p: &Value, allowed: &[&str]) -> R
 pub(crate) fn f64_or(p: &Value, key: &str, default: f64) -> f64 {
     p.get(key).and_then(Value::as_f64).filter(|v| v.is_finite()).unwrap_or(default)
 }
+/// The turn in degrees that a piece being placed at `at` is given by `i`: the direction of a second click, or a typed angle; `None` for Enter (the piece keeps its turn).
+pub(crate) fn aimed_degrees(i: &crate::Input, at: Vec2) -> Result<Option<f64>> {
+    use crate::Input;
+    match i {
+        Input::Point(p) if !p.near(at, 1e-9) => Ok(Some((*p - at).angle().to_degrees())),
+        Input::Text(t) | Input::Keyword(t) => {
+            let t = t.trim();
+            if t.is_empty() {
+                return Ok(None);
+            }
+            t.parse::<f64>().ok().filter(|a| a.is_finite()).map(Some).ok_or_else(|| EngineError::Other("Requires an angle in degrees.".into()))
+        }
+        _ => Ok(None),
+    }
+}
 pub(crate) fn f64_req(cmd: &str, p: &Value, key: &str) -> Result<f64> {
     p.get(key).and_then(Value::as_f64).filter(|v| v.is_finite()).ok_or_else(|| bad(cmd, format!("`{key}` (number) is required")))
 }

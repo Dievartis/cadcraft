@@ -87,7 +87,8 @@ fn equipmentedit_changes_each_value_or_takes_another_model_and_keeps_the_name() 
 #[test]
 fn equipmentadd_at_the_command_line_keeps_placing_under_the_next_name() {
     let mut s = metric();
-    for t in ["equipmentadd", "t", "vrv", "s", "10", "0,0", "3000,0", ""] {
+    // Each point is followed by its direction (Enter keeps the turn).
+    for t in ["equipmentadd", "t", "vrv", "s", "10", "0,0", "", "3000,0", "", ""] {
         s.cmdline(t).unwrap();
     }
     assert!(s.running.is_none());
@@ -270,4 +271,42 @@ fn a_ducted_unit_takes_a_number_of_inlets_and_outlets_each_with_the_size_of_the_
     assert!(s.execute("equipmentedit", &json!({"handle": r["handle"], "inletCount": 1.5})).is_err());
     let chiller = s.execute("equipmentadd", &json!({"at": [5000, 0], "kind": "chiller"})).unwrap();
     assert!(s.execute("equipmentedit", &json!({"handle": chiller["handle"], "outletCount": 2})).is_err());
+}
+
+#[test]
+fn an_equipment_a_fixture_and_a_piece_of_furniture_are_turned_when_put_by_a_second_click_or_an_angle() {
+    use cadcraft_doc::{EntityKind, Handle};
+    let mut s = metric();
+    let rotation = |s: &Session, k: usize| {
+        let d = s.doc().unwrap();
+        d.model
+            .iter()
+            .filter_map(|e| if let EntityKind::Insert(i) = &e.kind { Some((e.handle, i.rotation)) } else { None })
+            .nth(k)
+            .map(|(_, r): (Handle, f64)| r)
+    };
+    // A second click above the point turns it a quarter turn; a typed angle also.
+    for t in ["equipmentadd", "0,0", "0,5000", "9000,0", "30", ""] {
+        s.cmdline(t).unwrap();
+    }
+    assert!((rotation(&s, 0).unwrap() - std::f64::consts::FRAC_PI_2).abs() < 1e-9);
+    assert!((rotation(&s, 1).unwrap() - 30f64.to_radians()).abs() < 1e-9);
+    for t in ["furnitureadd", "0,2000", "-1000,2000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    for t in ["fixtureadd", "0,4000", "0,6000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    assert!((rotation(&s, 2).unwrap() - std::f64::consts::PI).abs() < 1e-9);
+    assert!((rotation(&s, 3).unwrap() - std::f64::consts::FRAC_PI_2).abs() < 1e-9);
+    assert!(s.running.is_none());
+    // A wrong angle is refused and nothing is put; Enter then puts the unit with the turn it had.
+    let n = s.doc().unwrap().model.iter().count();
+    for t in ["equipmentadd", "0,0", "abc"] {
+        let _ = s.cmdline(t);
+    }
+    assert_eq!(s.doc().unwrap().model.iter().count(), n);
+    s.cmdline("").unwrap();
+    s.cmdline("").unwrap();
+    assert_eq!(s.doc().unwrap().model.iter().count(), n + 1);
 }
