@@ -411,6 +411,19 @@ pub struct Panels<'a> {
 impl DockContent<Panel> for Panels<'_> {
     fn body(&mut self, ui: &mut egui::Ui, panel: &Panel) {
         let app = &mut *self.app;
+        if *panel != Panel::Canvas {
+            let mut close = false;
+            ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 20.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let label = format!("Close {}", panel.label());
+                let response = ui.small_button("×").on_hover_text(&label);
+                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+                close = response.clicked();
+            });
+            if close {
+                let _ = app.run("ui.dock", json!({"operation":"close","panel":panel}));
+                return;
+            }
+        }
         match panel {
             Panel::Canvas => {
                 ui.painter().rect_filled(ui.max_rect(), 0.0, crate::theme::Tokens::get().canvas);
