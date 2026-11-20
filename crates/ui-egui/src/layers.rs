@@ -429,19 +429,23 @@ struct LayerRow<'a> {
     actions: &'a mut Vec<(&'static str, Value)>,
 }
 
+pub(crate) fn state_action(shift: bool, name: &str, property: &str, value: bool) -> (&'static str, Value) {
+    if shift { ("layer.invertothers", json!({"name":name,"property":property})) } else { ("layer.set", json!({"name":name,property:value})) }
+}
+
 fn row(ui: &mut egui::Ui, args: LayerRow<'_>) {
     let LayerRow { layer: l, current: cur, used, viewport: vp, linetypes, library, state: st, actions } = args;
     let t = Tokens::get();
     let name = layer_identity(ui, l, cur, used, st, actions);
     // On / Freeze / Lock / Plot.
     if icons::button(ui, if l.on { Icon::Bulb } else { Icon::BulbOff }, 20.0, "On/Off", false).clicked() {
-        actions.push(("layer.set", json!({ "name": name, "on": !l.on })));
+        actions.push(state_action(ui.input(|i| i.modifiers.shift), &name, "on", !l.on));
     }
     if icons::button(ui, if l.frozen { Icon::Snowflake } else { Icon::Sun }, 20.0, "Freeze/Thaw in all viewports", false).clicked() {
-        actions.push(("layer.set", json!({ "name": name, "frozen": !l.frozen })));
+        actions.push(state_action(ui.input(|i| i.modifiers.shift), &name, "frozen", !l.frozen));
     }
     if icons::button(ui, if l.locked { Icon::Lock } else { Icon::Unlock }, 20.0, "Lock/Unlock", false).clicked() {
-        actions.push(("layer.set", json!({ "name": name, "locked": !l.locked })));
+        actions.push(state_action(ui.input(|i| i.modifiers.shift), &name, "locked", !l.locked));
     }
     let pr = icons::button(ui, Icon::Plot, 20.0, if l.plot { "Plot (click: do not plot)" } else { "Do not plot (click: plot)" }, false);
     if !l.plot {

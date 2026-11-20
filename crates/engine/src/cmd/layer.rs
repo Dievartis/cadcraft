@@ -1,5 +1,6 @@
 //! Layers: LAYER (programmatic sub-ids, -LAYER prompts), layer tools (LAYMCUR, LAYISO, LAYOFF, LAYFRZ…).
 
+mod invert;
 mod prompts;
 
 use cadcraft_color::Color;
@@ -13,6 +14,8 @@ use crate::{Result, Session};
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        CommandSpec::new("layer.invertothers", "Invert Other Layer States", invert::run)
+            .params("{name, property: on|frozen|locked}; current layer is not frozen"),
         CommandSpec::new("layer", "Layers", run_list)
             .menu(&["Format", "Layers"])
             .alias(&["la", "layers", "-layer"])

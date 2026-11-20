@@ -514,7 +514,8 @@ pub(crate) fn layers_section(app: &mut CadApp, ui: &mut egui::Ui) {
         let _ = app.run("layer.current", json!({ "name": n }));
     }
     if let Some((n, k, v)) = toggle {
-        let _ = app.run("layer.set", json!({ "name": n, k: v }));
+        let (command, params) = crate::layers::state_action(ui.input(|i| i.modifiers.shift), &n, k, v);
+        let _ = app.run(command, params);
     }
 }
 
