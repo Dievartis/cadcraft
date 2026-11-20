@@ -387,6 +387,37 @@ pub(super) fn paint_equipment(p: &Painter, r: Rect, kind: EquipmentKind) {
                 t.l((8.0, y), (16.0, y), t.acc);
             }
         }
+        EquipmentKind::ServerCooler => {
+            t.rect(2.0, 5.0, 20.0, 14.0, t.base);
+            for y in [14.0, 16.0, 18.0] {
+                t.l((4.0, y), (20.0, y), t.base);
+            }
+            t.arrow((8.0, 7.0), (8.0, 13.0), t.acc);
+            t.arrow((16.0, 7.0), (16.0, 13.0), t.acc);
+        }
+        EquipmentKind::Dehumidifier => {
+            t.rect(2.0, 7.0, 16.0, 10.0, t.base);
+            t.circle(14.0, 12.0, 3.0, t.acc);
+            t.arrow((7.0, 15.0), (7.0, 9.0), t.acc);
+            t.duct(8.0, 16.0, 4.0, t.base);
+            t.duct(8.0, 16.0, 20.0, t.base);
+        }
+        EquipmentKind::DehumidifierWall => {
+            t.l((2.0, 5.0), (22.0, 5.0), t.base);
+            t.rect(5.0, 5.0, 14.0, 6.0, t.base);
+            t.arrow((8.0, 20.0), (8.0, 14.0), t.acc);
+            t.arrow((16.0, 20.0), (16.0, 14.0), t.acc);
+        }
+        EquipmentKind::WallRack | EquipmentKind::FloorRack => {
+            t.rect(6.0, 3.0, 12.0, 10.0, t.base);
+            t.l((9.0, 5.0), (9.0, 11.0), t.acc);
+            t.l((15.0, 5.0), (15.0, 11.0), t.acc);
+            t.l((6.0, 13.0), (6.0, 21.0), t.base);
+            t.l((6.0, 21.0), (12.0, 19.0), t.base);
+            if kind == EquipmentKind::FloorRack {
+                t.circle(12.0, 8.0, 2.0, t.acc);
+            }
+        }
     }
 }
 

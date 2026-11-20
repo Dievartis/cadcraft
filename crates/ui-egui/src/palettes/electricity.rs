@@ -154,6 +154,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut chosen_usage: Option<CableUsage> = None;
     let mut start: Option<&'static str> = None;
     let (mut check, mut size, mut lighting, mut emergency) = (false, false, false, false);
+    let mut rack: Option<cadcraft_doc::EquipmentKind> = None;
     let sections = std::mem::take(&mut app.ui.sections);
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -180,6 +181,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
             ("Safety", &[DeviceKind::Emergency, DeviceKind::ExitSign]),
             ("Distribution", &[DeviceKind::Panel]),
         ];
+        let mut chosen_rack: Option<cadcraft_doc::EquipmentKind> = None;
         for (title, kinds) in groups {
             header(ui, title);
             for kind in kinds {
@@ -190,6 +192,15 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
             ui.add_space(6.0);
             separator(ui);
         }
+        header(ui, "Computer racks");
+        for kind in [cadcraft_doc::EquipmentKind::WallRack, cadcraft_doc::EquipmentKind::FloorRack] {
+            if row_tip(ui, crate::i18n::t(super::building::equipment_kind_label(kind)), "", None, false, |p, r| super::thumbs::paint_equipment(p, r, kind)) {
+                chosen_rack = Some(kind);
+            }
+        }
+        ui.add_space(6.0);
+        separator(ui);
+        rack = chosen_rack;
         header(ui, "Cables");
         for (u, label) in [
             (CableUsage::Power, "Power cable"),
@@ -254,6 +265,11 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         app.session.last_used.device.kind = kind;
         app.cmd.buffer.clear();
         app.start("elecdeviceadd");
+    } else if let Some(kind) = rack {
+        // The rack clicked becomes EQUIPMENTADD's kind, at its first model.
+        app.session.last_used.equipment = cadcraft_engine::cmd::EquipmentLastUsed { kind, model: String::new() };
+        app.cmd.buffer.clear();
+        app.start("equipmentadd");
     } else if let Some(u) = chosen_usage {
         app.session.last_used.cable.usage = u;
         app.cmd.buffer.clear();
@@ -352,6 +368,16 @@ mod tests {
         assert_eq!(h.state().session.last_used.device.kind, DeviceKind::DownLight);
         assert!(h.state().session.running.is_some(), "the command is running");
         assert!(h.state().session.prompt_text().contains("device"), "{}", h.state().session.prompt_text());
+    }
+
+    #[test]
+    fn the_tab_offers_the_computer_racks_and_a_click_starts_the_equipment_command_with_that_kind() {
+        let mut h = tab(CadApp::new(Session::new(), Services::default()));
+        assert!(h.query_by_label("Wall rack").is_some());
+        h.get_by_label("Floor rack").click();
+        h.run_steps(3);
+        assert_eq!(h.state().session.last_used.equipment.kind, cadcraft_doc::EquipmentKind::FloorRack);
+        assert!(h.state().session.running.is_some());
     }
 
     #[test]

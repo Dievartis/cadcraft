@@ -91,6 +91,9 @@ fn next_name(d: &Drawing, kind: EquipmentKind) -> String {
     let code = match kind {
         EquipmentKind::Chiller => "GE",
         EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor => "UE",
+        EquipmentKind::ServerCooler => "CRAC",
+        EquipmentKind::Dehumidifier | EquipmentKind::DehumidifierWall => "DSH",
+        EquipmentKind::WallRack | EquipmentKind::FloorRack => "BAIE",
         _ => "UI",
     };
     format!("{code}{}", count(d) + 1)
@@ -183,7 +186,7 @@ fn apply_air_ports(cmd: &str, p: &Value, e: &mut EquipmentParams) -> Result<()> 
     if keys.iter().all(|k| p.get(*k).is_none()) {
         return Ok(());
     }
-    if e.kind != EquipmentKind::Ducted {
+    if !e.kind.takes_ducts() {
         return Err(bad(cmd, "`inlets`, `outlets`, `inletCount` and `outletCount` are for a ducted unit"));
     }
     let sizes_of = |key: &str, now: Vec<cadcraft_doc::RiserSize>| p.get(key).map(|v| sizes_param(cmd, key, v)).transpose().map(|o| o.unwrap_or(now));
@@ -429,7 +432,7 @@ impl EquipAddM {
         match (self.ask, text.as_deref()) {
             (Ask::Type, Some(t)) => {
                 self.last = EquipmentLastUsed {
-                    kind: EquipmentKind::parse(t).ok_or_else(|| other("Enter Chiller, Vrv, Split, Cassette, Ducted, Wall, Ceiling or Floor."))?,
+                    kind: EquipmentKind::parse(t).ok_or_else(|| other("Enter Chiller, Vrv, Split, Cassette, Ducted, Wall, Ceiling, Floor, ServerCooler, Dehumidifier, DehumidifierWall, WallRack or FloorRack."))?,
                     model: String::new(),
                 };
             }
@@ -503,7 +506,20 @@ impl Interactive for EquipAddM {
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.ask {
             Ask::Type => Prompt::new("Enter equipment type", super::curves::KW)
-                .kw(&["Chiller", "Vrv", "Split", "Cassette", "Ducted", "Wall", "Ceiling", "Floor"])
+                .kw(&[
+                    "Chiller",
+                    "Vrv",
+                    "Split",
+                    "Cassette",
+                    "Ducted",
+                    "Wall",
+                    "Ceiling",
+                    "Floor",
+                    "ServerCooler",
+                    "Dehumidifier",
+                    "WallRack",
+                    "FloorRack",
+                ])
                 .default(self.last.kind.name()),
             Ask::Size => Prompt::new("Enter a model name or a power (kW)", Accept::TEXT).default(self.last.model.clone()),
             Ask::Name => Prompt::new("Enter equipment name", Accept::TEXT),

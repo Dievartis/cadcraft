@@ -15,8 +15,8 @@ use cadcraft_geom::Vec2;
 use super::duct::LEVEL_STEP_MIN_MM;
 use super::network::{MAX_DUCTS, STEP_CLEARANCE_MM};
 use super::{
-    AirDirection, AirPort, DuctElbow, DuctParams, DuctReducer, DuctShape, DuctStep, EquipmentKind, HvacUnits, RiserSize, ahu_of, air_terminal_of,
-    duct_of, equipment_of, riser_of,
+    AirDirection, AirPort, DuctElbow, DuctParams, DuctReducer, DuctShape, DuctStep, HvacUnits, RiserSize, ahu_of, air_terminal_of, duct_of,
+    equipment_of, riser_of,
 };
 use crate::{EntityKind, Handle, Result, Space};
 
@@ -418,7 +418,7 @@ impl crate::Drawing {
                 && (duct_of(e).is_some()
                     || ahu_of(e).is_some()
                     || super::zone_of(e).is_some()
-                    || equipment_of(e).is_some_and(|q| q.kind == EquipmentKind::Ducted))
+                    || equipment_of(e).is_some_and(|q| q.kind.takes_ducts()))
         };
         now.iter().any(|e| then.get(e.handle).is_none_or(|old| !std::sync::Arc::ptr_eq(old, e)) && relevant(e))
             || then.iter().any(|e| now.get(e.handle).is_none() && relevant(e))
@@ -492,7 +492,7 @@ impl crate::Drawing {
         let mut updates = Vec::new();
         for e in self.space(space).into_iter().flat_map(|s| s.iter()) {
             let (EntityKind::Insert(i), Some(mut q)) = (&e.kind, equipment_of(e)) else { continue };
-            if q.kind != EquipmentKind::Ducted {
+            if !q.kind.takes_ducts() {
                 continue;
             }
             let (hl, hw) = (units.to_units(q.length_mm) / 2.0, units.to_units(q.width_mm) / 2.0);

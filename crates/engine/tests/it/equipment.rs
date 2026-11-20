@@ -310,3 +310,23 @@ fn an_equipment_a_fixture_and_a_piece_of_furniture_are_turned_when_put_by_a_seco
     s.cmdline("").unwrap();
     assert_eq!(s.doc().unwrap().model.iter().count(), n + 1);
 }
+
+#[test]
+fn racks_coolers_and_dehumidifiers_are_put_by_model_named_by_kind_and_the_ducted_dehumidifier_takes_connections() {
+    let mut s = metric();
+    let put = |s: &mut Session, p: Value| s.execute("equipmentadd", &p).unwrap();
+    let r = put(&mut s, json!({"at": [0, 0], "kind": "floorRack"}));
+    let e = equip(&s, &r["handle"]);
+    assert_eq!((e.kind, e.name.as_str()), (EquipmentKind::FloorRack, "BAIE1"));
+    let r = put(&mut s, json!({"at": [3000, 0], "model": "Wall rack 9 U"}));
+    assert_eq!(equip(&s, &r["handle"]).height_mm, 500.0);
+    let r = put(&mut s, json!({"at": [6000, 0], "model": "Server room cooler 45 kW"}));
+    let e = equip(&s, &r["handle"]);
+    assert_eq!((e.kind, e.length_mm, e.name.as_str()), (EquipmentKind::ServerCooler, 2000.0, "CRAC3"));
+    let wall = put(&mut s, json!({"at": [9000, 0], "model": "Pool dehumidifier 40 (wall)"}));
+    assert!(s.execute("equipmentedit", &json!({"handle": wall["handle"], "inlets": [250]})).is_err(), "a wall unit has no duct");
+    let duct = put(&mut s, json!({"at": [12000, 0], "model": "Pool dehumidifier 75 (ducted)", "inlets": [250], "outlets": [250]}));
+    assert_eq!(equip(&s, &duct["handle"]).air_ports.len(), 2);
+    let list = s.execute("equipmentadd", &json!({"list": true, "kind": "wallRack"})).unwrap();
+    assert_eq!(list["models"].as_array().unwrap().len(), 5);
+}

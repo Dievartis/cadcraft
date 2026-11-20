@@ -3698,3 +3698,9 @@ echo	Not a type of furniture: see FURNITURELIST.	Ce n'est pas un type de mobilie
 	Save as cable type	Enregistrer comme type de câble
 	Enter the cable (3G1.5, 2x0.75 blindé, a section in mm²) or [Auto]	Entrez le câble (3G1.5, 2x0.75 blindé, une section en mm²) ou [Auto]
 echo	Requires a cable as 3G1.5 or 2x0.75 blindé, a section in mm², or Auto.	Il faut un câble comme 3G1.5 ou 2x0.75 blindé, une section en mm², ou Auto.
+	Server room cooler	Armoire de climatisation de salle serveurs
+	Pool dehumidifier (ducted)	Déshumidificateur de piscine (gainable)
+	Pool dehumidifier (wall)	Déshumidificateur de piscine (mural)
+	Wall rack	Baie informatique murale
+	Floor rack	Baie informatique au sol
+	Computer racks	Baies informatiques

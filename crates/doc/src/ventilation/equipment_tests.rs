@@ -33,13 +33,22 @@ fn the_standard_models_are_valid_unique_and_cover_every_kind() {
 #[test]
 fn nothing_of_a_maker_is_left_in_the_library_but_the_sizes() {
     for m in standard_equipment_models() {
-        assert!(m.reference.is_empty() && m.connections.is_empty() && m.weight_kg.is_none(), "{}", m.name);
+        // The cabinets, dehumidifiers and racks say their flow or their units in the text beside them.
+        let new = matches!(
+            m.kind,
+            EquipmentKind::ServerCooler
+                | EquipmentKind::Dehumidifier
+                | EquipmentKind::DehumidifierWall
+                | EquipmentKind::WallRack
+                | EquipmentKind::FloorRack
+        );
+        assert!(m.reference.is_empty() && (new || m.connections.is_empty()) && m.weight_kg.is_none(), "{}", m.name);
         for brand in ["Carrier", "Daikin", "Sky Air", "AquaSnap", "Victaulic", "30R", "FTX", "RXY", "VRV IV"] {
             assert!(!m.name.contains(brand), "{}", m.name);
         }
         // The name is the kind and the power: kW, or CV for a VRV outdoor unit.
         let unit = if m.kind == EquipmentKind::VrfOutdoor { "CV" } else { "kW" };
-        assert!(m.name.ends_with(unit), "{}", m.name);
+        assert!(new || m.name.ends_with(unit), "{}", m.name);
     }
     let vrv = equipment_model_named(&standard_equipment_models(), "VRV 14 CV").unwrap();
     assert_eq!(EquipmentParams::from_model(&vrv, "UE1", units()).text(), "UE1 14 CV");
@@ -190,4 +199,33 @@ fn a_ducted_unit_takes_eight_d200_supplies_and_four_d250_returns_along_its_long_
     // A connection given in an old drawing under its old name keeps its place.
     let old: AirPort = serde_json::from_str(r#"{"inlet":true,"size":{"shape":"round","diameterMm":200.0},"yMm":120.0}"#).unwrap();
     assert_eq!(old.along_mm, 120.0);
+}
+
+#[test]
+fn server_coolers_dehumidifiers_and_racks_are_drawn_each_in_its_way_and_the_ducted_ones_take_ducts() {
+    let models = standard_equipment_models();
+    let p = |name: &str| EquipmentParams::from_model(&equipment_model_named(&models, name).unwrap(), "X1", units());
+    let count = |p: &EquipmentParams| p.generate().unwrap().len();
+    // The sizes of the mockup, and the room each leaves in front.
+    let cdp = p("Pool dehumidifier 40 (wall)");
+    assert_eq!((cdp.length_mm, cdp.width_mm, cdp.height_mm, cdp.kind), (700.0, 320.0, 570.0, EquipmentKind::DehumidifierWall));
+    assert!(
+        !cdp.kind.takes_ducts() && p("Pool dehumidifier 75 (ducted)").kind.takes_ducts() && p("Pool dehumidifier unit 6000 m3/h").kind.takes_ducts()
+    );
+    assert!(!p("Server room cooler 25 kW").kind.takes_ducts());
+    // A rack shows its door swinging; the floor one its fan as well; a cooler an arrow for each fan.
+    assert_eq!(count(&p("Floor rack 42 U")), count(&p("Wall rack 12 U")) + 1);
+    let one = count(&p("Server room cooler 8 kW"));
+    assert_eq!(count(&p("Server room cooler 80 kW")), one + 3 * 3);
+    // A rack's name carries its dissipated power, and the racks are the ones the Electricity tab offers.
+    assert_eq!(p("Wall rack 9 U").text(), "X1 0.5 kW");
+    let racks: Vec<_> = EquipmentKind::ALL.iter().filter(|k| k.is_rack()).collect();
+    assert_eq!(racks.len(), 2);
+    // Ducts can be given to a dehumidifier's sides like a ducted unit's.
+    let mut d = p("Pool dehumidifier 75 (ducted)");
+    d.set_air_ports(&[RiserSize::Round { diameter_mm: 250.0 }], &[RiserSize::Round { diameter_mm: 250.0 }]);
+    assert_eq!(d.air_port_tips().len(), 2);
+    for k in ["serverCooler", "dehumidifier", "dehumidifierWall", "wallRack", "floorRack", "baie murale", "CRAC"] {
+        assert!(EquipmentKind::parse(k).is_some(), "{k}");
+    }
 }

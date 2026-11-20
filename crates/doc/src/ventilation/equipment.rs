@@ -49,10 +49,20 @@ pub enum EquipmentKind {
     CeilingUnit,
     /// A floor or console unit.
     FloorUnit,
+    /// A cooling cabinet of a server room: in a row between racks, or along a wall.
+    ServerCooler,
+    /// A pool dehumidifier with duct connections (ducted, or an air handling unit of a pool hall).
+    Dehumidifier,
+    /// A small pool dehumidifier hung on a wall: no duct, it takes the air in at the bottom and blows it out at the top.
+    DehumidifierWall,
+    /// A computer rack hung on a wall (6 to 18 U).
+    WallRack,
+    /// A computer rack standing on the floor (24 to 47 U).
+    FloorRack,
 }
 
 impl EquipmentKind {
-    pub const ALL: [EquipmentKind; 8] = [
+    pub const ALL: [EquipmentKind; 13] = [
         EquipmentKind::Chiller,
         EquipmentKind::VrfOutdoor,
         EquipmentKind::SplitOutdoor,
@@ -61,6 +71,11 @@ impl EquipmentKind {
         EquipmentKind::WallUnit,
         EquipmentKind::CeilingUnit,
         EquipmentKind::FloorUnit,
+        EquipmentKind::ServerCooler,
+        EquipmentKind::Dehumidifier,
+        EquipmentKind::DehumidifierWall,
+        EquipmentKind::WallRack,
+        EquipmentKind::FloorRack,
     ];
 
     pub fn name(self) -> &'static str {
@@ -73,6 +88,11 @@ impl EquipmentKind {
             EquipmentKind::WallUnit => "wallUnit",
             EquipmentKind::CeilingUnit => "ceilingUnit",
             EquipmentKind::FloorUnit => "floorUnit",
+            EquipmentKind::ServerCooler => "serverCooler",
+            EquipmentKind::Dehumidifier => "dehumidifier",
+            EquipmentKind::DehumidifierWall => "dehumidifierWall",
+            EquipmentKind::WallRack => "wallRack",
+            EquipmentKind::FloorRack => "floorRack",
         }
     }
 
@@ -87,6 +107,11 @@ impl EquipmentKind {
             "wallunit" | "wall" | "mural" | "murale" => Some(EquipmentKind::WallUnit),
             "ceilingunit" | "ceiling" | "plafonnier" => Some(EquipmentKind::CeilingUnit),
             "floorunit" | "floor" | "console" | "allege" => Some(EquipmentKind::FloorUnit),
+            "servercooler" | "crac" | "crah" | "climatisationsalleserveur" | "armoireserveur" => Some(EquipmentKind::ServerCooler),
+            "dehumidifier" | "deshumidificateur" | "deshumidificateurgainable" | "poolunit" => Some(EquipmentKind::Dehumidifier),
+            "dehumidifierwall" | "deshumidificateurmural" => Some(EquipmentKind::DehumidifierWall),
+            "wallrack" | "baiemurale" | "rackmural" => Some(EquipmentKind::WallRack),
+            "floorrack" | "baieausol" | "baiesol" | "rack" | "baie" => Some(EquipmentKind::FloorRack),
             _ => None,
         }
     }
@@ -96,6 +121,16 @@ impl EquipmentKind {
         matches!(self, EquipmentKind::Chiller | EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor)
     }
 
+    /// Whether duct connections can be given to the unit and ducts laid on its sides (the air goes across it).
+    pub fn takes_ducts(self) -> bool {
+        matches!(self, EquipmentKind::Ducted | EquipmentKind::Dehumidifier)
+    }
+
+    /// Whether it is a computer rack, which the Electricity tab offers (the others are in the HVAC tab).
+    pub fn is_rack(self) -> bool {
+        matches!(self, EquipmentKind::WallRack | EquipmentKind::FloorRack)
+    }
+
     /// The altitude of the underside a new equipment of the kind starts with, mm, which can be changed: a cassette 2.50 m, a wall unit and a ceiling unit
     /// 2.00 m, a ducted unit 2.70 m, a console on the floor; none for the units that stand outdoors.
     pub fn default_bottom_mm(self) -> Option<f64> {
@@ -103,7 +138,9 @@ impl EquipmentKind {
             EquipmentKind::Cassette => Some(2500.0),
             EquipmentKind::WallUnit | EquipmentKind::CeilingUnit => Some(2000.0),
             EquipmentKind::Ducted => Some(2700.0),
-            EquipmentKind::FloorUnit => Some(0.0),
+            EquipmentKind::FloorUnit | EquipmentKind::ServerCooler | EquipmentKind::Dehumidifier | EquipmentKind::FloorRack => Some(0.0),
+            EquipmentKind::DehumidifierWall => Some(1500.0),
+            EquipmentKind::WallRack => Some(1200.0),
             EquipmentKind::Chiller | EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor => None,
         }
     }
@@ -420,7 +457,7 @@ impl EquipmentParams {
                 pieces.push(line(Vec2::new(-0.5 * pl, -0.5 * pw), Vec2::new(0.5 * pl, 0.5 * pw)));
                 pieces.push(line(Vec2::new(-0.5 * pl, 0.5 * pw), Vec2::new(0.5 * pl, -0.5 * pw)));
             }
-            EquipmentKind::Ducted => {
+            EquipmentKind::Ducted | EquipmentKind::Dehumidifier => {
                 // The air goes across the unit, by its short dimension: it comes in by the back (+y) and goes out by the front (-y), as the arrow shows. The
                 // connections are on those two long sides, the ones given each as wide as its duct (less where its neighbours would touch); else a supply
                 // flange along the front and a wider return flange along the back.
@@ -436,6 +473,54 @@ impl EquipmentParams {
                 let wing = 0.2 * hw.min(hl);
                 let (from, to) = (Vec2::new(0.0, 0.5 * hw), Vec2::new(0.0, -0.5 * hw));
                 pieces.extend([line(from, to), line(to, to + Vec2::new(-0.6 * wing, wing)), line(to, to + Vec2::new(0.6 * wing, wing))]);
+                if self.kind == EquipmentKind::Dehumidifier {
+                    // The compressor, beside the air path.
+                    pieces.push(HvacPiece {
+                        layer: EQUIPMENT_LAYER,
+                        kind: EntityKind::Circle(Circle { center: v3(Vec2::new(0.6 * hl, 0.0)), radius: 0.22 * hw.min(hl) }),
+                    });
+                }
+            }
+            EquipmentKind::ServerCooler => {
+                // The grille along the front, and an arrow for each fan, the air going out by the front (-y).
+                for k in [0.55, 0.68, 0.81] {
+                    pieces.push(line(Vec2::new(-0.85 * hl, -hw * k), Vec2::new(0.85 * hl, -hw * k)));
+                }
+                let n = self.fans.clamp(1, 8) as f64;
+                let wing = 0.2 * hw.min(hl / n);
+                for i in 0..n as usize {
+                    let x = -hl + (i as f64 + 0.5) * 2.0 * hl / n;
+                    let (from, to) = (Vec2::new(x, 0.3 * hw), Vec2::new(x, -0.35 * hw));
+                    pieces.extend([line(from, to), line(to, to + Vec2::new(-0.6 * wing, wing)), line(to, to + Vec2::new(0.6 * wing, wing))]);
+                }
+            }
+            EquipmentKind::WallRack | EquipmentKind::FloorRack => {
+                // The 19 inch mounting rails, and the front door shown opened a quarter turn: its swing is the room to leave in front.
+                for sx in [-0.78, 0.78] {
+                    pieces.push(line(Vec2::new(sx * hl, -0.7 * hw), Vec2::new(sx * hl, 0.7 * hw)));
+                }
+                let (hinge, r) = (Vec2::new(-hl, -hw), 2.0 * hl);
+                let arc = (0..=8).map(|k| hinge + Vec2::from_angle(-(k as f64) / 8.0 * std::f64::consts::FRAC_PI_2) * r).collect();
+                pieces.push(polyline(EQUIPMENT_LAYER, arc, false));
+                pieces.push(line(hinge, hinge + Vec2::new(0.0, -r)));
+                if self.kind == EquipmentKind::FloorRack {
+                    // The fan unit and the cable entry on its roof.
+                    pieces.push(HvacPiece {
+                        layer: EQUIPMENT_LAYER,
+                        kind: EntityKind::Circle(Circle { center: v3(Vec2::new(0.0, 0.3 * hw)), radius: 0.25 * hl.min(hw) }),
+                    });
+                }
+            }
+            EquipmentKind::DehumidifierWall => {
+                // Against the wall (the back, +y): a plate, and the curved front of the casing.
+                pieces.push(line(Vec2::new(-0.9 * hl, 0.6 * hw), Vec2::new(0.9 * hl, 0.6 * hw)));
+                let front = (0..=12)
+                    .map(|k| {
+                        let x = -0.9 * hl + 1.8 * hl * k as f64 / 12.0;
+                        Vec2::new(x, -hw * (0.2 + 0.7 * (1.0 - (x / hl).powi(2))))
+                    })
+                    .collect();
+                pieces.push(polyline(EQUIPMENT_LAYER, front, false));
             }
             EquipmentKind::WallUnit | EquipmentKind::CeilingUnit | EquipmentKind::FloorUnit => {
                 // The air outlet: lines along the front, an arrow out of it; a ceiling unit also shows its fan.
@@ -485,7 +570,9 @@ impl EquipmentParams {
         let arrow = match self.kind {
             EquipmentKind::WallUnit | EquipmentKind::CeilingUnit | EquipmentKind::FloorUnit => 1.1 * hw.max(h),
             // The supply connections are on the front side: the text goes below them.
-            EquipmentKind::Ducted => self.collar_depth(),
+            EquipmentKind::Ducted | EquipmentKind::Dehumidifier => self.collar_depth(),
+            // The door of a rack swings out in front of it.
+            EquipmentKind::WallRack | EquipmentKind::FloorRack => 2.0 * hl,
             _ => 0.0,
         };
         pieces.push(HvacPiece {
@@ -733,6 +820,70 @@ pub fn standard_equipment_models() -> Vec<EquipmentModel> {
     }
     for kw in [2.5, 3.5, 5.0] {
         v.push(model(format!("Floor unit {kw} kW"), FloorUnit, kw, None, (750.0, 238.0, 600.0), 0));
+    }
+    v.extend(server_room_models());
+    v
+}
+
+/// A model of the new families: its power in kW (cooling for a cabinet, absorbed for a dehumidifier, dissipated for a rack), a text written beside it, a weight.
+fn described(mut m: EquipmentModel, connections: &str, weight_kg: Option<f64>) -> EquipmentModel {
+    m.connections = connections.into();
+    m.weight_kg = weight_kg;
+    m
+}
+
+/// Server room cooling cabinets, pool dehumidifiers and computer racks: typical sizes of the market, to be changed to the sizes of the unit chosen.
+fn server_room_models() -> Vec<EquipmentModel> {
+    use EquipmentKind::{DehumidifierWall, FloorRack, ServerCooler, WallRack};
+    let mut v = Vec::new();
+    // In a row between the racks (300 and 600 wide), then along a wall.
+    v.push(model("In-row cooler 10 kW".into(), ServerCooler, 10.0, None, (300.0, 1100.0, 2000.0), 2));
+    v.push(model("In-row cooler 30 kW".into(), ServerCooler, 30.0, None, (600.0, 1100.0, 2000.0), 3));
+    for (kw, l, fans) in
+        [(8.0, 750.0, 1), (14.0, 1000.0, 2), (25.0, 1400.0, 2), (35.0, 1750.0, 3), (45.0, 2000.0, 3), (65.0, 2600.0, 4), (80.0, 3000.0, 4)]
+    {
+        v.push(model(format!("Server room cooler {kw} kW"), ServerCooler, kw, None, (l, 890.0, 1980.0), fans));
+    }
+    // Pool dehumidifiers: small ones hung on the wall, a ducted one, then units that look like air handling units.
+    v.push(described(
+        model("Pool dehumidifier 40 (wall)".into(), DehumidifierWall, 0.65, None, (700.0, 320.0, 570.0), 0),
+        "400 m3/h - 40 l/24h",
+        None,
+    ));
+    v.push(described(
+        model("Pool dehumidifier 65 (wall)".into(), DehumidifierWall, 0.9, None, (900.0, 350.0, 650.0), 0),
+        "650 m3/h - 65 l/24h",
+        None,
+    ));
+    v.push(described(
+        model("Pool dehumidifier 75 (ducted)".into(), EquipmentKind::Dehumidifier, 1.2, None, (1100.0, 700.0, 400.0), 0),
+        "750 m3/h - 75 l/24h",
+        None,
+    ));
+    for (flow, kg_h, kw, l, w, h) in [
+        (3000, 6, 12.0, 2500.0, 1100.0, 1600.0),
+        (6000, 12, 24.0, 3500.0, 1200.0, 1700.0),
+        (10000, 20, 40.0, 4500.0, 1400.0, 1900.0),
+        (20000, 40, 80.0, 6000.0, 1600.0, 2200.0),
+    ] {
+        v.push(described(
+            model(format!("Pool dehumidifier unit {flow} m3/h"), EquipmentKind::Dehumidifier, kw, None, (l, w, h), 0),
+            &format!("{flow} m3/h - {kg_h} kg/h"),
+            None,
+        ));
+    }
+    // Racks: wall (6 to 18 U) and floor (24 to 47 U).
+    for (u, kw, d, h) in [(6, 0.3, 450.0, 370.0), (9, 0.5, 450.0, 500.0), (12, 0.7, 600.0, 635.0), (15, 0.9, 600.0, 770.0), (18, 1.0, 600.0, 900.0)] {
+        v.push(described(model(format!("Wall rack {u} U"), WallRack, kw, None, (600.0, d, h), 0), &format!("{u} U 19\""), None));
+    }
+    for (name, u, kw, w, d, h) in [
+        ("Floor rack 24 U", 24, 3.0, 600.0, 800.0, 1200.0),
+        ("Floor rack 32 U", 32, 4.0, 600.0, 1000.0, 1600.0),
+        ("Floor rack 42 U", 42, 6.0, 600.0, 1000.0, 2000.0),
+        ("Floor rack 42 U wide", 42, 8.0, 800.0, 1200.0, 2000.0),
+        ("Floor rack 47 U", 47, 8.0, 800.0, 1200.0, 2200.0),
+    ] {
+        v.push(described(model(name.into(), FloorRack, kw, None, (w, d, h), 0), &format!("{u} U 19\""), None));
     }
     v
 }

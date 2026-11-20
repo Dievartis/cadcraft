@@ -1593,7 +1593,7 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
     }
     // A ducted unit: the duct connections, each with its size, on the side the air comes in by (left) or goes out by (right). Typed as a list of sizes: one
     // for each connection ("315, 400x250" is two). A duct laid on a side gives the unit its connection by itself.
-    if items.iter().all(|e| e.kind == EquipmentKind::Ducted) {
+    if items.iter().all(|e| e.kind.takes_ducts()) {
         let size_text = |sizes: Vec<cadcraft_doc::RiserSize>| -> String {
             sizes.iter().map(|z| z.label().replace('Ø', "").replace('×', "x")).collect::<Vec<_>>().join(", ")
         };
@@ -1622,7 +1622,7 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
         }
     }
     // The connections of the other equipment: a text written beside it on the plan (a pipe size, say).
-    if items.iter().all(|e| e.kind != EquipmentKind::Ducted) {
+    if items.iter().all(|e| !e.kind.takes_ducts()) {
         prop_row(ui, "Connections (text on the plan)", |ui| {
             let c = shared(&items.iter().map(|e| e.connections.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
             if let Some(t) = edit_field(ui, ui.scope_id().with(("equip_conn", &ids)), c).filter(|t| t != VARIES) {

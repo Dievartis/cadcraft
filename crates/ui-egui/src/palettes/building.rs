@@ -236,7 +236,8 @@ fn equipment_rows(
     chosen: &mut Option<cadcraft_doc::EquipmentKind>,
     distribute: &mut Option<Spread>,
 ) {
-    for kind in cadcraft_doc::EquipmentKind::ALL {
+    // The racks are in the Electricity tab.
+    for kind in cadcraft_doc::EquipmentKind::ALL.into_iter().filter(|k| !k.is_rack()) {
         if row_button(ui, crate::i18n::t(equipment_kind_label(kind)), kind == current, |p, r| thumbs::paint_equipment(p, r, kind)) {
             *chosen = Some(kind);
         }
@@ -1013,7 +1014,9 @@ const PIPES: &[(&str, PipeService, PipeLeg)] = &[
 
 /// The label of an equipment kind in the Tool Sets and in Properties.
 pub(super) fn equipment_kind_label(k: cadcraft_doc::EquipmentKind) -> &'static str {
-    use cadcraft_doc::EquipmentKind::{Cassette, Chiller, Ducted, FloorUnit, SplitOutdoor, VrfOutdoor, WallUnit};
+    use cadcraft_doc::EquipmentKind::{
+        Cassette, Chiller, Dehumidifier, DehumidifierWall, Ducted, FloorRack, FloorUnit, ServerCooler, SplitOutdoor, VrfOutdoor, WallRack, WallUnit,
+    };
     match k {
         Chiller => "Chiller",
         VrfOutdoor => "VRV outdoor unit",
@@ -1023,6 +1026,11 @@ pub(super) fn equipment_kind_label(k: cadcraft_doc::EquipmentKind) -> &'static s
         WallUnit => "Wall unit",
         cadcraft_doc::EquipmentKind::CeilingUnit => "Ceiling unit",
         FloorUnit => "Floor unit",
+        ServerCooler => "Server room cooler",
+        Dehumidifier => "Pool dehumidifier (ducted)",
+        DehumidifierWall => "Pool dehumidifier (wall)",
+        WallRack => "Wall rack",
+        FloorRack => "Floor rack",
     }
 }
 
