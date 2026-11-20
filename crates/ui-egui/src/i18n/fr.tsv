@@ -3749,3 +3749,29 @@ echo	Walls are drawn as the style has them.	Les murs sont dessinés comme le sty
 	Edited by hand	Modifié à la main
 	Regenerate	Régénérer
 	Redraws these walls from their data: what was done to them by hand is lost.	Redessine ces murs d'après leurs données : ce qui a été fait à la main est perdu.
+	Save changes to {name}?	Enregistrer les modifications de {name} ?
+	Your changes will be lost if you don't save them.	Vos modifications seront perdues si vous ne les enregistrez pas.
+	Don't Save	Ne pas enregistrer
+	The attributes changed while this dialog was open. Review them and apply again.	Les attributs ont changé pendant que cette fenêtre était ouverte. Vérifiez-les et appliquez de nouveau.
+	Enhanced Attribute Editor	Éditeur d'attributs avancé
+	invisible	invisible
+	This drawing	Ce dessin
+	contains authoring elements. Open in Block Editor?	contient des éléments d'édition. Ouvrir dans l'éditeur de blocs ?
+	Type something to find	Tapez quelque chose à chercher
+	Save cancelled: {path} was not changed.	Enregistrement annulé : {path} n'a pas été modifié.
+	Saving {name} will remove content	L'enregistrement de {name} supprimera du contenu
+	This format can't keep these objects yet: {objects}.	Ce format ne sait pas encore garder ces objets : {objects}.
+	DXF 2010 and earlier keep them. Use Save As to keep them in the drawing.	Le DXF 2010 et les versions antérieures les gardent. Utilisez Enregistrer sous pour les garder dans le dessin.
+	DXF keeps them. Use Save As to keep them in the drawing.	Le DXF les garde. Utilisez Enregistrer sous pour les garder dans le dessin.
+	The current file is kept as {name} until the next save.	Le fichier actuel est gardé sous le nom {name} jusqu'au prochain enregistrement.
+	The current file doesn't look whole, so {name} stays as it is and the current file will be replaced.	Le fichier actuel ne semble pas complet : {name} reste tel quel et le fichier actuel sera remplacé.
+	Backup copies are off, so the current file will be replaced.	Les copies de sauvegarde sont désactivées : le fichier actuel sera remplacé.
+	Save Anyway	Enregistrer quand même
+	3D Mouse	Souris 3D
+	Enable 3D mouse navigation	Activer la navigation à la souris 3D
+	Pan sensitivity	Sensibilité du panoramique
+	Zoom sensitivity	Sensibilité du zoom
+	Reverse zoom direction	Inverser le sens du zoom
+	Calibrate	Calibrer
+	Move sideways to pan; push/pull or twist to zoom.	Déplacez de côté pour faire un panoramique ; poussez, tirez ou tournez pour zoomer.
+	Left device button: zoom extents. Right device button: calibrate.	Bouton gauche de l'appareil : zoom étendu. Bouton droit : calibrer.

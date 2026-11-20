@@ -877,7 +877,24 @@ impl crate::Drawing {
         let (EntityKind::Insert(i), Some(p)) = (&e.kind, wall_of(e)) else { return false };
         let unit = |s: f64| (s.abs() - 1.0).abs() <= 1e-9;
         let Some(b) = self.block(&i.block) else { return false };
-        unit(i.scale.x) && unit(i.scale.y) && i.cols <= 1 && i.rows <= 1 && p.matches(b.entities.iter().map(AsRef::as_ref))
+        if !(unit(i.scale.x) && unit(i.scale.y) && i.cols <= 1 && i.rows <= 1) {
+            return false;
+        }
+        // Drawing the wall again to compare it is what costs: done once for an object and its block (neither changes without being replaced).
+        let key = (std::sync::Arc::as_ptr(e) as usize, std::sync::Arc::as_ptr(b) as usize);
+        if let Some(known) = INTACT_CACHE.with(|c| c.try_borrow().ok().and_then(|c| c.get(&key).map(|(_, _, ok)| *ok))) {
+            return known;
+        }
+        let ok = p.matches(b.entities.iter().map(AsRef::as_ref));
+        INTACT_CACHE.with(|c| {
+            if let Ok(mut c) = c.try_borrow_mut() {
+                if c.len() >= WALL_CACHE_MAX {
+                    c.clear();
+                }
+                c.insert(key, (e.clone(), b.clone(), ok));
+            }
+        });
+        ok
     }
 
     /// A new anonymous block holding wall `p`'s geometry; returns its name.
@@ -925,11 +942,53 @@ fn w_unchanged(p: &WallParams, h: crate::Handle, d: &crate::Drawing) -> bool {
 }
 
 /// The wall an object is, when it is a block reference carrying usable wall data.
+///
+/// Reading a wall's data (parsing and checking it, which a wall with arcs makes slow) is asked again and again: by every cursor move while an opening is
+/// placed, for every wall. The result is kept for the data it was read from, the same data giving the same wall.
 pub fn wall_of(e: &crate::Entity) -> Option<WallParams> {
     match &e.kind {
-        EntityKind::Insert(_) => WallParams::from_xdata(&e.common.xdata),
+        EntityKind::Insert(_) => cached_wall(&e.common.xdata),
         _ => None,
     }
+}
+
+/// Most walls (distinct data) kept by [`wall_of`]; the cache is emptied when it is full.
+const WALL_CACHE_MAX: usize = 4_096;
+
+type WallCache = std::collections::HashMap<u64, (Vec<RawTag>, Option<WallParams>)>;
+
+thread_local! {
+    static WALL_CACHE: std::cell::RefCell<WallCache> = std::cell::RefCell::new(WallCache::new());
+    /// What [`Drawing::wall_is_intact`] found for an object and its block, both held so that neither can be freed and its address given to another.
+    static INTACT_CACHE: std::cell::RefCell<std::collections::HashMap<(usize, usize), (std::sync::Arc<crate::Entity>, std::sync::Arc<crate::Block>, bool)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+fn cached_wall(xdata: &[RawTag]) -> Option<WallParams> {
+    use std::hash::{Hash, Hasher};
+    // Only data that says it is a wall's is looked up: the others (every other block reference) are left at once.
+    if !xdata.iter().any(|t| t.code == 1001 && t.value.trim().eq_ignore_ascii_case(WALL_APP)) {
+        return None;
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for t in xdata {
+        (t.code, &t.value).hash(&mut h);
+    }
+    let key = h.finish();
+    let hit = WALL_CACHE.with(|c| c.try_borrow().ok().and_then(|c| c.get(&key).filter(|(tags, _)| tags.as_slice() == xdata).map(|(_, w)| w.clone())));
+    if let Some(w) = hit {
+        return w;
+    }
+    let w = WallParams::from_xdata(xdata);
+    WALL_CACHE.with(|c| {
+        if let Ok(mut c) = c.try_borrow_mut() {
+            if c.len() >= WALL_CACHE_MAX {
+                c.clear();
+            }
+            c.insert(key, (xdata.to_vec(), w.clone()));
+        }
+    });
+    w
 }
 
 /// `xdata` without a wall's application data.
