@@ -41,11 +41,54 @@ fn interactive_vertexedit_keeps_the_original_selection() {
     let h = handle(&s.execute("line", &json!({"points":[[0,0],[10,0]]})).unwrap());
     s.set_selection(vec![h]);
     s.cmdline("vertexedit").unwrap();
-    for p in [Vec2::new(9.0, -1.0), Vec2::new(11.0, 1.0), Vec2::ZERO, Vec2::new(2.0, 0.0)] {
+    for p in [Vec2::new(9.0, -1.0), Vec2::new(11.0, 1.0)] {
         s.input(Input::Point(p)).unwrap();
     }
+    s.input(Input::Enter).unwrap();
+    s.input(Input::Point(Vec2::ZERO)).unwrap();
+    s.input(Input::Point(Vec2::new(2.0, 0.0))).unwrap();
     let EntityKind::Line(line) = &s.doc().unwrap().entity(h).unwrap().kind else { panic!() };
     assert_eq!((line.a.x, line.b.x), (0.0, 12.0));
+}
+
+#[test]
+fn vertexedit_toggle_adds_and_removes_before_confirming() {
+    use cadcraft_engine::{Input, geom::Vec2};
+    let mut s = Session::new();
+    let h = handle(&s.execute("line", &json!({"points":[[0,0],[10,0]]})).unwrap());
+    s.set_selection(vec![h]);
+    s.cmdline("vertexedit").unwrap();
+    assert_eq!(s.running.as_ref().unwrap().machine.vertex_markers(&s).len(), 2);
+    for p in [Vec2::new(-1.0, -1.0), Vec2::new(1.0, 1.0)] {
+        s.input(Input::Point(p)).unwrap();
+    }
+    for p in [Vec2::new(10.0, 0.0), Vec2::ZERO] {
+        s.input(Input::Keyword("Toggle".into())).unwrap();
+        s.input(Input::Point(p)).unwrap();
+    }
+    let markers = s.running.as_ref().unwrap().machine.vertex_markers(&s);
+    assert_eq!(markers, vec![(Vec2::ZERO, false), (Vec2::new(10.0, 0.0), true)]);
+    s.input(Input::Enter).unwrap();
+    s.input(Input::Point(Vec2::ZERO)).unwrap();
+    s.input(Input::Point(Vec2::new(2.0, 0.0))).unwrap();
+    let EntityKind::Line(line) = &s.doc().unwrap().entity(h).unwrap().kind else { panic!() };
+    assert_eq!((line.a.x, line.b.x), (0.0, 12.0));
+}
+
+#[test]
+fn vertexedit_windows_accumulate_and_escape_preserves_geometry() {
+    use cadcraft_engine::{Input, geom::Vec2};
+    let mut s = Session::new();
+    let h = handle(&s.execute("line", &json!({"points":[[0,0],[10,0]]})).unwrap());
+    s.set_selection(vec![h]);
+    s.cmdline("vertexedit").unwrap();
+    for (x, y) in [(-1.0, -1.0), (1.0, 1.0), (9.0, -1.0), (11.0, 1.0)] {
+        s.input(Input::Point(Vec2::new(x, y))).unwrap();
+    }
+    assert!(s.running.as_ref().unwrap().machine.vertex_markers(&s).iter().all(|(_, selected)| *selected));
+    s.input(Input::Cancel).unwrap();
+    let EntityKind::Line(line) = &s.doc().unwrap().entity(h).unwrap().kind else { panic!() };
+    assert_eq!((line.a.x, line.b.x), (0.0, 10.0));
 }
 
 #[test]

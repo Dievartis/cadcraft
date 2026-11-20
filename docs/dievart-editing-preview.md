@@ -5,13 +5,15 @@ Development follow-up to Dievart preview 0.4. No release binary is published by 
 ## 1. Selected vertex editing
 
 Select lines or polylines, then Modify > Edit Selected Vertices (`VERTEXEDIT`).
-Click two opposite corners of the vertex window, then a displacement base point and
-destination. Only nodes of the original selection inside that window move. The
+All eligible nodes are shown as square handles. Click two opposite corners of the
+vertex window; selected nodes use the hot-grip color. Shift-click toggles individual
+nodes, and additional two-click windows add more nodes. Press Enter to confirm,
+then pick a displacement base point and destination. Only the chosen nodes move. The
 rectangle is previewed between the first and second click. Escape cancels without
 changing geometry; the final operation is undoable.
 
-This first implementation uses a two-click rectangle, not press-and-drag or
-multi-window node selection. It supports LINE, LWPOLYLINE and POLYLINE3D. It does
+This implementation uses additive two-click rectangles rather than press-and-drag.
+It supports LINE, LWPOLYLINE and POLYLINE3D. It does
 not replace STRETCH or import upstream PRs #999 and #2783; those remain separate
 fix candidates. The restricted node-edit workflow was requested by the fork owner.
 

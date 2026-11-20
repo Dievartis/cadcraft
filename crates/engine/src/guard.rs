@@ -44,6 +44,15 @@ impl Guarded {
 }
 
 impl Interactive for Guarded {
+    fn vertex_markers(&self, s: &Session) -> Vec<(Vec2, bool)> {
+        if self.broken.get().is_some() {
+            return Vec::new();
+        }
+        catch_unwind(AssertUnwindSafe(|| self.inner.vertex_markers(s))).unwrap_or_else(|_| {
+            self.broken.set(Some("panic in vertex markers"));
+            Vec::new()
+        })
+    }
     fn name(&self) -> &'static str {
         self.inner.name()
     }

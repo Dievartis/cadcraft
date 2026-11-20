@@ -260,6 +260,10 @@ pub enum Step {
 
 /// A prompt-driven command.
 pub trait Interactive: Send {
+    /// Command-specific vertex handles: world position and selected state.
+    fn vertex_markers(&self, _s: &Session) -> Vec<(Vec2, bool)> {
+        Vec::new()
+    }
     fn name(&self) -> &'static str;
     fn prompt(&self, s: &Session) -> Prompt;
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step>;

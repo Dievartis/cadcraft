@@ -903,9 +903,13 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
                 app.cmd.buffer.clear();
             }
             // Preserve a snap's viewport origin for DIST, and its deferred curve where needed.
-            let result = match app.canvas.snap {
-                Some(hit) => app.session.input_snapped(hit),
-                None => app.session.input(Input::Point(p)),
+            let result = if mods.shift && app.session.running.as_ref().is_some_and(|r| r.id == "vertexedit") {
+                app.session.input(Input::Keyword("Toggle".into())).and_then(|_| app.session.input(Input::Point(raw_world.unwrap_or(p))))
+            } else {
+                match app.canvas.snap {
+                    Some(hit) => app.session.input_snapped(hit),
+                    None => app.session.input(Input::Point(p)),
+                }
             };
             if let Err(e) = result {
                 app.session.echo(e.to_string());
@@ -1087,6 +1091,17 @@ fn paint_canvas(frame: CanvasPaint<'_>) {
         };
         let p = painter.with_clip_rect(clip);
         crate::parametric::draw_overlay(app, ui, &p, &xf);
+    }
+    // Command-specific node handles stay visible while normal selection grips are hidden.
+    if let Some(running) = &app.session.running {
+        for (point, selected) in running.machine.vertex_markers(&app.session) {
+            let screen = xf.to_screen(point);
+            if rect.contains(screen) {
+                let handle = Rect::from_center_size(screen, vec2(8.0, 8.0));
+                painter.rect_filled(handle, 0.0, if selected { t.grip_hot } else { t.grip });
+                painter.rect_stroke(handle, 0.0, Stroke::new(1.0, t.text), egui::StrokeKind::Middle);
+            }
+        }
     }
     // Grips on selected objects (when idle or editing grips).
     let grip_edit = app.session.running.as_ref().is_some_and(|r| r.id == "grip");
