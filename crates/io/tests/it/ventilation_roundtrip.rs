@@ -329,3 +329,21 @@ fn control_devices_survive_dxf_and_dwg_and_their_application_is_registered() {
     let text = String::from_utf8(cadcraft_io::write(&d, "ctrl.dxf").expect("dxf")).expect("utf-8");
     assert!(text.contains(&format!("AcDbRegAppTableRecord\r\n  2\r\n{CONTROL_APP}")), "APPID record");
 }
+
+#[test]
+fn the_pages_of_pdfs_attached_on_the_web_are_kept_in_dxf_and_dwg_and_the_pixels_of_files_are_not() {
+    let (w, h) = (6u32, 4u32);
+    let pixels = |k: u8| -> Vec<u8> { (0..w * h).flat_map(|i| [(i as u8).wrapping_mul(k), k, 255 - k, 255]).collect() };
+    let page = cadcraft_doc::Raster::new(w, h, pixels(9)).expect("a raster");
+    let file = cadcraft_doc::Raster::new(w, h, pixels(3)).expect("a raster");
+    let mut d = Drawing::new_metric();
+    d.rasters.insert("pdf-underlay:plan.pdf:1:1", std::sync::Arc::new(page.clone()));
+    d.rasters.insert("C:/images/photo.png", std::sync::Arc::new(file));
+    for name in ["pages.dxf", "pages.dwg"] {
+        let bytes = cadcraft_io::write(&d, name).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let back = cadcraft_io::read(&bytes, name).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let kept = back.rasters.get("pdf-underlay:plan.pdf:1:1").unwrap_or_else(|| panic!("{name}: the page is kept"));
+        assert_eq!((kept.width(), kept.height(), kept.rgba()), (w, h, page.rgba()), "{name}");
+        assert!(back.rasters.get("C:/images/photo.png").is_none(), "{name}: a file's pixels come from the file");
+    }
+}

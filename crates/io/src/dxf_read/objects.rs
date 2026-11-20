@@ -276,6 +276,12 @@ impl Objects {
         if let Some(models) = self.xrecord_text(crate::dxf_ext::AIR_TERMINAL_MODELS_KEY).and_then(|t| crate::dxf_ext::parse_air_terminal_models(&t)) {
             d.air_terminal_models = models;
         }
+        // The pages of the PDFs attached on the web, which have no file to be read again from.
+        if let Some(pages) = self.xrecord_text(crate::dxf_ext::RASTERS_KEY).and_then(|t| crate::dxf_ext::parse_rasters(&t)) {
+            for (path, raster) in pages {
+                d.rasters.insert(&path, std::sync::Arc::new(raster));
+            }
+        }
         // The drawing's cable types.
         if let Some(types) = self.xrecord_text(crate::dxf_ext::CABLE_TYPES_KEY).and_then(|t| crate::dxf_ext::parse_cable_types(&t)) {
             d.cable_types = types;

@@ -844,6 +844,7 @@ name = "cadcraft-io"
 version = "0.21.0"
 dependencies = [
  "acadrust",
+ "base64 0.22.1",
  "cadcraft-color",
  "cadcraft-doc",
  "cadcraft-fonts",

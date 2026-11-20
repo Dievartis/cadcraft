@@ -45,6 +45,73 @@ pub(crate) const MAX_WALL_STYLES: usize = 10_000;
 pub(crate) const AIR_TERMINAL_MODELS_KEY: &str = "CADCRAFT_AIRTERMINALMODELS";
 /// Most air terminal models read from a file.
 pub(crate) const MAX_AIR_TERMINAL_MODELS: usize = 10_000;
+/// Named-object-dictionary key of the XRECORD that keeps the pages of PDFs attached in a browser.
+pub(crate) const RASTERS_KEY: &str = "CADCRAFT_RASTERS";
+/// The paths of the rasters made in memory from a PDF page attached without a file (the web): the only ones the drawing has to keep, since the
+/// others are read again from their files.
+pub(crate) const PDF_PAGE_PREFIX: &str = "pdf-underlay:";
+/// Most pages kept, and most base64 text for all of them (a page is at most 4096 pixels wide).
+const MAX_KEPT_PAGES: usize = 64;
+const MAX_KEPT_TEXT: usize = 40 << 20;
+
+#[derive(Serialize, Deserialize)]
+struct KeptPage {
+    path: String,
+    /// The page as a PNG file, in base64.
+    png: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RastersPayload {
+    version: u32,
+    #[serde(default)]
+    pages: Vec<KeptPage>,
+}
+
+/// JSON chunks for the pages of PDFs attached without a file, or `None` when the drawing has none.
+pub(crate) fn raster_chunks(rasters: &cadcraft_doc::Rasters) -> Option<Vec<String>> {
+    use base64::Engine as _;
+    let mut pages = Vec::new();
+    let mut total = 0usize;
+    for (path, raster) in rasters.iter().filter(|(p, _)| p.starts_with(PDF_PAGE_PREFIX)).take(MAX_KEPT_PAGES) {
+        let Ok(png) = crate::raster::encode_png(raster) else { continue };
+        let png = base64::engine::general_purpose::STANDARD.encode(png);
+        total = total.saturating_add(png.len());
+        if total > MAX_KEPT_TEXT {
+            break;
+        }
+        pages.push(KeptPage { path: path.to_string(), png });
+    }
+    if pages.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&RastersPayload { version: 1, pages }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// The pages kept in the rasters XRECORD text; `None` when it is not a payload we understand. A page that does not decode is left out.
+pub(crate) fn parse_rasters(text: &str) -> Option<Vec<(String, cadcraft_doc::Raster)>> {
+    use base64::Engine as _;
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: RastersPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 {
+        return None;
+    }
+    let mut out = Vec::new();
+    for page in p.pages.into_iter().take(MAX_KEPT_PAGES) {
+        if !page.path.starts_with(PDF_PAGE_PREFIX) {
+            continue;
+        }
+        let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(page.png.as_bytes()) else { continue };
+        if let Ok(raster) = crate::raster::decode(&bytes) {
+            out.push((page.path, raster));
+        }
+    }
+    Some(out)
+}
+
 /// Named-object-dictionary key of the drawing's cable types XRECORD.
 pub(crate) const CABLE_TYPES_KEY: &str = "CADCRAFT_CABLETYPES";
 /// Named-object-dictionary key of the drawing's pipework part models XRECORD.

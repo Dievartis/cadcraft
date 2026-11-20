@@ -1008,6 +1008,9 @@ pub(super) fn tags_for(d: &Drawing, version: Version, target: Version, frozen_34
     if let Some(chunks) = dxf_ext::air_terminal_model_chunks(&d.air_terminal_models) {
         xrecords.push((dxf_ext::AIR_TERMINAL_MODELS_KEY, w.h(), chunks));
     }
+    if let Some(chunks) = dxf_ext::raster_chunks(&d.rasters) {
+        xrecords.push((dxf_ext::RASTERS_KEY, w.h(), chunks));
+    }
     if let Some(chunks) = dxf_ext::cable_type_chunks(&d.cable_types) {
         xrecords.push((dxf_ext::CABLE_TYPES_KEY, w.h(), chunks));
     }
