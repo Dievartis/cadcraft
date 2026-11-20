@@ -177,14 +177,20 @@ enum Ask {
 struct FurnitureAddM {
     last: FurnitureLastUsed,
     ask: Ask,
+    /// The point of the piece the cursor holds (Tab goes round them).
+    anchor: super::Anchor,
 }
 
 impl FurnitureAddM {
     fn new(s: &Session) -> Self {
-        FurnitureAddM { last: s.last_used.furniture.clone(), ask: Ask::Place }
+        FurnitureAddM { last: s.last_used.furniture.clone(), ask: Ask::Place, anchor: super::Anchor::BACK }
     }
     fn settings(&self, s: &mut Session) {
         s.echo(format!("Current settings: Type = {}, Rotation = {}", self.last.model, self.last.rotation_deg));
+    }
+    /// Where the piece's origin is when the cursor holds its anchor at `at`.
+    fn origin(&self, f: &FurnitureParams, at: Vec2, rotation: f64) -> Vec2 {
+        self.anchor.origin_for(at, f.units, f.width_mm, f.depth_mm, true, rotation)
     }
     fn params(&self, s: &Session) -> Result<FurnitureParams> {
         let model = parse_furniture_model(&self.last.model).ok_or_else(|| other("The furniture catalogue is empty."))?;
@@ -199,6 +205,12 @@ impl Interactive for FurnitureAddM {
     fn begin(&mut self, s: &mut Session) -> Result<Step> {
         self.settings(s);
         Ok(Step::Continue)
+    }
+    fn cycle_alignment(&mut self, _s: &mut Session) -> Option<String> {
+        matches!(self.ask, Ask::Place | Ask::Aim(_)).then(|| {
+            self.anchor = self.anchor.next();
+            format!("Insertion point = {}", self.anchor.name())
+        })
     }
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.ask {
@@ -239,7 +251,8 @@ impl Interactive for FurnitureAddM {
                     self.last.rotation_deg = a;
                 }
                 let f = self.params(s)?;
-                match put(s, &f, at, self.last.rotation_deg.to_radians()) {
+                let turn = self.last.rotation_deg.to_radians();
+                match put(s, &f, self.origin(&f, at, turn), turn) {
                     Ok(_) => s.last_used.furniture = self.last.clone(),
                     Err(e) => s.echo(e.to_string()),
                 }
@@ -258,6 +271,7 @@ impl Interactive for FurnitureAddM {
             Ask::Aim(at) => (at, self.last.rotation_deg),
             _ => (c, self.last.rotation_deg),
         };
-        f.generate().map(|pieces| cadcraft_doc::preview_entities(pieces, at, deg.to_radians())).unwrap_or_default()
+        let origin = self.origin(&f, at, deg.to_radians());
+        f.generate().map(|pieces| cadcraft_doc::preview_entities(pieces, origin, deg.to_radians())).unwrap_or_default()
     }
 }

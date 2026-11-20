@@ -331,6 +331,62 @@ pub(crate) fn reject_unknown_params(cmd: &str, p: &Value, allowed: &[&str]) -> R
 pub(crate) fn f64_or(p: &Value, key: &str, default: f64) -> f64 {
     p.get(key).and_then(Value::as_f64).filter(|v| v.is_finite()).unwrap_or(default)
 }
+/// Which point of a piece being placed is the one the cursor holds: nine places (a corner, the middle of a side, the centre), which Tab goes round.
+/// `x` is -1 left, 0 middle, 1 right of the piece as drawn at no turn; `y` is 1 at its back, 0 in the middle, -1 at its front.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Anchor {
+    pub x: i8,
+    pub y: i8,
+}
+
+impl Anchor {
+    /// The back middle: where a piece with its origin on the back wall is held, and the centre for a piece with its origin in the middle.
+    pub const BACK: Anchor = Anchor { x: 0, y: 1 };
+    pub const CENTRE: Anchor = Anchor { x: 0, y: 0 };
+
+    /// The anchors in the order Tab goes round: the back row from the left, then the middle, then the front.
+    const ORDER: [Anchor; 9] = [
+        Anchor { x: -1, y: 1 },
+        Anchor { x: 0, y: 1 },
+        Anchor { x: 1, y: 1 },
+        Anchor { x: -1, y: 0 },
+        Anchor { x: 0, y: 0 },
+        Anchor { x: 1, y: 0 },
+        Anchor { x: -1, y: -1 },
+        Anchor { x: 0, y: -1 },
+        Anchor { x: 1, y: -1 },
+    ];
+
+    pub fn next(self) -> Anchor {
+        let i = Self::ORDER.iter().position(|a| *a == self).unwrap_or(0);
+        Self::ORDER.get((i + 1) % Self::ORDER.len()).copied().unwrap_or(self)
+    }
+
+    /// The words that say where it is, for the command line.
+    pub fn name(self) -> &'static str {
+        match (self.y, self.x) {
+            (1, -1) => "back left",
+            (1, 0) => "back middle",
+            (1, 1) => "back right",
+            (0, -1) => "middle left",
+            (0, 0) => "centre",
+            (0, 1) => "middle right",
+            (-1, -1) => "front left",
+            (-1, 0) => "front middle",
+            _ => "front right",
+        }
+    }
+
+    /// Where the piece is put when the cursor is at `at`: its origin moved so that this point of the piece is on the cursor. The piece is `width_mm` along
+    /// x and `depth_mm` along y; `from_back` is true when its origin is the middle of its back (it goes toward -y), false when it is its centre.
+    pub fn origin_for(self, at: Vec2, units: cadcraft_doc::HvacUnits, width_mm: f64, depth_mm: f64, from_back: bool, rotation: f64) -> Vec2 {
+        let (half_w, depth) = (units.to_units(width_mm) / 2.0, units.to_units(depth_mm));
+        let cy = if from_back { -depth / 2.0 } else { 0.0 };
+        let held = Vec2::new(f64::from(self.x) * half_w, cy + f64::from(self.y) * depth / 2.0);
+        at - held.rotate(rotation)
+    }
+}
+
 /// The turn in degrees that a piece being placed at `at` is given by `i`: the direction of a second click, or a typed angle; `None` for Enter (the piece keeps its turn).
 pub(crate) fn aimed_degrees(i: &crate::Input, at: Vec2) -> Result<Option<f64>> {
     use crate::Input;

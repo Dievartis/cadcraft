@@ -395,7 +395,11 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
         match ev {
             egui::Event::Text(t) => {
                 if t == "\t" {
-                    tab(app);
+                    // Tab changes the justification or the insertion point of what is being placed; Shift+Tab (and Tab where there is nothing to change) go round the snaps.
+                    let shift = ctx.input(|i| i.modifiers.shift);
+                    if shift || !app.cmd.buffer.is_empty() || !app.session.cycle_alignment() {
+                        tab(app);
+                    }
                 } else if t == " " && !text_prompt {
                     submit(app);
                 } else {

@@ -428,6 +428,18 @@ impl Interactive for WallAddM {
         self.settings(s);
         Ok(Step::Continue)
     }
+    fn cycle_alignment(&mut self, s: &mut Session) -> Option<String> {
+        if self.ask != Ask::Point {
+            return None;
+        }
+        self.justification = match self.justification {
+            WallJustification::Left => WallJustification::Center,
+            WallJustification::Center => WallJustification::Right,
+            WallJustification::Right => WallJustification::Left,
+        };
+        s.last_used.wall_justification = self.justification;
+        Some(format!("Justification = {}", self.justification.name()))
+    }
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.ask {
             Ask::Style => return Prompt::new("Enter wall style name or [?]", Accept::TEXT).default(self.style.name.clone()),

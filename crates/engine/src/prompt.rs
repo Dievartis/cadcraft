@@ -357,6 +357,11 @@ pub trait Interactive: Send {
     fn input_with_shift(&mut self, s: &mut Session, input: Input, _shift: bool) -> Result<Step> {
         self.input(s, input)
     }
+    /// Tab while a point is asked: changes which side of what is being placed follows the cursor (a wall's justification, the point of a piece that
+    /// is the one clicked). Returns what is now chosen, or `None` when the command has no such choice (Tab then keeps its other uses).
+    fn cycle_alignment(&mut self, _s: &mut Session) -> Option<String> {
+        None
+    }
     /// Called once when the command starts (may finish at once, e.g. with a pickfirst selection).
     fn begin(&mut self, _s: &mut Session) -> Result<Step> {
         Ok(Step::Continue)

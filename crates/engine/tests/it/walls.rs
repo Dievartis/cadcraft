@@ -1159,3 +1159,39 @@ fn a_wall_has_a_grip_at_each_vertex_and_one_in_the_middle_of_each_segment_and_th
     s.execute("grip.move", &json!({"handle": a.hex(), "index": 1, "to": [0, 0]})).ok();
     assert_eq!(grips(&s, a), before);
 }
+
+#[test]
+fn tab_changes_the_justification_of_the_walls_being_drawn_and_the_point_of_a_piece_being_put() {
+    let mut s = metric();
+    // The walls drawn after Tab take the next justification; the first keeps its own.
+    s.cmdline("walladd").unwrap();
+    s.cmdline("0,0").unwrap();
+    s.cmdline("3000,0").unwrap();
+    assert!(s.cycle_alignment());
+    s.cmdline("3000,3000").unwrap();
+    assert!(s.cycle_alignment());
+    s.cmdline("0,3000").unwrap();
+    s.cmdline("").unwrap();
+    let js: Vec<_> = walls(&s).iter().map(|(_, w)| w.justification).take(3).collect();
+    assert_eq!(js, [WallJustification::Left, WallJustification::Center, WallJustification::Right]);
+    // A command with nothing to change does not take it.
+    s.cmdline("line").unwrap();
+    assert!(!s.cycle_alignment());
+    s.cmdline("").unwrap();
+    assert!(!s.cycle_alignment(), "nothing runs");
+    // A piece of furniture: the point clicked is its back middle, and Tab moves it to the next place; at no turn the piece goes toward -y.
+    s.cmdline("furnitureadd").unwrap();
+    assert!(s.cycle_alignment());
+    s.cmdline("10000,0").unwrap();
+    s.cmdline("").unwrap();
+    s.cmdline("").unwrap();
+    let d = s.doc().unwrap();
+    let at = d
+        .model
+        .iter()
+        .find_map(|e| if let EntityKind::Insert(i) = &e.kind { cadcraft_doc::furniture_of(e).map(|_| (i.insert.x, i.insert.y)) } else { None })
+        .unwrap();
+    let f = d.model.iter().find_map(|e| cadcraft_doc::furniture_of(e)).unwrap();
+    // The first Tab from the back middle is the back right: the cursor holds the right end of the back, so the origin is half a width to the left.
+    assert!((at.0 - (10000.0 - f.width_mm / 2.0)).abs() < 1e-6 && at.1.abs() < 1e-6, "{at:?}");
+}

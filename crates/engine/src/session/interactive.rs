@@ -159,6 +159,20 @@ impl Session {
         result
     }
 
+    /// Tab with a command running: the next justification or insertion point of what it places, echoed; `false` when it has none.
+    pub fn cycle_alignment(&mut self) -> bool {
+        let Some(mut run) = self.running.take() else { return false };
+        let chosen = run.machine.cycle_alignment(self);
+        self.running = Some(run);
+        match chosen {
+            Some(text) => {
+                self.echo(text);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Give an input to the running command. With no command running, `Enter` repeats the last
     /// command (as in AutoCAD) and points do nothing. A LISP routine waiting in a `get…`
     /// function takes the input instead; one paused in `command` carries on after it.

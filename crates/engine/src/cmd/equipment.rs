@@ -385,11 +385,13 @@ struct EquipAddM {
     ask: Ask,
     /// The turn of the last unit put, in degrees: Enter at the direction prompt keeps it.
     rotation_deg: f64,
+    /// The point of the unit the cursor holds (Tab goes round them).
+    anchor: super::Anchor,
 }
 
 impl EquipAddM {
     fn new(s: &Session) -> Self {
-        EquipAddM { last: s.last_used.equipment.clone(), name: None, ask: Ask::Location, rotation_deg: 0.0 }
+        EquipAddM { last: s.last_used.equipment.clone(), name: None, ask: Ask::Location, rotation_deg: 0.0, anchor: super::Anchor::CENTRE }
     }
     fn params(&self, s: &Session) -> Result<EquipmentParams> {
         let mut p = json!({ "kind": self.last.kind.name() });
@@ -400,6 +402,10 @@ impl EquipAddM {
             p["name"] = json!(n);
         }
         params_from(s, &p, "equipmentadd", &self.last)
+    }
+    /// Where the unit's origin (its centre) is when the cursor holds its anchor at `at`.
+    fn origin(&self, e: &EquipmentParams, at: Vec2, rotation: f64) -> Vec2 {
+        self.anchor.origin_for(at, e.units, e.length_mm, e.width_mm, false, rotation)
     }
     fn settings(&self, s: &mut Session) {
         match self.params(s) {
@@ -488,6 +494,12 @@ impl Interactive for EquipAddM {
         self.settings(s);
         Ok(Step::Continue)
     }
+    fn cycle_alignment(&mut self, _s: &mut Session) -> Option<String> {
+        matches!(self.ask, Ask::Location | Ask::Aim(_)).then(|| {
+            self.anchor = self.anchor.next();
+            format!("Insertion point = {}", self.anchor.name())
+        })
+    }
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.ask {
             Ask::Type => Prompt::new("Enter equipment type", super::curves::KW)
@@ -511,7 +523,8 @@ impl Interactive for EquipAddM {
                 self.rotation_deg = a;
             }
             let e = self.params(s)?;
-            place(s, &e, at, self.rotation_deg.to_radians())?;
+            let turn = self.rotation_deg.to_radians();
+            place(s, &e, self.origin(&e, at, turn), turn)?;
             self.name = None;
             self.ask = Ask::Location;
             return Ok(Step::Continue);
@@ -546,6 +559,6 @@ impl Interactive for EquipAddM {
             Ask::Aim(at) => (at, self.rotation_deg),
             _ => return Vec::new(),
         };
-        self.params(s).map(|e| e.preview(at, deg.to_radians())).unwrap_or_default()
+        self.params(s).map(|e| e.preview(self.origin(&e, at, deg.to_radians()), deg.to_radians())).unwrap_or_default()
     }
 }
