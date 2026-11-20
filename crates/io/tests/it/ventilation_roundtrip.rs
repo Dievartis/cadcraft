@@ -347,3 +347,17 @@ fn the_pages_of_pdfs_attached_on_the_web_are_kept_in_dxf_and_dwg_and_the_pixels_
         assert!(back.rasters.get("C:/images/photo.png").is_none(), "{name}: a file's pixels come from the file");
     }
 }
+
+#[test]
+fn the_colours_of_pipes_and_ducts_survive_dxf_and_dwg() {
+    let mut d = Drawing::new_metric();
+    d.set_colour_convention(cadcraft_doc::ColourConvention::NfX08100).expect("a convention");
+    for name in ["conv.dxf", "conv.dwg"] {
+        let bytes = cadcraft_io::write(&d, name).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let back = cadcraft_io::read(&bytes, name).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(back.colour_convention, cadcraft_doc::ColourConvention::NfX08100, "{name}");
+    }
+    // The plan's own is not written, and is what a drawing without it has.
+    let plain = cadcraft_io::read(&cadcraft_io::write(&Drawing::new_metric(), "p.dxf").unwrap(), "p.dxf").unwrap();
+    assert_eq!(plain.colour_convention, cadcraft_doc::ColourConvention::Plan);
+}

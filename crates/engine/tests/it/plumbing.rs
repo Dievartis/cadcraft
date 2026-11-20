@@ -117,3 +117,56 @@ fn the_branches_a_command_draws_are_not_collectors_for_the_fixtures_after_them()
         assert!((a.x - b.x).abs() < 1e-6 && b.y.abs() < 1e-6, "{a:?} {b:?}");
     }
 }
+
+/// The colour of layer `name` in the drawing, as a plain triple.
+fn layer_rgb(s: &Session, name: &str) -> Option<(u8, u8, u8)> {
+    match s.doc().unwrap().layer(name)?.color {
+        cadcraft_color::Color::True(c) => Some((c.0, c.1, c.2)),
+        _ => None,
+    }
+}
+
+/// The layers of the lines a pipe's block holds, and the colours those lines carry of their own.
+fn block_colours(s: &Session, h: Handle) -> Vec<String> {
+    let d = s.doc().unwrap();
+    let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { return Vec::new() };
+    d.block(&i.block)
+        .unwrap()
+        .entities
+        .iter()
+        .filter(|e| matches!(e.kind, EntityKind::Line(_)))
+        .map(|e| format!("{}|{:?}", e.common.layer, e.common.color))
+        .collect()
+}
+
+#[test]
+fn the_colours_of_nf_x_08_100_can_be_chosen_for_the_pipes_and_ducts_and_the_plans_own_come_back() {
+    let bands = |s: &Session, h: &Value| block_colours(s, hd(h)).join(" ");
+    let mut s = metric();
+    let chw = s.execute("pipeadd", &json!({"points": [[0, 0], [3000, 0]], "service": "chilledWater", "dn": 50})).unwrap();
+    let hw = s.execute("pipeadd", &json!({"points": [[0, 500], [3000, 500]], "service": "hotWater", "dn": 50})).unwrap();
+    s.execute("ductadd", &json!({"points": [[0, 2000], [3000, 2000]], "diameter": 200, "air": "extract"})).unwrap();
+    let plan_hw = layer_rgb(&s, "M-PIPE-HWS");
+    assert_eq!(s.execute("colourconvention", &json!({})).unwrap()["convention"], "plan");
+    assert!(
+        block_colours(&s, hd(&chw["handles"][0])).iter().any(|c| c.ends_with("Index(7))") || c.contains("Index(7)")),
+        "the plan's white band for chilled water"
+    );
+    // NF X 08-100: water is yellow-green, the extract air brown, the chilled water has the violet band of the cold, the hot water the orange-grey one.
+    let r = s.execute("colourconvention", &json!({"convention": "nfx08100"})).unwrap();
+    assert_eq!((r["convention"].as_str(), r["pipes"].as_u64()), (Some("nfx08100"), Some(2)));
+    assert_eq!(layer_rgb(&s, "M-PIPE-HWS"), layer_rgb(&s, "M-PIPE-CHWS"), "all water has one ground colour");
+    assert_eq!(layer_rgb(&s, "M-PIPE-CHWS"), Some((0x8f, 0xc3, 0x1f)));
+    assert_eq!(layer_rgb(&s, "M-HVAC-DUCT-EXTR"), Some((0x8a, 0x5a, 0x2b)));
+    assert!(bands(&s, &chw["handles"][0]).contains("Rgb(155, 95, 192)"), "{}", bands(&s, &chw["handles"][0]));
+    assert!(bands(&s, &hw["handles"][0]).contains("Rgb(201, 139, 90)"), "{}", bands(&s, &hw["handles"][0]));
+    assert_eq!(pipe_of(s.doc().unwrap().entity(hd(&chw["handles"][0])).unwrap()).unwrap().service, PipeService::ChilledWater);
+    // A pipe drawn afterwards has the convention too, and so has a waste pipe: the band of the polluted.
+    let eu = s.execute("pipeadd", &json!({"points": [[0, 1000], [3000, 1000]], "service": "wasteWater", "dn": 50})).unwrap();
+    assert!(bands(&s, &eu["handles"][0]).contains("Rgb(138, 90, 43)"), "{}", bands(&s, &eu["handles"][0]));
+    // The plan's own again.
+    s.execute("colourconvention", &json!({"convention": "plan"})).unwrap();
+    assert_eq!(layer_rgb(&s, "M-PIPE-HWS"), plan_hw);
+    assert!(bands(&s, &chw["handles"][0]).contains("Index(7)"));
+    assert!(s.execute("colourconvention", &json!({"convention": "rouge"})).is_err());
+}

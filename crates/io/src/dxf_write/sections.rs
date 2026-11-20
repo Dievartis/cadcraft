@@ -919,6 +919,29 @@ fn plan_dimension_associations(d: &Drawing, all_spaces: &[&EntityStore], w: &mut
     }
 }
 
+/// The XRECORDs that keep CADCraft's own data of a drawing (what it models and DXF has no place for): the key and the text chunks of each, for those the
+/// drawing has.
+fn data_xrecords(d: &Drawing) -> Vec<(&'static str, Vec<String>)> {
+    let mut out: Vec<(&'static str, Vec<String>)> = Vec::new();
+    let mut keep = |key: &'static str, chunks: Option<Vec<String>>| {
+        if let Some(c) = chunks {
+            out.push((key, c));
+        }
+    };
+    keep(dxf_ext::CONSTRAINTS_KEY, dxf_ext::constraint_chunks(&d.constraints, &d.parametric));
+    keep(dxf_ext::LAYER_STATES_KEY, dxf_ext::layer_state_chunks(&d.layer_states));
+    keep(dxf_ext::WALL_STYLES_KEY, dxf_ext::wall_style_chunks(&d.wall_styles));
+    keep(dxf_ext::AIR_TERMINAL_MODELS_KEY, dxf_ext::air_terminal_model_chunks(&d.air_terminal_models));
+    keep(dxf_ext::COLOUR_CONVENTION_KEY, (!d.colour_convention.is_plan_default()).then(|| vec![d.colour_convention.name().to_string()]));
+    keep(dxf_ext::RASTERS_KEY, dxf_ext::raster_chunks(&d.rasters));
+    keep(dxf_ext::CABLE_TYPES_KEY, dxf_ext::cable_type_chunks(&d.cable_types));
+    keep(dxf_ext::PART_MODELS_KEY, dxf_ext::part_model_chunks(&d.part_models));
+    keep(dxf_ext::NETWORK_STYLES_KEY, dxf_ext::network_style_chunks(&d.network_styles));
+    keep(dxf_ext::PLOT_STYLES_KEY, dxf_ext::plot_style_chunks(&d.plot_style_tables));
+    keep(dxf_ext::ANNOTATION_KEY, dxf_ext::anno_chunks(d));
+    out
+}
+
 /// The drawing's DXF tags, declaring `version` in `$ACADVER`, with what `target` (the version the
 /// file ends up in: `version`, or the DWG version the bridge writes) has.
 /// `frozen_341`: see [`Ctx::frozen_341`].
@@ -996,35 +1019,8 @@ pub(super) fn tags_for(d: &Drawing, version: Version, target: Version, frozen_34
     if let Some(name) = d.header.get("CMLEADERSTYLE").and_then(HVal::as_str) {
         xrecords.push((dxf_ext::MLEADER_STYLE_KEY, w.h(), vec![name.to_string()]));
     }
-    if let Some(chunks) = dxf_ext::constraint_chunks(&d.constraints, &d.parametric) {
-        xrecords.push((dxf_ext::CONSTRAINTS_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::layer_state_chunks(&d.layer_states) {
-        xrecords.push((dxf_ext::LAYER_STATES_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::wall_style_chunks(&d.wall_styles) {
-        xrecords.push((dxf_ext::WALL_STYLES_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::air_terminal_model_chunks(&d.air_terminal_models) {
-        xrecords.push((dxf_ext::AIR_TERMINAL_MODELS_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::raster_chunks(&d.rasters) {
-        xrecords.push((dxf_ext::RASTERS_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::cable_type_chunks(&d.cable_types) {
-        xrecords.push((dxf_ext::CABLE_TYPES_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::part_model_chunks(&d.part_models) {
-        xrecords.push((dxf_ext::PART_MODELS_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::network_style_chunks(&d.network_styles) {
-        xrecords.push((dxf_ext::NETWORK_STYLES_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::plot_style_chunks(&d.plot_style_tables) {
-        xrecords.push((dxf_ext::PLOT_STYLES_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::anno_chunks(d) {
-        xrecords.push((dxf_ext::ANNOTATION_KEY, w.h(), chunks));
+    for (key, chunks) in data_xrecords(d) {
+        xrecords.push((key, w.h(), chunks));
     }
     // The annotation scale list: the ACAD_SCALELIST dictionary of SCALE objects.
     let scale_dict = w.h();

@@ -16,6 +16,7 @@ use cadcraft_geom::Vec2;
 use serde::{Deserialize, Serialize};
 
 use super::pipe_networks::{intern, network_layer};
+use super::{ColourConvention, PIPE_BAND_COLD_LAYER, PIPE_BAND_HOT_LAYER, PIPE_BAND_LIQUEFIED_LAYER, PIPE_BAND_POLLUTED_LAYER};
 use super::{HvacPiece, HvacUnits, check_label_height, invalid, label, v3, xdata};
 use crate::{EntityKind, Line, RawTag, Result};
 
@@ -382,6 +383,9 @@ pub struct PipeParams {
     pub trim_end_mm: f64,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
+    /// The colours the run is drawn in (its band along the axis depends on it).
+    #[serde(default, skip_serializing_if = "ColourConvention::is_plan")]
+    pub colours: ColourConvention,
     #[serde(default)]
     pub units: HvacUnits,
 }
@@ -412,6 +416,7 @@ impl PipeParams {
             trim_start_mm: 0.0,
             trim_end_mm: 0.0,
             label_height_mm: default_label_mm(),
+            colours: ColourConvention::Plan,
             units,
         }
     }
@@ -650,7 +655,7 @@ impl PipeParams {
             }
             v
         };
-        if let Some(colour) = band_colour(self.service) {
+        if let Some(colour) = band_colour(self.service, self.colours) {
             // The line along the axis is on the pipe's layer, drawn in the colour of the identification band.
             let band = intern(format!("{layer}|ByLayer|{colour}")).unwrap_or(layer);
             pieces.push(line(band, Vec2::new(x0, 0.0), Vec2::new(x1, 0.0)));
@@ -729,11 +734,16 @@ fn layer_of(service: PipeService, leg: PipeLeg) -> &'static str {
     }
 }
 
-/// The colour layer of the identification band of a service that has one (ISO 14726).
-fn band_colour(service: PipeService) -> Option<&'static str> {
-    match service {
-        PipeService::ChilledWater => Some("M-PIPE-BAND-WHITE"),
-        PipeService::Condensate => Some("M-PIPE-BAND-YELLOW"),
+/// The colour layer of the band along a service that has one: in the plan's colours the identification bands of ISO 14726 (chilled water, condensate); in
+/// those of NF X 08-100 the state of the fluid: cold, hot, polluted (waste and soil water), liquefied gas (the refrigerant liquid line).
+fn band_colour(service: PipeService, colours: ColourConvention) -> Option<&'static str> {
+    match (colours, service) {
+        (ColourConvention::Plan, PipeService::ChilledWater) => Some("M-PIPE-BAND-WHITE"),
+        (ColourConvention::Plan, PipeService::Condensate) => Some("M-PIPE-BAND-YELLOW"),
+        (ColourConvention::NfX08100, PipeService::ChilledWater) => Some(PIPE_BAND_COLD_LAYER),
+        (ColourConvention::NfX08100, PipeService::HotWater | PipeService::DomesticHotWater | PipeService::HotWaterLoop) => Some(PIPE_BAND_HOT_LAYER),
+        (ColourConvention::NfX08100, PipeService::WasteWater | PipeService::SoilWater) => Some(PIPE_BAND_POLLUTED_LAYER),
+        (ColourConvention::NfX08100, PipeService::RefrigerantLiquid) => Some(PIPE_BAND_LIQUEFIED_LAYER),
         _ => None,
     }
 }
@@ -747,6 +757,8 @@ pub fn pipe_layer_color(name: &str) -> Option<cadcraft_color::Color> {
         PIPE_CHW_RETURN_LAYER => Some(Color::True(Rgb(0x66, 0xb3, 0xff))),
         "M-PIPE-BAND-WHITE" => Some(Color::Index(7)),
         "M-PIPE-BAND-YELLOW" => Some(Color::True(Rgb(0xf5, 0xc4, 0x00))),
+        // The state bands of NF X 08-100 are the same in both conventions.
+        PIPE_BAND_COLD_LAYER | PIPE_BAND_HOT_LAYER | PIPE_BAND_POLLUTED_LAYER | PIPE_BAND_LIQUEFIED_LAYER => super::nf_layer_color(name),
         // Not from a standard: hot water red, change-over violet, refrigerant orange (liquid) and grey (gas).
         PIPE_HW_SUPPLY_LAYER => Some(Color::True(Rgb(0xe0, 0x24, 0x24))),
         PIPE_HW_RETURN_LAYER => Some(Color::True(Rgb(0xff, 0x8a, 0x80))),
@@ -784,6 +796,7 @@ impl crate::Drawing {
             return Err(invalid("A pipe needs usable end points."));
         }
         p.length = a.dist(b);
+        p.colours = self.colour_convention;
         let rotation = (b - a).angle();
         let pieces = p.generate(super::duct::reads_upside_down(rotation))?;
         common.xdata = xdata::replace(PIPE_APP, &common.xdata, p.to_xdata()?);

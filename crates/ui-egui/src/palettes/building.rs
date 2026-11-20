@@ -293,12 +293,39 @@ enum Spread {
     Units,
     /// Shows (or hides) the size written beside every equipment.
     Sizes(bool),
+    /// Draws the pipes and ducts in the plan's colours or in those of NF X 08-100.
+    Colours(cadcraft_doc::ColourConvention),
+}
+
+/// The two rows that choose the colours of the pipes and ducts; the one in use is selected.
+fn colour_rows(ui: &mut egui::Ui, now: cadcraft_doc::ColourConvention, chosen: &mut Option<Spread>) {
+    use cadcraft_doc::ColourConvention::{NfX08100, Plan};
+    for (label, tip, c) in [
+        (
+            "Plan Colours",
+            "The colours plans of the trades use: hot water red, chilled water blue, the supply and the extract air blue and pink.",
+            Plan,
+        ),
+        (
+            "NF X 08-100 Colours",
+            "The colours of the French standard: water yellow-green with a band for its state (cold violet, hot orange-grey), air light blue, polluted air brown, refrigerants orange-yellow.",
+            NfX08100,
+        ),
+    ] {
+        if row_tip(ui, crate::i18n::t(label), crate::i18n::t(tip), None, now == c, thumbs::paint_edit_pipe) {
+            *chosen = Some(Spread::Colours(c));
+        }
+    }
 }
 
 fn run_spread(app: &mut CadApp, action: Spread) {
     match action {
         Spread::Terminals => start_distribution(app, false),
         Spread::Units => start_distribution(app, true),
+        Spread::Colours(c) => match app.run("colourconvention", serde_json::json!({ "convention": c.name() })) {
+            Ok(r) => app.session.echo(crate::tf!("{layers} layer(s) and {pipes} pipe(s) redrawn.", layers = r["layers"], pipes = r["pipes"])),
+            Err(e) => app.session.echo(e),
+        },
         Spread::Sizes(show) => {
             if let Err(e) = app.run("equipmentsizedisplay", serde_json::json!({ "show": show })) {
                 app.session.echo(e);
@@ -310,6 +337,7 @@ fn run_spread(app: &mut CadApp, action: Spread) {
 fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
     let current = app.session.last_used.air_terminal.kind;
     let app_air = app.session.last_used.air_terminal.air;
+    let app_convention = app.session.doc().map(|d| d.colour_convention()).unwrap_or_default();
     let mut outdoor: Option<AirDirection> = None;
     let mut start: Option<&'static str> = None;
     let mut terminal: Option<TerminalKind> = None;
@@ -459,6 +487,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         ui.add_space(6.0);
         separator(ui);
         header(ui, "Pipe Networks");
+        colour_rows(ui, app_convention, &mut distribute);
         if row_tip(
             ui,
             crate::i18n::t("Name Networks"),

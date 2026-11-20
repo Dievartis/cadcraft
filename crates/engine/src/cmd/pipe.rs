@@ -17,6 +17,11 @@ const MAX_EDITED: usize = 10_000;
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        CommandSpec::new("colourconvention", "Pipe and Duct Colours", run_colour_convention)
+            .params(
+                "{convention?: plan|nfx08100} → {convention, layers, pipes}: draws the pipes and ducts in the plan's own colours or in those of NF X 08-100 (water yellow-green with a band for the state, air light blue, \
+                 the polluted air brown, the refrigerants orange-yellow); without `convention` it only says which is in use. The standard layers change colour (a layer you made is left alone) and the pipes are drawn again",
+            ),
         CommandSpec::new("pipeadd", "Pipe", run_pipeadd)
             .menu(&["Draw", "HVAC", "Pipe"])
             .params(
@@ -186,6 +191,16 @@ fn add_run(s: &mut Session, params: &PipeParams, a: Vec2, b: Vec2) -> Result<Han
     // A pipe drawn on a named network takes its name.
     super::network::propagate(s);
     Ok(h)
+}
+
+fn run_colour_convention(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "colourconvention";
+    if let Some(t) = str_param(p, "convention") {
+        let c = cadcraft_doc::ColourConvention::parse(t).ok_or_else(|| bad(CMD, "`convention` is plan or nfx08100"))?;
+        let (layers, pipes) = s.doc_mut()?.set_colour_convention(c).map_err(|e| EngineError::Other(e.to_string()))?;
+        return Ok(json!({ "convention": c.name(), "layers": layers, "pipes": pipes }));
+    }
+    Ok(json!({ "convention": s.doc()?.colour_convention().name(), "layers": 0, "pipes": 0 }))
 }
 
 fn run_pipeadd(s: &mut Session, p: &Value) -> Result<Value> {

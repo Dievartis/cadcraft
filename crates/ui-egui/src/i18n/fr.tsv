@@ -3775,3 +3775,9 @@ echo	Walls are drawn as the style has them.	Les murs sont dessinés comme le sty
 	Calibrate	Calibrer
 	Move sideways to pan; push/pull or twist to zoom.	Déplacez de côté pour faire un panoramique ; poussez, tirez ou tournez pour zoomer.
 	Left device button: zoom extents. Right device button: calibrate.	Bouton gauche de l'appareil : zoom étendu. Bouton droit : calibrer.
+	Pipe and Duct Colours	Couleurs des tuyaux et des gaines
+	Plan Colours	Couleurs de plan
+	NF X 08-100 Colours	Couleurs NF X 08-100
+	The colours plans of the trades use: hot water red, chilled water blue, the supply and the extract air blue and pink.	Les couleurs d'usage des plans de ces métiers : eau chaude rouge, eau glacée bleue, air soufflé bleu et air repris rose.
+	The colours of the French standard: water yellow-green with a band for its state (cold violet, hot orange-grey), air light blue, polluted air brown, refrigerants orange-yellow.	Les couleurs de la norme française : eau vert-jaune avec une bande pour son état (froid violet, chaud orangé-gris), air bleu clair, air vicié marron, frigorigènes jaune-orangé.
+echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes} tuyau(x) redessiné(s).

@@ -126,6 +126,8 @@ pub struct Drawing {
     pub part_models: Vec<PartTemplate>,
     /// The cable types the drawing keeps (a cable as 3G1.5 or 2x0.75 blindé, under a name); see [`Drawing::available_cable_types`].
     pub cable_types: Vec<CableType>,
+    /// The colours the pipes and ducts are drawn in: the plan's own, or those of NF X 08-100.
+    pub colour_convention: ColourConvention,
     /// The style (colour and line type) of each pipe network the drawing has named; see [`Drawing::set_network_style`].
     pub network_styles: Vec<NetworkStyle>,
     pub blocks: BTreeMap<String, std::sync::Arc<Block>>,
@@ -217,6 +219,7 @@ impl Drawing {
             air_terminal_models: Vec::new(),
             part_models: Vec::new(),
             cable_types: Vec::new(),
+            colour_convention: ColourConvention::Plan,
             network_styles: Vec::new(),
             blocks: BTreeMap::new(),
             model: EntityStore::new(),

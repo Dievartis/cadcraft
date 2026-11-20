@@ -13,6 +13,7 @@ mod circuit_legend;
 mod control;
 mod control_report;
 mod control_schema;
+mod convention;
 mod crossing;
 mod curtain;
 mod design;
@@ -58,6 +59,7 @@ pub use circuit_legend::*;
 pub use control::*;
 pub use control_report::*;
 pub use control_schema::*;
+pub use convention::*;
 pub use crossing::DuctCrossing;
 pub use curtain::*;
 pub use design::*;
@@ -332,6 +334,7 @@ impl crate::Drawing {
             let (layer, rest) = piece.layer.split_once('|').unwrap_or((piece.layer, "ByLayer"));
             let (linetype, colour_of) = rest.split_once('|').map_or((rest, None), |(l, c)| (l, Some(c)));
             if self.ensure_layer(layer) {
+                let own = self.hvac_colour(layer);
                 // A new layer takes its own colour; one made for a network, the colour and the line type of its style.
                 let look = self.network_look(layer);
                 if let Some(ref lt) = look.as_ref().map(|(_, lt)| lt.clone()) {
@@ -341,7 +344,7 @@ impl crate::Drawing {
                     match look {
                         Some((c, lt)) => (l.color, l.linetype) = (c, lt),
                         None => {
-                            if let Some(c) = hvac_layer_color(layer) {
+                            if let Some(c) = own {
                                 l.color = c;
                             }
                         }
@@ -349,7 +352,7 @@ impl crate::Drawing {
                 }
             }
             let mut common = crate::Common { layer: layer.into(), linetype: linetype.into(), ..Default::default() };
-            if let Some(c) = colour_of.and_then(hvac_layer_color) {
+            if let Some(c) = colour_of.and_then(|n| self.hvac_colour(n)) {
                 common.color = c;
             }
             b.entities.push(crate::Entity { handle: self.new_handle(), common, kind: piece.kind });

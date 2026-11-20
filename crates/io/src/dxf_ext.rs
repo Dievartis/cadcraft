@@ -45,6 +45,8 @@ pub(crate) const MAX_WALL_STYLES: usize = 10_000;
 pub(crate) const AIR_TERMINAL_MODELS_KEY: &str = "CADCRAFT_AIRTERMINALMODELS";
 /// Most air terminal models read from a file.
 pub(crate) const MAX_AIR_TERMINAL_MODELS: usize = 10_000;
+/// Named-object-dictionary key of the XRECORD that says which colours the pipes and ducts are drawn in (written when they are not the plan's).
+pub(crate) const COLOUR_CONVENTION_KEY: &str = "CADCRAFT_COLOURCONV";
 /// Named-object-dictionary key of the XRECORD that keeps the pages of PDFs attached in a browser.
 pub(crate) const RASTERS_KEY: &str = "CADCRAFT_RASTERS";
 /// The paths of the rasters made in memory from a PDF page attached without a file (the web): the only ones the drawing has to keep, since the
