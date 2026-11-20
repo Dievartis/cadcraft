@@ -113,10 +113,17 @@ fn options_menu(app: &mut CadApp, p: &egui::Painter, r: Rect, hover: Pos2) {
 /// The tooltip background, matching the command line bar; returns its rectangle.
 fn tooltip_frame(p: &egui::Painter, at: Pos2, size: egui::Vec2) -> Rect {
     let t = Tokens::get();
-    let r = Rect::from_min_size(at + vec2(18.0, -size.y - 14.0), size);
+    let r = tooltip_rect(p.clip_rect(), at, size);
     p.rect_filled(r, 3.0, t.cmd_bg);
     p.rect_stroke(r, 3.0, Stroke::new(1.0, t.cmd_border), egui::StrokeKind::Inside);
     r
+}
+
+fn tooltip_rect(bounds: Rect, at: Pos2, size: egui::Vec2) -> Rect {
+    let x = if at.x + 18.0 + size.x > bounds.right() { at.x - size.x - 18.0 } else { at.x + 18.0 };
+    let y = if at.y - size.y - 14.0 < bounds.top() { at.y + 14.0 } else { at.y - size.y - 14.0 };
+    let origin = pos2(x.max(bounds.left()), y.max(bounds.top()).min((bounds.bottom() - size.y).max(bounds.top())));
+    Rect::from_min_size(origin, size)
 }
 
 /// The Dynamic Input value boxes: X and Y, or distance and angle. Typed values show in full
@@ -221,4 +228,20 @@ fn dynamic_input_boxes(
         x += bw;
     }
     r
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+    #[test]
+    fn prompt_flips_left_near_the_right_edge() {
+        let bounds = Rect::from_min_max(pos2(200.0, 100.0), pos2(1000.0, 700.0));
+        let cursor = pos2(980.0, 300.0);
+        let r = tooltip_rect(bounds, cursor, vec2(300.0, 40.0));
+        assert!(r.right() < cursor.x);
+        assert!(bounds.contains_rect(r));
+        let r = tooltip_rect(bounds, pos2(400.0, 105.0), vec2(300.0, 40.0));
+        assert!(r.top() > 105.0);
+        assert!(bounds.contains_rect(r));
+    }
 }
