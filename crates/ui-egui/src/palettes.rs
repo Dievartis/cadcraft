@@ -12,6 +12,7 @@ use crate::theme::Tokens;
 /// The hatch pattern picker.
 mod building;
 mod electricity;
+mod furniture;
 mod hvachelp;
 #[cfg(test)]
 mod layer_menu_tests;
@@ -185,6 +186,11 @@ fn paint_tab_icon(p: &egui::Painter, r: Rect, name: &str, colour: Color32) {
         "Architecture" => {
             poly(&[(0.08, 0.92), (0.08, 0.4), (0.5, 0.1), (0.92, 0.4), (0.92, 0.92)], true);
             poly(&[(0.4, 0.92), (0.4, 0.6), (0.6, 0.6), (0.6, 0.92)], false);
+        }
+        "Furniture" => {
+            poly(&[(0.08, 0.35), (0.92, 0.35), (0.92, 0.85), (0.08, 0.85)], true);
+            poly(&[(0.18, 0.35), (0.18, 0.15), (0.82, 0.15), (0.82, 0.35)], false);
+            poly(&[(0.18, 0.55), (0.82, 0.55)], false);
         }
         "HVAC" => {
             dot(0.5, 0.5, 2.6);

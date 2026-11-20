@@ -67,6 +67,7 @@ mod feet_inch_input;
 mod fillet_chamfer;
 mod fix_holds_grips;
 mod followups_626;
+mod furniture;
 mod greek_keyboard;
 mod grip_dim_input;
 mod grip_options;

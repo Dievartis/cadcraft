@@ -11,7 +11,7 @@ use crate::CadApp;
 use crate::theme::Tokens;
 
 /// The building tabs, after Drafting and Modeling.
-pub(super) const TABS: &[&str] = &["Architecture", "HVAC", "Plumbing", "Regulation", "Electricity"];
+pub(super) const TABS: &[&str] = &["Architecture", "Furniture", "HVAC", "Plumbing", "Regulation", "Electricity"];
 
 /// Where the state of the sections travels while a tab is drawn, and whether the section being drawn is open.
 pub(super) fn sections_id() -> egui::Id {
@@ -29,7 +29,7 @@ pub(super) fn header(ui: &mut egui::Ui, title: &str) {
 }
 
 /// [`header`] with an "i" at the right that opens the help of the whole group.
-fn header_with(ui: &mut egui::Ui, title: &str, help: Option<&'static str>) {
+pub(super) fn header_with(ui: &mut egui::Ui, title: &str, help: Option<&'static str>) {
     let t = Tokens::get();
     let key = format!("HVAC/{title}");
     let mut open = ui.data(|d| d.get_temp::<crate::sections::Sections>(sections_id())).is_none_or(|s| s.is_open(&key));
@@ -152,6 +152,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui, tab: &str) {
         "Architecture" => architecture(app, ui),
         "HVAC" => hvac(app, ui),
         "Plumbing" => super::plumbing::body(app, ui),
+        "Furniture" => super::furniture::body(app, ui),
         "Regulation" => super::regulation::body(app, ui),
         "Electricity" => super::electricity::body(app, ui),
         _ => {}

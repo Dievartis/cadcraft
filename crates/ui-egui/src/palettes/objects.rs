@@ -95,6 +95,10 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     if !controls.is_empty() && controls.len() == sel.len() {
         return control_section(ui, sel, &controls, bad);
     }
+    let furniture: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::furniture_of(e))).collect();
+    if !furniture.is_empty() && furniture.len() == sel.len() {
+        return furniture_section(ui, sel, &furniture, bad);
+    }
     let fixtures: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::sanitary_of(e))).collect();
     if !fixtures.is_empty() && fixtures.len() == sel.len() {
         return sanitary_section(ui, sel, &fixtures, bad);
@@ -362,6 +366,38 @@ fn elec_number(
             }
         }
     });
+}
+
+/// The Properties group of furniture and appliances: their model, name, size, altitude and power.
+fn furniture_section(ui: &mut egui::Ui, sel: &[Handle], fs: &[cadcraft_doc::FurnitureParams], bad: &mut Option<String>) -> Action {
+    const CMD: &str = "furnitureedit";
+    let ids = handles(sel);
+    let mut action: Action = None;
+    group(ui, "Furniture");
+    let model = shared(&fs.iter().map(|f| f.model.clone()).collect::<Vec<_>>());
+    prop_row(ui, "Type", |ui| {
+        let shown = model.as_deref().and_then(cadcraft_doc::furniture_model).map_or(VARIES, |m| m.label);
+        // The models by group, a submenu each.
+        ui.menu_button(crate::i18n::t(shown), |ui| {
+            for g in cadcraft_doc::furniture_groups() {
+                ui.menu_button(crate::i18n::t(g), |ui| {
+                    for m in cadcraft_doc::furniture_models().iter().filter(|m| m.group == *g) {
+                        if ui.button(crate::i18n::t(m.label)).clicked() {
+                            action = Some((CMD, json!({ "handles": ids, "model": m.id })));
+                            ui.close();
+                        }
+                    }
+                });
+            }
+        });
+    });
+    elec_text(ui, CMD, "Name", "name", &ids, fs.iter().map(|f| f.name.clone()).collect(), &mut action);
+    elec_number(ui, (CMD, "Width (mm)", "width", false), &ids, fs.iter().map(|f| Some(f.width_mm)).collect(), bad, &mut action);
+    elec_number(ui, (CMD, "Depth (mm)", "depth", false), &ids, fs.iter().map(|f| Some(f.depth_mm)).collect(), bad, &mut action);
+    elec_number(ui, (CMD, "Height (mm)", "height", false), &ids, fs.iter().map(|f| Some(f.height_mm)).collect(), bad, &mut action);
+    altitude_row(ui, CMD, &ids, fs.iter().map(|f| f.bottom_mm).collect(), bad, &mut action);
+    elec_number(ui, (CMD, "Power (W)", "power", true), &ids, fs.iter().map(|f| f.power_w).collect(), bad, &mut action);
+    action
 }
 
 /// The Properties group of sanitary fixtures: their type, name, size, drain, flows and altitude.

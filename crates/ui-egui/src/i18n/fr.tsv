@@ -3576,3 +3576,109 @@ echo	Not a type of fixture: see FIXTUREADD.	Ce n'est pas un type d'appareil : vo
 	Put the fixtures, then start this tool: from each fixture's drain it draws the branch to the nearest collector of its kind, within 6 m.	Posez les appareils, puis lancez cet outil : depuis la vidange de chaque appareil, il trace le raccordement vers le collecteur le plus proche de son type, à moins de 6 m.
 	Each branch is as wide as the fixture's drain (Ø100 for a WC, Ø40 for a basin) with a slope of 2 % for soil water and 1 % for waste water.	Chaque raccordement a le diamètre de la vidange de l'appareil (Ø100 pour un WC, Ø40 pour un lavabo), avec une pente de 2 % pour les eaux vannes et 1 % pour les eaux usées.
 	A fixture with no collector of its kind in reach is named on the command line; run the tool again once the collector is drawn: the fixtures already connected are left.	Un appareil sans collecteur de son type à portée est cité sur la ligne de commande ; relancez l'outil une fois le collecteur tracé : les appareils déjà raccordés sont laissés.
+	Living room	Séjour
+	Dining	Repas
+	Bedroom	Chambre
+	Kitchen	Cuisine
+	Appliances	Électroménager
+	TV and computers	TV et informatique
+	Desks and chairs	Bureaux et sièges
+	Meeting and reception	Réunion et accueil
+	Storage	Rangement
+	Sofa, two seats	Canapé 2 places
+	Sofa, three seats	Canapé 3 places
+	Corner sofa	Canapé d'angle
+	Armchair	Fauteuil
+	Pouf	Pouf
+	Coffee table	Table basse
+	TV unit	Meuble TV
+	Bookcase	Bibliothèque
+	Sideboard	Buffet
+	Fireplace	Cheminée
+	Wood stove	Poêle à bois
+	Piano	Piano
+	Rug	Tapis
+	Floor lamp	Lampadaire
+	Plant	Plante
+	Table, 4 seats	Table 4 places
+	Table, 6 seats	Table 6 places
+	Table, 8 seats	Table 8 places
+	Round table, 4 seats	Table ronde 4 places
+	Round table, 6 seats	Table ronde 6 places
+	Chair	Chaise
+	Bar stool	Tabouret de bar
+	Bench	Banc
+	Café table	Table de café
+	Bed 90 x 190	Lit 90 x 190
+	Bed 140 x 190	Lit 140 x 190
+	Bed 160 x 200	Lit 160 x 200
+	Bed 180 x 200	Lit 180 x 200
+	Baby cot	Lit bébé
+	Bedside table	Table de chevet
+	Chest of drawers	Commode
+	Wardrobe	Armoire
+	Dressing table	Coiffeuse
+	Base unit	Meuble bas
+	Worktop with base units	Plan de travail et meubles bas
+	Kitchen island	Îlot de cuisine
+	Tall unit	Colonne
+	Refrigerator	Réfrigérateur
+	Fridge-freezer	Réfrigérateur-congélateur
+	American fridge	Réfrigérateur américain
+	Chest freezer	Congélateur coffre
+	Wine cooler	Cave à vin
+	Oven	Four
+	Hob	Plaque de cuisson
+	Cooker hood	Hotte
+	Microwave	Four à micro-ondes
+	Tumble dryer	Sèche-linge
+	Coffee machine	Machine à café
+	Water cooler	Fontaine à eau
+	Vending machine	Distributeur automatique
+	Television 32"	Télévision 32"
+	Television 43"	Télévision 43"
+	Television 55"	Télévision 55"
+	Television 65"	Télévision 65"
+	Television 75"	Télévision 75"
+	Desktop computer	Ordinateur fixe
+	Laptop	Ordinateur portable
+	Printer	Imprimante
+	Photocopier	Photocopieur
+	Desk 140 x 70	Bureau 140 x 70
+	Desk 160 x 80	Bureau 160 x 80
+	Desk with drawer unit	Bureau avec caisson
+	L-shaped desk	Bureau en L
+	Executive desk	Bureau de direction
+	Drawer unit	Caisson
+	Office chair	Fauteuil de bureau
+	Visitor chair	Chaise visiteur
+	Classroom desk	Table d'école
+	Teacher desk	Bureau du professeur
+	Meeting table, 6 seats	Table de réunion 6 places
+	Meeting table, 10 seats	Table de réunion 10 places
+	Meeting table, 14 seats	Table de réunion 14 places
+	Oval meeting table	Table de réunion ovale
+	Reception desk	Banque d'accueil
+	Waiting bench	Banquette d'attente
+	High cabinet	Armoire haute
+	Low cabinet	Armoire basse
+	Locker	Vestiaire
+	Locker bank, 4	Vestiaires, 4 portes
+	Shelving unit	Rayonnage
+	Archive shelving	Rayonnage archives
+	Coat rack	Portemanteau
+	Whiteboard	Tableau blanc
+	Projection screen	Écran de projection
+	Acoustic screen	Écran acoustique
+	Bar counter	Comptoir de bar
+	Display case	Vitrine
+	Furniture	Mobilier
+	Edit Furniture	Modifier le mobilier
+	Furniture Catalogue	Catalogue du mobilier
+	Enter the type of furniture	Entrez le type de mobilier
+	Specify the middle of the back of the furniture	Indiquez le milieu de l'arrière du meuble
+echo	Not a type of furniture: see FURNITURELIST.	Ce n'est pas un type de mobilier : voir FURNITURELIST.
+	Choose a piece in the list (living room, dining, bedroom, kitchen, appliances, TV and computers, desks, meeting and reception, storage), then click where the middle of its back goes, against the wall. Rotate (R) turns the next ones; Type (T) changes the model.	Choisissez une pièce dans la liste (séjour, repas, chambre, cuisine, électroménager, TV et informatique, bureaux, réunion et accueil, rangement), puis cliquez où va le milieu de son arrière, contre le mur. Rotation (R) tourne les suivantes ; Type (T) change de modèle.
+	It is drawn seen from above at its usual size. In Properties change its model, its width, its depth and its height, its altitude and, for an appliance, the power it draws; a name written beside it is optional.	Elle est dessinée vue de dessus à sa taille courante. Dans Propriétés, changez son modèle, sa largeur, sa profondeur et sa hauteur, son altitude et, pour un appareil, la puissance qu'il consomme ; un nom écrit à côté est facultatif.
+	A piece keeps its look when it is made wider or deeper: a sofa 2.40 m long, a desk 1.80 m wide.	Une pièce garde son aspect quand on l'élargit ou qu'on l'allonge : un canapé de 2,40 m, un bureau de 1,80 m.
+	The refrigerators, ovens, televisions, computers and the other appliances have their usual power: it is the value to put on a circuit.	Les réfrigérateurs, fours, télévisions, ordinateurs et autres appareils ont leur puissance courante : c'est la valeur à mettre sur un circuit.

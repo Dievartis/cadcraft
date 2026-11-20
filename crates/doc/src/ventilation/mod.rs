@@ -22,6 +22,8 @@ mod elec;
 mod elec_circuits;
 mod elec_report;
 mod equipment;
+mod furniture;
+mod furniture_catalog;
 mod library;
 mod network;
 mod network_legend;
@@ -63,6 +65,7 @@ pub use elec::*;
 pub use elec_circuits::*;
 pub use elec_report::*;
 pub use equipment::*;
+pub use furniture::*;
 pub use library::standard_air_terminal_models;
 pub use network::{DEFAULT_MARGIN_MM, DuctNetwork, FLEX_ROUGHNESS_MM, MAX_DUCTS};
 pub use network_legend::*;
@@ -131,6 +134,7 @@ fn hvac_layer_color(name: &str) -> Option<cadcraft_color::Color> {
             .or_else(|| part::part_layer_color(name))
             .or_else(|| elec::elec_layer_color(name))
             .or_else(|| sanitary::sanitary_layer_color(name))
+            .or_else(|| furniture::furniture_layer_color(name))
             .or_else(|| control::control_layer_color(name))
             .or_else(|| pipe_networks::network_base(name).and_then(hvac_layer_color)),
     }

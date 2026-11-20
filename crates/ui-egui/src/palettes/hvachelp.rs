@@ -428,6 +428,16 @@ const HELPS: &[Help] = &[
         figures: &[("", elec_riser_fig)],
     },
     Help {
+        id: "Furniture",
+        steps: &[
+            "Choose a piece in the list (living room, dining, bedroom, kitchen, appliances, TV and computers, desks, meeting and reception, storage), then click where the middle of its back goes, against the wall. Rotate (R) turns the next ones; Type (T) changes the model.",
+            "It is drawn seen from above at its usual size. In Properties change its model, its width, its depth and its height, its altitude and, for an appliance, the power it draws; a name written beside it is optional.",
+            "A piece keeps its look when it is made wider or deeper: a sofa 2.40 m long, a desk 1.80 m wide.",
+            "The refrigerators, ovens, televisions, computers and the other appliances have their usual power: it is the value to put on a circuit.",
+        ],
+        figures: &[("", furniture_fig)],
+    },
+    Help {
         id: "Sanitary Fixture",
         steps: &[
             "Choose the fixture in the list, then click where the middle of its back goes, against the wall. Rotate (R) turns the next ones; Type (T) changes the kind.",
@@ -865,7 +875,7 @@ mod tests {
 
     #[test]
     fn every_tool_has_a_help_window_that_draws_and_closes() {
-        assert_eq!(HELPS.len(), 52);
+        assert_eq!(HELPS.len(), 53);
         for help in HELPS {
             let mut h = Harness::builder().with_size(vec2(700.0, 500.0)).build_ui(|ui| {
                 show(ui.ctx());
@@ -1382,6 +1392,28 @@ fn single_line_fig(p: &Painter, r: Rect) {
         p.rect_stroke(b, 2.0, Stroke::new(1.2, GREY), egui::StrokeKind::Inside);
         p.text(b.center(), egui::Align2::CENTER_CENTER, load, egui::FontId::proportional(10.0), GREY);
     }
+}
+
+/// A sofa, a coffee table and a television unit, seen from above.
+fn furniture_fig(p: &Painter, r: Rect) {
+    let at = frac(r);
+    let s = Stroke::new(1.3, Color32::WHITE);
+    p.line_segment([at(0.05, 0.1), at(0.95, 0.1)], Stroke::new(3.0, GREY));
+    // The sofa against the wall: back, arms and two cushions.
+    p.rect_stroke(Rect::from_min_max(at(0.1, 0.1), at(0.5, 0.42)), 4.0, s, egui::StrokeKind::Inside);
+    p.rect_stroke(Rect::from_min_max(at(0.1, 0.1), at(0.5, 0.17)), 0.0, s, egui::StrokeKind::Inside);
+    p.line_segment([at(0.3, 0.17), at(0.3, 0.42)], s);
+    // The coffee table, and the television unit on the opposite wall.
+    p.rect_stroke(Rect::from_min_max(at(0.18, 0.56), at(0.42, 0.7)), 3.0, s, egui::StrokeKind::Inside);
+    p.line_segment([at(0.05, 0.92), at(0.95, 0.92)], Stroke::new(3.0, GREY));
+    p.rect_stroke(Rect::from_min_max(at(0.14, 0.8), at(0.46, 0.92)), 0.0, s, egui::StrokeKind::Inside);
+    p.rect_stroke(Rect::from_min_max(at(0.2, 0.84), at(0.4, 0.86)), 0.0, s, egui::StrokeKind::Inside);
+    // A refrigerator and an oven beside them, with the text of their power.
+    p.rect_stroke(Rect::from_min_max(at(0.62, 0.1), at(0.74, 0.3)), 0.0, s, egui::StrokeKind::Inside);
+    p.rect_stroke(Rect::from_min_max(at(0.78, 0.1), at(0.9, 0.3)), 0.0, s, egui::StrokeKind::Inside);
+    p.circle_stroke(at(0.84, 0.2), 0.03 * r.width(), s);
+    text(p, at(0.6, 0.36), "120 W", GREY);
+    text(p, at(0.77, 0.36), "3000 W", GREY);
 }
 
 /// A water closet and a basin against a wall, seen from above, with the text of their drains.

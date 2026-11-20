@@ -2070,3 +2070,108 @@ menu	View	视图
 	Put the fixtures, then start this tool: from each fixture's drain it draws the branch to the nearest collector of its kind, within 6 m.	放置器具后启动此工具：它从每个器具的排水口绘制支管，接到 6 m 内最近的同类横干管。
 	Each branch is as wide as the fixture's drain (Ø100 for a WC, Ø40 for a basin) with a slope of 2 % for soil water and 1 % for waste water.	每根支管与器具排水管径相同 (坐便器 Ø100，洗脸盆 Ø40)，污水坡度 2 %，废水坡度 1 %。
 	A fixture with no collector of its kind in reach is named on the command line; run the tool again once the collector is drawn: the fixtures already connected are left.	附近没有同类横干管的器具会在命令行中列出；绘制横干管后再次运行此工具：已连接的器具保持不变。
+	Living room	客厅
+	Dining	餐厅
+	Bedroom	卧室
+	Kitchen	厨房
+	Appliances	家用电器
+	TV and computers	电视与电脑
+	Desks and chairs	办公桌椅
+	Meeting and reception	会议与接待
+	Storage	储物
+	Other	其他
+	Sofa, two seats	双人沙发
+	Sofa, three seats	三人沙发
+	Corner sofa	转角沙发
+	Armchair	扶手椅
+	Pouf	脚凳
+	Coffee table	茶几
+	TV unit	电视柜
+	Bookcase	书柜
+	Sideboard	餐边柜
+	Fireplace	壁炉
+	Wood stove	木柴炉
+	Piano	钢琴
+	Rug	地毯
+	Floor lamp	落地灯
+	Plant	绿植
+	Table, 4 seats	四人餐桌
+	Table, 6 seats	六人餐桌
+	Table, 8 seats	八人餐桌
+	Round table, 4 seats	四人圆桌
+	Round table, 6 seats	六人圆桌
+	Chair	椅子
+	Bar stool	吧凳
+	Bench	长凳
+	Café table	咖啡桌
+	Bed 90 x 190	单人床 90×190
+	Bed 140 x 190	双人床 140×190
+	Bed 160 x 200	双人床 160×200
+	Bed 180 x 200	大床 180×200
+	Baby cot	婴儿床
+	Bedside table	床头柜
+	Chest of drawers	五斗柜
+	Wardrobe	衣柜
+	Dressing table	梳妆台
+	Base unit	地柜
+	Worktop with base units	操作台与地柜
+	Kitchen island	厨房岛台
+	Wall unit	吊柜
+	Tall unit	高柜
+	Refrigerator	冰箱
+	Fridge-freezer	冰箱冷冻一体机
+	American fridge	对开门冰箱
+	Chest freezer	卧式冷柜
+	Wine cooler	红酒柜
+	Oven	烤箱
+	Hob	灶台
+	Cooker hood	抽油烟机
+	Microwave	微波炉
+	Tumble dryer	烘干机
+	Coffee machine	咖啡机
+	Water cooler	饮水机
+	Vending machine	自动售货机
+	Television 32"	电视机 32"
+	Television 43"	电视机 43"
+	Television 55"	电视机 55"
+	Television 65"	电视机 65"
+	Television 75"	电视机 75"
+	Desktop computer	台式电脑
+	Laptop	笔记本电脑
+	Printer	打印机
+	Photocopier	复印机
+	Desk 140 x 70	办公桌 140×70
+	Desk 160 x 80	办公桌 160×80
+	Desk with drawer unit	带抽屉柜办公桌
+	L-shaped desk	L形办公桌
+	Executive desk	经理桌
+	Drawer unit	抽屉柜
+	Office chair	办公椅
+	Visitor chair	访客椅
+	Classroom desk	课桌
+	Teacher desk	讲桌
+	Meeting table, 6 seats	六人会议桌
+	Meeting table, 10 seats	十人会议桌
+	Meeting table, 14 seats	十四人会议桌
+	Oval meeting table	椭圆会议桌
+	Reception desk	接待台
+	Waiting bench	候客长椅
+	High cabinet	高柜
+	Low cabinet	矮柜
+	Locker	更衣柜
+	Locker bank, 4	四门更衣柜
+	Shelving unit	货架
+	Archive shelving	档案架
+	Coat rack	衣架
+	Whiteboard	白板
+	Projection screen	投影幕
+	Acoustic screen	隔音屏风
+	Bar counter	吧台
+	Display case	展示柜
+	Furniture	家具
+	Edit Furniture	编辑家具
+	Furniture Catalogue	家具目录
+	Choose a piece in the list (living room, dining, bedroom, kitchen, appliances, TV and computers, desks, meeting and reception, storage), then click where the middle of its back goes, against the wall. Rotate (R) turns the next ones; Type (T) changes the model.	在列表中选择一件家具（客厅、餐厅、卧室、厨房、家用电器、电视与电脑、办公桌、会议与接待、储物），然后在墙边点击其背面中点的位置。旋转 (R) 转动后续家具；类型 (T) 更换型号。
+	It is drawn seen from above at its usual size. In Properties change its model, its width, its depth and its height, its altitude and, for an appliance, the power it draws; a name written beside it is optional.	它以常用尺寸按俯视图绘制。在特性中可修改其型号、宽度、深度、高度、标高，电器还可修改功率；旁边的名称可选。
+	A piece keeps its look when it is made wider or deeper: a sofa 2.40 m long, a desk 1.80 m wide.	加宽或加深后家具外观保持不变：例如 2.40 m 长的沙发、1.80 m 宽的办公桌。
+	The refrigerators, ovens, televisions, computers and the other appliances have their usual power: it is the value to put on a circuit.	冰箱、烤箱、电视、电脑等电器都有常用功率：这就是接入回路时使用的数值。
