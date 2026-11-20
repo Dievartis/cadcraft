@@ -97,26 +97,23 @@ fn panel_contents(app: &mut CadApp, ui: &mut egui::Ui) {
         })
         .unwrap_or_default();
     ui.horizontal(|ui| {
-        if ui.button("Attach…").clicked() {
-            if let Some(result) = app.pick_then(Pick::Image, move |app, path| {
+        if ui.button("Attach…").clicked()
+            && let Some(Err(error)) = app.pick_then(Pick::Image, move |app, path| {
                 app.run("imageattach", json!({"path": path, "dpi": dpi, "unitMm": unit_mm, "autoDpi": auto_dpi}))
-            }) {
-                if let Err(error) = result {
-                    app.set_status(error);
-                }
-            }
+            })
+        {
+            app.set_status(error);
         }
-        if ui.add_enabled(!handles.is_empty(), egui::Button::new("Reload")).clicked() {
-            if let Some(handle) = handles.first() {
-                if let Err(error) = app.run("imagereload", json!({"handle": handle})) {
-                    app.set_status(error);
-                }
-            }
+        if ui.add_enabled(!handles.is_empty(), egui::Button::new("Reload")).clicked()
+            && let Some(handle) = handles.first()
+            && let Err(error) = app.run("imagereload", json!({"handle": handle}))
+        {
+            app.set_status(error);
         }
-        if ui.add_enabled(!handles.is_empty(), egui::Button::new("Detach")).clicked() {
-            if let Err(error) = app.run("erase", json!({"handles": handles})) {
-                app.set_status(error);
-            }
+        if ui.add_enabled(!handles.is_empty(), egui::Button::new("Detach")).clicked()
+            && let Err(error) = app.run("erase", json!({"handles": handles}))
+        {
+            app.set_status(error);
         }
     });
     let search_id = egui::Id::unique("image-manager-search");
@@ -231,10 +228,10 @@ fn panel_contents(app: &mut CadApp, ui: &mut egui::Ui) {
                     params["clipping"] = json!(clipping);
                 }
             });
-            if params.as_object().is_some_and(|p| p.len() > 1) {
-                if let Err(error) = app.run("imageedit", params) {
-                    app.set_status(error);
-                }
+            if params.as_object().is_some_and(|p| p.len() > 1)
+                && let Err(error) = app.run("imageedit", params)
+            {
+                app.set_status(error);
             }
         }
         ui.separator();

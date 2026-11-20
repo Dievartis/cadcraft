@@ -21,7 +21,7 @@ impl Raster {
         let brightness = (f64::from(brightness.min(100)) - 50.0) * 2.55;
         let c = (f64::from(contrast.min(100)) - 50.0) / 50.0;
         let gain = if c >= 0.0 { 1.0 / (1.0 - c * 0.99) } else { 1.0 + c };
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             for channel in pixel.iter_mut().take(3) {
                 *channel = ((f64::from(*channel) - 127.5) * gain + 127.5 + brightness).round().clamp(0.0, 255.0) as u8;
             }
