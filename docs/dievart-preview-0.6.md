@@ -39,10 +39,11 @@ wider than the entire viewport can still be clipped.
 
 ## Palette closing
 
-Every dockable palette has an always-visible close cross at the top right of its
-content. The drawing canvas is excluded. Closing uses the existing `ui.dock`
+Every dockable palette group has an always-visible close cross directly after its
+tab names, on the same strip. It closes the active tab. The drawing canvas is excluded. Closing uses the existing `ui.dock`
 command and hidden-panel restoration, so it does not delete settings or content.
-The cross is above the content rather than embedded in the shared tab renderer.
+No content row is reserved for the cross. The shared tab-strip extension is used
+without replacing the docking renderer or its drag/drop behavior.
 
 ## Integration scope
 
@@ -76,3 +77,8 @@ during compilation of the workspace test executables because the filesystem was
 nearly full. Disposable test executables were removed, keeping sources and
 dependencies. A complete workspace test run, doctests and the translation-gap
 report are not claimed. The focused checks above were run separately.
+
+The tab-strip close follow-up reran the three UI workflow tests, inspected a
+headless palette render and passed UI-library Clippy with `-D warnings`. Its close
+test also checks alignment with the tab strip before closing and reopening the
+palette. Full workspace CI was not repeated for this UI-only refinement.

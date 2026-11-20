@@ -26,7 +26,14 @@ fn direct_close_hides_and_reopens_the_image_panel() {
     h.state_mut().run("ui.dock", json!({"operation":"open","panel":"images"})).unwrap();
     h.run_steps(4);
     assert!(h.state().ui.docking.layout.contains(&Panel::Images));
-    h.get_by_label("Close Image Manager").click();
+    let close = h.get_by_label("Close Image Manager");
+    let tab = craft_ui::docking::DockArea::<Panel>::hit_rects(&h.ctx, egui::Id::unique("cadcraft-docking"))
+        .into_iter()
+        .find(|(hit, _)| *hit == craft_ui::docking::Hit::Tab(Panel::Images))
+        .unwrap()
+        .1;
+    assert!((close.rect().center().y - tab.center().y).abs() < 2.0, "close belongs to the tab strip");
+    close.click();
     h.run_steps(4);
     assert!(!h.state().ui.docking.layout.contains(&Panel::Images));
     h.state_mut().run("ui.dock", json!({"operation":"open","panel":"images"})).unwrap();

@@ -409,21 +409,22 @@ pub struct Panels<'a> {
 }
 
 impl DockContent<Panel> for Panels<'_> {
+    fn group_extra_tabs_width(&self, _panels: &[Panel], active: &Panel, _floating: bool) -> f32 {
+        if *active == Panel::Canvas { 0.0 } else { 24.0 }
+    }
+    fn group_extra_tabs(&mut self, ui: &mut egui::Ui, _panels: &[Panel], active: &Panel, _floating: bool) {
+        if *active == Panel::Canvas {
+            return;
+        }
+        let label = format!("Close {}", active.label());
+        let response = ui.put(ui.max_rect(), egui::Button::new("×").frame(false)).on_hover_text(&label);
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+        if response.clicked() {
+            let _ = self.app.run("ui.dock", json!({"operation":"close","panel":active}));
+        }
+    }
     fn body(&mut self, ui: &mut egui::Ui, panel: &Panel) {
         let app = &mut *self.app;
-        if *panel != Panel::Canvas {
-            let mut close = false;
-            ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 20.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let label = format!("Close {}", panel.label());
-                let response = ui.small_button("×").on_hover_text(&label);
-                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
-                close = response.clicked();
-            });
-            if close {
-                let _ = app.run("ui.dock", json!({"operation":"close","panel":panel}));
-                return;
-            }
-        }
         match panel {
             Panel::Canvas => {
                 ui.painter().rect_filled(ui.max_rect(), 0.0, crate::theme::Tokens::get().canvas);
