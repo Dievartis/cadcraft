@@ -45,6 +45,8 @@ pub(crate) const MAX_WALL_STYLES: usize = 10_000;
 pub(crate) const AIR_TERMINAL_MODELS_KEY: &str = "CADCRAFT_AIRTERMINALMODELS";
 /// Most air terminal models read from a file.
 pub(crate) const MAX_AIR_TERMINAL_MODELS: usize = 10_000;
+/// Named-object-dictionary key of the drawing's cable types XRECORD.
+pub(crate) const CABLE_TYPES_KEY: &str = "CADCRAFT_CABLETYPES";
 /// Named-object-dictionary key of the drawing's pipework part models XRECORD.
 pub(crate) const PART_MODELS_KEY: &str = "CADCRAFT_PARTMODELS";
 /// Most pipework part models read from a file.
@@ -854,6 +856,43 @@ pub(crate) fn parse_air_terminal_models(text: &str) -> Option<Vec<TerminalModel>
         m.name = m.name.trim().to_string();
         if m.validate().is_ok() && seen.insert(m.name.to_lowercase()) {
             out.push(m);
+        }
+    }
+    Some(out)
+}
+
+/// The drawing's cable types stored in the `CADCRAFT_CABLETYPES` XRECORD.
+#[derive(Serialize, Deserialize)]
+struct CableTypesPayload {
+    version: u32,
+    #[serde(default)]
+    types: Vec<cadcraft_doc::CableType>,
+}
+
+/// JSON chunks for the cable types XRECORD, or `None` when the drawing defines none.
+pub(crate) fn cable_type_chunks(types: &[cadcraft_doc::CableType]) -> Option<Vec<String>> {
+    if types.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&CableTypesPayload { version: 1, types: types.to_vec() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// Parse the cable types XRECORD text: the valid types, names trimmed, the first of each name (case-insensitive); `None` when it is not a payload we understand.
+pub(crate) fn parse_cable_types(text: &str) -> Option<Vec<cadcraft_doc::CableType>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: CableTypesPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 || p.types.len() > cadcraft_doc::MAX_CABLE_TYPES {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(p.types.len());
+    for mut t in p.types {
+        t.name = t.name.trim().to_string();
+        if t.validate() && seen.insert(t.name.to_lowercase()) {
+            out.push(t);
         }
     }
     Some(out)

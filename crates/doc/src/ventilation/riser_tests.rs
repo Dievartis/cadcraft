@@ -185,9 +185,14 @@ fn a_riser_of_cables_holds_several_lines_with_arrows_that_do_not_overlap() {
     assert!(texts.iter().any(|(t, _, above)| t == "TD1-C1 35 mm² 12 kW" && *above), "{texts:?}");
     assert!(texts.iter().any(|(t, ..)| t == "BUS1 2 mm²"), "{texts:?}");
     assert!(texts.iter().any(|(t, ..)| t == "CP 1 UP"));
-    // Each line's circle is on the layer of its use.
+    // Each line's circle is on the layer of the cables of its circuit: in the colour of the wire it carries, which follows the circuit's colour.
     let circles = |layer: &str| pieces.iter().filter(|x| x.layer == layer && matches!(x.kind, EntityKind::Circle(_))).count();
-    assert_eq!((circles(CableUsage::Power.layer()), circles(CableUsage::Lighting.layer()), circles(CableUsage::Bus.layer())), (4, 2, 2));
+    for (usage, circuit) in
+        [(CableUsage::Power, "TD1-C1"), (CableUsage::Power, "TD1-C2"), (CableUsage::Lighting, "TD1-E1"), (CableUsage::Bus, "BUS1")]
+    {
+        assert_eq!(circles(cable_layer_of(usage, circuit)), 2, "{circuit}");
+    }
+    assert_ne!(cable_layer_of(CableUsage::Power, "TD1-C1"), CableUsage::Power.layer(), "a circuit has a layer of its own");
     // The texts of the lines (rotated 45°, side by side across their leaders) are at least a label and a half apart across the leaders.
     let h = 100.0;
     let mut spots: Vec<(f64, f64)> = pieces

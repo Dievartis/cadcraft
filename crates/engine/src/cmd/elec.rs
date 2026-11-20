@@ -2,8 +2,8 @@
 //! CIRCUITSIZE work on a circuit as a whole, LIGHTINGCHECK compares the lighting of the rooms with the code, ELECTAKEOFF counts and prices.
 
 use cadcraft_doc::{
-    CableParams, CableUsage, CircuitChange, CircuitOptions, DeviceKind, DeviceParams, ElecConductor, ElecInsulation, ElecLaying, ElecPhases, Handle,
-    HvacUnits, cable_of, device_of,
+    CableParams, CableSpec, CableUsage, CircuitChange, CircuitOptions, DeviceKind, DeviceParams, ElecConductor, ElecInsulation, ElecLaying,
+    ElecPhases, Handle, HvacUnits, cable_of, device_of, parse_cable_spec,
 };
 use cadcraft_geom::Vec2;
 use serde_json::{Value, json};
@@ -30,14 +30,20 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["Draw", "Electricity", "Cable"])
             .params(
                 "{points (2 or more; one cable run per segment), circuit? (\"TD1-C3\": the board, then the circuit: its cables share a colour), usage? (power|lighting|data|safety), phases? (single|three), \
-                 conductor? (copper|aluminium), insulation? (pvc|pr), laying? (B|C|E|F: the selection letter), section? (mm²: none while it is to be sized), protection? (A), cosPhi?, ambient? (°C), \
+                 conductor? (copper|aluminium), insulation? (pvc|pr), laying? (B|C|E|F: the selection letter), section? (mm², or the cable as it is written: 3G1.5, 2x0.75 blindé; none while it is to be sized), cableType? (a cable type of the library), protection? (A), cosPhi?, ambient? (°C), \
                  grouped? (circuits laid together), extra? (m of rises and slack per run), labelHeight? (mm)} → {handles}",
             )
             .interactive(|s| Ok(Box::new(CableAddM::new(s)))),
         CommandSpec::new("elecedit", "Edit Electrical Object", run_edit).params(
             "{handle | handles, for a device: name?, circuit?, address? (on its KNX or DALI line), power? (W), flux? (lm or null), height? (mm; a board's underside), boardHeight? / boardWidth? / boardDepth? (mm, a board), supply? (A or null); for a cable: circuit?, usage?, phases?, conductor?, insulation?, laying?, \
-             section? (mm² or null), protection? (A or null), cosPhi?, ambient?, grouped?, extra?} → {changed}",
+             section? (mm², null or auto: to be sized; or the cable as it is written: 3G1.5, 5G2.5, 2x0.75 blindé), cableType? (a cable type of the library: its cable and its use), protection? (A or null), cosPhi?, ambient?, grouped?, extra?} → {changed}",
         ),
+        CommandSpec::new("cabletypeadd", "Save Cable Type", run_cabletype_add)
+            .params("{name, spec (the cable as it is written: 3G1.5, 5G2.5, 2x0.75 blindé), usage? (power, lighting, data, safety, bus, remote)} → {types}: keeps it in the drawing, for other cables"),
+        CommandSpec::new("cabletypedelete", "Delete Cable Type", run_cabletype_delete)
+            .params("{name} → {deleted}: takes a cable type the drawing kept out of its library (the starting types stay)"),
+        CommandSpec::new("cabletypelist", "Cable Types", run_cabletype_list)
+            .params("{usage? (only the cables of that use)} → {types: [{name, usage, spec, cores, earth, shielded, sectionMm2, own}]}: the starting list and the drawing's cable types"),
         CommandSpec::new("circuitedit", "Edit Circuit", run_circuit_edit).params(
             "{name, rename? (the new name, on every cable, device, equipment and unit of the circuit), + usage?, phases?, conductor?, insulation?, laying?, section?, protection?, cosPhi?, ambient?, grouped?, extra? \
              (on every cable of the circuit)} → {changed}",
@@ -90,12 +96,33 @@ pub struct CableLastUsed {
     pub usage: CableUsage,
     pub phases: ElecPhases,
     pub section_mm2: Option<f64>,
+    /// The conductors, the earth and the shield of the cable as it was typed (3G1.5, 2x0.75 blindé).
+    pub cores: Option<u32>,
+    pub earth: bool,
+    pub shielded: bool,
     pub protection_a: Option<f64>,
 }
 
 impl Default for CableLastUsed {
     fn default() -> Self {
-        CableLastUsed { circuit: String::new(), usage: CableUsage::Power, phases: ElecPhases::Single, section_mm2: None, protection_a: None }
+        CableLastUsed {
+            circuit: String::new(),
+            usage: CableUsage::Power,
+            phases: ElecPhases::Single,
+            section_mm2: None,
+            cores: None,
+            earth: false,
+            shielded: false,
+            protection_a: None,
+        }
+    }
+}
+
+impl CableLastUsed {
+    /// The cable as it is written ("3G1.5", "2x0.75 blindé", "16"), or "Auto" while it is to be sized.
+    fn spec_text(&self) -> String {
+        self.section_mm2
+            .map_or("Auto".to_string(), |s| CableSpec { cores: self.cores, earth: self.earth, shielded: self.shielded, section_mm2: s }.text())
     }
 }
 
@@ -140,21 +167,45 @@ fn word<T>(cmd: &str, p: &Value, key: &str, parse: impl Fn(&str) -> Option<T>) -
     }
 }
 
-/// The changes the keys of `p` ask of every cable (and of the circuit that has them).
-fn change_of(cmd: &str, p: &Value) -> Result<CircuitChange> {
-    Ok(CircuitChange {
+/// The changes the keys of `p` ask of every cable (and of the circuit that has them). `section` is a number (mm²), null or "auto" (to be sized), or the cable as it
+/// is written ("3G1.5", "2x0.75 mm² blindé"); `cableType` is the name of a cable type of the library (its cable, and its use when `usage` is not given).
+fn change_of(cmd: &str, p: &Value, d: &cadcraft_doc::Drawing) -> Result<CircuitChange> {
+    let mut ch = CircuitChange {
         usage: word(cmd, p, "usage", CableUsage::parse)?,
         phases: word(cmd, p, "phases", ElecPhases::parse)?,
         conductor: word(cmd, p, "conductor", ElecConductor::parse)?,
         insulation: word(cmd, p, "insulation", ElecInsulation::parse)?,
         laying: word(cmd, p, "laying", ElecLaying::parse)?,
-        section_mm2: clearable(cmd, p, "section")?,
+        section_mm2: None,
+        cores: None,
+        earth: None,
+        shielded: None,
         protection_a: clearable(cmd, p, "protection")?,
         cos_phi: number(cmd, p, "cosPhi")?,
         ambient_c: number(cmd, p, "ambient")?,
         grouped: number(cmd, p, "grouped")?.map(|g| g.round().clamp(0.0, 1000.0) as u32),
         extra_m: number(cmd, p, "extra")?,
-    })
+    };
+    let set_spec = |ch: &mut CircuitChange, spec: &CableSpec| {
+        (ch.section_mm2, ch.cores, ch.earth, ch.shielded) = (Some(Some(spec.section_mm2)), Some(spec.cores), Some(spec.earth), Some(spec.shielded));
+    };
+    match p.get("section") {
+        None => {}
+        Some(Value::Null) => ch.section_mm2 = Some(None),
+        Some(Value::String(t)) if t.trim().is_empty() || t.trim().eq_ignore_ascii_case("auto") => ch.section_mm2 = Some(None),
+        Some(Value::String(t)) => {
+            let spec =
+                parse_cable_spec(t).ok_or_else(|| bad(cmd, "`section` is a number of mm², auto, or a cable such as 3G1.5 or 2x0.75 blindé"))?;
+            set_spec(&mut ch, &spec);
+        }
+        Some(_) => ch.section_mm2 = clearable(cmd, p, "section")?,
+    }
+    if let Some(name) = str_param(p, "cableType") {
+        let t = d.cable_type_named(name).ok_or_else(|| bad(cmd, format!("`cableType` {name:?} is not in the cable library: see CABLETYPELIST")))?;
+        set_spec(&mut ch, &t.spec);
+        ch.usage = ch.usage.or(t.usage);
+    }
+    Ok(ch)
 }
 
 fn apply_change(c: &mut CableParams, ch: &CircuitChange) {
@@ -175,6 +226,15 @@ fn apply_change(c: &mut CableParams, ch: &CircuitChange) {
     }
     if let Some(v) = ch.section_mm2 {
         c.section_mm2 = v;
+    }
+    if let Some(v) = ch.cores {
+        c.cores = v;
+    }
+    if let Some(v) = ch.earth {
+        c.earth = v;
+    }
+    if let Some(v) = ch.shielded {
+        c.shielded = v;
     }
     if let Some(v) = ch.protection_a {
         c.protection_a = v;
@@ -297,6 +357,7 @@ fn cable_params(s: &Session, last: &CableLastUsed) -> Result<CableParams> {
     let mut c = CableParams::new(&last.circuit, last.usage, HvacUnits::of(s.doc()?));
     c.phases = last.phases;
     c.section_mm2 = last.section_mm2;
+    (c.cores, c.earth, c.shielded) = (last.cores, last.earth, last.shielded);
     c.protection_a = last.protection_a;
     Ok(c)
 }
@@ -319,7 +380,7 @@ fn run_cable_add(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let mut params = cable_params(s, &CableLastUsed::default())?;
     params.circuit = str_param(p, "circuit").unwrap_or("").trim().to_string();
-    apply_change(&mut params, &change_of(CMD, p)?);
+    apply_change(&mut params, &change_of(CMD, p, s.doc()?)?);
     if let Some(l) = number(CMD, p, "labelHeight")? {
         params.label_height_mm = l;
     }
@@ -335,13 +396,49 @@ fn run_cable_add(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "handles": handles }))
 }
 
+fn cable_type_value(t: &cadcraft_doc::CableType, own: bool) -> Value {
+    json!({
+        "name": t.name, "usage": t.usage.map(CableUsage::name), "spec": t.spec.text(), "cores": t.spec.cores, "earth": t.spec.earth,
+        "shielded": t.spec.shielded, "sectionMm2": t.spec.section_mm2, "own": own
+    })
+}
+
+fn run_cabletype_add(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "cabletypeadd";
+    let name = str_param(p, "name").ok_or_else(|| bad(CMD, "`name` is required"))?;
+    let spec = str_param(p, "spec").and_then(parse_cable_spec).ok_or_else(|| bad(CMD, "`spec` is a cable such as 3G1.5, 5G2.5 or 2x0.75 blindé"))?;
+    let usage = word(CMD, p, "usage", CableUsage::parse)?;
+    s.doc_mut()?.save_cable_type(cadcraft_doc::CableType { name: name.trim().to_string(), usage, spec }).map_err(doc_err)?;
+    Ok(json!({ "types": s.doc()?.cable_types.len() }))
+}
+
+fn run_cabletype_delete(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "cabletypedelete";
+    let name = str_param(p, "name").ok_or_else(|| bad(CMD, "`name` is required"))?;
+    let deleted = s.doc_mut()?.delete_cable_type(name);
+    Ok(json!({ "deleted": deleted }))
+}
+
+fn run_cabletype_list(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "cabletypelist";
+    let usage = word(CMD, p, "usage", CableUsage::parse)?;
+    let d = s.doc()?;
+    let types: Vec<Value> = d
+        .available_cable_types()
+        .iter()
+        .filter(|t| usage.is_none_or(|u| t.usage == Some(u)))
+        .map(|t| cable_type_value(t, d.cable_types.iter().any(|o| o.name.eq_ignore_ascii_case(&t.name))))
+        .collect();
+    Ok(json!({ "types": types }))
+}
+
 fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "elecedit";
     let hs = super::arch::handles_param(CMD, p)?;
     if hs.len() > MAX_EDITED {
         return Err(bad(CMD, format!("at most {MAX_EDITED} objects")));
     }
-    let change = change_of(CMD, p)?;
+    let change = change_of(CMD, p, s.doc()?)?;
     let circuit = str_param(p, "circuit").map(|c| c.trim().to_string());
     let mut done: Vec<(Handle, Option<CableParams>, Option<DeviceParams>)> = Vec::new();
     for h in hs {
@@ -401,7 +498,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
 fn run_circuit_edit(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "circuitedit";
     let name = str_param(p, "name").map(str::trim).filter(|n| !n.is_empty()).ok_or_else(|| bad(CMD, "`name` is required"))?.to_string();
-    let change = change_of(CMD, p)?;
+    let change = change_of(CMD, p, s.doc()?)?;
     let doc = s.doc_mut()?;
     let mut changed = doc.edit_circuit(&name, &change).map_err(doc_err)?;
     if let Some(to) = str_param(p, "rename") {
@@ -542,7 +639,7 @@ impl CableAddM {
             "Current settings: Circuit = {}, Usage = {}, Section = {}, Protection = {}",
             if l.circuit.is_empty() { "-" } else { &l.circuit },
             l.usage.name(),
-            l.section_mm2.map_or("Auto".to_string(), |v| format!("{v} mm²")),
+            l.spec_text(),
             l.protection_a.map_or("Auto".to_string(), |v| format!("{v} A"))
         ));
     }
@@ -562,8 +659,9 @@ impl Interactive for CableAddM {
             CableAsk::Usage => {
                 Prompt::new("Enter the use", super::curves::KW).kw(&["Power", "Lighting", "Data", "Safety"]).default(self.last.usage.name())
             }
-            CableAsk::Section => Prompt::new("Enter the section (mm²) or [Auto]", Accept::TEXT)
-                .default(self.last.section_mm2.map_or("Auto".to_string(), |v| v.to_string())),
+            CableAsk::Section => {
+                Prompt::new("Enter the cable (3G1.5, 2x0.75 blindé, a section in mm²) or [Auto]", Accept::TEXT).default(self.last.spec_text())
+            }
             CableAsk::Protection => Prompt::new("Enter the rating of the breaker (A) or [Auto]", Accept::TEXT)
                 .default(self.last.protection_a.map_or("Auto".to_string(), |v| v.to_string())),
             CableAsk::Point => match self.pts.last().copied() {
@@ -588,11 +686,13 @@ impl Interactive for CableAddM {
                 None => s.echo("Enter Power, Lighting, Data or Safety."),
             },
             (CableAsk::Section, Some(t)) => {
-                let v =
-                    if t.eq_ignore_ascii_case("auto") { Some(None) } else { t.replace(',', ".").parse::<f64>().ok().filter(|x| *x > 0.0).map(Some) };
-                match v {
-                    Some(v) => self.last.section_mm2 = v,
-                    None => s.echo("Requires a section in mm² or Auto."),
+                if t.eq_ignore_ascii_case("auto") {
+                    (self.last.section_mm2, self.last.cores, self.last.earth, self.last.shielded) = (None, None, false, false);
+                } else if let Some(spec) = parse_cable_spec(&t) {
+                    (self.last.section_mm2, self.last.cores, self.last.earth, self.last.shielded) =
+                        (Some(spec.section_mm2), spec.cores, spec.earth, spec.shielded);
+                } else {
+                    s.echo("Requires a cable as 3G1.5 or 2x0.75 blindé, a section in mm², or Auto.");
                 }
             }
             (CableAsk::Protection, Some(t)) => {

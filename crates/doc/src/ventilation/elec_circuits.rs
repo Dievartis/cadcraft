@@ -494,6 +494,10 @@ pub struct CircuitChange {
     pub insulation: Option<ElecInsulation>,
     pub laying: Option<ElecLaying>,
     pub section_mm2: Option<Option<f64>>,
+    /// The conductors, the earth and the shield, when a cable was typed ("3G1.5", "2x0.75 blindé").
+    pub cores: Option<Option<u32>>,
+    pub earth: Option<bool>,
+    pub shielded: Option<bool>,
     pub protection_a: Option<Option<f64>>,
     pub cos_phi: Option<f64>,
     pub ambient_c: Option<f64>,
@@ -525,6 +529,15 @@ impl crate::Drawing {
             }
             if let Some(v) = change.section_mm2 {
                 c.section_mm2 = v;
+            }
+            if let Some(v) = change.cores {
+                c.cores = v;
+            }
+            if let Some(v) = change.earth {
+                c.earth = v;
+            }
+            if let Some(v) = change.shielded {
+                c.shielded = v;
             }
             if let Some(v) = change.protection_a {
                 c.protection_a = v;

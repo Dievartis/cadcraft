@@ -276,6 +276,10 @@ impl Objects {
         if let Some(models) = self.xrecord_text(crate::dxf_ext::AIR_TERMINAL_MODELS_KEY).and_then(|t| crate::dxf_ext::parse_air_terminal_models(&t)) {
             d.air_terminal_models = models;
         }
+        // The drawing's cable types.
+        if let Some(types) = self.xrecord_text(crate::dxf_ext::CABLE_TYPES_KEY).and_then(|t| crate::dxf_ext::parse_cable_types(&t)) {
+            d.cable_types = types;
+        }
         // The drawing's pipework part models.
         if let Some(models) = self.xrecord_text(crate::dxf_ext::PART_MODELS_KEY).and_then(|t| crate::dxf_ext::parse_part_models(&t)) {
             d.part_models = models;

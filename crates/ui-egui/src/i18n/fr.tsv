@@ -3689,3 +3689,12 @@ echo	Not a type of furniture: see FURNITURELIST.	Ce n'est pas un type de mobilie
 	Show Equipment Sizes	Afficher les tailles des équipements
 	Hide Equipment Sizes	Masquer les tailles des équipements
 	Writes (or takes off) the size beside every equipment of the drawing.	Écrit (ou retire) la taille à côté de chaque équipement du dessin.
+	Save Cable Type	Enregistrer un type de câble
+	Delete Cable Type	Supprimer un type de câble
+	Cable Types	Types de câbles
+	Section or cable (3G1.5, 2x0.75…)	Section ou câble (3G1.5, 2x0.75…)
+	Cable type	Type de câble
+	Choose a cable type	Choisir un type de câble
+	Save as cable type	Enregistrer comme type de câble
+	Enter the cable (3G1.5, 2x0.75 blindé, a section in mm²) or [Auto]	Entrez le câble (3G1.5, 2x0.75 blindé, une section en mm²) ou [Auto]
+echo	Requires a cable as 3G1.5 or 2x0.75 blindé, a section in mm², or Auto.	Il faut un câble comme 3G1.5 ou 2x0.75 blindé, une section en mm², ou Auto.

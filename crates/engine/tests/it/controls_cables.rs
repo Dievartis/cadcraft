@@ -64,3 +64,66 @@ fn the_size_of_an_equipment_can_be_hidden_one_by_one_or_for_the_whole_drawing() 
     assert!(s.execute("equipmentsizedisplay", &json!({"show": "no"})).is_err());
     assert!(s.execute("equipmentedit", &json!({"handle": a["handle"], "showSize": "no"})).is_err());
 }
+
+fn cable(s: &Session, h: &Value) -> cadcraft_doc::CableParams {
+    cable_of(s.doc().unwrap().entity(hd(h)).unwrap()).unwrap()
+}
+
+#[test]
+fn a_cable_is_given_by_its_conductors_and_section_as_it_is_written_and_by_a_cable_type() {
+    let mut s = metric();
+    // The conductors, the earth, the shield and the section, in the text of the section.
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "circuit": "TD1-C1", "section": "3G1.5"})).unwrap();
+    let c = cable(&s, &r["handles"][0]);
+    assert_eq!((c.cores, c.earth, c.shielded, c.section_mm2, c.size_text().as_str()), (Some(3), true, false, Some(1.5), "3G1.5"));
+    let r = s
+        .execute("cableadd", &json!({"points": [[0, 500], [5000, 500]], "circuit": "BUS1", "usage": "bus", "section": "2x0,75 mm² blindé"}))
+        .unwrap();
+    let c = cable(&s, &r["handles"][0]);
+    assert_eq!((c.cores, c.earth, c.shielded, c.section_mm2), (Some(2), false, true, Some(0.75)));
+    assert_eq!((c.size_text().as_str(), c.spec_text().as_str(), c.label_text().as_str()), ("2x0.75 blindé", "2x0.75 blindé", "BUS1 2x0.75 blindé"));
+    // A number alone is a section: the conductors are those of the phases (5G on three phases), and a number sent to a cable that has its own leaves them.
+    let r = s.execute("cableadd", &json!({"points": [[0, 1000], [5000, 1000]], "circuit": "TD1-C2", "phases": "three", "section": 16})).unwrap();
+    assert_eq!(cable(&s, &r["handles"][0]).size_text(), "5G16");
+    let r2 = s.execute("elecedit", &json!({"handle": r["handles"][0], "section": 25})).unwrap();
+    assert_eq!(r2["changed"], 1);
+    assert_eq!(cable(&s, &r["handles"][0]).size_text(), "5G25");
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "4x1.5 blindé"})).unwrap();
+    assert_eq!(cable(&s, &r["handles"][0]).size_text(), "4x1.5 blindé");
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "auto"})).unwrap();
+    assert_eq!(cable(&s, &r["handles"][0]).size_text(), "");
+    // Refused.
+    for bad in ["3G", "abc", "0x1.5", "3G700"] {
+        assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "section": bad})).is_err(), "{bad}");
+    }
+    // A cable type of the starting list gives its cable and its use.
+    let t = s
+        .execute("cableadd", &json!({"points": [[0, 1500], [5000, 1500]], "circuit": "TC1", "cableType": "Remote control 2x0.75 shielded"}))
+        .unwrap();
+    let c = cable(&s, &t["handles"][0]);
+    assert_eq!((c.usage, c.size_text().as_str()), (CableUsage::Remote, "2x0.75 blindé"));
+    assert!(s.execute("cableadd", &json!({"points": [[0, 0], [1000, 0]], "cableType": "nope"})).is_err());
+}
+
+#[test]
+fn cable_types_are_saved_in_the_drawing_listed_and_deleted() {
+    let mut s = metric();
+    let all = s.execute("cabletypelist", &json!({})).unwrap();
+    let n = all["types"].as_array().unwrap().len();
+    assert!(n > 20 && all["types"].as_array().unwrap().iter().all(|t| t["own"] == false));
+    let bus = s.execute("cabletypelist", &json!({"usage": "bus"})).unwrap();
+    assert!(bus["types"].as_array().unwrap().iter().all(|t| t["usage"] == "bus") && !bus["types"].as_array().unwrap().is_empty());
+    s.execute("cabletypeadd", &json!({"name": "KNX 2x0.8", "spec": "2x0.8 blindé", "usage": "bus"})).unwrap();
+    let after = s.execute("cabletypelist", &json!({})).unwrap();
+    assert_eq!(after["types"].as_array().unwrap().len(), n + 1);
+    assert!(after["types"].as_array().unwrap().iter().any(|t| t["name"] == "KNX 2x0.8" && t["own"] == true && t["spec"] == "2x0.8 blindé"));
+    // It is used by name, and saved again under the same name it is replaced.
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [3000, 0]], "circuit": "BUS2", "cableType": "knx 2x0.8"})).unwrap();
+    assert_eq!(cable(&s, &r["handles"][0]).size_text(), "2x0.8 blindé");
+    s.execute("cabletypeadd", &json!({"name": "knx 2x0.8", "spec": "2x1"})).unwrap();
+    assert_eq!(s.doc().unwrap().cable_types.len(), 1);
+    assert!(s.execute("cabletypeadd", &json!({"name": "", "spec": "2x1"})).is_err());
+    assert!(s.execute("cabletypeadd", &json!({"name": "x", "spec": "rien"})).is_err());
+    assert_eq!(s.execute("cabletypedelete", &json!({"name": "KNX 2X0.8"})).unwrap()["deleted"], true);
+    assert_eq!(s.execute("cabletypedelete", &json!({"name": "KNX 2X0.8"})).unwrap()["deleted"], false);
+}

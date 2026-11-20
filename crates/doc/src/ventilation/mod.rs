@@ -8,6 +8,7 @@
 
 mod accessory;
 mod addresses;
+mod cable_types;
 mod circuit_legend;
 mod control;
 mod control_report;
@@ -52,6 +53,7 @@ mod zone;
 
 pub use accessory::*;
 pub use addresses::*;
+pub use cable_types::*;
 pub use circuit_legend::*;
 pub use control::*;
 pub use control_report::*;

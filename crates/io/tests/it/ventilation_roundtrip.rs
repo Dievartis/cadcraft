@@ -15,6 +15,12 @@ fn drawing() -> (Drawing, SpaceParams, TerminalParams) {
     model.name = "Diffuseur 4 voies 600".into();
     model.max_flow_m3h = 320.0;
     d.air_terminal_models.push(model.clone());
+    d.save_cable_type(cadcraft_doc::CableType {
+        name: "Bus KNX".into(),
+        usage: Some(cadcraft_doc::CableUsage::Bus),
+        spec: cadcraft_doc::parse_cable_spec("2x0.8 blindé").expect("a cable"),
+    })
+    .expect("a cable type");
     let space = SpaceParams {
         name: "Salle de réunion".into(),
         room: RoomUse::DiningSalesMeeting,
@@ -45,6 +51,7 @@ fn spaces_terminals_and_models_survive_dxf_and_dwg() {
         let terminals: Vec<TerminalParams> = back.model.iter().filter_map(|e| air_terminal_of(e)).collect();
         assert_eq!(terminals, std::slice::from_ref(&terminal), "{name}: the terminal");
         assert_eq!(back.air_terminal_models, d.air_terminal_models, "{name}: the drawing's models");
+        assert_eq!(back.cable_types, d.cable_types, "{name}: the drawing's cable types");
     }
 }
 

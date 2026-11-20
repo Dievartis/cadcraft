@@ -109,7 +109,7 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     }
     let cables: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::cable_of(e))).collect();
     if !cables.is_empty() && cables.len() == sel.len() {
-        return cable_section(ui, sel, &cables, bad);
+        return cable_section(ui, d, sel, &cables, bad);
     }
     let slabs: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| slab_of(e))).collect();
     if !slabs.is_empty() && slabs.len() == sel.len() {
@@ -496,8 +496,21 @@ fn device_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[cadcraft_doc::DeviceP
     action
 }
 
+/// The label of a use of cables, in the cable type menu.
+fn usage_label(u: cadcraft_doc::CableUsage) -> &'static str {
+    use cadcraft_doc::CableUsage::{Bus, Data, Lighting, Power, Remote, Safety};
+    match u {
+        Power => "Power",
+        Lighting => "Lighting",
+        Data => "Data",
+        Safety => "Safety",
+        Bus => "Control bus",
+        Remote => "Remote control",
+    }
+}
+
 /// The Properties group of cables: circuit, use, section, protection and the conditions of the laying.
-fn cable_section(ui: &mut egui::Ui, sel: &[Handle], cs: &[cadcraft_doc::CableParams], bad: &mut Option<String>) -> Action {
+fn cable_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], cs: &[cadcraft_doc::CableParams], bad: &mut Option<String>) -> Action {
     let ids = handles(sel);
     let mut action: Action = None;
     group(ui, "Cable");
@@ -520,7 +533,41 @@ fn cable_section(ui: &mut egui::Ui, sel: &[Handle], cs: &[cadcraft_doc::CablePar
             action = Some(("elecedit", json!({ "handles": ids, "laying": u })));
         }
     });
-    elec_number(ui, ("elecedit", "Section (mm²)", "section", true), &ids, cs.iter().map(|c| c.section_mm2).collect(), bad, &mut action);
+    // The section is the cable as it is written: "3G1.5", "5G2.5", "2x0.75 blindé", or a section alone; empty is to be sized.
+    let written = shared(&cs.iter().map(|c| c.spec_text()).collect::<Vec<_>>());
+    prop_row(ui, "Section or cable (3G1.5, 2x0.75…)", |ui| {
+        let shown = written.clone().unwrap_or_else(|| VARIES.into());
+        if let Some(t) = edit_field(ui, ui.scope_id().with(("cable_spec", &ids)), shown).filter(|t| t != VARIES) {
+            action = Some(("elecedit", json!({ "handles": ids, "section": if t.trim().is_empty() { Value::Null } else { json!(t.trim()) } })));
+        }
+    });
+    // The library: a cable type gives its cable (and its use); the cable of this one can be kept under a name for other cables.
+    prop_row(ui, "Cable type", |ui| {
+        ui.menu_button(crate::i18n::t("Choose a cable type"), |ui| {
+            let types = d.available_cable_types();
+            for usage in cadcraft_doc::CableUsage::ALL {
+                let of_use: Vec<_> = types.iter().filter(|t| t.usage == Some(usage)).collect();
+                if of_use.is_empty() {
+                    continue;
+                }
+                ui.menu_button(crate::i18n::t(usage_label(usage)), |ui| {
+                    for t in of_use {
+                        if ui.button(&t.name).on_hover_text(t.spec.text()).clicked() {
+                            action = Some(("elecedit", json!({ "handles": ids, "cableType": t.name })));
+                            ui.close();
+                        }
+                    }
+                });
+            }
+        });
+    });
+    if let (Some(spec), Some(first)) = (written.as_deref().and_then(cadcraft_doc::parse_cable_spec), cs.first()) {
+        prop_row(ui, "Save as cable type", |ui| {
+            if let Some(name) = edit_field(ui, ui.scope_id().with(("cable_type_save", &ids)), String::new()).filter(|n| !n.trim().is_empty()) {
+                action = Some(("cabletypeadd", json!({ "name": name.trim(), "spec": spec.text(), "usage": first.usage.name() })));
+            }
+        });
+    }
     elec_number(ui, ("elecedit", "Breaker (A)", "protection", true), &ids, cs.iter().map(|c| c.protection_a).collect(), bad, &mut action);
     elec_number(ui, ("elecedit", "Power factor", "cosPhi", false), &ids, cs.iter().map(|c| Some(c.cos_phi)).collect(), bad, &mut action);
     elec_number(ui, ("elecedit", "Ambient (°C)", "ambient", false), &ids, cs.iter().map(|c| Some(c.ambient_c)).collect(), bad, &mut action);

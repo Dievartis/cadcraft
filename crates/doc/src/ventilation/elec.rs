@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::part::{circle, half_circle, line, poly, rect, text_in};
 use super::pipe_networks::network_layer;
-use super::{HvacPiece, HvacUnits, check_label_height, invalid, label, v3, xdata};
+use super::{CableSpec, HvacPiece, HvacUnits, check_label_height, invalid, label, v3, xdata};
 use crate::{EntityKind, RawTag, Result};
 
 pub const CABLE_APP: &str = "CADCRAFT_CABLE";
@@ -186,6 +186,15 @@ pub struct CableParams {
     /// The section, mm², or none while it is to be sized.
     #[serde(default)]
     pub section_mm2: Option<f64>,
+    /// The number of conductors as the user wrote them (3G1.5, 2x0.75): none for the usual ones of the circuit's phases, 3G or 5G.
+    #[serde(default)]
+    pub cores: Option<u32>,
+    /// Whether one of the conductors is an earth (the G of 3G1.5), when `cores` is given.
+    #[serde(default)]
+    pub earth: bool,
+    /// Whether the cable is shielded.
+    #[serde(default)]
+    pub shielded: bool,
     /// The rating of the circuit breaker that protects the circuit, A, or none while it is to be chosen.
     #[serde(default)]
     pub protection_a: Option<f64>,
@@ -216,6 +225,9 @@ impl CableParams {
             insulation: ElecInsulation::Pvc,
             laying: ElecLaying::B,
             section_mm2: None,
+            cores: None,
+            earth: false,
+            shielded: false,
             protection_a: None,
             cos_phi: default_cos_phi(),
             ambient_c: default_ambient(),
@@ -258,14 +270,27 @@ impl CableParams {
         self.length * self.units.mm_per_unit / 1000.0 + self.extra_m
     }
 
-    /// The conductors of the cable as it is written: 3G for a single-phase circuit (phase, neutral and earth), 5G for a three-phase one.
+    /// The conductors of the cable as it is written: the ones given, else 3G for a single-phase circuit (phase, neutral and earth), 5G for a three-phase one.
     pub fn cores(&self) -> u32 {
-        if self.phases == ElecPhases::Three { 5 } else { 3 }
+        self.cores.unwrap_or(if self.phases == ElecPhases::Three { 5 } else { 3 })
     }
 
-    /// The cable as it is written ("3G2.5"), or empty while the section is not chosen.
+    /// The cable as it is written ("3G2.5", "2x0.75 blindé"), or empty while the section is not chosen.
     pub fn size_text(&self) -> String {
-        self.section_mm2.map_or(String::new(), |s| format!("{}G{}", self.cores(), s))
+        self.section_mm2.map_or(String::new(), |s| {
+            let (cores, earth) = if self.cores.is_some() { (self.cores(), self.earth) } else { (self.cores(), true) };
+            CableSpec { cores: Some(cores), earth, shielded: self.shielded, section_mm2: s }.text()
+        })
+    }
+
+    /// What the section field of the cable says: the cable as it was written ("3G2.5", "2x0.75 blindé", or the section alone), empty while it is to be sized.
+    pub fn spec_text(&self) -> String {
+        self.section_mm2.map_or(String::new(), |s| CableSpec { cores: self.cores, earth: self.earth, shielded: self.shielded, section_mm2: s }.text())
+    }
+
+    /// Gives the cable the conductors, the earth, the shield and the section of `spec`.
+    pub fn set_spec(&mut self, spec: &CableSpec) {
+        (self.cores, self.earth, self.shielded, self.section_mm2) = (spec.cores, spec.earth, spec.shielded, Some(spec.section_mm2));
     }
 
     /// The layer of the cable: its use's, or the circuit's copy of it.
