@@ -3709,3 +3709,40 @@ echo	Requires a cable as 3G1.5 or 2x0.75 blindé, a section in mm², or Auto.	Il
 	Puts the layers of the wall in the opposite order, on the same footprint.	Met les couches du mur dans l'ordre inverse, au même endroit.
 echo	Walls are drawn turned round: the layers are in the opposite order.	Les murs sont dessinés à l'envers : les couches sont dans l'ordre inverse.
 echo	Walls are drawn as the style has them.	Les murs sont dessinés comme le style les a.
+	Insertion scale	Échelle d'insertion
+	Sample output	Exemple de résultat
+	Architectural	Architectural
+	Decimal	Décimal
+	Engineering	Ingénieur
+	Fractional	Fractionnaire
+	Scientific	Scientifique
+	Decimal Degrees	Degrés décimaux
+	Deg/Min/Sec	Deg/Min/Sec
+	Grads	Grades
+	Radians	Radians
+	Surveyor's Units	Unités du géomètre
+	Unitless	Sans unité
+	Inches	Pouces
+	Feet	Pieds
+	Miles	Miles
+	Millimeters	Millimètres
+	Centimeters	Centimètres
+	Meters	Mètres
+	Kilometers	Kilomètres
+	Microinches	Micropouces
+	Mils	Millièmes de pouce
+	Yards	Yards
+	Angstroms	Angströms
+	Nanometers	Nanomètres
+	Microns	Microns
+	Decimeters	Décimètres
+	Decameters	Décamètres
+	Hectometers	Hectomètres
+	Gigameters	Gigamètres
+	Astronomical Units	Unités astronomiques
+	Light Years	Années-lumière
+	Parsecs	Parsecs
+	US Survey Feet	Pieds US (arpentage)
+	US Survey Inch	Pouces US (arpentage)
+	US Survey Yard	Yards US (arpentage)
+	US Survey Mile	Miles US (arpentage)

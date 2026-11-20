@@ -282,11 +282,11 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             .unwrap_or([2, 4, 0, 0, 1])
     });
     let (mut apply, mut cancel) = (false, false);
-    egui::Window::new("Drawing Units").open(open).resizable(false).collapsible(false).show(ctx, |ui| {
+    egui::Window::new(crate::i18n::t("Drawing Units")).open(open).resizable(false).collapsible(false).show(ctx, |ui| {
         let [lu, lp, au, ap, ins] = &mut v;
-        let types = |t: &[(i64, &str)]| t.iter().map(|(k, l)| (*k, l.to_string())).collect::<Vec<_>>();
+        let types = |t: &[(i64, &str)]| t.iter().map(|(k, l)| (*k, crate::i18n::t(l).to_string())).collect::<Vec<_>>();
         egui::Grid::new("units_grid").num_columns(2).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
-            ui.strong("Length");
+            ui.strong(crate::i18n::t("Length"));
             ui.end_row();
             ui.label(crate::i18n::t("Type"));
             pick(ui, "units_lunits", lu, &types(&LENGTH_TYPES));
@@ -294,7 +294,7 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             ui.label(crate::i18n::t("Precision"));
             pick(ui, "units_luprec", lp, &length_precisions(*lu));
             ui.end_row();
-            ui.strong("Angle");
+            ui.strong(crate::i18n::t("Angle"));
             ui.end_row();
             ui.label(crate::i18n::t("Type"));
             pick(ui, "units_aunits", au, &types(&ANGLE_TYPES));
@@ -302,13 +302,13 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             ui.label(crate::i18n::t("Precision"));
             pick(ui, "units_auprec", ap, &(0..=8).map(|p| (p, format_angle(45f64.to_radians(), *au, p))).collect::<Vec<_>>());
             ui.end_row();
-            ui.strong("Insertion scale");
+            ui.strong(crate::i18n::t("Insertion scale"));
             ui.end_row();
             ui.label(crate::i18n::t("Units to scale inserted content"));
-            let names = INSERTION_UNITS.iter().enumerate().map(|(k, l)| (k as i64, l.to_string())).collect::<Vec<_>>();
+            let names = INSERTION_UNITS.iter().enumerate().map(|(k, l)| (k as i64, crate::i18n::t(l).to_string())).collect::<Vec<_>>();
             pick(ui, "units_insunits", ins, &names);
             ui.end_row();
-            ui.strong("Sample output");
+            ui.strong(crate::i18n::t("Sample output"));
             ui.end_row();
             ui.label("");
             ui.label(format!("{},{},{}", format_distance(1.5, *lu, *lp), format_distance(2.0039, *lu, *lp), format_distance(0.0, *lu, *lp)));
