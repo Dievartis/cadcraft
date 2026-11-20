@@ -1242,3 +1242,53 @@ fn a_wall_is_turned_round_on_the_same_footprint_with_its_layers_in_the_opposite_
     let last = walls(&s).into_iter().map(|(_, w)| w).find(|w| path(w) == [(0.0, 0.0), (-4000.0, 0.0)]).expect("the wall drawn turned round");
     assert_eq!(last.justification, WallJustification::Right);
 }
+
+#[test]
+fn walls_of_every_standard_style_are_still_as_drawn_after_a_dxf_or_dwg_round_trip() {
+    let mut s = metric();
+    let styles: Vec<String> = cadcraft_doc::standard_wall_styles().into_iter().map(|st| st.name).collect();
+    for (k, name) in styles.iter().enumerate() {
+        let y = k as f64 * 3000.0;
+        for (j, just) in ["left", "center", "right"].into_iter().enumerate() {
+            let x = j as f64 * 6000.0;
+            s.execute("walladd", &json!({"points": [[x, y], [x + 4000.0, y], [x + 4000.0, y + 2000.0]], "style": name, "justification": just}))
+                .unwrap();
+        }
+    }
+    for ext in ["w.dxf", "w.dwg"] {
+        let bytes = cadcraft_io::write(s.doc().unwrap(), ext).unwrap();
+        let back = cadcraft_io::read(&bytes, ext).unwrap();
+        let broken: Vec<_> =
+            back.model.iter().filter(|e| wall_of(e).is_some() && !back.wall_is_intact(e.handle)).map(|e| wall_of(e).unwrap().style.name).collect();
+        assert!(broken.is_empty(), "{ext}: walls no longer as drawn: {broken:?}");
+    }
+}
+
+#[test]
+fn walls_edited_by_hand_are_left_alone_and_counted_unless_regeneration_is_asked_for() {
+    let mut s = metric();
+    let a = h(&s.execute("walladd", &json!({"points": [[0, 0], [5000, 0]], "style": BRICK})).unwrap());
+    let b = h(&s.execute("walladd", &json!({"points": [[0, 3000], [5000, 3000]], "style": BRICK})).unwrap());
+    // A wall scaled by hand can't be redrawn without losing that.
+    s.doc_mut()
+        .unwrap()
+        .modify_entity(b, |e| {
+            if let EntityKind::Insert(i) = &mut e.kind {
+                i.scale.x = 2.0;
+            }
+        })
+        .unwrap();
+    assert!(!s.doc().unwrap().wall_is_intact(b));
+    // Together: the one that can be changed is, the other is counted.
+    let r = s.execute("walledit", &json!({"handles": [a.hex(), b.hex()], "flip": true})).unwrap();
+    assert_eq!((r["regenerated"].as_u64(), r["kept"].as_u64()), (Some(1), Some(1)));
+    assert_eq!(wall(&s, a).justification, WallJustification::Right);
+    assert_eq!(wall(&s, b).justification, WallJustification::Left, "the scaled wall is as it was");
+    // Alone: an error that says what to do, nothing changes.
+    let e = s.execute("walledit", &json!({"handle": b.hex(), "flip": true})).unwrap_err().to_string();
+    assert!(e.contains("force"), "{e}");
+    // Asked for, it is redrawn from its data.
+    let r = s.execute("walledit", &json!({"handle": b.hex(), "force": true})).unwrap();
+    assert_eq!(r["regenerated"], 1);
+    assert!(s.doc().unwrap().wall_is_intact(b), "at its own size again");
+}

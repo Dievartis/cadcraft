@@ -39,6 +39,7 @@ pub fn specs() -> Vec<CommandSpec> {
                  applyToStyle? (true: the style and every wall that uses it take the thicknesses too), \
                  freeStart? | freeEnd? (true: that end of an open wall is left as drawn, not joined to the walls it meets), \
                  flip? (true: the walls are turned round, their layers in the opposite order on the same footprint: the face that was outside is inside), \
+                 force? (true: walls edited by hand or scaled are regenerated from their data too; else they are left as they are and counted in `kept`), \
                  bulges? (one per segment, as WALLADD) | segment? + bulge? (one segment's, the others kept; 0 makes it straight)} → {regenerated}",
             )
             .interactive(|s| Ok(Box::new(WallEditM::new(s)))),
@@ -722,6 +723,8 @@ struct WallChange {
     bulges: Option<Vec<f64>>,
     /// Turns the walls round: their layers are in the opposite order on the same footprint.
     flip: bool,
+    /// Regenerates the walls that were edited by hand or scaled too, from their data (what was done to them is lost).
+    force: bool,
 }
 
 /// A layer of a wall style: by name (every layer of that name) or by its place from the exterior face.
@@ -759,28 +762,36 @@ fn set_thicknesses(style: &mut WallStyle, layers: &[(LayerRef, f64)]) -> Result<
     style.validate().map_err(|e| other(e.to_string()))
 }
 
-/// The walls among `handles`, refusing an object that is not a wall or that was edited by hand.
-fn editable_walls(d: &Drawing, handles: &[Handle]) -> Result<Vec<(Handle, WallParams)>> {
+/// The walls among `handles`, refusing an object that is not a wall. A wall edited by hand or scaled (or drawn by an older version) can't be regenerated
+/// without losing what was done to it: it is left as it is and counted, unless `force` asks for it to be regenerated from its data; when none can be, that is an error.
+fn editable_walls(d: &Drawing, handles: &[Handle], force: bool) -> Result<(Vec<(Handle, WallParams)>, usize)> {
     if handles.is_empty() || handles.len() > MAX_EDITED {
         return Err(other(format!("Select 1 to {MAX_EDITED} walls.")));
     }
     let mut out = Vec::with_capacity(handles.len());
+    let mut kept = 0;
     for &h in handles {
         let w = d.entity(h).and_then(|e| wall_of(e)).ok_or_else(|| other("Select walls only."))?;
-        if !d.wall_is_intact(h) {
-            return Err(other("A selected wall was edited by hand or scaled: it can't be regenerated."));
+        if force || d.wall_is_intact(h) {
+            out.push((h, w));
+        } else {
+            kept += 1;
         }
-        out.push((h, w));
     }
-    Ok(out)
+    if out.is_empty() {
+        return Err(other(
+            "The selected walls were edited by hand or scaled (or drawn by an older version): they can't be regenerated without losing that. Use Regenerate in Properties (or `force`) to redraw them from their data.",
+        ));
+    }
+    Ok((out, kept))
 }
 
 /// Most objects one edit changes.
 const MAX_EDITED: usize = 10_000;
 
 /// Gives every wall of `handles` the change; nothing changes when one of them can't take it.
-fn edit_walls(s: &mut Session, handles: &[Handle], c: &WallChange) -> Result<usize> {
-    let walls = editable_walls(s.doc()?, handles)?;
+fn edit_walls(s: &mut Session, handles: &[Handle], c: &WallChange) -> Result<(usize, usize)> {
+    let (walls, kept) = editable_walls(s.doc()?, handles, c.force)?;
     let mut next = Vec::with_capacity(walls.len());
     for (h, mut w) in walls {
         if let Some(st) = &c.style {
@@ -816,6 +827,15 @@ fn edit_walls(s: &mut Session, handles: &[Handle], c: &WallChange) -> Result<usi
     let d = s.doc_mut()?;
     for (h, w) in &next {
         d.regenerate_wall(*h, w).map_err(|e| other(e.to_string()))?;
+        // A wall that was scaled is drawn at its own size again.
+        if c.force {
+            d.modify_entity(*h, |e| {
+                if let EntityKind::Insert(i) = &mut e.kind {
+                    (i.scale.x, i.scale.y, i.scale.z, i.cols, i.rows) = (i.scale.x.signum(), i.scale.y.signum(), 1.0, 1, 1);
+                }
+            })
+            .map_err(|e| other(e.to_string()))?;
+        }
     }
     if let Some(st) = &c.style
         && d.wall_style(&st.name).is_none()
@@ -841,7 +861,7 @@ fn edit_walls(s: &mut Session, handles: &[Handle], c: &WallChange) -> Result<usi
     for space in wall_spaces(d) {
         join_walls(d, &space);
     }
-    Ok(next.len())
+    Ok((next.len(), kept))
 }
 
 /// The spaces (model, layouts) holding walls.
@@ -1084,8 +1104,10 @@ fn run_walledit(s: &mut Session, p: &Value) -> Result<Value> {
         (None, None) => None,
     };
     let flip = flag("flip")?.unwrap_or(false);
-    let n = edit_walls(s, &handles, &WallChange { style, justification, height, layers, apply_to_style, start_free, end_free, bulges, flip })?;
-    Ok(json!({ "regenerated": n }))
+    let force = flag("force")?.unwrap_or(false);
+    let (n, kept) =
+        edit_walls(s, &handles, &WallChange { style, justification, height, layers, apply_to_style, start_free, end_free, bulges, flip, force })?;
+    Ok(json!({ "regenerated": n, "kept": kept }))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1111,7 +1133,8 @@ impl WallEditM {
     }
     fn apply(&mut self, s: &mut Session, c: WallChange) -> Result<Step> {
         match edit_walls(s, &self.walls, &c) {
-            Ok(n) => s.echo(format!("{n} wall(s) changed.")),
+            Ok((n, 0)) => s.echo(format!("{n} wall(s) changed.")),
+            Ok((n, kept)) => s.echo(format!("{n} wall(s) changed; {kept} edited by hand or scaled were left as they are.")),
             Err(e) => s.echo(e.to_string()),
         }
         self.ask = EditAsk::Option;

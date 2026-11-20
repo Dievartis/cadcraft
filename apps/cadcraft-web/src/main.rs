@@ -65,6 +65,8 @@ mod web {
         fn save(&mut self, storage: &mut dyn eframe::Storage) {
             storage.set_string(cadcraft_ui_egui::options::PROFILE_KEY, self.0.profile_json());
             storage.set_string(cadcraft_ui_egui::PREFS_KEY, self.0.prefs_json());
+            // The autosave interval, folder and backup choice (Options): kept like on the desktop.
+            storage.set_string(cadcraft_ui_egui::autosave::PREFS_KEY, cadcraft_ui_egui::autosave::prefs_json());
             match crate::panel_layout::save(&self.0.ui) {
                 Ok(layout) => storage.set_string(crate::panel_layout::KEY, layout),
                 Err(error) => log::warn!("panel layout was not saved: {error}"),
@@ -235,6 +237,9 @@ mod web {
                         }
                         if let Some(prefs) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::PREFS_KEY)) {
                             app.load_prefs(&prefs);
+                        }
+                        if let Some(prefs) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::autosave::PREFS_KEY)) {
+                            cadcraft_ui_egui::autosave::load_prefs(&prefs);
                         }
                         if let Some(layout) = cc.storage.and_then(|s| s.get_string(crate::panel_layout::KEY))
                             && let Err(error) = crate::panel_layout::restore(&mut app.ui, &layout)

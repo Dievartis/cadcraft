@@ -3746,3 +3746,6 @@ echo	Walls are drawn as the style has them.	Les murs sont dessinés comme le sty
 	US Survey Inch	Pouces US (arpentage)
 	US Survey Yard	Yards US (arpentage)
 	US Survey Mile	Miles US (arpentage)
+	Edited by hand	Modifié à la main
+	Regenerate	Régénérer
+	Redraws these walls from their data: what was done to them by hand is lost.	Redessine ces murs d'après leurs données : ce qui a été fait à la main est perdu.

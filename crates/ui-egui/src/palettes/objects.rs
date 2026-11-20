@@ -1090,6 +1090,19 @@ fn wall_section(
             action = Some(("walledit", json!({ "handles": ids, "justification": j.name() })));
         }
     });
+    // Walls edited by hand, scaled or drawn by an older version are left alone by the edits below: they can be redrawn from their data.
+    let by_hand = sel.iter().filter(|h| d.entity(**h).is_some() && !d.wall_is_intact(**h)).count();
+    if by_hand > 0 {
+        prop_row(ui, "Edited by hand", |ui| {
+            if ui
+                .button(crate::i18n::t("Regenerate"))
+                .on_hover_text(crate::i18n::t("Redraws these walls from their data: what was done to them by hand is lost."))
+                .clicked()
+            {
+                action = Some(("walledit", json!({ "handles": ids, "force": true })));
+            }
+        });
+    }
     // Turns the wall round: the same footprint, its layers in the opposite order (the plasterboard on the other face).
     prop_row(ui, "Layers order", |ui| {
         if ui
