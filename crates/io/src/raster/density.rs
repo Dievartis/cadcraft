@@ -68,10 +68,11 @@ pub(super) fn read(b: &[u8]) -> Option<[f64; 2]> {
                     found = Some([f64::from(be16(p, 8)?) * factor, f64::from(be16(p, 10)?) * factor]);
                 }
             }
-            if marker == 225 && p.starts_with(b"Exif\0\0") {
-                if let Some(dpi) = tiff(p.get(6..)?) {
-                    return Some(dpi);
-                }
+            if marker == 225
+                && p.starts_with(b"Exif\0\0")
+                && let Some(dpi) = tiff(p.get(6..)?)
+            {
+                return Some(dpi);
             }
             at = end;
         }
