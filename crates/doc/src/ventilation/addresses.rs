@@ -67,6 +67,21 @@ impl crate::Drawing {
         out
     }
 
+    /// Shows or hides the size written beside every equipment, and redraws them. Returns how many changed.
+    pub fn set_equipment_size_display(&mut self, show: bool) -> Result<usize> {
+        let hs: Vec<Handle> = self.model.iter().map(|e| e.handle).collect();
+        let mut n = 0;
+        for h in hs {
+            let Some(mut q) = self.entity(h).and_then(|e| equipment_of(e)) else { continue };
+            if q.show_size != show {
+                q.show_size = show;
+                self.regenerate_equipment(h, &q)?;
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
     /// Shows or hides the address beside every object that can have one, and redraws them. Returns how many objects changed.
     pub fn set_address_display(&mut self, show: bool) -> Result<usize> {
         let hs: Vec<Handle> = self.model.iter().map(|e| e.handle).collect();

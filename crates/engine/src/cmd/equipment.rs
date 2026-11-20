@@ -25,9 +25,12 @@ pub fn specs() -> Vec<CommandSpec> {
                  outline's extents, the cells outside it left empty) → {handles, model}",
             )
             .interactive(|s| Ok(Box::new(EquipAddM::new(s)))),
+        CommandSpec::new("equipmentsizedisplay", "Show Equipment Sizes", run_size_display)
+            .menu(&["Draw", "HVAC", "Show Equipment Sizes"])
+            .params("{show? (true: write the size beside every equipment, the default; false: hide them)} → {changed}"),
         CommandSpec::new("equipmentedit", "Edit Equipment", run_edit).params(
             "{handle | handles, model? (take that library model's values), kind?, name?, reference?, capacityKw? or null, heatingKw? or null, electricKw? (the electrical power it draws, or null), circuit? (the circuit that feeds it), address? (its address, written beside it), length? width? height? (mm), \\
-             weight? or null, altitude? (m: the underside, or null), fans?, clearance? (mm), connections? (text written beside it), inlets? / outlets? (a ducted unit: the sizes of the duct connections the air comes in by, along its back long side, and goes out by, along its front long side: a list or text, \"315, 400x250\"; spread along the side), inletCount? / outletCount? (how many connections, 0 to 16: each takes the size of the last one, Ø200 when there is none; a duct that ends on a side gives the unit its connection, as wide as the duct, by itself)} → {changed}",
+             weight? or null, altitude? (m: the underside, or null), showSize? (false: the size is not written beside it), fans?, clearance? (mm), connections? (text written beside it), inlets? / outlets? (a ducted unit: the sizes of the duct connections the air comes in by, along its back long side, and goes out by, along its front long side: a list or text, \"315, 400x250\"; spread along the side), inletCount? / outletCount? (how many connections, 0 to 16: each takes the size of the last one, Ø200 when there is none; a duct that ends on a side gives the unit its connection, as wide as the duct, by itself)} → {changed}",
         ),
     ]
 }
@@ -119,6 +122,9 @@ fn params_from(s: &Session, p: &Value, cmd: &str, last: &EquipmentLastUsed) -> R
     if let Some(a) = str_param(p, "address") {
         e.address = a.trim().to_string();
     }
+    if let Some(v) = p.get("showSize").filter(|v| !v.is_null()) {
+        e.show_size = v.as_bool().ok_or_else(|| bad(cmd, "`showSize` must be true or false"))?;
+    }
     for (key, slot) in [("length", &mut e.length_mm), ("width", &mut e.width_mm), ("height", &mut e.height_mm)] {
         if let Some(v) = number(cmd, p, key)? {
             *slot = v;
@@ -196,6 +202,17 @@ fn apply_air_ports(cmd: &str, p: &Value, e: &mut EquipmentParams) -> Result<()> 
     }
     e.set_air_ports(&ins, &outs);
     Ok(())
+}
+
+/// Shows or hides the size written beside every equipment of the drawing.
+fn run_size_display(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "equipmentsizedisplay";
+    let show = match p.get("show").filter(|v| !v.is_null()) {
+        Some(v) => v.as_bool().ok_or_else(|| bad(CMD, "`show` must be true or false"))?,
+        None => true,
+    };
+    let changed = s.doc_mut()?.set_equipment_size_display(show).map_err(doc_err)?;
+    Ok(json!({ "changed": changed }))
 }
 
 fn models_json(kind: Option<EquipmentKind>) -> Vec<Value> {
@@ -321,6 +338,9 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if let Some(a) = str_param(p, "address") {
             e.address = a.trim().to_string();
+        }
+        if let Some(v) = p.get("showSize").filter(|v| !v.is_null()) {
+            e.show_size = v.as_bool().ok_or_else(|| bad(CMD, "`showSize` must be true or false"))?;
         }
         for (v, slot) in sizes.iter().zip([&mut e.length_mm, &mut e.width_mm, &mut e.height_mm]) {
             if let Some(v) = v {

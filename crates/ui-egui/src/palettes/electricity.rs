@@ -110,6 +110,7 @@ fn paint_cable(p: &egui::Painter, r: Rect, usage: CableUsage) {
         CableUsage::Data => egui::Color32::from_rgb(0x30, 0x90, 0xd0),
         CableUsage::Safety => egui::Color32::from_rgb(0x20, 0xb0, 0x50),
         CableUsage::Bus => egui::Color32::from_rgb(0x90, 0x60, 0xd0),
+        CableUsage::Remote => egui::Color32::from_rgb(0xff, 0x6f, 0xb5),
     };
     let s = Stroke::new(1.8, colour);
     let (a, b, c) = (pos2(r.left() + 2.0, r.bottom() - 3.0), pos2(r.center().x, r.bottom() - 3.0), pos2(r.right() - 2.0, r.top() + 3.0));
@@ -195,6 +196,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
             (CableUsage::Lighting, "Lighting cable"),
             (CableUsage::Data, "Data cable"),
             (CableUsage::Safety, "Safety cable"),
+            (CableUsage::Remote, "Remote control cable"),
         ] {
             if row_tip(ui, crate::i18n::t(label), "", Some("Cable"), u == usage, |p, r| paint_cable(p, r, u)) {
                 chosen_usage = Some(u);

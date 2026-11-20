@@ -27,6 +27,8 @@ pub const CABLE_LIGHT_LAYER: &str = "E-CABLE-LIGHT";
 pub const CABLE_DATA_LAYER: &str = "E-CABLE-DATA";
 pub const CABLE_SAFETY_LAYER: &str = "E-CABLE-SAFETY";
 pub const CABLE_BUS_LAYER: &str = "E-CABLE-BUS";
+/// The remote control cables: from a remote control or a thermostat to its unit.
+pub const CABLE_REMOTE_LAYER: &str = "E-CABLE-RMT";
 pub const DEVICE_LAYER: &str = "E-DEVICE";
 pub const LIGHT_LAYER: &str = "E-LIGHT";
 pub const PANEL_LAYER: &str = "E-PANEL";
@@ -71,10 +73,13 @@ pub enum CableUsage {
     Safety,
     /// A communication bus of the building controls (BACnet, Modbus, KNX).
     Bus,
+    /// A remote control cable (télécommande): from a wired remote control or a thermostat to its unit. Not a bus, not a power cable.
+    Remote,
 }
 
 impl CableUsage {
-    pub const ALL: [CableUsage; 5] = [CableUsage::Power, CableUsage::Lighting, CableUsage::Data, CableUsage::Safety, CableUsage::Bus];
+    pub const ALL: [CableUsage; 6] =
+        [CableUsage::Power, CableUsage::Lighting, CableUsage::Data, CableUsage::Safety, CableUsage::Bus, CableUsage::Remote];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -83,12 +88,13 @@ impl CableUsage {
             CableUsage::Data => "data",
             CableUsage::Safety => "safety",
             CableUsage::Bus => "bus",
+            CableUsage::Remote => "remote",
         }
     }
 
-    /// Whether the cables of this use carry no power worth a calculation: data and bus.
+    /// Whether the cables of this use carry no power worth a calculation: data, bus and remote controls.
     pub fn is_signal(self) -> bool {
-        matches!(self, CableUsage::Data | CableUsage::Bus)
+        matches!(self, CableUsage::Data | CableUsage::Bus | CableUsage::Remote)
     }
 
     pub fn parse(text: &str) -> Option<CableUsage> {
@@ -99,6 +105,7 @@ impl CableUsage {
             "vdi" | "courants faibles" | "faibles" => Some(CableUsage::Data),
             "securite" | "sécurité" | "ssi" | "baes" => Some(CableUsage::Safety),
             "gtb" | "bacnet" | "modbus" | "knx" => Some(CableUsage::Bus),
+            "telecommande" | "télécommande" | "commande" | "remotecontrol" | "remote control" | "thermostat" => Some(CableUsage::Remote),
             _ => None,
         })
     }
@@ -110,6 +117,7 @@ impl CableUsage {
             CableUsage::Data => CABLE_DATA_LAYER,
             CableUsage::Safety => CABLE_SAFETY_LAYER,
             CableUsage::Bus => CABLE_BUS_LAYER,
+            CableUsage::Remote => CABLE_REMOTE_LAYER,
         }
     }
 
@@ -692,6 +700,8 @@ pub fn elec_layer_color(name: &str) -> Option<cadcraft_color::Color> {
         CABLE_DATA_LAYER => Some(Color::True(Rgb(0x30, 0x90, 0xd0))),
         CABLE_SAFETY_LAYER | SAFETY_LAYER => Some(Color::True(Rgb(0x20, 0xb0, 0x50))),
         CABLE_BUS_LAYER => Some(Color::True(Rgb(0x90, 0x60, 0xd0))),
+        // Pink, to be told from the bus (violet) and from the power, lighting, data and safety cables.
+        CABLE_REMOTE_LAYER => Some(Color::True(Rgb(0xff, 0x6f, 0xb5))),
         DEVICE_LAYER => Some(Color::True(Rgb(0xc0, 0x60, 0x60))),
         LIGHT_LAYER => Some(Color::True(Rgb(0xf0, 0xd0, 0x40))),
         PANEL_LAYER => Some(Color::True(Rgb(0xe0, 0x80, 0x20))),

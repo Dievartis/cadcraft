@@ -48,8 +48,9 @@ const LAYER_SUFFIX_CHARS: usize = 24;
 const MAX_INTERNED: usize = 4096;
 
 /// The layers a network gets a copy of: those of the pipes and of the parts.
-const NETWORK_BASES: [&str; 20] = [
+const NETWORK_BASES: [&str; 21] = [
     super::CABLE_BUS_LAYER,
+    super::CABLE_REMOTE_LAYER,
     super::CABLE_POWER_LAYER,
     super::CABLE_LIGHT_LAYER,
     super::CABLE_DATA_LAYER,

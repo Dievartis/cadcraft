@@ -41,6 +41,15 @@ fn paint_bus(p: &egui::Painter, r: Rect) {
     }
 }
 
+fn paint_remote(p: &egui::Painter, r: Rect) {
+    let s = Stroke::new(1.8, egui::Color32::from_rgb(0xff, 0x6f, 0xb5));
+    let (a, b) = (egui::pos2(r.left() + 3.0, r.bottom() - 3.0), egui::pos2(r.right() - 3.0, r.top() + 3.0));
+    p.line_segment([a, egui::pos2(r.center().x, a.y)], s);
+    p.line_segment([egui::pos2(r.center().x, a.y), egui::pos2(r.center().x, b.y)], s);
+    p.line_segment([egui::pos2(r.center().x, b.y), b], s);
+    p.circle_filled(b, 2.0, egui::Color32::from_rgb(0xff, 0x6f, 0xb5));
+}
+
 fn paint_points(p: &egui::Painter, r: Rect) {
     let t = Tokens::get();
     let s = Stroke::new(1.2, t.icon_accent);
@@ -56,6 +65,7 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
     let current = app.session.last_used.control.kind;
     let mut chosen: Option<ControlKind> = None;
     let mut bus = false;
+    let mut remote = false;
     let mut check = false;
     let mut addresses: Option<bool> = None;
     let mut start: Option<&'static str> = None;
@@ -82,6 +92,18 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
                 && row_tip(ui, crate::i18n::t("Bus cable"), crate::i18n::t("The cable of a control bus: its circuit has the name of the bus."), Some("Bus cable"), false, paint_bus)
             {
                 bus = true;
+            }
+            if group == ControlGroup::Automation
+                && row_tip(
+                    ui,
+                    crate::i18n::t("Remote control cable"),
+                    crate::i18n::t("The cable from a wired remote control or a thermostat to its unit: pink, not the bus's violet nor the power cables' colours."),
+                    Some("Remote control cable"),
+                    false,
+                    paint_remote,
+                )
+            {
+                remote = true;
             }
             ui.add_space(6.0);
             separator(ui);
@@ -151,6 +173,10 @@ pub(super) fn body(app: &mut CadApp, ui: &mut egui::Ui) {
         app.start("controladd");
     } else if bus {
         app.session.last_used.cable.usage = CableUsage::Bus;
+        app.cmd.buffer.clear();
+        app.start("cableadd");
+    } else if remote {
+        app.session.last_used.cable.usage = CableUsage::Remote;
         app.cmd.buffer.clear();
         app.start("cableadd");
     } else if let Some(show) = addresses {

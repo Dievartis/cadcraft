@@ -3682,3 +3682,10 @@ echo	Not a type of furniture: see FURNITURELIST.	Ce n'est pas un type de mobilie
 	It is drawn seen from above at its usual size. In Properties change its model, its width, its depth and its height, its altitude and, for an appliance, the power it draws; a name written beside it is optional.	Elle est dessinée vue de dessus à sa taille courante. Dans Propriétés, changez son modèle, sa largeur, sa profondeur et sa hauteur, son altitude et, pour un appareil, la puissance qu'il consomme ; un nom écrit à côté est facultatif.
 	A piece keeps its look when it is made wider or deeper: a sofa 2.40 m long, a desk 1.80 m wide.	Une pièce garde son aspect quand on l'élargit ou qu'on l'allonge : un canapé de 2,40 m, un bureau de 1,80 m.
 	The refrigerators, ovens, televisions, computers and the other appliances have their usual power: it is the value to put on a circuit.	Les réfrigérateurs, fours, télévisions, ordinateurs et autres appareils ont leur puissance courante : c'est la valeur à mettre sur un circuit.
+	Remote control cable	Câble de télécommande
+	Remote control	Télécommande
+	The cable from a wired remote control or a thermostat to its unit: pink, not the bus's violet nor the power cables' colours.	Le câble d'une télécommande filaire ou d'un thermostat vers son unité : rose, ni le violet du bus ni les couleurs des câbles électriques.
+	Show size	Afficher la taille
+	Show Equipment Sizes	Afficher les tailles des équipements
+	Hide Equipment Sizes	Masquer les tailles des équipements
+	Writes (or takes off) the size beside every equipment of the drawing.	Écrit (ou retire) la taille à côté de chaque équipement du dessin.

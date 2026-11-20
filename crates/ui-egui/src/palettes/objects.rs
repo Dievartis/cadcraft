@@ -1583,6 +1583,14 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
             }
         });
     }
+    // Whether the size is written beside the equipment.
+    let size_shown = shared(&items.iter().map(|e| e.show_size).collect::<Vec<_>>());
+    prop_row(ui, "Show size", |ui| {
+        let mut on = size_shown == Some(true);
+        if ui.checkbox(&mut on, "").changed() {
+            action = edit("showSize", json!(on));
+        }
+    });
     altitude_row(ui, "equipmentedit", &ids, items.iter().map(|e| e.bottom_mm).collect(), bad, &mut action);
     action
 }
@@ -1644,8 +1652,16 @@ fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams]
                 CableUsage::Data => "Data",
                 CableUsage::Safety => "Safety",
                 CableUsage::Bus => "Control bus",
+                CableUsage::Remote => "Remote control",
             };
-            let items = [("power", "Power"), ("lighting", "Lighting"), ("data", "Data"), ("safety", "Safety"), ("bus", "Control bus")];
+            let items = [
+                ("power", "Power"),
+                ("lighting", "Lighting"),
+                ("data", "Data"),
+                ("safety", "Safety"),
+                ("bus", "Control bus"),
+                ("remote", "Remote control"),
+            ];
             if let Some(u) = choice(ui, shown, &items) {
                 action = line_edit("usage", json!(u));
             }

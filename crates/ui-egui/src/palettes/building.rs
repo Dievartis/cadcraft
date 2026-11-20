@@ -235,6 +235,7 @@ fn equipment_rows(
     current: cadcraft_doc::EquipmentKind,
     chosen: &mut Option<cadcraft_doc::EquipmentKind>,
     distribute: &mut Option<bool>,
+    sizes: &mut Option<bool>,
 ) {
     for kind in cadcraft_doc::EquipmentKind::ALL {
         if row_button(ui, crate::i18n::t(equipment_kind_label(kind)), kind == current, |p, r| thumbs::paint_equipment(p, r, kind)) {
@@ -244,6 +245,18 @@ fn equipment_rows(
     if distribute_row(ui, "Distribute Units in a Space", "Spreads indoor units (cassettes, ducted, wall, ceiling or floor units) evenly in a space.")
     {
         *distribute = Some(true);
+    }
+    for (label, show) in [("Show Equipment Sizes", true), ("Hide Equipment Sizes", false)] {
+        if row_tip(
+            ui,
+            crate::i18n::t(label),
+            crate::i18n::t("Writes (or takes off) the size beside every equipment of the drawing."),
+            None,
+            false,
+            thumbs::paint_edit_pipe,
+        ) {
+            *sizes = Some(show);
+        }
     }
 }
 
@@ -278,6 +291,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut start: Option<&'static str> = None;
     let mut terminal: Option<TerminalKind> = None;
     let mut distribute: Option<bool> = None;
+    let mut size_display: Option<bool> = None;
     let mut size = false;
     let mut connect = false;
     let unit = app.session.last_used.ahu.kind;
@@ -384,7 +398,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         ui.add_space(6.0);
         separator(ui);
         header(ui, "Equipment");
-        equipment_rows(ui, equipment, &mut chosen_equipment, &mut distribute);
+        equipment_rows(ui, equipment, &mut chosen_equipment, &mut distribute, &mut size_display);
         ui.add_space(6.0);
         separator(ui);
         header_with(ui, "Piping", Some("Piping"));
@@ -476,6 +490,10 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         last.model.clear();
         app.cmd.buffer.clear();
         app.start("airterminaladd");
+    } else if let Some(show) = size_display {
+        if let Err(e) = app.run("equipmentsizedisplay", serde_json::json!({ "show": show })) {
+            app.session.echo(e);
+        }
     } else if let Some(units) = distribute {
         start_distribution(app, units);
     } else if let Some(kind) = chosen_unit {

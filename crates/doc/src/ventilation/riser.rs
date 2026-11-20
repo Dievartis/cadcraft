@@ -79,11 +79,12 @@ pub enum RiserMedium {
     Data,
     Safety,
     Bus,
+    Remote,
 }
 
 impl RiserMedium {
-    pub const ALL: [RiserMedium; 6] =
-        [RiserMedium::Air, RiserMedium::Power, RiserMedium::Lighting, RiserMedium::Data, RiserMedium::Safety, RiserMedium::Bus];
+    pub const ALL: [RiserMedium; 7] =
+        [RiserMedium::Air, RiserMedium::Power, RiserMedium::Lighting, RiserMedium::Data, RiserMedium::Safety, RiserMedium::Bus, RiserMedium::Remote];
 
     /// The use of the cable, for the cable mediums.
     pub fn usage(self) -> Option<CableUsage> {
@@ -94,6 +95,7 @@ impl RiserMedium {
             RiserMedium::Data => Some(CableUsage::Data),
             RiserMedium::Safety => Some(CableUsage::Safety),
             RiserMedium::Bus => Some(CableUsage::Bus),
+            RiserMedium::Remote => Some(CableUsage::Remote),
         }
     }
 
@@ -111,6 +113,7 @@ impl RiserMedium {
             CableUsage::Data => Some(RiserMedium::Data),
             CableUsage::Safety => Some(RiserMedium::Safety),
             CableUsage::Bus => Some(RiserMedium::Bus),
+            CableUsage::Remote => Some(RiserMedium::Remote),
         }
     }
 }
@@ -490,7 +493,7 @@ impl RiserParams {
             .lines
             .iter()
             .map(|l| Leader {
-                layer: l.usage.layer(),
+                layer: super::cable_layer_of(l.usage, &l.circuit),
                 width: 2.0 * r,
                 flows_up: self.up,
                 // A current comes from the source: below it when it goes up.
@@ -504,7 +507,7 @@ impl RiserParams {
         let up = self.up;
         let lines = &self.cable.lines;
         pieces.extend(leader_pieces(h, u.to_units((w * w + d * d).sqrt()), &leaders, &centres, |i, c| {
-            let layer = lines.get(i).map_or(RISER_LAYER, |l| l.usage.layer());
+            let layer = lines.get(i).map_or(RISER_LAYER, |l| super::cable_layer_of(l.usage, &l.circuit));
             let mut out = vec![HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: r }) }];
             if up {
                 out.push(HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: 0.15 * r }) });
@@ -694,6 +697,7 @@ impl crate::Drawing {
         common.layer = RISER_LAYER.into();
         let block = self.hvac_block(pieces);
         self.ensure_layer(RISER_LAYER);
+        self.ensure_cable_line_layers(&p);
         let insert = crate::Insert { block, insert: v3(origin), ..Default::default() };
         self.add(space, common, EntityKind::Insert(insert))
     }
@@ -703,6 +707,14 @@ impl crate::Drawing {
         let pieces = p.generate()?;
         let old = self.entity(h).ok_or(crate::DocError::NoEntity(h))?.common.xdata.clone();
         let tags = xdata::replace(RISER_APP, &old, p.to_xdata()?);
+        self.ensure_cable_line_layers(p);
         self.regenerate_hvac(h, pieces, tags)
+    }
+
+    /// The layers of the lines of a riser of cables: the layer of the cables of each line's circuit, which is in the colour of that circuit's wire.
+    fn ensure_cable_line_layers(&mut self, p: &RiserParams) {
+        for l in &p.cable.lines {
+            self.ensure_layer(super::cable_layer_of(l.usage, &l.circuit));
+        }
     }
 }

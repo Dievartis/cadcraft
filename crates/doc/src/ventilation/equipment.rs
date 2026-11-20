@@ -198,6 +198,9 @@ pub struct EquipmentParams {
     pub address: String,
     #[serde(default = "super::yes")]
     pub show_address: bool,
+    /// Whether the size ("Dim. 1400x800x245H") is written beside the equipment.
+    #[serde(default = "super::yes")]
+    pub show_size: bool,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     /// The altitude of the underside of the element, mm above the drawing's zero, when it is given: written beside it ("Ai:2.50") and kept for the takeoff.
@@ -234,6 +237,7 @@ impl EquipmentParams {
             circuit: String::new(),
             address: String::new(),
             show_address: true,
+            show_size: true,
             label_height_mm: 100.0,
             units,
         }
@@ -346,7 +350,9 @@ impl EquipmentParams {
         if !self.reference.trim().is_empty() {
             v.push(self.reference.trim().to_string());
         }
-        v.push(format!("Dim. {:.0}x{:.0}x{:.0}H", self.length_mm, self.width_mm, self.height_mm));
+        if self.show_size {
+            v.push(format!("Dim. {:.0}x{:.0}x{:.0}H", self.length_mm, self.width_mm, self.height_mm));
+        }
         if let Some(w) = self.weight_kg {
             v.push(format!("Poids {w:.0}kg"));
         }

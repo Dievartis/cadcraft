@@ -2175,3 +2175,8 @@ menu	View	视图
 	It is drawn seen from above at its usual size. In Properties change its model, its width, its depth and its height, its altitude and, for an appliance, the power it draws; a name written beside it is optional.	它以常用尺寸按俯视图绘制。在特性中可修改其型号、宽度、深度、高度、标高，电器还可修改功率；旁边的名称可选。
 	A piece keeps its look when it is made wider or deeper: a sofa 2.40 m long, a desk 1.80 m wide.	加宽或加深后家具外观保持不变：例如 2.40 m 长的沙发、1.80 m 宽的办公桌。
 	The refrigerators, ovens, televisions, computers and the other appliances have their usual power: it is the value to put on a circuit.	冰箱、烤箱、电视、电脑等电器都有常用功率：这就是接入回路时使用的数值。
+	Remote control cable	遥控电缆
+	Remote control	遥控
+	The cable from a wired remote control or a thermostat to its unit: pink, not the bus's violet nor the power cables' colours.	从有线遥控器或温控器到机组的电缆：粉红色，不同于总线的紫色，也不同于电力电缆的颜色。
+	Show Equipment Sizes	显示设备尺寸
+	Hide Equipment Sizes	隐藏设备尺寸
