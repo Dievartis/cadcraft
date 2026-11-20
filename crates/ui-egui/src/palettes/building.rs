@@ -234,8 +234,7 @@ fn equipment_rows(
     ui: &mut egui::Ui,
     current: cadcraft_doc::EquipmentKind,
     chosen: &mut Option<cadcraft_doc::EquipmentKind>,
-    distribute: &mut Option<bool>,
-    sizes: &mut Option<bool>,
+    distribute: &mut Option<Spread>,
 ) {
     for kind in cadcraft_doc::EquipmentKind::ALL {
         if row_button(ui, crate::i18n::t(equipment_kind_label(kind)), kind == current, |p, r| thumbs::paint_equipment(p, r, kind)) {
@@ -244,7 +243,7 @@ fn equipment_rows(
     }
     if distribute_row(ui, "Distribute Units in a Space", "Spreads indoor units (cassettes, ducted, wall, ceiling or floor units) evenly in a space.")
     {
-        *distribute = Some(true);
+        *distribute = Some(Spread::Units);
     }
     for (label, show) in [("Show Equipment Sizes", true), ("Hide Equipment Sizes", false)] {
         if row_tip(
@@ -255,7 +254,7 @@ fn equipment_rows(
             false,
             thumbs::paint_edit_pipe,
         ) {
-            *sizes = Some(show);
+            *distribute = Some(Spread::Sizes(show));
         }
     }
 }
@@ -284,14 +283,36 @@ fn charts_row(ui: &mut egui::Ui, start: &mut Option<&'static str>) {
     }
 }
 
+/// What a row of the Equipment and Air Terminals groups that works on many objects does.
+#[derive(Clone, Copy)]
+enum Spread {
+    /// Spreads air terminals in a space.
+    Terminals,
+    /// Spreads indoor units in a space.
+    Units,
+    /// Shows (or hides) the size written beside every equipment.
+    Sizes(bool),
+}
+
+fn run_spread(app: &mut CadApp, action: Spread) {
+    match action {
+        Spread::Terminals => start_distribution(app, false),
+        Spread::Units => start_distribution(app, true),
+        Spread::Sizes(show) => {
+            if let Err(e) = app.run("equipmentsizedisplay", serde_json::json!({ "show": show })) {
+                app.session.echo(e);
+            }
+        }
+    }
+}
+
 fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
     let current = app.session.last_used.air_terminal.kind;
     let app_air = app.session.last_used.air_terminal.air;
     let mut outdoor: Option<AirDirection> = None;
     let mut start: Option<&'static str> = None;
     let mut terminal: Option<TerminalKind> = None;
-    let mut distribute: Option<bool> = None;
-    let mut size_display: Option<bool> = None;
+    let mut distribute: Option<Spread> = None;
     let mut size = false;
     let mut connect = false;
     let unit = app.session.last_used.ahu.kind;
@@ -344,7 +365,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
             }
         }
         if distribute_row(ui, "Distribute in a Space", "Spreads air terminals evenly in a space, each with its share of the space's flow.") {
-            distribute = Some(false);
+            distribute = Some(Spread::Terminals);
         }
         if row_button(ui, crate::i18n::t("Edit Air Terminal"), false, thumbs::paint_edit_terminal) {
             start = Some("airterminaledit");
@@ -398,7 +419,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         ui.add_space(6.0);
         separator(ui);
         header(ui, "Equipment");
-        equipment_rows(ui, equipment, &mut chosen_equipment, &mut distribute, &mut size_display);
+        equipment_rows(ui, equipment, &mut chosen_equipment, &mut distribute);
         ui.add_space(6.0);
         separator(ui);
         header_with(ui, "Piping", Some("Piping"));
@@ -490,12 +511,8 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
         last.model.clear();
         app.cmd.buffer.clear();
         app.start("airterminaladd");
-    } else if let Some(show) = size_display {
-        if let Err(e) = app.run("equipmentsizedisplay", serde_json::json!({ "show": show })) {
-            app.session.echo(e);
-        }
-    } else if let Some(units) = distribute {
-        start_distribution(app, units);
+    } else if let Some(action) = distribute {
+        run_spread(app, action);
     } else if let Some(kind) = chosen_unit {
         // The type clicked becomes AHUADD's, then it starts with it.
         app.session.last_used.ahu.kind = kind;
