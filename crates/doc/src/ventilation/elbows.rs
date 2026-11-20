@@ -477,7 +477,7 @@ impl crate::Drawing {
     }
 
     /// Gives the ducted units of `space` a connection where a duct (rigid or flexible) ends on one of their sides and none is there yet, as wide as the duct, on
-    /// the left side for the return (the air comes in) and the right side for the supply; returns how many units were redrawn.
+    /// the back side for the return (the air comes in) and the front side for the supply, along the unit's length; returns how many units were redrawn.
     pub fn draw_equipment_ports(&mut self, space: &Space) -> Result<usize> {
         let units = HvacUnits::of(self);
         let tol = units.to_units(3.0 * MEET_MM);
@@ -500,21 +500,22 @@ impl crate::Drawing {
             let mut changed = false;
             for (end, params) in &ends {
                 let Some(at) = super::slab::world_to_block(i, *end) else { continue };
-                if !(at.x.abs() >= hl - tol && at.x.abs() <= hl + depth + tol && at.y.abs() <= hw + tol) || q.air_ports.len() >= super::MAX_AIR_PORTS
+                // A duct that ends on one of the two long sides (the return at the back, the supply at the front).
+                if !(at.y.abs() >= hw - tol && at.y.abs() <= hw + depth + tol && at.x.abs() <= hl + tol) || q.air_ports.len() >= super::MAX_AIR_PORTS
                 {
                     continue;
                 }
-                let inlet = at.x < 0.0;
+                let inlet = at.y > 0.0;
                 let taken = q
                     .air_ports
                     .iter()
-                    .any(|p| p.inlet == inlet && (units.to_units(p.y_mm) - at.y).abs() <= units.to_units(p.size.width_mm()) / 2.0 + tol);
+                    .any(|p| p.inlet == inlet && (units.to_units(p.along_mm) - at.x).abs() <= units.to_units(p.size.width_mm()) / 2.0 + tol);
                 if !taken {
                     let size = match params.shape {
                         DuctShape::Round => RiserSize::Round { diameter_mm: params.diameter_mm },
                         DuctShape::Rectangular => RiserSize::Rectangular { width_mm: params.width_mm, height_mm: params.height_mm },
                     };
-                    q.air_ports.push(AirPort { inlet, size, y_mm: at.y * units.mm_per_unit });
+                    q.air_ports.push(AirPort { inlet, size, along_mm: at.x * units.mm_per_unit });
                     changed = true;
                 }
             }

@@ -2324,18 +2324,18 @@ fn a_duct_that_ends_on_the_side_of_a_ducted_unit_gives_it_a_connection_and_a_con
     let model = standard_equipment_models().into_iter().find(|m| m.kind == EquipmentKind::Ducted).unwrap();
     let p = EquipmentParams::from_model(&model, "UI1", HvacUnits { mm_per_unit: 1.0 });
     let h = d.add_equipment(&Space::Model, Common::default(), &p, Vec2::ZERO, 0.0).unwrap();
-    let right = p.length_mm / 2.0;
+    let front = p.width_mm / 2.0;
     let ports = |d: &Drawing| equipment_of(d.entity(h).unwrap()).unwrap().air_ports;
-    // A flexible Ø200 ends on the right side, a rigid Ø315 on the left: a connection each, on its own side.
+    // A flexible Ø200 ends on the front side (the supply), a rigid Ø315 on the back side (the return): a connection each, on its own long side.
     let mut flex = DuctParams { flexible: true, ..duct(200.0) };
     flex.air = AirDirection::Supply;
-    d.add_duct(&Space::Model, Common::default(), flex, Vec2::new(right + 2000.0, 100.0), Vec2::new(right + 60.0, 100.0)).unwrap();
-    d.add_duct(&Space::Model, Common::default(), duct(315.0), Vec2::new(-right - 2000.0, -150.0), Vec2::new(-right - 60.0, -150.0)).unwrap();
+    d.add_duct(&Space::Model, Common::default(), flex, Vec2::new(100.0, -front - 2000.0), Vec2::new(100.0, -front - 60.0)).unwrap();
+    d.add_duct(&Space::Model, Common::default(), duct(315.0), Vec2::new(-150.0, front + 2000.0), Vec2::new(-150.0, front + 60.0)).unwrap();
     d.draw_duct_elbows(&Space::Model).unwrap();
     let got = ports(&d);
     assert_eq!(got.len(), 2, "{got:?}");
-    assert!(got.iter().any(|g| !g.inlet && g.size == RiserSize::Round { diameter_mm: 200.0 } && (g.y_mm - 100.0).abs() < 1.0));
-    assert!(got.iter().any(|g| g.inlet && g.size == RiserSize::Round { diameter_mm: 315.0 } && (g.y_mm + 150.0).abs() < 1.0));
+    assert!(got.iter().any(|g| !g.inlet && g.size == RiserSize::Round { diameter_mm: 200.0 } && (g.along_mm - 100.0).abs() < 1.0));
+    assert!(got.iter().any(|g| g.inlet && g.size == RiserSize::Round { diameter_mm: 315.0 } && (g.along_mm + 150.0).abs() < 1.0));
     // Once is enough: nothing more to draw.
     assert_eq!(d.draw_duct_elbows(&Space::Model).unwrap(), 0);
 }

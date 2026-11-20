@@ -232,13 +232,13 @@ fn a_ducted_unit_takes_the_sizes_of_its_connections_and_a_duct_laid_on_it_gives_
     assert!(s.execute("equipmentedit", &json!({"handle": chiller["handle"], "inlets": "250"})).is_err());
     assert!(s.execute("equipmentedit", &json!({"handle": r["handle"], "inlets": "abc"})).is_err());
     assert!(s.execute("equipmentedit", &json!({"handle": r["handle"], "inlets": (0..40).map(|_| 200).collect::<Vec<_>>()})).is_err());
-    // A duct ended on the right side of another unit gives it that connection, with no setting.
+    // A duct ended on the front side of another unit gives it that connection, with no setting.
     let u2 = s.execute("equipmentadd", &json!({"at": [0, 5000], "kind": "ducted"})).unwrap();
-    let right = equip(&s, &u2["handle"]).length_mm / 2.0;
-    s.execute("ductadd", &json!({"points": [[right + 2000.0, 5100], [right + 40.0, 5100]], "diameter": 250})).unwrap();
+    let front = 5000.0 - equip(&s, &u2["handle"]).width_mm / 2.0;
+    s.execute("ductadd", &json!({"points": [[100, front - 2000.0], [100, front - 40.0]], "diameter": 250})).unwrap();
     let e = equip(&s, &u2["handle"]);
     assert_eq!(e.air_sizes(false), vec![cadcraft_doc::RiserSize::Round { diameter_mm: 250.0 }]);
-    assert!((e.air_ports[0].y_mm - 100.0).abs() < 1.0, "{:?}", e.air_ports);
+    assert!((e.air_ports[0].along_mm - 100.0).abs() < 1.0, "{:?}", e.air_ports);
 }
 
 #[test]
@@ -257,8 +257,12 @@ fn a_ducted_unit_takes_a_number_of_inlets_and_outlets_each_with_the_size_of_the_
     assert_eq!(equip(&s, &r["handle"]).air_sizes(false), vec![round(160.0); 5], "more: the size of the last");
     s.execute("equipmentedit", &json!({"handle": r["handle"], "outletCount": 2})).unwrap();
     assert_eq!(equip(&s, &r["handle"]).air_sizes(false).len(), 2, "fewer: the first ones stay");
-    // Spread along the side: the ports are not on one another.
-    let ys: Vec<f64> = equip(&s, &r["handle"]).air_ports.iter().filter(|p| !p.inlet).map(|p| p.y_mm).collect();
+    // The interface sends a count as a number that may carry a decimal point: 3.0 is 3.
+    s.execute("equipmentedit", &json!({"handle": r["handle"], "outletCount": 3.0})).unwrap();
+    assert_eq!(equip(&s, &r["handle"]).air_sizes(false).len(), 3);
+    s.execute("equipmentedit", &json!({"handle": r["handle"], "outletCount": 2})).unwrap();
+    // Spread along the length of the side: the ports are not on one another.
+    let ys: Vec<f64> = equip(&s, &r["handle"]).air_ports.iter().filter(|p| !p.inlet).map(|p| p.along_mm).collect();
     assert!(ys.windows(2).all(|w| w[1] > w[0]), "{ys:?}");
     // Refused: too many, not a whole number, not a ducted unit.
     assert!(s.execute("equipmentedit", &json!({"handle": r["handle"], "outletCount": 40})).is_err());

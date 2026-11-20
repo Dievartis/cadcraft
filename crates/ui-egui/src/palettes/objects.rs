@@ -1562,7 +1562,8 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
                     .filter(|t| t != VARIES)
                     .and_then(|t| number(Some(t), bad))
                 {
-                    action = edit(if inlet { "inletCount" } else { "outletCount" }, json!(c));
+                    // A whole number: the engine reads it as one (a float such as 3.0 is accepted too).
+                    action = edit(if inlet { "inletCount" } else { "outletCount" }, json!(c.round().max(0.0) as u64));
                 }
             });
             let v = shared(&items.iter().map(|e| size_text(e.air_sizes(inlet))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());

@@ -136,18 +136,58 @@ fn a_ducted_unit_has_the_connections_it_was_given_on_the_right_sides_at_the_righ
     let (mut p, collars) = (ducted(&mut Drawing::new_metric()).1, |p: &EquipmentParams| {
         p.generate().unwrap().iter().filter(|x| matches!(&x.kind, EntityKind::LwPolyline(l) if l.closed && l.vertices.len() == 4)).count()
     });
-    // None given: the casing and one collar at each end, as before.
+    // None given: the casing and one flange on each long side.
     assert_eq!((p.air_ports.len(), collars(&p)), (0, 3));
-    // Two returns (Ø250 and 400x250) on the left, three Ø160 supplies on the right.
+    // Two returns (Ø250 and 400x250) on the back side, three Ø160 supplies on the front side.
     let round = |d: f64| RiserSize::Round { diameter_mm: d };
     p.set_air_ports(&[round(250.0), RiserSize::Rectangular { width_mm: 400.0, height_mm: 250.0 }], &[round(160.0); 3]);
     assert_eq!((p.air_sizes(true).len(), p.air_sizes(false).len(), collars(&p)), (2, 3, 1 + 5));
-    // They are spread along each side, the left ones with their tips at the left.
+    // They are spread along the length of each side, the returns with their tips at the back (+y) and the supplies at the front (-y).
     let tips = p.air_port_tips();
-    assert!(tips.iter().filter(|t| t.1).all(|t| t.0.x < 0.0) && tips.iter().filter(|t| !t.1).all(|t| t.0.x > 0.0));
-    let ys: Vec<f64> = tips.iter().filter(|t| !t.1).map(|t| t.0.y).collect();
-    assert!(ys.windows(2).all(|w| w[1] > w[0]), "{ys:?}");
-    assert!(AirPort { inlet: true, size: round(5.0), y_mm: 0.0 }.size.validate().is_err());
-    p.air_ports = vec![AirPort { inlet: true, size: round(200.0), y_mm: 0.0 }; MAX_AIR_PORTS + 1];
+    assert!(tips.iter().filter(|t| t.1).all(|t| t.0.y > 0.0) && tips.iter().filter(|t| !t.1).all(|t| t.0.y < 0.0));
+    let xs: Vec<f64> = tips.iter().filter(|t| !t.1).map(|t| t.0.x).collect();
+    assert!(xs.windows(2).all(|w| w[1] > w[0]), "{xs:?}");
+    assert!(AirPort { inlet: true, size: round(5.0), along_mm: 0.0 }.size.validate().is_err());
+    p.air_ports = vec![AirPort { inlet: true, size: round(200.0), along_mm: 0.0 }; MAX_AIR_PORTS + 1];
     assert!(p.validate().is_err(), "too many");
+}
+
+/// The widths of the closed 4-point polylines drawn out of the front side (the supply connections) of `p`, mm, left to right.
+fn front_collar_widths(p: &EquipmentParams) -> Vec<f64> {
+    let hw = p.width_mm / 2.0;
+    let mut w: Vec<(f64, f64)> = p
+        .generate()
+        .unwrap()
+        .iter()
+        .filter_map(|x| match &x.kind {
+            EntityKind::LwPolyline(l) if l.closed && l.vertices.len() == 4 && l.vertices.iter().all(|v| v.p.y < -hw + 1e-6) => {
+                let xs: Vec<f64> = l.vertices.iter().map(|v| v.p.x).collect();
+                Some((xs.iter().cloned().fold(f64::MAX, f64::min), xs.iter().cloned().fold(f64::MIN, f64::max)))
+            }
+            _ => None,
+        })
+        .collect();
+    w.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert!(w.windows(2).all(|p| p[0].1 <= p[1].0 + 1e-6), "the connections touch: {w:?}");
+    w.iter().map(|(a, b)| b - a).collect()
+}
+
+#[test]
+fn a_ducted_unit_takes_eight_d200_supplies_and_four_d250_returns_along_its_long_sides_without_the_drawings_touching() {
+    let models = standard_equipment_models();
+    let m = models.iter().find(|m| m.kind == EquipmentKind::Ducted && m.length_mm == 1550.0).expect("the 16 kW unit of 1550 mm");
+    let mut p = EquipmentParams::from_model(m, "UI1", HvacUnits { mm_per_unit: 1.0 });
+    let round = |d: f64| RiserSize::Round { diameter_mm: d };
+    p.set_air_ports(&[round(250.0); 4], &[round(200.0); 8]);
+    assert!(p.validate().is_ok());
+    let widths = front_collar_widths(&p);
+    assert_eq!(widths.len(), 8);
+    // 1550 / 8 = 194 mm a connection: drawn a little narrower than 200, not over its neighbour.
+    assert!(widths.iter().all(|w| *w > 180.0 && *w <= 200.0 + 1e-6), "{widths:?}");
+    // Four Ø250 returns have room at their full width.
+    let back = p.air_ports.iter().filter(|a| a.inlet).count();
+    assert_eq!(back, 4);
+    // A connection given in an old drawing under its old name keeps its place.
+    let old: AirPort = serde_json::from_str(r#"{"inlet":true,"size":{"shape":"round","diameterMm":200.0},"yMm":120.0}"#).unwrap();
+    assert_eq!(old.along_mm, 120.0);
 }
