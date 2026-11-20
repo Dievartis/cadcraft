@@ -1133,3 +1133,29 @@ fn a_section_draws_what_the_cut_line_goes_through() {
     }
     assert_eq!(on(&s, cadcraft_doc::SECTION_LAYER), 3);
 }
+
+#[test]
+fn a_wall_has_a_grip_at_each_vertex_and_one_in_the_middle_of_each_segment_and_the_walls_it_meets_follow() {
+    let mut s = metric();
+    let a = h(&s.execute("walladd", &json!({"points": [[0, 0], [4000, 0]], "style": PARTITION})).unwrap());
+    let b = h(&s.execute("walladd", &json!({"points": [[4000, 0], [4000, 3000]], "style": PARTITION})).unwrap());
+    let grips = |s: &Session, hd: Handle| s.grips_of(hd).unwrap().iter().map(|p| (p.x.round(), p.y.round())).collect::<Vec<_>>();
+    assert_eq!(grips(&s, a), [(0.0, 0.0), (4000.0, 0.0), (2000.0, 0.0)]);
+    let both = json!([a.hex(), b.hex()]);
+    // The end of a wall is dragged: it is longer, and the wall that starts there follows.
+    s.execute("grip.move", &json!({"handle": a.hex(), "handles": both, "index": 1, "to": [5000, 0]})).unwrap();
+    assert_eq!(grips(&s, a), [(0.0, 0.0), (5000.0, 0.0), (2500.0, 0.0)]);
+    assert_eq!(grips(&s, b), [(5000.0, 0.0), (4000.0, 3000.0), (4500.0, 1500.0)]);
+    assert!(s.doc().unwrap().wall_is_intact(a) && s.doc().unwrap().wall_is_intact(b));
+    // The grip in the middle moves the segment, the walls at its ends follow.
+    s.execute("grip.move", &json!({"handle": b.hex(), "handles": both, "index": 2, "to": [5000, 1500]})).unwrap();
+    assert_eq!(grips(&s, b), [(5500.0, 0.0), (4500.0, 3000.0), (5000.0, 1500.0)]);
+    assert_eq!(grips(&s, a)[1], (5500.0, 0.0));
+    // A wall alone, a grip that does not exist: nothing happens.
+    let before = grips(&s, a);
+    assert!(s.execute("grip.move", &json!({"handle": a.hex(), "index": 99, "to": [0, 0]})).is_ok() || grips(&s, a) == before);
+    assert_eq!(grips(&s, a), before);
+    // It cannot be made to collapse on a point.
+    s.execute("grip.move", &json!({"handle": a.hex(), "index": 1, "to": [0, 0]})).ok();
+    assert_eq!(grips(&s, a), before);
+}

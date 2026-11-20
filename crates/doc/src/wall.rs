@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::{DocError, EntityKind, Hatch, HatchLoop, Line, LwPolyline, OpeningParams, RawTag, Result, opening_of};
 
 mod elevation;
+mod grips;
 mod joint;
 mod section;
 pub use elevation::{ELEVATION_DIM_LAYER, ELEVATION_DOOR_LAYER, ELEVATION_LAYER, ELEVATION_WINDOW_LAYER, ElevationSide};

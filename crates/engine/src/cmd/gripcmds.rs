@@ -45,34 +45,16 @@ fn stretch(s: &mut Session, cmd: &str, p: &Value) -> Result<Value> {
     if curves::is_locked(s, h) {
         return Err(EngineError::Other("The object is on a locked layer.".into()));
     }
-    // A duct or pipe run: its ends and middle are grips; the runs of the same kind that meet at an end follow it.
-    if let Some(kind) = s.doc()?.entity(h).and_then(|e| run_kind(e)) {
+    // A duct, pipe, cable or wall run: its ends and middle are grips; the runs of the same kind that meet at an end follow it.
+    if s.doc()?.entity(h).and_then(|e| run_kind(e)).is_some() {
         let d = s.doc()?;
         let from = d.entity(h).and_then(|e| d.entity_grips(e).get(i).copied()).ok_or_else(|| bad(cmd, "no such grip"))?;
-        let tol = 1e-9 * (1.0 + from.len());
-        let mut moves = vec![(h, i)];
-        if i != 1 {
-            for o in targets(s, p)? {
-                let Some(e) = d.entity(o).filter(|e| o != h && run_kind(e) == Some(kind)) else { continue };
-                let gs = d.entity_grips(e);
-                if let Some(j) = [0, 2].into_iter().find(|j| gs.get(*j).is_some_and(|g| g.near(from, tol)))
-                    && !curves::is_locked(s, o)
-                {
-                    moves.push((o, j));
-                }
-            }
-        }
-        let d = s.doc_mut()?;
-        let mut done = Vec::new();
-        for (o, j) in moves {
-            if stretch_run_grip(d, kind, o, j, to)? {
-                done.push(o.hex());
-            }
-        }
+        let others = targets(s, p)?;
+        let done = stretch_runs(s, &[(h, i)], &others, to - from)?;
         if done.is_empty() {
             return Err(bad(cmd, "no such grip, or the result would be degenerate"));
         }
-        return Ok(json!({ "handle": h.hex(), "handles": done }));
+        return Ok(json!({ "handle": h.hex(), "handles": done.iter().map(|h| h.hex()).collect::<Vec<_>>() }));
     }
     let e = curves::entity(s, h)?;
     let k = stretch_grip(&e.kind, i, to).ok_or_else(|| bad(cmd, "no such grip, or the result would be degenerate"))?;
@@ -251,6 +233,7 @@ enum RunKind {
     Duct,
     Pipe,
     Cable,
+    Wall,
 }
 
 fn run_kind(e: &Entity) -> Option<RunKind> {
@@ -260,6 +243,8 @@ fn run_kind(e: &Entity) -> Option<RunKind> {
         Some(RunKind::Pipe)
     } else if cadcraft_doc::cable_of(e).is_some() {
         Some(RunKind::Cable)
+    } else if cadcraft_doc::wall_of(e).is_some() {
+        Some(RunKind::Wall)
     } else {
         None
     }
@@ -270,11 +255,21 @@ fn stretch_run_grip(d: &mut cadcraft_doc::Drawing, kind: RunKind, h: Handle, ind
         RunKind::Duct => d.stretch_duct_grip(h, index, to)?,
         RunKind::Pipe => d.stretch_pipe_grip(h, index, to)?,
         RunKind::Cable => d.stretch_cable_grip(h, index, to)?,
+        RunKind::Wall => d.stretch_wall_grip(h, index, to)?,
     })
 }
 
-/// The duct and pipe runs of the hot grips moved by `delta`: each hot grip of a run stretches it, and the runs of the same kind in `others`
-/// whose end is on the grip's point follow (a middle grip moves the run alone). Returns the runs redrawn.
+/// The grips of `kind` that are the ends of a run, where the runs that meet it follow: the two ends of a duct, a pipe or a cable, every vertex of a wall.
+fn follower_grips(kind: RunKind, grips: &[Vec2]) -> Vec<usize> {
+    match kind {
+        RunKind::Wall => (0..grips.len().div_ceil(2)).collect(),
+        _ => vec![0, 2],
+    }
+}
+
+/// The duct, pipe, cable and wall runs of the hot grips moved by `delta`: each hot grip of a run stretches it, and the runs of the same kind in `others`
+/// whose end is on a point the grip moves follow (the middle grip of a duct, a pipe or a cable moves the run alone; that of a wall segment moves the segment,
+/// and the walls that meet its ends follow). Returns the runs redrawn.
 fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], delta: Vec2) -> Result<Vec<Handle>> {
     let mut moves: Vec<(RunKind, Handle, usize, Vec2)> = Vec::new();
     {
@@ -287,17 +282,21 @@ fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], del
             if !moves.iter().any(|m| m.1 == h && m.2 == i) {
                 moves.push((kind, h, i, to));
             }
-            if i == 1 {
-                continue;
-            }
-            let tol = 1e-9 * (1.0 + from.len());
-            for &o in others.iter().take(MAX_GRIPS) {
-                let Some(oe) = d.entity(o).filter(|oe| o != h && run_kind(oe) == Some(kind)) else { continue };
-                let gs = d.entity_grips(oe);
-                if let Some(j) = [0, 2].into_iter().find(|j| gs.get(*j).is_some_and(|g| g.near(from, tol)))
-                    && !moves.iter().any(|m| m.1 == o && m.2 == j)
-                {
-                    moves.push((kind, o, j, to));
+            let points = match kind {
+                RunKind::Wall => d.wall_grip_points(h, i),
+                _ if i == 1 => Vec::new(),
+                _ => vec![from],
+            };
+            for at in points {
+                let tol = 1e-9 * (1.0 + at.len());
+                for &o in others.iter().take(MAX_GRIPS) {
+                    let Some(oe) = d.entity(o).filter(|oe| o != h && run_kind(oe) == Some(kind)) else { continue };
+                    let gs = d.entity_grips(oe);
+                    if let Some(j) = follower_grips(kind, &gs).into_iter().find(|j| gs.get(*j).is_some_and(|g| g.near(at, tol)))
+                        && !moves.iter().any(|m| m.1 == o && m.2 == j)
+                    {
+                        moves.push((kind, o, j, at + delta));
+                    }
                 }
             }
         }
@@ -310,6 +309,15 @@ fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], del
         if stretch_run_grip(s.doc_mut()?, kind, h, i, to)? {
             out.push(h);
         }
+    }
+    // The walls that meet where the moved ones now are are cut to each other again.
+    let spaces: Vec<_> = out
+        .iter()
+        .filter(|h| s.doc().ok().and_then(|d| d.entity(**h)).is_some_and(|e| cadcraft_doc::wall_of(e).is_some()))
+        .filter_map(|h| s.doc().ok().and_then(|d| d.space_of(*h)))
+        .collect();
+    for space in spaces.iter().enumerate().filter(|(k, sp)| !spaces[..*k].contains(sp)).map(|(_, sp)| sp) {
+        let _ = s.doc_mut()?.cleanup_walls(space);
     }
     Ok(out)
 }
