@@ -675,6 +675,7 @@ impl CadApp {
             "interfaceLanguage": self.ui.interface_language.code(),
             "saveFormat": self.ui.save_format.as_str(),
             "saveVersion": self.ui.save_version,
+            "defaultTemplate": cadcraft_engine::cmd::file::qnew_template(),
             "quickcalc": self.quickcalc.prefs(),
         });
         if self.spacemouse.settings != spacemouse::Settings::default() {
@@ -698,6 +699,9 @@ impl CadApp {
     /// Restore preferences saved by [`Self::prefs_json`]; unknown or malformed values are ignored.
     pub fn load_prefs(&mut self, json: &str) {
         let Ok(v) = serde_json::from_str::<Value>(json) else { return };
+        if let Some(path) = v.get("defaultTemplate").and_then(Value::as_str) {
+            cadcraft_engine::cmd::file::set_qnew_template(path);
+        }
         if let Some(calculator) = v.get("quickcalc") {
             self.quickcalc.load_prefs(calculator);
         }

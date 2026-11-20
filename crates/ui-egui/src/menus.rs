@@ -84,6 +84,9 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.dock.reset", "Reset Panel Layout", &["Window", "Reset Panel Layout"], None),
     ("ui.open", "Open...", &[], Some("Cmd+O")),
     ("ui.newtemplate", "New from Template...", &["File", "New from Template..."], None),
+    ("ui.template.default", "Choose Default Template...", &["File", "Templates", "Choose Default Template..."], None),
+    ("ui.template.clear", "Clear Default Template", &["File", "Templates", "Clear Default Template"], None),
+    ("ui.template.save", "Save as Template...", &["File", "Templates", "Save as Template..."], None),
     ("ui.saveas", "Save As...", &[], None),
     ("ui.sample", "Open Sample Drawing", &["Help", "Open Sample Drawing"], None),
     ("ui.toggle.toolsets", "Tool Sets", &["Window", "Tool Sets"], Some("Cmd+3")),
@@ -437,6 +440,21 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             });
         }
         // Pick a template (.dwt or .dxf) and start a new drawing from it.
+        "ui.template.default" => app
+            .pick_then_open(Pick::Open, |app, path| {
+                cadcraft_engine::cmd::file::set_qnew_template(&path);
+                app.set_status(format!("Default drawing template: {path}"));
+                Ok(Value::Null)
+            })
+            .unwrap_or(Ok(Value::Null)),
+        "ui.template.clear" => {
+            cadcraft_engine::cmd::file::set_qnew_template("");
+            app.set_status("Default drawing template cleared");
+            Ok(Value::Null)
+        }
+        "ui.template.save" => {
+            app.pick_then(Pick::Save("drawing-template.dwt".into()), |app, path| app.run("saveas", json!({"path":path}))).unwrap_or(Ok(Value::Null))
+        }
         "ui.newtemplate" => app
             .pick_then_open(Pick::Open, |app, p| app.session.execute("new", &json!({ "template": p })).map_err(|e| e.to_string()))
             .unwrap_or(Ok(Value::Null)),

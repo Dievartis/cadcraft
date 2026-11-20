@@ -43,10 +43,12 @@ fn template_for(p: &Value) -> Result<Option<String>> {
 /// NEW from a template, or `None` when the call names none (a blank drawing then).
 pub(super) fn run_new(s: &mut Session, p: &Value) -> Result<Option<Value>> {
     let Some(path) = template_for(p)? else { return Ok(None) };
-    let d = read_template(&path)?;
+    let mut d = read_template(&path)?;
+    anchor_images(&mut d, &path)?;
     s.untitled_counter = s.untitled_counter.saturating_add(1);
     let title = format!("Drawing{}", s.untitled_counter);
     let i = s.open_drawing(d, &title, None);
+    super::super::image::after_open(s, i);
     // An empty template shows its drawing limits.
     if let Some(st) = s.docs.get_mut(i)
         && st.doc.extents(&cadcraft_doc::Space::Model).is_empty()
@@ -63,6 +65,36 @@ pub(super) fn run_new(s: &mut Session, p: &Value) -> Result<Option<Value>> {
         st.set_view_quiet(crate::View { center, height: (hi.y - lo.y).max(1e-6), twist });
     }
     Ok(Some(json!({ "index": i, "title": title, "template": path })))
+}
+
+/// New drawings have no file path. Anchor linked images to the template folder so
+/// a title-block logo keeps working after the new drawing is saved elsewhere.
+fn anchor_images(d: &mut Drawing, path: &str) -> Result<()> {
+    use cadcraft_doc::EntityKind;
+    let parent = std::path::Path::new(path).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| std::path::Path::new("."));
+    let base = std::path::absolute(parent).unwrap_or_else(|_| parent.to_path_buf());
+    let stores = std::iter::once(&d.model).chain(d.layouts.iter().map(|l| &l.entities)).chain(d.blocks.values().map(|b| &b.entities));
+    let updates: Vec<_> = stores
+        .flat_map(|store| store.iter())
+        .filter_map(|e| {
+            let EntityKind::Image(image) = &e.kind else { return None };
+            if image.path.is_empty() || !std::path::Path::new(&image.path).is_relative() {
+                return None;
+            }
+            Some((e.handle, image.path.clone(), base.join(&image.path).to_string_lossy().into_owned()))
+        })
+        .collect();
+    for (handle, old, path) in updates {
+        if let Some(pixels) = d.rasters.get(&old).cloned() {
+            d.rasters.insert(&path, pixels);
+        }
+        d.modify_entity(handle, |e| {
+            if let EntityKind::Image(i) = &mut e.kind {
+                i.path = path;
+            }
+        })?;
+    }
+    Ok(())
 }
 
 /// Read a template drawing through the io hooks (DWG content for `.dwt`, or DXF).

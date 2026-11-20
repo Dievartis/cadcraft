@@ -175,6 +175,16 @@ pub fn file_tabs(app: &mut CadApp, ui: &mut egui::Ui) {
         let ib = Rect::from_min_size(pos2(x, r.top() + 4.0), vec2(18.0, 18.0));
         icons::paint(ui.painter(), ib.shrink(1.0), Icon::Switcher, false);
         x += 24.0;
+        let led = Rect::from_min_size(pos2(x, r.top() + 4.0), vec2(18.0, 18.0));
+        let selected = !app.session.selection().is_empty();
+        let color = if selected { egui::Color32::from_rgb(230, 65, 65) } else { egui::Color32::from_rgb(60, 190, 95) };
+        ui.painter().circle_filled(led.center(), 4.5, color);
+        ui.interact(led, ui.scope_id().with("selection-led"), Sense::hover()).on_hover_text(if selected {
+            "Selection active"
+        } else {
+            "No selection"
+        });
+        x += 22.0;
         let plus = Rect::from_min_size(pos2(x, r.top() + 4.0), vec2(18.0, 18.0));
         let presp = ui.interact(plus, ui.scope_id().with("tab+"), Sense::click());
         icons::paint(ui.painter(), plus.shrink(2.0), Icon::Plus, false);

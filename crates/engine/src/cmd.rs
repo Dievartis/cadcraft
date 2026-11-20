@@ -29,6 +29,8 @@ mod merge;
 mod mleader_content;
 mod mleader_edit;
 mod modify;
+mod scalexy;
+mod vertexedit;
 pub(crate) use modify::Erased;
 mod modify2;
 mod mtext_opts;
@@ -207,6 +209,8 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(layout::specs());
         v.extend(exchange::specs());
         v.extend(image::specs());
+        v.extend(vertexedit::specs());
+        v.extend(scalexy::specs());
         v.extend(props::specs());
         v.extend(inquiry::specs());
         v.extend(settings::specs());

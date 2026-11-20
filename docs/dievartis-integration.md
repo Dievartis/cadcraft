@@ -16,6 +16,7 @@ Published source preview: [Dievart preview 0.4](https://github.com/Dievartis/cad
 | Shared font-folder discovery APIs | @luminatiguy [#2316](https://github.com/storytold/cadcraft/pull/2316), landed in [#2803](https://github.com/storytold/cadcraft/pull/2803) | Existing font-folder registration and redraw-generation APIs, reused by this restoration. |
 | SHX font parsing | @francescoBV [#1944](https://github.com/storytold/cadcraft/pull/1944), landed in [#2751](https://github.com/storytold/cadcraft/pull/2751) | Existing SHX reader, reused for validation and rendering. |
 | Paper-space units | @aldozar [#1085](https://github.com/storytold/cadcraft/pull/1085), extended by @Dievartis [#3207](https://github.com/storytold/cadcraft/pull/3207) | `acf90b3a562eb31f46b11fd2043de742169352a4`, `bc5f4d3a8e14de19176b0be55699e2f10324f471` |
+| Drawing templates | @vangel76 [#562](https://github.com/storytold/cadcraft/pull/562); layout template saving by @dotCooCoo [#2177](https://github.com/storytold/cadcraft/pull/2177) | Existing engine APIs reused. Follow-up adds menu access, persistent default selection and template-relative logo loading. No new notification sent for this development follow-up. |
 
 This is a record of the integration above, not an exhaustive inventory of inherited
 CADCraft contributions. Existing copyright notices and MIT / Apache-2.0 licenses
