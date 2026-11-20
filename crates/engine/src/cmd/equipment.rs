@@ -30,7 +30,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params("{show? (true: write the size beside every equipment, the default; false: hide them)} → {changed}"),
         CommandSpec::new("equipmentedit", "Edit Equipment", run_edit).params(
             "{handle | handles, model? (take that library model's values), kind?, name?, reference?, capacityKw? or null, heatingKw? or null, electricKw? (the electrical power it draws, or null), circuit? (the circuit that feeds it), address? (its address, written beside it), length? width? height? (mm), \\
-             weight? or null, altitude? (m: the underside, or null), showSize? (false: the size is not written beside it), fans?, clearance? (mm), connections? (text written beside it), inlets? / outlets? (a ducted unit: the sizes of the duct connections the air comes in by, along its back long side, and goes out by, along its front long side: a list or text, \"315, 400x250\"; spread along the side), inletCount? / outletCount? (how many connections, 0 to 16: each takes the size of the last one, Ø200 when there is none; a duct that ends on a side gives the unit its connection, as wide as the duct, by itself)} → {changed}",
+             weight? or null, altitude? (m: the underside, or null), refrigerant? (\"R410A\") and charge? (kg of the system, or null: checked by REFRIGERANTCHARGE), showSize? (false: the size is not written beside it), fans?, clearance? (mm), connections? (text written beside it), inlets? / outlets? (a ducted unit: the sizes of the duct connections the air comes in by, along its back long side, and goes out by, along its front long side: a list or text, \"315, 400x250\"; spread along the side), inletCount? / outletCount? (how many connections, 0 to 16: each takes the size of the last one, Ø200 when there is none; a duct that ends on a side gives the unit its connection, as wide as the duct, by itself)} → {changed}",
         ),
     ]
 }
@@ -150,6 +150,12 @@ fn params_from(s: &Session, p: &Value, cmd: &str, last: &EquipmentLastUsed) -> R
     }
     if let Some(c) = str_param(p, "connections") {
         e.connections = c.to_string();
+    }
+    if let Some(r) = str_param(p, "refrigerant") {
+        e.refrigerant = r.trim().to_string();
+    }
+    if let Some(c) = clearable(cmd, p, "charge")? {
+        e.charge_kg = c;
     }
     if let Some(v) = number(cmd, p, "labelHeight")? {
         e.label_height_mm = v;
@@ -299,6 +305,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     let kind = kind_param(CMD, p)?;
     let (cap, heat, weight) = (clearable(CMD, p, "capacityKw")?, clearable(CMD, p, "heatingKw")?, clearable(CMD, p, "weight")?);
     let electric = clearable(CMD, p, "electricKw")?;
+    let charge = clearable(CMD, p, "charge")?;
     let sizes = [number(CMD, p, "length")?, number(CMD, p, "width")?, number(CMD, p, "height")?];
     let (fans, clearance) = (number(CMD, p, "fans")?, number(CMD, p, "clearance")?);
     let d = s.doc()?;
@@ -323,6 +330,12 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if let Some(c) = str_param(p, "connections") {
             e.connections = c.to_string();
+        }
+        if let Some(r) = str_param(p, "refrigerant") {
+            e.refrigerant = r.trim().to_string();
+        }
+        if let Some(c) = charge {
+            e.charge_kg = c;
         }
         if let Some(v) = cap {
             e.capacity_kw = v;

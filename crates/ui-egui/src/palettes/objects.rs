@@ -1590,7 +1590,7 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
     // Numbers: empty clears a power or the weight. A VRV outdoor unit's power is in CV.
     let all_vrv = items.iter().all(|e| e.kind == EquipmentKind::VrfOutdoor);
     type Get = fn(&cadcraft_doc::EquipmentParams) -> Option<f64>;
-    let numbers: [(&str, &str, Get, bool); 8] = [
+    let numbers: [(&str, &str, Get, bool); 9] = [
         (if all_vrv { "Power (CV)" } else { "Power (kW)" }, "capacityKw", |e| e.capacity_kw, true),
         ("Heating power (kW)", "heatingKw", |e| e.heating_kw, true),
         ("Length (mm)", "length", |e| Some(e.length_mm), false),
@@ -1599,10 +1599,13 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
         ("Weight (kg)", "weight", |e| e.weight_kg, true),
         ("Fans", "fans", |e| Some(f64::from(e.fans)), false),
         ("Service clearance (mm)", "clearance", |e| Some(e.clearance_mm), false),
+        ("Refrigerant charge (kg)", "charge", |e| e.charge_kg, true),
     ];
+    // The refrigerant and its charge are those of the system an outdoor unit of a refrigerant link is the head of.
+    let refrigerant_system = items.iter().all(|e| matches!(e.kind, EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor));
     // The fans are drawn on the units that stand outdoors only: no row for the others.
     let any_outdoor = items.iter().any(|e| e.kind.is_outdoor());
-    for (label, key, get, clearable) in numbers.into_iter().filter(|n| n.1 != "fans" || any_outdoor) {
+    for (label, key, get, clearable) in numbers.into_iter().filter(|n| (n.1 != "fans" || any_outdoor) && (n.1 != "charge" || refrigerant_system)) {
         let v = shared(&items.iter().map(|e| get(e).map_or(String::new(), |f| format!("{f}"))).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
         prop_row(ui, label, |ui| {
             if let Some(t) = edit_field(ui, ui.scope_id().with(("equip_num", key, &ids)), v).filter(|t| t != VARIES) {
@@ -1611,6 +1614,14 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
                 } else if let Some(n) = number(Some(t), bad) {
                     action = edit(key, json!(n));
                 }
+            }
+        });
+    }
+    if refrigerant_system {
+        prop_row(ui, "Refrigerant", |ui| {
+            let r = shared(&items.iter().map(|e| e.refrigerant.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+            if let Some(t) = edit_field(ui, ui.scope_id().with(("equip_refrigerant", &ids)), r).filter(|t| t != VARIES) {
+                action = edit("refrigerant", json!(t));
             }
         });
     }

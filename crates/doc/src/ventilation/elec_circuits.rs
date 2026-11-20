@@ -298,7 +298,11 @@ impl crate::Drawing {
     }
 }
 
-/// `origin` is where the circuit's board gets its current: the short-circuit current there (kA) and the voltage drop already taken (percent).
+/// The smallest section of a copper conductor of a power or lighting circuit, mm² (NF C 15-100, article 524; to be checked in the standard).
+const MIN_POWER_SECTION_MM2: f64 = 1.5;
+
+/// The circuit as the drawing has it, with what it warns of. `origin` is where the circuit's board gets its current: the short-circuit current there (kA)
+/// and the voltage drop already taken (percent).
 fn circuit_report(
     a: Acc,
     panels: &[String],
@@ -342,6 +346,16 @@ fn circuit_report(
     }
     if a.cables.is_empty() {
         r.warnings.push("no cable is drawn for this circuit".into());
+    }
+    // Power and lighting conductors are at least 1.5 mm² of copper (NF C 15-100, article 524; the minimum of aluminium is not checked here).
+    if let Some(drawn) = r.section_mm2
+        && !usage.is_signal()
+        && conductor == ElecConductor::Copper
+        && drawn < MIN_POWER_SECTION_MM2
+    {
+        r.warnings.push(format!(
+            "the section drawn ({drawn} mm²) is below the {MIN_POWER_SECTION_MM2} mm² of copper that a power or lighting circuit has at least (NF C 15-100, article 524)"
+        ));
     }
     if r.power_w <= 0.0 {
         // A data or bus circuit carries no power: nothing to say.

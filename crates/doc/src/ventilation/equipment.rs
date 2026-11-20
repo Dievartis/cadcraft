@@ -238,6 +238,12 @@ pub struct EquipmentParams {
     /// Whether the size ("Dim. 1400x800x245H") is written beside the equipment.
     #[serde(default = "super::yes")]
     pub show_size: bool,
+    /// The refrigerant of the system the unit is the outdoor unit of ("R410A"), and the charge of that system, kg (from the manufacturer's data): the charge
+    /// is checked against the volume of the rooms the system serves.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub refrigerant: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charge_kg: Option<f64>,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
     /// The altitude of the underside of the element, mm above the drawing's zero, when it is given: written beside it ("Ai:2.50") and kept for the takeoff.
@@ -275,12 +281,20 @@ impl EquipmentParams {
             address: String::new(),
             show_address: true,
             show_size: true,
+            refrigerant: String::new(),
+            charge_kg: None,
             label_height_mm: 100.0,
             units,
         }
     }
 
     pub fn validate(&self) -> Result<()> {
+        if self.charge_kg.is_some_and(|c| !(c.is_finite() && c > 0.0 && c <= 100_000.0)) {
+            return Err(invalid("The refrigerant charge is above 0 and at most 100000 kg."));
+        }
+        if self.refrigerant.chars().count() > 32 {
+            return Err(invalid("The refrigerant is named in 32 characters at most."));
+        }
         check_name("equipment", &self.name)?;
         check_label_height(self.label_height_mm)?;
         self.units.validate()?;

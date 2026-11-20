@@ -53,6 +53,8 @@ pub struct RefrigerantNetwork {
     /// The risers the network reaches (what the other floors serve is typed on their lines: it is added to the index).
     pub risers: Vec<String>,
     pub units: usize,
+    /// The indoor units (and air handling units with a direct-expansion coil) the network reaches.
+    pub unit_handles: Vec<Handle>,
     pub index: f64,
     pub parts: Vec<PartReport>,
     pub warnings: Vec<String>,
@@ -355,7 +357,8 @@ impl Graph {
         let mut risers: Vec<String> = w.reached.iter().filter_map(|k| self.risers.get(*k)).map(|(_, r, _)| r.name.clone()).collect();
         risers.sort();
         risers.dedup();
-        RefrigerantNetwork { outdoor, source_riser, risers, units: units.len(), index, parts, warnings }
+        let unit_handles = units.iter().filter_map(|k| self.units.get(*k)).map(|u| u.handle).collect();
+        RefrigerantNetwork { outdoor, source_riser, risers, units: units.len(), unit_handles, index, parts, warnings }
     }
 
     fn report_part(

@@ -330,3 +330,34 @@ fn racks_coolers_and_dehumidifiers_are_put_by_model_named_by_kind_and_the_ducted
     let list = s.execute("equipmentadd", &json!({"list": true, "kind": "wallRack"})).unwrap();
     assert_eq!(list["models"].as_array().unwrap().len(), 5);
 }
+
+#[test]
+fn the_charge_of_a_refrigerant_system_is_checked_against_the_rooms_it_serves() {
+    let mut s = metric();
+    // A room of 4 x 5 m, 2.5 m high: 50 m³, so 22 kg of R410A (0.44 kg/m³) at most. An indoor unit in it, an outdoor unit outside, a pipe between them.
+    s.execute("spaceadd", &json!({"points": [[0, 0], [4000, 0], [4000, 5000], [0, 5000]], "name": "Salle", "flow": 100})).unwrap();
+    let ue = s.execute("equipmentadd", &json!({"at": [10000, 2500], "model": "VRV 10 CV", "refrigerant": "R410A", "charge": 30})).unwrap();
+    s.execute("equipmentadd", &json!({"at": [2000, 2500], "kind": "cassette", "capacity": 3.5})).unwrap();
+    let e = equip(&s, &ue["handle"]);
+    assert_eq!((e.refrigerant.as_str(), e.charge_kg), ("R410A", Some(30.0)));
+    let ue_edge = 10000.0 - e.length_mm / 2.0;
+    s.execute("pipeadd", &json!({"points": [[2000, 2500], [ue_edge, 2500]], "service": "refrigerantLiquid", "dn": 9.52})).unwrap();
+    let r = s.execute("refrigerantcharge", &json!({})).unwrap();
+    let sys = &r["systems"][0];
+    assert_eq!((sys["chargeKg"].as_f64(), sys["limitKgM3"].as_f64()), (Some(30.0), Some(0.44)), "{r}");
+    assert_eq!(sys["rooms"][0]["limitKg"].as_f64(), Some(22.0), "{r}");
+    assert_eq!((r["problems"].as_u64(), sys["rooms"][0]["ok"].as_bool()), (Some(1), Some(false)), "{r}");
+    assert!(sys["warnings"][0].as_str().unwrap().contains("at least 68.2 m³"), "{r}");
+    // A smaller charge is right, a higher room too; another fluid is not checked; no charge typed, no check.
+    s.execute("equipmentedit", &json!({"handle": ue["handle"], "charge": 18})).unwrap();
+    assert_eq!(s.execute("refrigerantcharge", &json!({})).unwrap()["problems"], 0);
+    s.execute("equipmentedit", &json!({"handle": ue["handle"], "charge": 30})).unwrap();
+    assert_eq!(s.execute("refrigerantcharge", &json!({"height": 3.5})).unwrap()["problems"], 0, "70 m³ hold 30.8 kg");
+    s.execute("equipmentedit", &json!({"handle": ue["handle"], "refrigerant": "R32"})).unwrap();
+    let r = s.execute("refrigerantcharge", &json!({})).unwrap();
+    assert!(r["systems"][0]["warnings"][0].as_str().unwrap().contains("only R410A"), "{r}");
+    s.execute("equipmentedit", &json!({"handle": ue["handle"], "charge": null})).unwrap();
+    assert!(s.execute("refrigerantcharge", &json!({})).unwrap()["systems"].as_array().unwrap().is_empty());
+    assert!(s.execute("refrigerantcharge", &json!({"height": -1})).is_err());
+    assert!(s.execute("equipmentedit", &json!({"handle": ue["handle"], "charge": -5})).is_err());
+}

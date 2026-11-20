@@ -34,6 +34,11 @@ pub fn specs() -> Vec<CommandSpec> {
              direct-expansion coil); the units and the capacity index (cooling kW × 10) are counted at each outlet and below each joint or header, and what is over the \
              limits is told (5 units and index 140 per outlet of a box, 250 joining two; the joint or header suited to the index below it)",
         ),
+        CommandSpec::new("refrigerantcharge", "Check Refrigerant Charge", run_charge).params(
+            "{height? (m, default 2.5: the height of the rooms, a space has none)} → {systems: [{outdoor, name, refrigerant, chargeKg, limitKgM3?, rooms: [{space, volumeM3, limitKg, ok}], warnings}], problems}: \
+             the charge typed on each outdoor unit (`charge` in kg and `refrigerant` in EQUIPMENTEDIT, from the manufacturer's data) against the practical limit of the refrigerant (NF EN 378-1, annex C: kg per m³ of the \
+             smallest room served); only R410A (0.44 kg/m³) is checked, the other fluids are reported as not checked",
+        ),
         CommandSpec::new("pipepartmodels", "Pipework Part Library", run_models).params(
             "{category? (valves|fittings|airAndDirt|instruments|pumps|vesselsAndTanks|heatSources|refrigerantBranches|branchBoxes), q? (words found in the name)} → \
              {categories: [{name, title}], models: [{name, nameFr, category, kind, user, outlets, connections, dn, volume, power, height, length, width}]} | \
@@ -355,6 +360,22 @@ fn run_check(s: &mut Session, _p: &Value) -> Result<Value> {
         })
         .collect();
     Ok(json!({ "networks": networks, "unconnected": r.unconnected.iter().map(|h| h.hex()).collect::<Vec<_>>(), "warnings": r.warnings }))
+}
+
+fn run_charge(s: &mut Session, p: &Value) -> Result<Value> {
+    let height = super::f64_or(p, "height", 2.5);
+    let systems = s.doc()?.check_refrigerant_charge(height).map_err(doc_err)?;
+    let problems = systems.iter().filter(|x| !x.warnings.is_empty()).count();
+    let rows: Vec<Value> = systems
+        .iter()
+        .map(|x| {
+            json!({
+                "outdoor": x.outdoor.hex(), "name": x.name, "refrigerant": x.refrigerant, "chargeKg": x.charge_kg, "limitKgM3": x.limit_kg_m3, "warnings": x.warnings,
+                "rooms": x.rooms.iter().map(|r| json!({ "space": r.space, "volumeM3": r.volume_m3, "limitKg": r.limit_kg, "ok": r.ok })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(json!({ "systems": rows, "problems": problems }))
 }
 
 fn category_named(name: &str) -> Option<PartCategory> {

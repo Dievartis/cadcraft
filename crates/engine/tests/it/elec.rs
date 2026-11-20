@@ -335,3 +335,14 @@ fn the_lighting_classes_of_the_table_of_article_r4223_4_are_told_by_the_name_of_
         assert_eq!((row["class"].as_str(), row["minimumLux"].as_f64()), (Some(class), Some(minimum)), "{name}");
     }
 }
+
+#[test]
+fn a_power_or_lighting_cable_under_1_5_mm2_of_copper_is_told_and_a_signal_cable_is_not() {
+    let mut s = metric();
+    s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "circuit": "TD1-C1", "usage": "lighting", "section": 1.0})).unwrap();
+    s.execute("cableadd", &json!({"points": [[0, 500], [5000, 500]], "circuit": "BUS1", "usage": "bus", "section": "2x0.75 blindé"})).unwrap();
+    let r = s.execute("circuitcheck", &json!({})).unwrap();
+    let warns = |n: &str| circuit(&r, n)["warnings"].as_array().unwrap().iter().filter_map(|w| w.as_str()).collect::<Vec<_>>().join(" | ");
+    assert!(warns("TD1-C1").contains("1.5 mm² of copper"), "{}", warns("TD1-C1"));
+    assert!(!warns("BUS1").contains("1.5 mm²"), "{}", warns("BUS1"));
+}
