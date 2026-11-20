@@ -12,7 +12,8 @@ use crate::animation::AnimationPref;
 use crate::theme::{ThemePref, Tokens};
 
 /// The tabs: (id in the dialog name, label).
-pub(super) const TABS: [(&str, &str); 6] = [
+pub(super) const TABS: [(&str, &str); 7] = [
+    ("workflow", "Drawing Setup"),
     ("display", "Display"),
     ("files", "Open and Save"),
     ("drafting", "Drafting"),
@@ -52,6 +53,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, name: &str, open: &mut bool
             ui.add_space(4.0);
             let top = ui.cursor().top();
             match tab {
+                "workflow" => workflow(ui, &mut start),
                 "files" => files(app, ui, &mut changes),
                 "drafting" => drafting(app, ui, &mut changes, &mut start),
                 "selection" => selection(app, ui, &mut changes),
@@ -83,6 +85,32 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, name: &str, open: &mut bool
     if let Some(id) = start {
         app.start(id);
     }
+}
+
+fn workflow(ui: &mut egui::Ui, start: &mut Option<&'static str>) {
+    ui.label("Default drawing template");
+    let template = cadcraft_engine::cmd::file::qnew_template();
+    ui.label(if template.is_empty() { "None" } else { &template });
+    ui.horizontal(|ui| {
+        for (label, command) in [("Choose Default Template...", "ui.template.default"), ("Clear Default Template", "ui.template.clear")] {
+            if ui.button(label).clicked() {
+                *start = Some(command);
+            }
+        }
+    });
+    ui.label("The default template supplies units, layouts, paper sizes and title blocks for new drawings and startup.");
+    ui.separator();
+    for (label, command) in [
+        ("Drawing Units...", "units"),
+        ("Page Setup Manager...", "pagesetup"),
+        ("Keyboard Shortcuts...", "ui.shortcuts"),
+        ("Save as Template...", "ui.template.save"),
+    ] {
+        if ui.button(label).clicked() {
+            *start = Some(command);
+        }
+    }
+    ui.label("Units and paper changes affect the current drawing. Save it as a template to reuse those settings.");
 }
 
 fn grid(ui: &mut egui::Ui, id: &str, add: impl FnOnce(&mut egui::Ui)) {

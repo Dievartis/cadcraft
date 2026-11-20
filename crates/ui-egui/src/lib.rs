@@ -383,6 +383,21 @@ pub struct CadApp {
 }
 
 impl CadApp {
+    /// Populate an empty startup session from its persisted template, with a usable fallback.
+    pub fn ensure_startup_drawing(&mut self) {
+        if !self.session.docs.is_empty() {
+            return;
+        }
+        let metric = self.session.settings.measureinit;
+        if !cadcraft_engine::cmd::file::qnew_template().is_empty() {
+            match self.session.execute("new", &serde_json::json!({})) {
+                Ok(_) => return,
+                Err(error) => self.session.echo(format!("Default template could not be loaded: {error}")),
+            }
+        }
+        self.session.new_drawing(metric);
+    }
+
     /// Construct `CadApp` from a session and services with default UI state, options, canvas and command line; no control channel, capture geometry or pending shots are installed.
     pub fn new(session: Session, services: Services) -> Self {
         if !services.no_file_system {
