@@ -1195,3 +1195,50 @@ fn tab_changes_the_justification_of_the_walls_being_drawn_and_the_point_of_a_pie
     // The first Tab from the back middle is the back right: the cursor holds the right end of the back, so the origin is half a width to the left.
     assert!((at.0 - (10000.0 - f.width_mm / 2.0)).abs() < 1e-6 && at.1.abs() < 1e-6, "{at:?}");
 }
+
+/// The extent in y of the lines of a wall's block, and the y of the first line (the face of its first component).
+fn y_extent(s: &Session, hd: Handle) -> (f64, f64, f64) {
+    let d = s.doc().unwrap();
+    let EntityKind::Insert(i) = &d.entity(hd).unwrap().kind else { panic!("not a block reference") };
+    let ys: Vec<f64> = d
+        .block(&i.block)
+        .unwrap()
+        .entities
+        .iter()
+        .filter_map(|e| if let EntityKind::Line(l) = &e.kind { Some([l.a.y, l.b.y]) } else { None })
+        .flatten()
+        .collect();
+    let (lo, hi) = ys.iter().fold((f64::MAX, f64::MIN), |(lo, hi), y| (lo.min(*y), hi.max(*y)));
+    (lo, hi, ys[0])
+}
+
+#[test]
+fn a_wall_is_turned_round_on_the_same_footprint_with_its_layers_in_the_opposite_order() {
+    let mut s = metric();
+    let a = h(&s.execute("walladd", &json!({"points": [[0, 0], [5000, 0], [5000, 4000]], "style": BRICK})).unwrap());
+    let before = wall(&s, a);
+    let ext = y_extent(&s, a);
+    s.execute("walledit", &json!({"handle": a.hex(), "flip": true})).unwrap();
+    let after = wall(&s, a);
+    // The path is walked the other way, the justification mirrored.
+    assert_eq!(path(&after), [(5000.0, 4000.0), (5000.0, 0.0), (0.0, 0.0)]);
+    assert_eq!((before.justification, after.justification), (WallJustification::Left, WallJustification::Right));
+    // The same footprint: the walls cover the same extent, so nothing moved.
+    let ext2 = y_extent(&s, a);
+    assert!((ext.0 - ext2.0).abs() < 1e-6 && (ext.1 - ext2.1).abs() < 1e-6, "{ext:?} {ext2:?}");
+    // And turned round twice it is the wall it was.
+    s.execute("walledit", &json!({"handle": a.hex(), "flip": true})).unwrap();
+    assert_eq!(wall(&s, a).path, before.path);
+    assert_eq!(wall(&s, a).justification, before.justification);
+    // An arc keeps its curve: the bulge follows the segment with its sign changed.
+    let b = h(&s.execute("walladd", &json!({"points": [[0, 8000], [4000, 8000]], "bulges": [0.3], "style": PARTITION})).unwrap());
+    s.execute("walledit", &json!({"handle": b.hex(), "flip": true})).unwrap();
+    assert_eq!(wall(&s, b).bulges, [-0.3]);
+    // Drawing turned round: the option Flip of WALLADD.
+    for t in ["walladd", "flip", "0,20000", "4000,20000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    // Its path starts at the point it ends at (relative to its own insertion point).
+    let last = walls(&s).into_iter().map(|(_, w)| w).find(|w| path(w) == [(0.0, 0.0), (-4000.0, 0.0)]).expect("the wall drawn turned round");
+    assert_eq!(last.justification, WallJustification::Right);
+}

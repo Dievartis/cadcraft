@@ -426,6 +426,33 @@ pub struct WallPiece {
 }
 
 impl WallParams {
+    /// The wall turned round: the same footprint (the same points of the drawing, the same side of the path) with its components in the opposite order, so
+    /// the face that was on the outside is on the inside. The path is walked the other way and the justification is mirrored (left and right swap), the
+    /// bulges follow their segments with their sign changed; what the wall kept about its neighbours is left to be worked out again.
+    pub fn flipped(&self) -> WallParams {
+        let n = self.path.len();
+        let segments = if self.closed { n } else { n.saturating_sub(1) };
+        let mut w = self.clone();
+        w.path.reverse();
+        w.justification = match self.justification {
+            WallJustification::Left => WallJustification::Right,
+            WallJustification::Right => WallJustification::Left,
+            WallJustification::Center => WallJustification::Center,
+        };
+        if !self.bulges.is_empty() && segments > 0 {
+            // The segment k of the new path is the segment (n - 2 - k) of the old one, walked backwards.
+            w.bulges = (0..segments)
+                .map(|k| {
+                    let old = (n as i64 - 2 - k as i64).rem_euclid(segments as i64) as usize;
+                    -self.bulges.get(old).copied().unwrap_or(0.0)
+                })
+                .collect();
+        }
+        (w.start_free, w.end_free) = (self.end_free, self.start_free);
+        w.joints = WallJoints::default();
+        w
+    }
+
     /// Checks parameters from a file, a command or a script.
     pub fn validate(&self) -> Result<()> {
         self.style.validate()?;

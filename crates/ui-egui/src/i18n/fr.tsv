@@ -3704,3 +3704,8 @@ echo	Requires a cable as 3G1.5 or 2x0.75 blindé, a section in mm², or Auto.	Il
 	Wall rack	Baie informatique murale
 	Floor rack	Baie informatique au sol
 	Computer racks	Baies informatiques
+	Layers order	Ordre des couches
+	Flip wall	Inverser le mur
+	Puts the layers of the wall in the opposite order, on the same footprint.	Met les couches du mur dans l'ordre inverse, au même endroit.
+echo	Walls are drawn turned round: the layers are in the opposite order.	Les murs sont dessinés à l'envers : les couches sont dans l'ordre inverse.
+echo	Walls are drawn as the style has them.	Les murs sont dessinés comme le style les a.

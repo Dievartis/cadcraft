@@ -38,6 +38,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 "{handle | handles, style?, justification?: left|center|right, height? (mm), layers? ({layer name: thickness in mm}, or [{name | index, thickness}]: these walls only), \
                  applyToStyle? (true: the style and every wall that uses it take the thicknesses too), \
                  freeStart? | freeEnd? (true: that end of an open wall is left as drawn, not joined to the walls it meets), \
+                 flip? (true: the walls are turned round, their layers in the opposite order on the same footprint: the face that was outside is inside), \
                  bulges? (one per segment, as WALLADD) | segment? + bulge? (one segment's, the others kept; 0 makes it straight)} → {regenerated}",
             )
             .interactive(|s| Ok(Box::new(WallEditM::new(s)))),
@@ -238,6 +239,8 @@ struct WallAddM {
     /// Millimetres.
     height: f64,
     ask: Ask,
+    /// The walls are drawn turned round: their layers in the opposite order on the same side of the path.
+    flip: bool,
 }
 
 impl WallAddM {
@@ -253,14 +256,20 @@ impl WallAddM {
             justification: s.last_used.wall_justification,
             height,
             ask: Ask::Point,
+            flip: false,
         }
+    }
+    /// The bulge of an arc as the wall has it: the path of a turned wall is walked the other way.
+    fn bulge_of(&self, bulge: f64) -> Vec<f64> {
+        vec![if self.flip { -bulge } else { bulge }]
     }
     fn settings(&self, s: &mut Session) {
         s.echo(format!("Current settings: Style = {}, Justification = {}, Height = {}", self.style.name, self.justification.name(), self.height));
     }
     fn wall(&self, s: &Session, pts: Vec<Vec2>, closed: bool) -> Option<WallParams> {
         let d = s.doc().ok()?;
-        Some(params(d, self.style.clone(), pts, closed, self.justification, self.height))
+        let w = params(d, self.style.clone(), pts, closed, self.justification, self.height);
+        Some(if self.flip { w.flipped() } else { w })
     }
     /// Remembers the settings for the next WALLADD.
     fn remember(&self, s: &mut Session) {
@@ -310,7 +319,7 @@ impl WallAddM {
     /// point.
     fn add_arc(&mut self, s: &mut Session, start: Vec2, end: Vec2, bulge: f64) -> Result<Step> {
         let Some(mut w) = self.wall(s, vec![start, end], false) else { return Ok(Step::Continue) };
-        w.bulges = vec![bulge];
+        w.bulges = self.bulge_of(bulge);
         if let Err(e) = w.validate() {
             s.echo(e.to_string());
             return Ok(Step::Continue);
@@ -359,6 +368,14 @@ impl WallAddM {
             "STyle" => self.ask = Ask::Style,
             "Justification" => self.ask = Ask::Justification,
             "Height" => self.ask = Ask::Height,
+            "Flip" => {
+                self.flip = !self.flip;
+                s.echo(if self.flip {
+                    "Walls are drawn turned round: the layers are in the opposite order."
+                } else {
+                    "Walls are drawn as the style has them."
+                });
+            }
             "Arc" if !self.pts.is_empty() => self.ask = Ask::ArcThrough,
             "CEnter" if !self.pts.is_empty() => self.ask = Ask::ArcCentre,
             "Undo" => {
@@ -457,9 +474,9 @@ impl Interactive for WallAddM {
         }
         let last = self.pts.last().copied();
         match self.pts.len() {
-            0 => Prompt::new("Specify start point of wall", Accept::POINT).kw(&["STyle", "Justification", "Height"]),
-            1 | 2 => Prompt::new("Specify next point", Accept::POINT).kw(&["Arc", "CEnter", "Undo"]).base_opt(last),
-            _ => Prompt::new("Specify next point", Accept::POINT).kw(&["Arc", "CEnter", "Close", "Undo"]).base_opt(last),
+            0 => Prompt::new("Specify start point of wall", Accept::POINT).kw(&["STyle", "Justification", "Height", "Flip"]),
+            1 | 2 => Prompt::new("Specify next point", Accept::POINT).kw(&["Arc", "CEnter", "Undo", "Flip"]).base_opt(last),
+            _ => Prompt::new("Specify next point", Accept::POINT).kw(&["Arc", "CEnter", "Close", "Undo", "Flip"]).base_opt(last),
         }
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
@@ -517,14 +534,14 @@ impl Interactive for WallAddM {
             // The arc through the point picked, to the cursor.
             let Some(bulge) = self.arc_mid.and_then(|m| cadcraft_doc::bulge_through(last, m, c)) else { return Vec::new() };
             if let Some(w) = wall.as_mut() {
-                w.bulges = vec![bulge];
+                w.bulges = self.bulge_of(bulge);
             }
         } else if self.ask == Ask::ArcCentreEnd {
             // The arc about the centre, to where the cursor points.
             let Some((bulge, end)) = self.arc_centre.and_then(|m| cadcraft_doc::bulge_from_centre(last, m, c)) else { return Vec::new() };
             wall = self.wall(s, vec![last, end], false);
             if let Some(w) = wall.as_mut() {
-                w.bulges = vec![bulge];
+                w.bulges = self.bulge_of(bulge);
             }
         }
         let Some(Ok(pieces)) = wall.map(|w| w.generate()) else { return Vec::new() };
@@ -703,6 +720,8 @@ struct WallChange {
     end_free: Option<bool>,
     /// New bulges for the walls' segments, as WALLADD takes them (a list of one per segment at most).
     bulges: Option<Vec<f64>>,
+    /// Turns the walls round: their layers are in the opposite order on the same footprint.
+    flip: bool,
 }
 
 /// A layer of a wall style: by name (every layer of that name) or by its place from the exterior face.
@@ -785,6 +804,9 @@ fn edit_walls(s: &mut Session, handles: &[Handle], c: &WallChange) -> Result<usi
         }
         if let Some(b) = &c.bulges {
             w.bulges = b.clone();
+        }
+        if c.flip {
+            w = w.flipped();
         }
         // Junctions are worked out again after the change.
         w.joints = Default::default();
@@ -1061,7 +1083,8 @@ fn run_walledit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         (None, None) => None,
     };
-    let n = edit_walls(s, &handles, &WallChange { style, justification, height, layers, apply_to_style, start_free, end_free, bulges })?;
+    let flip = flag("flip")?.unwrap_or(false);
+    let n = edit_walls(s, &handles, &WallChange { style, justification, height, layers, apply_to_style, start_free, end_free, bulges, flip })?;
     Ok(json!({ "regenerated": n }))
 }
 
@@ -1103,7 +1126,9 @@ impl Interactive for WallEditM {
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.ask {
             EditAsk::Select => Prompt::new("Select walls", Accept::SELECT),
-            EditAsk::Option => Prompt::new("Enter an option", super::curves::KW).kw(&["Style", "Justification", "Height", "FreeStart", "FreeEnd"]),
+            EditAsk::Option => {
+                Prompt::new("Enter an option", super::curves::KW).kw(&["Style", "Justification", "Height", "FreeStart", "FreeEnd", "Flip"])
+            }
             EditAsk::Style => Prompt::new("Enter wall style name", Accept::TEXT),
             EditAsk::Justification => Prompt::new("Enter justification", super::curves::KW).kw(&["Left", "Center", "Right"]),
             EditAsk::Height => Prompt::new("Enter wall height", Accept::NUMBER),
@@ -1132,6 +1157,7 @@ impl Interactive for WallEditM {
                     "Style" => EditAsk::Style,
                     "Justification" => EditAsk::Justification,
                     "Height" => EditAsk::Height,
+                    "Flip" => return self.apply(s, WallChange { flip: true, ..WallChange::default() }),
                     // Toggles the join at that end, from the first wall's present state.
                     "FreeStart" | "FreeEnd" => {
                         let first = self.walls.first().and_then(|h| s.doc().ok()?.entity(*h).and_then(|e| wall_of(e)));

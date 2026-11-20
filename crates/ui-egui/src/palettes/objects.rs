@@ -1090,6 +1090,16 @@ fn wall_section(
             action = Some(("walledit", json!({ "handles": ids, "justification": j.name() })));
         }
     });
+    // Turns the wall round: the same footprint, its layers in the opposite order (the plasterboard on the other face).
+    prop_row(ui, "Layers order", |ui| {
+        if ui
+            .button(crate::i18n::t("Flip wall"))
+            .on_hover_text(crate::i18n::t("Puts the layers of the wall in the opposite order, on the same footprint."))
+            .clicked()
+        {
+            action = Some(("walledit", json!({ "handles": ids, "flip": true })));
+        }
+    });
     let height = shared(&walls.iter().map(|w| format!("{:.0}", w.height)).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
     prop_row(ui, "Height (mm)", |ui| {
         if let Some(h) = number(edit_field(ui, ui.scope_id().with(("wall_height", &ids)), height), bad) {
