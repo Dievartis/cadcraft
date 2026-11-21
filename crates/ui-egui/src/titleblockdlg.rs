@@ -78,14 +78,15 @@ fn sheet_of_current_space(app: &CadApp) -> (String, bool) {
     (paper.to_string(), page.landscape)
 }
 
-/// Where a new title block goes: the right edge of the layout's sheet, inside its margin; the origin in model space.
-fn default_at(app: &CadApp, tb: &TitleBlockParams) -> [f64; 2] {
-    if !matches!(app.session.space(), cadcraft_doc::Space::Paper(_)) {
-        return [0.0, 0.0];
-    }
-    let mm = tb.units.mm_per_unit;
-    let (w, _) = tb.sheet_mm().unwrap_or((0.0, 0.0));
-    [(w - cadcraft_doc::SHEET_MARGIN_MM - tb.width_mm) / mm, cadcraft_doc::SHEET_MARGIN_MM / mm]
+/// Where a new title block goes, millimetres on paper: the right edge of the layout's real sheet, inside its margin; the origin in model space.
+fn default_at_mm(app: &CadApp, tb: &TitleBlockParams) -> [f64; 2] {
+    let page = app.session.doc().ok().and_then(|d| match app.session.space() {
+        cadcraft_doc::Space::Paper(name) => d.layouts.iter().find(|l| l.name == name).map(|l| l.page.clone()),
+        _ => None,
+    });
+    let Some(page) = page else { return [0.0, 0.0] };
+    let width = if page.landscape { page.width_mm.max(page.height_mm) } else { page.width_mm.min(page.height_mm) };
+    [(width - cadcraft_doc::SHEET_MARGIN_MM - tb.width_mm).max(0.0), cadcraft_doc::SHEET_MARGIN_MM]
 }
 
 fn pic_json(st: &TitleBlockDlg, slot: &str, pic: Option<&Pic>) -> Value {
@@ -127,7 +128,7 @@ fn apply(app: &mut CadApp) {
             app.run("titleblockedit", p)
         }
         None => {
-            p["at"] = json!(default_at(app, &st.tb));
+            p["atMm"] = json!(default_at_mm(app, &st.tb));
             app.run("titleblockadd", p)
         }
     };
@@ -491,5 +492,6 @@ mod tests {
         // The column's right edge is one margin from the sheet's right edge.
         let sheet_w = if t.landscape { layout.page.width_mm.max(layout.page.height_mm) } else { layout.page.width_mm.min(layout.page.height_mm) };
         assert!((at.x * t.units.mm_per_unit + t.width_mm - (sheet_w - cadcraft_doc::SHEET_MARGIN_MM)).abs() < 1.0, "{} {sheet_w}", at.x);
+        assert_eq!(t.units.mm_per_unit, cadcraft_render::paper::page_unit_mm(d, &layout.page), "drawn in the layout's paper units");
     }
 }

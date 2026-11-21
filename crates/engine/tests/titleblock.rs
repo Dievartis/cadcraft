@@ -116,3 +116,22 @@ fn every_paper_gets_a_column_that_fits_its_sheet() {
         assert!(t.width_mm < t.sheet_mm().unwrap().0 && t.height_mm() > 100.0, "{paper}");
     }
 }
+
+#[test]
+fn on_a_sheet_the_block_is_drawn_in_the_sheets_paper_units_not_the_drawings() {
+    hooks();
+    // A drawing in metres whose sheet is in inches: the column is still 130 mm wide on paper.
+    let mut s = Session::new();
+    s.doc_mut().unwrap().header.set_i64("INSUNITS", 6);
+    s.doc_mut().unwrap().header.set_i64("MEASUREMENT", 0);
+    s.execute("layout.set", &json!({"name": "Layout1"})).unwrap();
+    let r = s.execute("titleblockadd", &json!({"paper": "A3", "atMm": [10.0, 10.0]})).unwrap();
+    let h = Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let t = titleblock_of(s.doc().unwrap().layouts.iter().flat_map(|l| l.entities.iter()).find(|e| e.handle == h).unwrap()).unwrap();
+    assert_eq!(t.units.mm_per_unit, 25.4);
+    let at = s.doc().unwrap().layouts.iter().flat_map(|l| l.entities.iter()).find(|e| e.handle == h).map(|e| match &e.kind {
+        cadcraft_engine::doc::EntityKind::Insert(i) => i.insert.x,
+        _ => 0.0,
+    });
+    assert!((at.unwrap() * 25.4 - 10.0).abs() < 1e-6, "atMm is millimetres on paper");
+}

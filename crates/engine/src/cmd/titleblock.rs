@@ -19,7 +19,7 @@ const MAX_PIC_SIDE: u32 = 1600;
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("titleblockadd", "Title Block", run_add).menu(&["Insert", "Title Block"]).alias(&["ttlb"]).params(
-            "{at? ([x, y]: the lower left corner of the column; default 0,0), paper?: A4|A3|A2|A1|A0 (default A3), landscape? (default true), width? (mm), lang? (fr|en: the words of the block, default fr), \
+            "{at? ([x, y]: the lower left corner of the column in the space's units; default 0,0), atMm? ([x, y]: the same in millimetres on paper), paper?: A4|A3|A2|A1|A0 (default A3), landscape? (default true), width? (mm), lang? (fr|en: the words of the block, default fr), \
              name?, project?, description?, address?, title?, parties? ([{role, name, address?, phone?, email?, afterImage? (under the picture), \
              logo? ({path | data: base64} a new picture, {key} one already kept, null for none)}]), image? (as a logo: the picture of the project), \
              revisions? ([{index, date, nature, by?, checked?}], the oldest first), revisionRows? (lines shown, default 4), codes? ([{label, value}]), \
@@ -229,19 +229,34 @@ fn forget_unused_pictures(s: &mut Session) -> Result<()> {
     Ok(())
 }
 
+/// The units a title block is drawn in: those of the layout when it goes on a sheet (its paper units, which are not the drawing's `INSUNITS`),
+/// the drawing's in model space.
+fn space_units(s: &Session) -> Result<HvacUnits> {
+    let d = s.doc()?;
+    if let cadcraft_doc::Space::Paper(name) = s.space()
+        && let Some(layout) = d.layouts.iter().find(|l| l.name == name)
+    {
+        return Ok(HvacUnits { mm_per_unit: cadcraft_render::paper::page_unit_mm(d, &layout.page) });
+    }
+    Ok(HvacUnits::of(d))
+}
+
 fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "titleblockadd";
     let name = text(CMD, p, "name")?.filter(|n| !n.is_empty()).unwrap_or_else(|| "Title block".into());
     let lang = text(CMD, p, "lang")?.filter(|l| l == "en").unwrap_or_else(|| "fr".into());
-    let mut t = TitleBlockParams::new_in(&lang, &name, "A3", true, HvacUnits::of(s.doc()?));
+    let units = space_units(s)?;
+    let mut t = TitleBlockParams::new_in(&lang, &name, "A3", true, units);
     // A paper given without a width takes the width that paper starts with.
     if text(CMD, p, "paper")?.is_some() && number(CMD, p, "width")?.is_none() {
         t.width_mm = cadcraft_doc::default_width_mm(&text(CMD, p, "paper")?.unwrap_or_default().to_ascii_uppercase());
     }
     apply(s, CMD, p, &mut t)?;
-    let at = match p.get("at") {
-        None | Some(Value::Null) => Vec2::ZERO,
-        Some(v) => super::point_value(v).ok_or_else(|| bad(CMD, "`at` must be [x, y]"))?,
+    // `atMm`: the corner in millimetres on paper, whatever the units of the space are.
+    let at = match (p.get("atMm"), p.get("at")) {
+        (Some(v), _) if !v.is_null() => super::point_value(v).ok_or_else(|| bad(CMD, "`atMm` must be [x, y]"))? * (1.0 / t.units.mm_per_unit),
+        (_, None | Some(Value::Null)) => Vec2::ZERO,
+        (_, Some(v)) => super::point_value(v).ok_or_else(|| bad(CMD, "`at` must be [x, y]"))?,
     };
     t.validate().map_err(|e| bad(CMD, e.to_string()))?;
     let pictures = t.picture_keys().len();
