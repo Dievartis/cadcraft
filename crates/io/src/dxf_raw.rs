@@ -1142,8 +1142,9 @@ pub(crate) fn finish(
     modern: bool,
     target_modern: bool,
     strings: bool,
+    fields_foreign: Option<&Foreign>,
 ) -> HashSet<Handle> {
-    let f = d.foreign.as_ref();
+    let f = fields_foreign.unwrap_or(d.foreign.as_ref());
     let unknown = unknown_handles(d);
     let xd = own_data(d);
     if f.is_empty() && unknown.is_empty() && xd.is_empty() {

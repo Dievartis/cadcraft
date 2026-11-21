@@ -1309,7 +1309,8 @@ pub(super) fn tags_kept_for(
     // no data store, so a solid whose geometry is only there is left out of it.
     // The DWG bridge keeps proxies in the DWG's own layout.
     let strings = bridge || version >= Version::R2007;
-    let kept = crate::dxf_raw::finish(&mut w.t, d, &w.reactors, version >= Version::R2013, target >= Version::R2013, strings);
+    let kept = crate::dxf_raw::finish(&mut w.t, d, &w.reactors, version >= Version::R2013, target >= Version::R2013, strings, fields.foreign.as_ref());
+    crate::dxf_field::fix_list(&mut w.t);
     // Kept constraint groups go in the order their reader expects: a DXF's own version. The
     // bridge's R2000 text is read as the version its kept groups came from when that is newer
     // (craft-dwg's `encode_kept_noted` declares it), so there they stay as read.
