@@ -49,7 +49,13 @@ pub fn open(app: &mut CadApp, edit: Option<Handle>) {
     let existing = edit.and_then(|h| app.session.doc().ok().and_then(|d| d.entity(h).and_then(|e| titleblock_of(e))));
     let tb = existing.unwrap_or_else(|| {
         let (paper, landscape) = sheet_of_current_space(app);
-        TitleBlockParams::new(crate::i18n::t("Title block"), &paper, landscape, units)
+        TitleBlockParams::new_in(
+            if crate::i18n::current_language() == "fr" { "fr" } else { "en" },
+            crate::i18n::t("Title block"),
+            &paper,
+            landscape,
+            units,
+        )
     });
     let edit = edit.filter(|_| titleblock_ok(app, edit));
     app.title_dlg = Some(TitleBlockDlg { edit, tb, tab: Tab::Project, party: 0, picks: BTreeMap::new(), message: None, error: false, raise: true });
@@ -102,7 +108,7 @@ fn params(st: &TitleBlockDlg) -> Value {
         })
         .collect();
     json!({
-        "name": t.name, "paper": t.paper, "landscape": t.landscape, "width": t.width_mm,
+        "name": t.name, "lang": t.lang, "paper": t.paper, "landscape": t.landscape, "width": t.width_mm,
         "project": t.project, "description": t.description, "address": t.address, "title": t.title,
         "parties": parties, "image": pic_json(st, IMAGE_SLOT, t.image.as_ref()),
         "revisions": t.revisions.iter().map(|r| json!({ "index": r.index, "date": r.date, "nature": r.nature, "by": r.by, "checked": r.checked })).collect::<Vec<_>>(),

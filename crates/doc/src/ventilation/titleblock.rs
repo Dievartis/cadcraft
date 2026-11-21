@@ -116,8 +116,24 @@ pub struct TitleBlockParams {
     pub revision_rows: usize,
     #[serde(default)]
     pub codes: Vec<Code>,
+    /// The language of the fixed words of the block ("fr" or "en").
+    #[serde(default = "default_lang")]
+    pub lang: String,
     #[serde(default)]
     pub units: HvacUnits,
+}
+
+fn default_lang() -> String {
+    "fr".into()
+}
+
+/// The fixed words of the block, in French or in English: the label over the title, and the heads of the table of revisions.
+fn words(lang: &str) -> (&'static str, [&'static str; 5]) {
+    if lang == "en" {
+        ("TITLE", ["REV.", "DATE", "NATURE OF THE CHANGE", "DRAWN BY", "CHECKED BY"])
+    } else {
+        ("LIBELLÉ", ["IND.", "DATE", "NATURE DE LA MODIFICATION", "ÉTABLI PAR", "VÉRIFIÉ PAR"])
+    }
 }
 
 /// The paper sizes, mm (portrait: width, height).
@@ -126,6 +142,8 @@ pub const PAPERS: [(&str, f64, f64); 5] =
 
 /// The cells of the code of a sheet, the labels of a French study office's (company, lot, type, zone, level, phase, sheet number, index, date, scale).
 pub const DEFAULT_CODE_LABELS: [&str; 10] = ["Société", "Lot", "Type", "Zone", "Niveau", "Phase", "N° plan", "Ind.", "Date", "Échelle"];
+/// The same in English.
+pub const DEFAULT_CODE_LABELS_EN: [&str; 10] = ["Company", "Package", "Type", "Zone", "Level", "Phase", "Sheet", "Ind.", "Date", "Scale"];
 /// The relative widths of the cells of the code.
 const CODE_WEIGHTS: [f64; 10] = [1.0, 0.9, 0.9, 0.9, 1.0, 1.0, 1.3, 0.8, 1.3, 1.1];
 
@@ -144,6 +162,12 @@ impl TitleBlockParams {
     /// A title block for `paper` ("A4" to "A0") with the usual cells: three parties above the picture and the contractor below it, four empty
     /// lines of revisions and the ten cells of the code.
     pub fn new(name: &str, paper: &str, landscape: bool, units: HvacUnits) -> TitleBlockParams {
+        Self::new_in("fr", name, paper, landscape, units)
+    }
+
+    /// [`Self::new`] with the fixed words and the roles of the parties in `lang` ("fr" or "en").
+    pub fn new_in(lang: &str, name: &str, paper: &str, landscape: bool, units: HvacUnits) -> TitleBlockParams {
+        let english = lang == "en";
         let party = |role: &str, after_image: bool| Party { role: role.into(), after_image, ..Party::default() };
         TitleBlockParams {
             name: name.trim().to_string(),
@@ -153,17 +177,25 @@ impl TitleBlockParams {
             project: String::new(),
             description: String::new(),
             address: String::new(),
-            parties: vec![
-                party("Maîtrise d'ouvrage", false),
-                party("Maîtrise d'œuvre", false),
-                party("Bureau de contrôle", false),
-                party("Entreprise", true),
-            ],
+            parties: if english {
+                vec![party("Client", false), party("Architect", false), party("Inspection", false), party("Contractor", true)]
+            } else {
+                vec![
+                    party("Maîtrise d'ouvrage", false),
+                    party("Maîtrise d'œuvre", false),
+                    party("Bureau de contrôle", false),
+                    party("Entreprise", true),
+                ]
+            },
             image: None,
             title: String::new(),
             revisions: Vec::new(),
             revision_rows: 4,
-            codes: DEFAULT_CODE_LABELS.iter().map(|l| Code { label: (*l).into(), value: String::new() }).collect(),
+            codes: (if english { DEFAULT_CODE_LABELS_EN } else { DEFAULT_CODE_LABELS })
+                .iter()
+                .map(|l| Code { label: (*l).into(), value: String::new() })
+                .collect(),
+            lang: if english { "en".into() } else { default_lang() },
             units,
         }
     }
@@ -299,14 +331,14 @@ impl TitleBlockParams {
         }
 
         // The title of the sheet.
-        d.text(w / 2.0, top - 4.0 * d.k, "LIBELLÉ", 2.6 * d.k, w, (HAlign::Center, false));
+        d.text(w / 2.0, top - 4.0 * d.k, words(&self.lang).0, 2.6 * d.k, w, (HAlign::Center, false));
         d.text(w / 2.0, top - 15.0 * d.k, &self.title, 7.0 * d.k, w - 8.0 * d.k, (HAlign::Center, false));
         top -= rows.title;
         d.hline(top, 0.0, w);
 
         // The table of revisions: the newest line on top, the oldest next to the head of the table.
         let lines = self.revision_rows.max(self.revisions.len());
-        let cols = [0.07, 0.15, 0.45, 0.16, 0.17];
+        let cols = [0.07, 0.18, 0.42, 0.16, 0.17];
         let xs = Drawer::edges(&cols, w);
         let table_top = top;
         for i in 0..lines {
@@ -322,7 +354,7 @@ impl TitleBlockParams {
             }
         }
         top -= rows.revision_line * lines as f64;
-        let heads = ["IND.", "DATE", "NATURE DE LA MODIFICATION", "ÉTABLI PAR", "VÉRIFIÉ PAR"];
+        let heads = words(&self.lang).1;
         for (c, text) in heads.iter().enumerate() {
             d.text_left(xs[c] + 1.2 * d.k, top - rows.revision_head / 2.0, text, 2.6 * d.k, xs[c + 1] - xs[c] - 2.4 * d.k);
         }
@@ -421,9 +453,9 @@ impl Drawer {
             return;
         }
         let chars = value.chars().count() as f64;
-        let mut h = height.min(width / (0.62 * chars)).max(0.5);
+        let mut h = height.min(width / (0.78 * chars)).max(0.5);
         if bold {
-            h = h.min(width / (0.7 * chars)).max(0.5);
+            h = h.min(width / (0.88 * chars)).max(0.5);
         }
         let (px, py) = (self.u(x), self.u(y));
         let at = Vec2::new(px, py);
@@ -629,6 +661,18 @@ mod tests {
     }
 
     #[test]
+    fn the_fixed_words_follow_the_language() {
+        let words = |lang: &str| -> Vec<String> {
+            let p = TitleBlockParams::new_in(lang, "C", "A3", true, units());
+            p.generate().unwrap().into_iter().filter_map(|x| if let EntityKind::Text(t) = x.kind { Some(t.value) } else { None }).collect()
+        };
+        let (fr, en) = (words("fr"), words("en"));
+        assert!(fr.iter().any(|t| t == "LIBELLÉ") && !fr.iter().any(|t| t == "TITLE"));
+        assert!(en.iter().any(|t| t == "TITLE") && en.iter().any(|t| t == "DRAWN BY") && !en.iter().any(|t| t == "LIBELLÉ"));
+        assert_eq!(TitleBlockParams::new_in("en", "C", "A3", true, units()).parties[0].role, "Client");
+    }
+
+    #[test]
     fn long_texts_shrink_to_their_cell() {
         let mut p = sample();
         p.project = "UN NOM DE PROJET TRÈS LONG QUI NE TIENT PAS À LA HAUTEUR NORMALE DE L'EN-TÊTE".into();
@@ -638,7 +682,7 @@ mod tests {
                 && t.value.starts_with("UN NOM")
             {
                 assert!(t.height < 5.2 * p.scale(), "the text was made smaller");
-                assert!(t.height * 0.6 * t.value.chars().count() as f64 <= p.width_mm, "and fits the column");
+                assert!(t.height * 0.7 * t.value.chars().count() as f64 <= p.width_mm, "and fits the column");
             }
         }
     }

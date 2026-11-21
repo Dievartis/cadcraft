@@ -19,7 +19,7 @@ const MAX_PIC_SIDE: u32 = 1600;
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("titleblockadd", "Title Block", run_add).menu(&["Insert", "Title Block"]).alias(&["ttlb"]).params(
-            "{at? ([x, y]: the lower left corner of the column; default 0,0), paper?: A4|A3|A2|A1|A0 (default A3), landscape? (default true), width? (mm), \
+            "{at? ([x, y]: the lower left corner of the column; default 0,0), paper?: A4|A3|A2|A1|A0 (default A3), landscape? (default true), width? (mm), lang? (fr|en: the words of the block, default fr), \
              name?, project?, description?, address?, title?, parties? ([{role, name, address?, phone?, email?, afterImage? (under the picture), \
              logo? ({path | data: base64} a new picture, {key} one already kept, null for none)}]), image? (as a logo: the picture of the project), \
              revisions? ([{index, date, nature, by?, checked?}], the oldest first), revisionRows? (lines shown, default 4), codes? ([{label, value}]), \
@@ -165,6 +165,9 @@ fn apply(s: &mut Session, cmd: &str, p: &Value, t: &mut TitleBlockParams) -> Res
     if let Some(v) = number(cmd, p, "width")? {
         t.width_mm = v;
     }
+    if let Some(v) = text(cmd, p, "lang")? {
+        t.lang = if v == "en" { "en".into() } else { "fr".into() };
+    }
     for (key, field) in [("project", 0), ("description", 1), ("address", 2), ("title", 3)] {
         if let Some(v) = text(cmd, p, key)? {
             match field {
@@ -229,7 +232,8 @@ fn forget_unused_pictures(s: &mut Session) -> Result<()> {
 fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "titleblockadd";
     let name = text(CMD, p, "name")?.filter(|n| !n.is_empty()).unwrap_or_else(|| "Title block".into());
-    let mut t = TitleBlockParams::new(&name, "A3", true, HvacUnits::of(s.doc()?));
+    let lang = text(CMD, p, "lang")?.filter(|l| l == "en").unwrap_or_else(|| "fr".into());
+    let mut t = TitleBlockParams::new_in(&lang, &name, "A3", true, HvacUnits::of(s.doc()?));
     // A paper given without a width takes the width that paper starts with.
     if text(CMD, p, "paper")?.is_some() && number(CMD, p, "width")?.is_none() {
         t.width_mm = cadcraft_doc::default_width_mm(&text(CMD, p, "paper")?.unwrap_or_default().to_ascii_uppercase());
