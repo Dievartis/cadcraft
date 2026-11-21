@@ -675,3 +675,10 @@ Reste aussi, sans ordre : une seule cote imposée avec l'autre calculée ; crois
 - **`vendor/craft-dwg`** refait sur craft-libs 453b0da avec notre correctif (DWG dans la version web, styles de cellules de tableau).
 - **Correctif de sécurité** : les métrés (CVC, électricité, structure, contrôle) vérifient maintenant le dossier autorisé avant d'écrire un fichier.
 - **À refaire si on les veut** : réappliquer ces PR sur la nouvelle base une par une.
+
+### Remises en place et nouvelles PR (21 novembre 2026, après la fusion)
+
+- **Remises en place** (fonctions perdues à la fusion, revenues par leurs PR) : LIMITS (#3253), `-STYLE` (#3144), `entmake` de style (#3141), `-BOUNDARY` avancé (#3168), hachures FILLMODE et miroir (#3123, #3248), DXF coupé (#3096), transparence de tracé en DWG (#2415), `LAYNEWSEL` et états de calques (#1805), virgule du pavé numérique (#1803), champs dans les DWG (#551, branchés à la main sur le nouvel écrivain DXF).
+- **Nouvelles PR** : #3162, #3238, #3256, #3259, #3153, #3349, #3154, #3232, #3289, #3291, #3260, #3340.
+- **Non fusionnées** (conflit avec notre code) : #3290, #3264, #3240, #3231, #3288, #3166, #3214, #3263, #3171.
+- **Traductions** : étiquettes de la boîte Mise en page, du menu du SCU et de la fenêtre de récupération remises en français ; 56 lignes françaises ajoutées.
