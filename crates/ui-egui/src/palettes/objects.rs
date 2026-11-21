@@ -2812,7 +2812,7 @@ mod hvac_tests {
         app.session.set_selection(vec![h]);
         let mut hn = palette(app);
         assert!(hn.get_all_by_value("CP 7").next().is_some() && hn.get_all_by_value("TD1-C4").next().is_some());
-        assert!(hn.query_all_by_label_contains("section (mm²)").count() >= 1, "the rows of a cable");
+        assert!(hn.query_all_by_label_contains("section or cable").count() >= 1, "the rows of a cable");
         assert_eq!(hn.query_all_by_label_contains("Air").count(), 0, "not the rows of air");
         type_into(&mut hn, "4", "9");
         let p = cadcraft_doc::any_riser_of(hn.state().session.doc().unwrap().entity(h).unwrap()).unwrap();
