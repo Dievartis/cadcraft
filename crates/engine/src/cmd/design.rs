@@ -62,6 +62,8 @@ pub struct DesignLastUsed {
     /// A roof's slope, degrees, and the kind of the last one.
     pub roof_pitch_deg: f64,
     pub roof_kind: cadcraft_doc::RoofKind,
+    /// How far the last roof stood out beyond its walls, mm.
+    pub roof_overhang_mm: f64,
 }
 
 impl Default for DesignLastUsed {
@@ -77,6 +79,7 @@ impl Default for DesignLastUsed {
             curtain_height_mm: 3000.0,
             roof_pitch_deg: 30.0,
             roof_kind: cadcraft_doc::RoofKind::Gable,
+            roof_overhang_mm: 0.0,
         }
     }
 }

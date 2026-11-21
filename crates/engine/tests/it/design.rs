@@ -221,3 +221,31 @@ fn a_roof_is_drawn_from_points_or_from_a_room_and_edited() {
     }
     assert_eq!(s.doc().unwrap().model.iter().filter(|e| roof_of(e).is_some()).count(), 3);
 }
+
+#[test]
+fn a_roof_stands_out_beyond_its_walls_by_its_overhang_given_edited_or_asked_at_the_command_line() {
+    use cadcraft_doc::roof_of;
+    let mut s = metric();
+    let walls = json!([[0, 0], [10000, 0], [10000, 6000], [0, 6000]]);
+    let plain = s.execute("roofadd", &json!({"points": walls, "pitch": 30})).unwrap();
+    let wide =
+        s.execute("roofadd", &json!({"points": [[0, 10000], [10000, 10000], [10000, 16000], [0, 16000]], "pitch": 30, "overhang": 500})).unwrap();
+    assert!((plain["planArea"].as_f64().unwrap() - 60.0).abs() < 1e-9 && (wide["planArea"].as_f64().unwrap() - 77.0).abs() < 1e-9, "{plain} {wide}");
+    assert_eq!((plain["rise"].as_f64(), plain["ridge"].as_f64()), (wide["rise"].as_f64(), Some(10.0)), "the top does not move");
+    assert!((wide["ridge"].as_f64().unwrap() - 11.0).abs() < 1e-9, "the ridge runs to the edge of the roof");
+    // Edited: 1 m instead, then none.
+    s.execute("roofedit", &json!({"handle": wide["handle"], "overhang": 1000})).unwrap();
+    let h = Handle::parse_hex(wide["handle"].as_str().unwrap()).unwrap();
+    assert_eq!(roof_of(s.doc().unwrap().entity(h).unwrap()).unwrap().overhang_mm, 1000.0);
+    s.execute("roofedit", &json!({"handle": wide["handle"], "overhang": 0})).unwrap();
+    assert_eq!(roof_of(s.doc().unwrap().entity(h).unwrap()).unwrap().overhang_mm, 0.0);
+    for bad in [json!({"overhang": -1}), json!({"overhang": 6000})] {
+        assert!(s.execute("roofedit", &json!({"handle": wide["handle"], "overhang": bad["overhang"]})).is_err(), "{bad}");
+    }
+    // At the command line: the option Overhang, remembered for the next roof.
+    for t in ["roofadd", "overhang", "400", "0,30000", "6000,30000", "6000,34000", "0,34000", "close"] {
+        s.cmdline(t).unwrap();
+    }
+    let last = s.doc().unwrap().model.iter().filter_map(|e| roof_of(e)).find(|r| r.overhang_mm == 400.0);
+    assert!(last.is_some(), "a roof with the overhang typed");
+}

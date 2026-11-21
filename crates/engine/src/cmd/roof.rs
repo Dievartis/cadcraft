@@ -19,12 +19,13 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["Draw", "Architecture", "Roof"])
             .params(
                 "{points (3 or more) | handle (a closed polyline) | inside ([x, y]: a point in a room closed by walls), kind? (shed, gable, hip: default gable), pitch? (degrees, \
-                 default 30), angle? (degrees: the direction of the ridge, default the first side), elevation? (m: the eaves, default 3), name?, labelHeight? (mm)} \
+                 default 30), angle? (degrees: the direction of the ridge, default the first side), elevation? (m: the eaves, where the planes start on the outline, default 3), overhang? (mm: how far the roof stands out beyond the outline all round, 0 to 5000, default the last one used or 0; the \
+                 outline is then drawn inside the roof's edge, the roof's area is that of its edge, the ridge of a gable runs to it and the top stays where the outline gives it), name?, labelHeight? (mm)} \
                  → {handle, planArea (m²), area (m²: the slopes), rise (m), ridge (m)}",
             )
             .interactive(|s| Ok(Box::new(RoofAddM::new(s)))),
         CommandSpec::new("roofedit", "Edit Roof", run_roofedit).params(
-            "{handle | handles: roofs, name?, kind?, pitch?, angle?, elevation? (m), showLabel?} → {changed}",
+            "{handle | handles: roofs, name?, kind?, pitch?, angle?, elevation? (m), overhang? (mm), showLabel?} → {changed}",
         ),
     ]
 }
@@ -73,6 +74,7 @@ fn run_roofadd(s: &mut Session, p: &Value) -> Result<Value> {
     r.pitch_deg = number(CMD, p, "pitch")?.unwrap_or(last.roof_pitch_deg);
     r.angle_deg = number(CMD, p, "angle")?.unwrap_or(r.angle_deg);
     r.elevation_mm = number(CMD, p, "elevation")?.map_or(r.elevation_mm, |m| m * 1000.0);
+    r.overhang_mm = number(CMD, p, "overhang")?.unwrap_or(last.roof_overhang_mm);
     r.label_height_mm = number(CMD, p, "labelHeight")?.unwrap_or(r.label_height_mm);
     let (h, n) = add_roof(s, r)?;
     Ok(json!({ "handle": h.hex(), "planArea": n.plan_m2, "area": n.area_m2, "rise": n.rise_m, "ridge": n.ridge_m }))
@@ -86,6 +88,7 @@ fn run_roofedit(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let (kind, pitch, angle) = (kind_param(CMD, p)?, number(CMD, p, "pitch")?, number(CMD, p, "angle")?);
     let elevation = number(CMD, p, "elevation")?.map(|m| m * 1000.0);
+    let overhang = number(CMD, p, "overhang")?;
     let show = flag(CMD, p, "showLabel")?;
     let name = str_param(p, "name").map(|n| n.trim().to_string());
     let mut next: Vec<(Handle, RoofParams)> = Vec::with_capacity(hs.len());
@@ -96,6 +99,7 @@ fn run_roofedit(s: &mut Session, p: &Value) -> Result<Value> {
         r.pitch_deg = pitch.unwrap_or(r.pitch_deg);
         r.angle_deg = angle.unwrap_or(r.angle_deg);
         r.elevation_mm = elevation.unwrap_or(r.elevation_mm);
+        r.overhang_mm = overhang.unwrap_or(r.overhang_mm);
         r.show_label = show.unwrap_or(r.show_label);
         if let Some(n) = &name {
             r.name = n.clone();
@@ -120,6 +124,7 @@ enum Ask {
     Walls,
     Kind,
     Pitch,
+    Overhang,
 }
 
 struct RoofAddM {
@@ -135,7 +140,7 @@ impl RoofAddM {
     fn finish(&mut self, s: &mut Session, outline: Vec<Vec2>) -> Result<Step> {
         let name = next_name(s, "T", |e| roof_of(e).is_some())?;
         let mut r = RoofParams::new(&name, outline, HvacUnits::of(s.doc()?));
-        (r.kind, r.pitch_deg) = (self.last.roof_kind, self.last.roof_pitch_deg);
+        (r.kind, r.pitch_deg, r.overhang_mm) = (self.last.roof_kind, self.last.roof_pitch_deg, self.last.roof_overhang_mm);
         match add_roof(s, r) {
             Ok((_, n)) => {
                 s.last_used.design = self.last.clone();
@@ -155,7 +160,12 @@ impl Interactive for RoofAddM {
         "ROOFADD"
     }
     fn begin(&mut self, s: &mut Session) -> Result<Step> {
-        s.echo(format!("Current settings: Kind = {}, Pitch = {:.0}\u{b0}", self.last.roof_kind.name(), self.last.roof_pitch_deg));
+        s.echo(format!(
+            "Current settings: Kind = {}, Pitch = {:.0}\u{b0}, Overhang = {:.0}",
+            self.last.roof_kind.name(),
+            self.last.roof_pitch_deg,
+            self.last.roof_overhang_mm
+        ));
         Ok(Step::Continue)
     }
     fn prompt(&self, _s: &Session) -> Prompt {
@@ -163,8 +173,9 @@ impl Interactive for RoofAddM {
             Ask::Walls => Prompt::new("Click inside a room closed by walls", Accept::POINT),
             Ask::Kind => Prompt::new("Enter roof kind", super::curves::KW).kw(&["Shed", "Gable", "Hip"]).default(self.last.roof_kind.name()),
             Ask::Pitch => Prompt::new("Enter the pitch (degrees)", Accept::NUMBER).default(format!("{:.0}", self.last.roof_pitch_deg)),
+            Ask::Overhang => Prompt::new("Enter the overhang (mm)", Accept::NUMBER).default(format!("{:.0}", self.last.roof_overhang_mm)),
             Ask::Point => match self.pts.len() {
-                0 => Prompt::new("Specify first corner of the roof", Accept::POINT).kw(&["Walls", "Kind", "Pitch"]),
+                0 => Prompt::new("Specify first corner of the roof", Accept::POINT).kw(&["Walls", "Kind", "Pitch", "Overhang"]),
                 1 | 2 => Prompt::new("Specify next corner", Accept::POINT).kw(&["Undo"]).base_opt(self.pts.last().copied()),
                 _ => Prompt::new("Specify next corner", Accept::POINT).kw(&["Close", "Undo"]).base_opt(self.pts.last().copied()),
             },
@@ -197,6 +208,14 @@ impl Interactive for RoofAddM {
                 self.ask = Ask::Point;
                 return Ok(Step::Continue);
             }
+            (Ask::Overhang, Input::Text(t) | Input::Keyword(t)) => {
+                match parse_number(t).filter(|v| (0.0..=cadcraft_doc::MAX_OVERHANG_MM).contains(v)) {
+                    Some(v) => self.last.roof_overhang_mm = v,
+                    None => s.echo("Requires an overhang of 0 to 5000 mm."),
+                }
+                self.ask = Ask::Point;
+                return Ok(Step::Continue);
+            }
             (Ask::Point, _) => {}
             _ => {
                 self.ask = Ask::Point;
@@ -209,6 +228,7 @@ impl Interactive for RoofAddM {
                     "Walls" => self.ask = Ask::Walls,
                     "Kind" => self.ask = Ask::Kind,
                     "Pitch" => self.ask = Ask::Pitch,
+                    "Overhang" => self.ask = Ask::Overhang,
                     "Undo" => {
                         self.pts.pop();
                     }

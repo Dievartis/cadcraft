@@ -3784,3 +3784,6 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	Check Refrigerant Charge	Contrôler la charge de frigorigène
 	Refrigerant charge (kg)	Charge de frigorigène (kg)
 	Refrigerant	Frigorigène
+	Overhang (mm)	Débord de toit (mm)
+	Enter the overhang (mm)	Entrez le débord de toit (mm)
+	Requires an overhang of 0 to 5000 mm.	Il faut un débord de 0 à 5000 mm.

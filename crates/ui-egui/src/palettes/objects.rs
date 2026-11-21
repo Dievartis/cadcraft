@@ -749,6 +749,7 @@ fn roof_section(ui: &mut egui::Ui, sel: &[Handle], r: &cadcraft_doc::RoofParams,
     elec_number(ui, (CMD, "Pitch (°)", "pitch", false), &ids, vec![Some(r.pitch_deg)], bad, &mut action);
     elec_number(ui, (CMD, "Ridge direction (°)", "angle", true), &ids, vec![Some(r.angle_deg)], bad, &mut action);
     elec_number(ui, (CMD, "Eaves height (m)", "elevation", true), &ids, vec![Some(r.elevation_mm / 1000.0)], bad, &mut action);
+    elec_number(ui, (CMD, "Overhang (mm)", "overhang", false), &ids, vec![Some(r.overhang_mm)], bad, &mut action);
     let n = r.count();
     prop_row(ui, "Plan area (m²)", |ui| read_only(ui, &format!("{:.2}", n.plan_m2)));
     prop_row(ui, "Slope area (m²)", |ui| read_only(ui, &format!("{:.2}", n.area_m2)));
