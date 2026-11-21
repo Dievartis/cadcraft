@@ -79,6 +79,14 @@ pub(super) fn parametric_at(app: &CadApp, w: Vec2, scale: f64) -> Option<Handle>
     crate::palettes::is_parametric(&st.doc, h).then_some(h)
 }
 
+/// The title block under world point `w` within the pick aperture, if any (double-clicked to edit it).
+pub(super) fn titleblock_at(app: &CadApp, w: Vec2, scale: f64) -> Option<Handle> {
+    let st = app.session.state().ok()?;
+    let aperture = app.session.settings.pickbox.max(1.0) * 1.5 / scale.max(1e-12);
+    let h = cadcraft_engine::select::pick(&st.doc, &st.edit_space(), w, aperture)?;
+    st.doc.entity(h).and_then(|e| cadcraft_doc::titleblock_of(e)).map(|_| h)
+}
+
 #[cfg(test)]
 mod parametric_pick_tests {
     use cadcraft_engine::Session;

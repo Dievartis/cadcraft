@@ -2215,3 +2215,37 @@ menu	View	视图
 	Unnamed	未命名
 	World (WCS)	世界 (WCS)
 	Page setup of {name}	{name} 的页面设置
+	Add a revision	添加修订
+	Checked by	校核
+	Choose a picture...	选择图片...
+	Choosing a picture is not available here.	此处无法选择图片。
+	Codes	编码
+	Date	日期
+	Drawn by	绘制
+	Edit Title Block	编辑图框标题栏
+	Fill in the project, the parties with their logos, the picture, the revisions and the code of the sheet, then press Insert.	填写项目、带标志的参与方、图片、修订和图纸编码，然后按“插入”。
+	In a layout the column goes to the right edge of the sheet; double-click it to change it.	在布局中，该栏位于图纸右边缘；双击可修改。
+	Index	版本
+	Lines shown	显示行数
+	Logo	标志
+	Nature of the change	修改内容
+	No party.	没有参与方。
+	No picture	无图片
+	Paper	图纸
+	Parties	参与方
+	Picture	图片
+	Pictures (PNG, JPEG, BMP, TIFF)	图片 (PNG, JPEG, BMP, TIFF)
+	Project	项目
+	Revisions	修订
+	The code of the sheet: each cell has a name and a value.	图纸编码：每个单元格有名称和值。
+	The picture of the project: a view or a photo.	项目图片：效果图或照片。
+	Title Block	图框标题栏
+	Title block	图框标题栏
+	Title block drawn.	图框标题栏已绘制。
+	Under the picture of the project	在项目图片下方
+	{w} x {h} pixels	{w} x {h} 像素
+	Email	电子邮件
+	Phone	电话
+	Role	角色
+	Title of the sheet	图纸标题
+	Insert the title block	插入图框标题栏

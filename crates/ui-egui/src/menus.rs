@@ -619,6 +619,11 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             crate::ctrldlg::open(app);
             Ok(Value::Null)
         }
+        // Typed, from the Insert menu or the Architecture tab (no parameters): the Title Block dialog. JSON calls keep the JSON form.
+        "titleblockadd" | "ttlb" if params.is_null() => {
+            crate::titleblockdlg::open(app, None);
+            Ok(Value::Null)
+        }
         // Typed or from the Electricity tab (no parameters): the Electrical Quantities window. JSON calls keep the JSON form.
         "electakeoff" if params.is_null() => {
             crate::elecdlg::open(app);

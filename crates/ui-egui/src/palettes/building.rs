@@ -761,6 +761,7 @@ fn architecture(app: &mut CadApp, ui: &mut egui::Ui) {
                 ("Ceiling Grid", "ceilingadd", thumbs::paint_ceiling_grid as fn(&egui::Painter, Rect)),
                 ("Stair", "stairadd", thumbs::paint_stair),
                 ("Railing", "railadd", thumbs::paint_railing),
+                ("Title Block", "titleblockadd", thumbs::paint_title_block),
                 ("Curtain Wall", "curtainadd", thumbs::paint_curtain_wall),
                 ("Roof", "roofadd", thumbs::paint_roof),
                 ("Building Section", "sectionadd", thumbs::paint_building_section),

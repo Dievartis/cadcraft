@@ -41,6 +41,7 @@ mod section;
 mod slab;
 mod structure;
 mod takeoff;
+mod titleblock;
 mod zone;
 pub use control::ControlLastUsed;
 pub use design::DesignLastUsed;
@@ -258,6 +259,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(pipe_riser::specs());
         v.extend(slab::specs());
         v.extend(design::specs());
+        v.extend(titleblock::specs());
         v.extend(curtain::specs());
         v.extend(roof::specs());
         v.extend(section::specs());

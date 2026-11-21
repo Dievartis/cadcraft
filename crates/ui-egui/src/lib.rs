@@ -42,6 +42,7 @@ pub mod elecdlg;
 pub mod fault;
 pub mod partlibdlg;
 pub mod takeoffdlg;
+pub mod titleblockdlg;
 pub mod wallstyledlg;
 // The Find and Replace window behind the FIND command.
 pub mod finddlg;
@@ -266,6 +267,8 @@ pub struct Services {
     pub pick_pgp: Option<Box<dyn Fn(Option<&str>) -> Option<String>>>,
     /// Choose a PDF file (PDFATTACH).
     pub pick_pdf: Option<Box<dyn Fn() -> Option<String>>>,
+    /// Choose a picture file (the logos and the picture of a title block).
+    pub pick_image: Option<Box<dyn Fn() -> Option<String>>>,
 }
 
 /// The file dialog to show: Open, Save with the suggested file name, APPLOAD's `.lsp` picker or
@@ -278,6 +281,8 @@ pub enum Pick {
     Lisp(String),
     Pgp(String),
     Pdf,
+    /// A picture file (PNG, JPEG, BMP or TIFF).
+    Image,
 }
 
 /// Shows a file dialog without waiting for it and calls the callback (from any thread) with the
@@ -416,6 +421,8 @@ pub struct CadApp {
     pub charts_dlg: Option<chartsdlg::ChartsState>,
     /// The Electrical Quantities window while open ([`elecdlg`]).
     pub elec_dlg: Option<elecdlg::ElecDlgState>,
+    /// The Title Block dialog while open ([`titleblockdlg`]).
+    pub title_dlg: Option<titleblockdlg::TitleBlockDlg>,
     /// The Points List window while open ([`ctrldlg`]).
     pub ctrl_dlg: Option<ctrldlg::CtrlDlgState>,
     /// The Pipework Part Library window while open ([`partlibdlg`]).
@@ -542,6 +549,7 @@ impl CadApp {
             takeoff_store: Default::default(),
             charts_dlg: None,
             elec_dlg: None,
+            title_dlg: None,
             ctrl_dlg: None,
             part_lib: None,
             hatch_dlg: None,
@@ -589,6 +597,7 @@ impl CadApp {
             Pick::Lisp(_) => self.services.pick_lisp.is_some(),
             Pick::Pgp(_) => self.services.pick_pgp.is_some(),
             Pick::Pdf => self.services.pick_pdf.is_some(),
+            Pick::Image => self.services.pick_image.is_some(),
         };
         if !available {
             return None;
@@ -622,6 +631,7 @@ impl CadApp {
             Pick::Lisp(dir) => self.services.pick_lisp.as_ref().and_then(|f| f(dir)),
             Pick::Pgp(dir) => self.services.pick_pgp.as_ref().and_then(|f| f(Some(dir.as_str()).filter(|d| !d.is_empty()))),
             Pick::Pdf => self.services.pick_pdf.as_ref().and_then(|f| f()),
+            Pick::Image => self.services.pick_image.as_ref().and_then(|f| f()),
         };
         Some(match path {
             Some(path) => then(self, path),

@@ -3854,3 +3854,37 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	{n} more files could not be opened; the command line lists them.	{n} autres fichiers n'ont pas pu être ouverts ; la ligne de commande les liste.
 	{property}: that value can't be used here.	{property} : cette valeur ne peut pas être utilisée ici.
 	<style overrides>	<remplacements du style>
+	Add a revision	Ajouter un indice
+	Checked by	Vérifié par
+	Choose a picture...	Choisir une image...
+	Choosing a picture is not available here.	Le choix d'une image n'est pas disponible ici.
+	Codes	Codification
+	Date	Date
+	Drawn by	Établi par
+	Edit Title Block	Modifier le cartouche
+	Fill in the project, the parties with their logos, the picture, the revisions and the code of the sheet, then press Insert.	Renseignez le projet, les intervenants avec leurs logos, l'image, les indices et la codification du plan, puis appuyez sur Insérer.
+	In a layout the column goes to the right edge of the sheet; double-click it to change it.	Dans une présentation, la colonne se place au bord droit de la planche ; double-cliquez dessus pour la modifier.
+	Index	Indice
+	Lines shown	Lignes affichées
+	Logo	Logo
+	Nature of the change	Nature de la modification
+	No party.	Aucun intervenant.
+	No picture	Aucune image
+	Paper	Papier
+	Parties	Intervenants
+	Picture	Image
+	Pictures (PNG, JPEG, BMP, TIFF)	Images (PNG, JPEG, BMP, TIFF)
+	Project	Projet
+	Revisions	Indices
+	The code of the sheet: each cell has a name and a value.	La codification du plan : chaque case a un nom et une valeur.
+	The picture of the project: a view or a photo.	L'image du projet : une vue ou une photo.
+	Title Block	Cartouche
+	Title block	Cartouche
+	Title block drawn.	Cartouche dessiné.
+	Under the picture of the project	Sous l'image du projet
+	{w} x {h} pixels	{w} x {h} pixels
+	Email	Courriel
+	Phone	Téléphone
+	Role	Rôle
+	Title of the sheet	Titre du plan
+	Insert the title block	Insérer le cartouche

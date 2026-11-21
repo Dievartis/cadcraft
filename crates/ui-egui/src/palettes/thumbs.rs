@@ -736,6 +736,17 @@ pub(super) fn paint_railing(p: &Painter, r: Rect) {
     }
 }
 
+/// A title block: a column of cells down the right of a sheet, with a picture and a logo in it.
+pub(super) fn paint_title_block(p: &Painter, r: Rect) {
+    let t = Th::new(p, r);
+    t.poly(&[(4.0, 3.0), (20.0, 3.0), (20.0, 21.0), (4.0, 21.0)], true, t.base);
+    for y in [7.0, 11.0, 17.0] {
+        t.l((4.0, y), (20.0, y), t.base);
+    }
+    t.poly(&[(6.0, 12.0), (18.0, 12.0), (18.0, 16.0), (6.0, 16.0)], true, t.acc);
+    t.l((9.0, 19.0), (15.0, 19.0), t.acc);
+}
+
 /// A curtain wall seen in plan: a thin frame with a mullion across it at each division.
 pub(super) fn paint_curtain_wall(p: &Painter, r: Rect) {
     let t = Th::new(p, r);

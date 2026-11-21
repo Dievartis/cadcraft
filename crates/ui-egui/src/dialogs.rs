@@ -27,6 +27,7 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         "wallstyles" => crate::wallstyledlg::dialog(app, ctx, &mut open),
         "controlpoints" => crate::ctrldlg::dialog(app, ctx, &mut open),
         "elecreport" => crate::elecdlg::dialog(app, ctx, &mut open),
+        "titleblock" => crate::titleblockdlg::dialog(app, ctx, &mut open),
         "charts" => crate::chartsdlg::dialog(app, ctx, &mut open),
         "takeoff" => crate::takeoffdlg::dialog(app, ctx, &mut open),
         "partlib" => crate::partlibdlg::dialog(app, ctx, &mut open),

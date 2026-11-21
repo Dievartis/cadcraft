@@ -481,7 +481,7 @@ fn number(p: &Value, key: &str) -> Result<Option<f64>> {
 
 /// The pixels of the image at `path`: decoded from `data` when the caller hands the file over,
 /// else the ones already loaded for that path, else read from the file.
-fn pixels(s: &Session, p: &Value, path: &str) -> Result<Arc<Raster>> {
+pub(super) fn pixels(s: &Session, p: &Value, path: &str) -> Result<Arc<Raster>> {
     let bytes = match p.get("data") {
         Some(data) => {
             let text = data.as_str().ok_or_else(|| bad(ID, "`data` must be base64 text"))?;

@@ -49,6 +49,7 @@ mod structure;
 mod takeoff;
 mod takeoff_cost;
 mod terminal;
+mod titleblock;
 pub(crate) mod xdata;
 mod xlsx;
 mod zone;
@@ -97,6 +98,7 @@ pub use structure::*;
 pub use takeoff::*;
 pub use takeoff_cost::*;
 pub use terminal::*;
+pub use titleblock::*;
 pub use xlsx::{SheetCell, Workbook};
 pub use zone::*;
 
@@ -135,6 +137,7 @@ fn hvac_layer_color(name: &str) -> Option<cadcraft_color::Color> {
             .or_else(|| slab::slab_layer_color(name))
             .or_else(|| structure::structure_layer_color(name))
             .or_else(|| design::design_layer_color(name))
+            .or_else(|| titleblock::titleblock_layer_color(name))
             .or_else(|| curtain::curtain_layer_color(name))
             .or_else(|| roof::roof_layer_color(name))
             .or_else(|| part::part_layer_color(name))

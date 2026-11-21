@@ -52,6 +52,11 @@ pub(crate) const RASTERS_KEY: &str = "CADCRAFT_RASTERS";
 /// The paths of the rasters made in memory from a PDF page attached without a file (the web): the only ones the drawing has to keep, since the
 /// others are read again from their files.
 pub(crate) const PDF_PAGE_PREFIX: &str = "pdf-underlay:";
+/// Whether the pixels at `path` are kept in the file: a PDF page attached without a file, or a picture of a title block.
+fn kept_raster(path: &str) -> bool {
+    path.starts_with(PDF_PAGE_PREFIX) || path.starts_with(cadcraft_doc::TITLEBLOCK_IMAGE_PREFIX)
+}
+
 /// Most pages kept, and most base64 text for all of them (a page is at most 4096 pixels wide).
 const MAX_KEPT_PAGES: usize = 64;
 const MAX_KEPT_TEXT: usize = 40 << 20;
@@ -75,7 +80,7 @@ pub(crate) fn raster_chunks(rasters: &cadcraft_doc::Rasters) -> Option<Vec<Strin
     use base64::Engine as _;
     let mut pages = Vec::new();
     let mut total = 0usize;
-    for (path, raster) in rasters.iter().filter(|(p, _)| p.starts_with(PDF_PAGE_PREFIX)).take(MAX_KEPT_PAGES) {
+    for (path, raster) in rasters.iter().filter(|(p, _)| kept_raster(p)).take(MAX_KEPT_PAGES) {
         let Ok(png) = crate::raster::encode_png(raster) else { continue };
         let png = base64::engine::general_purpose::STANDARD.encode(png);
         total = total.saturating_add(png.len());
@@ -103,7 +108,7 @@ pub(crate) fn parse_rasters(text: &str) -> Option<Vec<(String, cadcraft_doc::Ras
     }
     let mut out = Vec::new();
     for page in p.pages.into_iter().take(MAX_KEPT_PAGES) {
-        if !page.path.starts_with(PDF_PAGE_PREFIX) {
+        if !kept_raster(&page.path) {
             continue;
         }
         let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(page.png.as_bytes()) else { continue };

@@ -241,6 +241,14 @@ const HELPS: &[Help] = &[
         figures: &[("", railing)],
     },
     Help {
+        id: "Title Block",
+        steps: &[
+            "Fill in the project, the parties with their logos, the picture, the revisions and the code of the sheet, then press Insert.",
+            "In a layout the column goes to the right edge of the sheet; double-click it to change it.",
+        ],
+        figures: &[],
+    },
+    Help {
         id: "Curtain Wall",
         steps: &[
             "Click the points of the façade, then press Enter. The Height option sets its height.",
@@ -1558,6 +1566,7 @@ mod coverage_tests {
             "Ceiling Grid",
             "Stair",
             "Railing",
+            "Title Block",
             "Curtain Wall",
             "Roof",
             "Building Section",
