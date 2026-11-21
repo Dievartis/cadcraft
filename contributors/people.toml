@@ -135,3 +135,11 @@ sync_github_name = false
 
 [people.V1dalTheAbidal]
 sync_github_name = true
+
+[people.tyrel]
+real_name = "Tyrel Haveman"
+
+[people.Sladrian]
+real_name = "Sladrian Pedroso"
+display_name = "Sladrian Pedroso"
+sync_github_name = false

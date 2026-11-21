@@ -716,27 +716,42 @@ fn space_names_its_tab() {
 }
 
 #[test]
-fn displayed_fields_keep_wrap_bounds_and_layout_orientation() {
-    let d = Drawing::new_metric();
-    let (code, _) = fields::set_values(&fields::var_code("Title", None), |_| Some("PLATE".into()));
-    let mut field_mtext = mtext_kind(&code);
-    if let EntityKind::MText(t) = &mut field_mtext {
-        t.width = 1e9;
-    }
-    let field = entity_bounds(&d, &Entity::new(Handle(1), field_mtext), 0);
-    let plain = entity_bounds(&d, &Entity::new(Handle(1), mtext_kind("PLATE")), 0);
-    assert_eq!(field, plain, "wrap width and raw field code must not inflate the displayed bounds");
-    for (kind, plain) in [(text_kind(&code), text_kind("PLATE")), (mtext_kind(&code), mtext_kind("PLATE"))] {
-        let mut e = Entity::new(Handle(1), kind);
-        if let EntityKind::Text(t) = &mut e.kind {
-            t.rotation = std::f64::consts::PI;
-        }
-        if let EntityKind::MText(t) = &mut e.kind {
-            t.rotation = std::f64::consts::PI;
-        }
-        e.common.xdata = vec![RawTag { code: 1001, value: "AcadAnnoPO".into() }, RawTag { code: 1070, value: "1".into() }];
-        assert_eq!(entity_bounds(&d, &e, 0), entity_bounds(&d, &Entity::new(Handle(1), plain), 0));
-    }
+fn new_handles_skip_the_files_object_handles() {
+    let mut d = Drawing::new_metric();
+    let next = d.handseed;
+    let f = std::sync::Arc::make_mut(&mut d.foreign);
+    f.handles.insert(Handle(next), ("LAYER".into(), "0".into()));
+    f.handles.insert(Handle(next + 1), ("NOD".into(), String::new()));
+    assert_eq!(d.new_handle(), Handle(next + 2));
+    assert_eq!(d.new_handle(), Handle(next + 3));
+}
+
+/// In the reserved band a new handle skips the file's kept object handles (#2514) and the handles
+/// objects hold in model space, a layout and a block definition, or that a file record reserved
+/// (#913); off the top of the range it goes on at the bottom of the band. HANDSEED reports the
+/// handle `new_handle` takes.
+#[test]
+fn new_handles_in_the_reserved_band_skip_every_held_handle_and_wrap() {
+    let mut d = Drawing::new_metric();
+    let top = u64::MAX;
+    d.model.push(Entity::new(Handle(top - 4), line((0.0, 0.0), (1.0, 0.0))));
+    let mut sheet = Layout::new("Sheet", 1);
+    sheet.entities.push(Entity::new(Handle(top - 3), line((0.0, 0.0), (1.0, 0.0))));
+    d.layouts.push(sheet);
+    let mut b = Block::new("B");
+    b.entities.push(Entity::new(Handle(top - 2), line((0.0, 0.0), (1.0, 0.0))));
+    d.blocks.insert("B".into(), std::sync::Arc::new(b));
+    std::sync::Arc::make_mut(&mut d.foreign).handles.insert(Handle(top - 1), ("LAYER".into(), "0".into()));
+    d.reserve_handle(Handle(top));
+    d.model.push(Entity::new(Handle(HANDLE_LIMIT), line((0.0, 0.0), (1.0, 0.0))));
+    d.handseed = top - 5;
+    assert_eq!(d.new_handle(), Handle(top - 5));
+    assert_eq!(d.next_handle(), Handle(HANDLE_LIMIT + 1), "a held handle was offered");
+    assert_eq!(d.new_handle(), Handle(HANDLE_LIMIT + 1));
+    assert_eq!(d.handseed, HANDLE_LIMIT + 2);
+    // Handle 0 means "no handle" in a file; a seed there moves on.
+    d.handseed = 0;
+    assert_eq!(d.new_handle(), Handle(1));
 }
 
 /// Several spellings of one DIM field apply once, the last in the map's order, and none is rejected.

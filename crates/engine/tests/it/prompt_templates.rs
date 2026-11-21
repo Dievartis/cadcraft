@@ -47,16 +47,6 @@ fn polyline_widths_are_whole_sentences() {
     assert_eq!(shown(&s), ("Specify ending half-width".to_string(), None));
 }
 
-#[test]
-fn rename_asks_for_the_type_it_renames() {
-    let mut s = Session::new();
-    s.start("-rename").unwrap();
-    s.cmdline("la").unwrap();
-    assert_eq!(shown(&s), ("Enter old layer name".to_string(), None));
-    s.cmdline("0").unwrap();
-    assert_eq!(shown(&s).0, "Enter new layer name");
-}
-
 /// A prompt that asks something else drops the template it was built over: an object snap typed
 /// after a point filter asks "Endpoint of", not ".X of" (#2616 review).
 #[test]

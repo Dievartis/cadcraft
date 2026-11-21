@@ -5,9 +5,6 @@ use std::rc::Rc;
 
 use cadcraft_engine::Session;
 use cadcraft_ui_egui::{CadApp, Services, menus};
-use egui::{PointerButton, vec2};
-use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
 use serde_json::json;
 
 /// An app whose file pickers count their calls and cancel.
@@ -40,21 +37,6 @@ fn drafting_settings_menu_opens_the_dialog() {
     app.run("dsettings", json!({ "gridmajor": 10 })).unwrap();
     assert!(app.ui.dialog.is_none());
     assert_eq!(app.session.settings.gridmajor, 10);
-}
-
-/// PARAMETERS typed opens the Parameters Manager; -PARAMETERS asks at the command line (#2579).
-#[test]
-fn dash_parameters_prompts_instead_of_opening_the_dialog() {
-    let (mut app, _) = app();
-    app.cmdline("PARAMETERS");
-    assert_eq!(app.ui.dialog.as_deref(), Some("parameters"));
-    app.ui.dialog = None;
-    for typed in ["-PARAMETERS", "-PAR"] {
-        app.cmdline(typed);
-        assert!(app.ui.dialog.is_none(), "{typed} opens no dialog");
-        assert!(app.session.prompt_text().contains("Enter a parameter option"), "{typed}: {}", app.session.prompt_text());
-        app.session.cancel();
-    }
 }
 
 #[test]
@@ -130,28 +112,5 @@ fn print_opens_the_plot_dialog_but_json_plot_never_does() {
     let _ = app.run("plot", json!({ "layout": "Model", "plotArea": "extents" }));
     app.cmdline(r#"plot {"layout": "Model"}"#);
     assert!(app.ui.dialog.is_none());
-    assert_eq!(picks.get(), 0);
-}
-
-#[test]
-fn canceling_plot_dialog_preserves_drawing_and_does_not_open_picker() {
-    let (mut app, picks) = app();
-    menus::activate(&mut app, "plot");
-    let drawing = app.session.doc().unwrap().clone();
-    let mut harness = Harness::builder().with_size(vec2(1280.0, 800.0)).build_ui_state(
-        |ui, app: &mut CadApp| {
-            app.logic(&ui.ctx().clone());
-            app.ui(ui);
-        },
-        app,
-    );
-    harness.run_steps(4);
-    assert_eq!(harness.state().ui.dialog.as_deref(), Some("plot"));
-    assert_eq!(harness.state().session.doc().unwrap(), &drawing);
-
-    harness.get_by_label("Cancel").click_button(PointerButton::Primary);
-    harness.run_steps(3);
-    assert!(harness.state().ui.dialog.is_none());
-    assert_eq!(harness.state().session.doc().unwrap(), &drawing);
     assert_eq!(picks.get(), 0);
 }

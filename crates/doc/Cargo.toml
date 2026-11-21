@@ -12,6 +12,7 @@ workspace = true
 cadcraft-geom = { workspace = true }
 cadcraft-color = { workspace = true }
 cadcraft-hvac = { workspace = true }
+craft-dxf = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

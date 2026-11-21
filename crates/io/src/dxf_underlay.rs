@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use cadcraft_doc::{Drawing, EntityKind, EntityStore, Handle, PdfUnderlay, UNDERLAY_MAX_FADE};
 use cadcraft_geom::{Vec2, Vec3};
-use craft_dxf::{Section, Tag};
+use craft_dxf::{SectionRef, Tag};
 
 use crate::dxf_image::{each_record, key};
 
@@ -104,14 +104,14 @@ fn count_underlays(d: &Drawing) -> usize {
 }
 
 /// Fill in each underlay's file and page from the PDFDEFINITION it points to.
-pub(crate) fn resolve(secs: &[Section], d: &mut Drawing) {
+pub(crate) fn resolve(secs: &[SectionRef<'_>], d: &mut Drawing) {
     if !has_underlays(&d.model) && !d.layouts.iter().any(|l| has_underlays(&l.entities)) && !d.blocks.values().any(|b| has_underlays(&b.entities)) {
         return;
     }
     // PDFUNDERLAY handle → PDFDEFINITION handle.
     let mut refs: HashMap<Handle, String> = HashMap::new();
     for s in secs.iter().filter(|s| s.name == "ENTITIES" || s.name == "BLOCKS") {
-        each_record(&s.tags, |kind, tags| {
+        each_record(s.tags, |kind, tags| {
             if kind != "PDFUNDERLAY" {
                 return;
             }
@@ -125,7 +125,7 @@ pub(crate) fn resolve(secs: &[Section], d: &mut Drawing) {
     // PDFDEFINITION handle → (file, page, unloaded).
     let mut defs: HashMap<String, (String, u32, bool)> = HashMap::new();
     for s in secs.iter().filter(|s| s.name == "OBJECTS") {
-        each_record(&s.tags, |kind, tags| {
+        each_record(s.tags, |kind, tags| {
             if kind != "PDFDEFINITION" {
                 return;
             }
@@ -423,6 +423,7 @@ mod tests {
 
     #[test]
     fn underlays_survive_dwg_save_and_reopen() {
+        crate::dwg_worker::allow_in_process();
         let d = drawing();
         let bytes = crate::write(&d, "plan.dwg").unwrap();
         let back = crate::read(&bytes, "plan.dwg").unwrap();
@@ -507,6 +508,7 @@ mod tests {
     /// Two underlays of one page, one of them unloaded, each come back in their own state.
     #[test]
     fn a_loaded_and_an_unloaded_underlay_of_one_page_keep_their_own_state() {
+        crate::dwg_worker::allow_in_process();
         let mut d = Drawing::new_metric();
         let one = |x: f64, unloaded: bool| PdfUnderlay {
             insert: Vec3::new(x, 0.0, 0.0),

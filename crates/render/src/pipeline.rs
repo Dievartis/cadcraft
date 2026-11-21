@@ -3,7 +3,10 @@ use super::display::append;
 use super::display::{DisplayList, Kind, NO_LAYER, PlotText, VIEWPORT_CONTENT};
 use super::draw::entity;
 use super::viewports::{MAX_VIEWPORTS, viewport};
-use super::{Bounds2, Builder, Color, Ctx, Drawing, Entity, EntityKind, Handle, Lineweight, Mat3, Space, Vec2, paper, pen, plotstyle, point};
+use super::{
+    Bounds2, Builder, Color, Ctx, Drawing, Entity, EntityKind, Handle, Lineweight, MAX_DISPLAY_POINTS, Mat3, Space, Vec2, paper, pen, plotstyle,
+    point,
+};
 
 /// Build options.
 #[derive(Clone, Debug)]
@@ -107,9 +110,25 @@ pub(crate) fn top_ctx<'a>(d: &'a Drawing, xf: Mat3, top: Handle, frozen: &'a [St
 }
 
 fn build_space(d: &Drawing, space: &Space, opts: &Options, plotting: bool) -> DisplayList {
+    build_space_within(d, space, opts, plotting, MAX_DISPLAY_POINTS)
+}
+
+/// [`build_space`] holding at most `max_points` points.
+pub(crate) fn build_space_within(d: &Drawing, space: &Space, opts: &Options, plotting: bool, max_points: usize) -> DisplayList {
     let opts = &with_point_view(d, space, opts);
     let styler = style_table(d, space, opts, plotting).map(|t| plotstyle::Styler::new(d, t));
-    let mut b = Builder { list: DisplayList::default(), opts, plotting, styles: styler.as_ref(), named: None, shared_budget: None, transparency: 0 };
+    let points = std::sync::atomic::AtomicUsize::new(0);
+    let mut b = Builder {
+        list: DisplayList::default(),
+        opts,
+        plotting,
+        styles: styler.as_ref(),
+        named: None,
+        shared_budget: None,
+        transparency: 0,
+        points: &points,
+        max_points,
+    };
     if let Space::Paper(name) = space {
         b.list.sheet = paper::sheet(d, name);
     }
@@ -120,7 +139,7 @@ fn build_space(d: &Drawing, space: &Space, opts: &Options, plotting: bool) -> Di
             && !plotting
             && b.styles.is_none()
             && store.len() >= 2 * PARALLEL_CHUNK
-            && let Some(parts) = build_parallel(b.opts, d, store)
+            && let Some(parts) = build_parallel(&b, d, store)
         {
             join(&mut b.list, parts);
             return b.list;
@@ -167,8 +186,10 @@ pub(crate) const PARALLEL_CHUNK: usize = 256;
 /// order and so leaves out the same objects, the last ones, every time. Only a drawing past the
 /// budget pays for the second build.
 #[cfg(not(target_arch = "wasm32"))]
-fn build_parallel(opts: &Options, d: &Drawing, store: &cadcraft_doc::EntityStore) -> Option<Vec<DisplayList>> {
+fn build_parallel(b: &Builder<'_>, d: &Drawing, store: &cadcraft_doc::EntityStore) -> Option<Vec<DisplayList>> {
     use rayon::prelude::*;
+    let (opts, points, max_points) = (b.opts, b.points, b.max_points);
+    let spent = points.load(std::sync::atomic::Ordering::Relaxed);
     let ents: Vec<&std::sync::Arc<Entity>> = store.iter().collect();
     let budget = std::sync::atomic::AtomicUsize::new(0);
     let parts: Vec<DisplayList> = ents
@@ -182,6 +203,8 @@ fn build_parallel(opts: &Options, d: &Drawing, store: &cadcraft_doc::EntityStore
                 named: None,
                 shared_budget: Some(&budget),
                 transparency: 0,
+                points,
+                max_points,
             };
             for e in chunk {
                 entity(&mut part, &top_ctx(d, Mat3::IDENTITY, e.handle, &[], &[]), e);
@@ -189,7 +212,12 @@ fn build_parallel(opts: &Options, d: &Drawing, store: &cadcraft_doc::EntityStore
             part.list
         })
         .collect();
-    (!parts.iter().any(|p| p.truncated)).then_some(parts)
+    if parts.iter().any(|p| p.truncated) {
+        // The caller builds again on one thread: the points the parts charged are not spent.
+        points.store(spent, std::sync::atomic::Ordering::Relaxed);
+        return None;
+    }
+    Some(parts)
 }
 
 /// Append `parts`, built side by side, to `list` in their order, with one allocation per array.
@@ -239,7 +267,18 @@ pub fn build_entities<'a, I: IntoIterator<Item = &'a Entity>>(d: &Drawing, ents:
     } else {
         opts
     };
-    let mut b = Builder { list: DisplayList::default(), opts, plotting: false, styles: None, named: None, shared_budget: None, transparency: 0 };
+    let points = std::sync::atomic::AtomicUsize::new(0);
+    let mut b = Builder {
+        list: DisplayList::default(),
+        opts,
+        plotting: false,
+        styles: None,
+        named: None,
+        shared_budget: None,
+        transparency: 0,
+        points: &points,
+        max_points: MAX_DISPLAY_POINTS,
+    };
     for e in ents {
         entity(&mut b, &top_ctx(d, Mat3::IDENTITY, e.handle, &[], &[]), e);
     }

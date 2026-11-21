@@ -674,6 +674,7 @@
 	Quick Measure	Medición rápida
 	Measure Distance	Medir distancia
 	Measure Geometry	Medir geometría
+	Menu Bar	Barra de menús
 	Merge Cells	Combinar celdas
 	Merged PRs	PR integradas
 	Meters	Metros
@@ -1178,6 +1179,7 @@
 	Set Current Text Style	Establecer estilo de texto actual
 	Set Layer Properties	Establecer propiedades de capa
 	Set Properties	Establecer propiedades
+	Describe Properties	Describir propiedades
 	Set Table Cell	Establecer celda de tabla
 	Set Variable	Establecer variable
 	Set View	Establecer vista

@@ -129,6 +129,7 @@ fn typed_dxfout_and_dxfin_ask_for_the_file_name() {
 /// The default name keeps the drawing's folder, so Enter writes next to the drawing.
 #[test]
 fn dxfout_by_default_writes_next_to_the_drawing() {
+    cadcraft_io::dwg_worker::allow_in_process();
     install_io();
     let dir = folder("default");
     let mut s = drawing();

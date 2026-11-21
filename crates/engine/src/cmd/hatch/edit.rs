@@ -33,7 +33,7 @@ fn hatches(s: &Session, p: &Value) -> Result<Vec<Handle>> {
 const MAX_GENERATED: usize = 10_000;
 
 /// HATCHGENERATEBOUNDARY: a closed polyline around every boundary loop (outer and islands) of
-/// the selected hatches, at each hatch's elevation. The hatches are not changed: an associative
+/// the selected hatches, at each hatch's height. The hatches are not changed: an associative
 /// hatch stays linked to its own boundary objects and is not linked to the new polylines.
 pub(super) fn run_hatchgenerateboundary(s: &mut Session, p: &Value) -> Result<Value> {
     let selected = targets(s, p)?;
@@ -46,7 +46,8 @@ pub(super) fn run_hatchgenerateboundary(s: &mut Session, p: &Value) -> Result<Va
     {
         let d = s.doc()?;
         for h in selected {
-            let Some(EntityKind::Hatch(x)) = d.entity(h).map(|e| &e.kind) else { continue };
+            let Some(e) = d.entity(h) else { continue };
+            let EntityKind::Hatch(x) = &e.kind else { continue };
             if !seen.insert(h) {
                 continue;
             }
@@ -59,7 +60,10 @@ pub(super) fn run_hatchgenerateboundary(s: &mut Session, p: &Value) -> Result<Va
             if x.loops.len() > MAX_GENERATED.saturating_sub(loops.len()) {
                 return Err(bad("hatchgenerateboundary", format!("more than {MAX_GENERATED} boundary polylines in one call; select fewer hatches")));
             }
-            loops.extend(x.loops.iter().map(|l| (l.vertices.clone(), x.elevation)));
+            // The elevation runs along the hatch's normal: one facing down Z (mirrored) lies at its
+            // negative, where the polyline, facing up, goes.
+            let z = if e.common.extrusion.z < 0.0 { -x.elevation } else { x.elevation };
+            loops.extend(x.loops.iter().map(|l| (l.vertices.clone(), z)));
         }
     }
     if !found {
@@ -192,21 +196,8 @@ fn separate(s: &mut Session, handle: Handle) -> Result<Vec<Handle>> {
 
 /// Pattern, scale and angle (degrees) from the parameters.
 fn properties(h: &mut Hatch, p: &Value) {
-    if let Some(v) = str_param(p, "pattern").map(str::trim).filter(|v| !v.is_empty()) {
-        h.pattern = v.to_ascii_uppercase();
-        h.solid = h.pattern == "SOLID";
-        // A named pattern, SOLID included, replaces the gradient fill; the renderer draws the
-        // gradient first when it is set.
-        h.gradient = None;
-        if !h.solid {
-            // A library pattern is drawn from the library; a loaded .pat pattern brings its lines;
-            // any other name is the hatch's own and keeps its definition.
-            if cadcraft_doc::library::pattern(&h.pattern).is_some() {
-                h.pattern_lines.clear();
-            } else if let Some(user) = super::patfile::user_pattern(&h.pattern) {
-                h.pattern_lines = user.lines;
-            }
-        }
+    if let Some(v) = str_param(p, "pattern") {
+        set_pattern(h, v);
     }
     if let Some(x) = p.get("scale").and_then(Value::as_f64).filter(|x| x.is_finite() && *x > 0.0) {
         h.scale = x;
@@ -214,6 +205,43 @@ fn properties(h: &mut Hatch, p: &Value) {
     if let Some(x) = p.get("angle").and_then(Value::as_f64).filter(|x| x.is_finite()) {
         h.angle = x.to_radians();
     }
+}
+
+/// Whether the pattern called `up` (upper case) is defined: SOLID, one CADCraft defines, or a
+/// loaded .pat pattern.
+fn defined_pattern(up: &str) -> bool {
+    up == "SOLID" || cadcraft_doc::library::pattern(up).is_some() || super::patfile::user_pattern(up).is_some()
+}
+
+/// Whether `h` can take the pattern called `name`: a defined one, or the hatch's own (a pattern
+/// read from a file keeps its definition).
+pub(crate) fn takes_pattern(h: &Hatch, name: &str) -> bool {
+    let up = name.trim().to_ascii_uppercase();
+    defined_pattern(&up) || h.pattern.eq_ignore_ascii_case(&up)
+}
+
+/// Give `h` the pattern called `name` (HATCHEDIT's and Properties' pattern edit); false, and
+/// nothing changes, for a blank name or one the hatch can't take ([`takes_pattern`]).
+pub(crate) fn set_pattern(h: &mut Hatch, name: &str) -> bool {
+    let name = name.trim();
+    if name.is_empty() || !takes_pattern(h, name) {
+        return false;
+    }
+    h.pattern = name.to_ascii_uppercase();
+    h.solid = h.pattern == "SOLID";
+    // A named pattern, SOLID included, replaces the gradient fill; the renderer draws the
+    // gradient first when it is set.
+    h.gradient = None;
+    if !h.solid {
+        // A library pattern is drawn from the library; a loaded .pat pattern brings its lines;
+        // any other name is the hatch's own and keeps its definition.
+        if cadcraft_doc::library::pattern(&h.pattern).is_some() {
+            h.pattern_lines.clear();
+        } else if let Some(user) = super::patfile::user_pattern(&h.pattern) {
+            h.pattern_lines = user.lines;
+        }
+    }
+    true
 }
 
 /// HATCHEDIT's `gradient`: the fields to change, all checked before any hatch is touched.
@@ -438,9 +466,7 @@ pub(super) fn run_hatchedit(s: &mut Session, p: &Value) -> Result<Value> {
     // Like the prompt: a pattern must be one CADCraft defines, SOLID, or the hatches' own (a
     // pattern read from a file keeps its definition).
     if let Some(up) = str_param(p, "pattern").map(|v| v.trim().to_ascii_uppercase()).filter(|v| !v.is_empty())
-        && up != "SOLID"
-        && cadcraft_doc::library::pattern(&up).is_none()
-        && super::patfile::user_pattern(&up).is_none()
+        && !defined_pattern(&up)
     {
         let d = s.doc()?;
         let own = hs.iter().all(|h| matches!(d.entity(*h).map(|e| &e.kind), Some(EntityKind::Hatch(x)) if x.pattern == up));

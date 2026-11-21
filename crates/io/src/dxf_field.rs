@@ -25,7 +25,6 @@ use std::sync::Arc;
 use cadcraft_doc::fields::{self, split_value, with_value};
 use cadcraft_doc::foreign::{Foreign, ForeignObject};
 use cadcraft_doc::{Drawing, Entity, EntityKind, Handle, RawTag};
-use craft_dxf::Tag;
 
 /// Upper bound on FIELD objects of one text.
 const MAX_NODES: usize = 1_000;
@@ -531,61 +530,6 @@ fn ensure_list(f: &mut Foreign, ids: &mut Alloc) {
         let present = f.classes.iter().any(|c| c.iter().any(|t| t.code == 1 && t.value.eq_ignore_ascii_case(name)));
         if any && !present {
             f.classes.push(vec![rt(1, name), rt(2, dxf), rt(3, "ObjectDBX Classes"), rt(90, "1152"), rt(91, "0"), rt(280, "0"), rt(281, "0")]);
-        }
-    }
-}
-
-/// Make the written FIELDLIST list exactly the FIELD objects written.
-pub(crate) fn fix_list(tags: &mut Vec<Tag>) {
-    let fields: Vec<String> = tags
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| t.code == 0 && t.str() == "FIELD")
-        .filter_map(|(i, _)| tags.get(i + 1..)?.iter().take_while(|t| t.code != 0).find(|t| t.code == 5).map(|t| t.str()))
-        .collect();
-    if fields.is_empty() {
-        drop_list(tags);
-        return;
-    }
-    let mut i = 0;
-    while i < tags.len() {
-        if !tags.get(i).is_some_and(|t| t.code == 0 && t.str() == "FIELDLIST") {
-            i += 1;
-            continue;
-        }
-        let end = tags.get(i + 1..).and_then(|r| r.iter().position(|t| t.code == 0)).map_or(tags.len(), |p| i + 1 + p);
-        let body = tags.get(i + 1..end).unwrap_or(&[]);
-        let set = body.iter().position(|t| t.code == 100 && t.str() == "AcDbIdSet");
-        let tail = body.iter().position(|t| t.code == 100 && t.str() == "AcDbFieldList");
-        if let (Some(set), Some(tail)) = (set, tail)
-            && set < tail
-        {
-            let mut list = vec![Tag::i(90, i64::try_from(fields.len()).unwrap_or(0))];
-            list.extend(fields.iter().map(|h| Tag::s(330, h.clone())));
-            let (from, to) = (i + 1 + set + 1, i + 1 + tail);
-            let n = list.len();
-            tags.splice(from..to, list);
-            i = end - (to - from) + n;
-        } else {
-            i = end;
-        }
-    }
-}
-
-/// No FIELD object is written: no FIELDLIST either, and no entry for it in the named object
-/// dictionary.
-fn drop_list(tags: &mut Vec<Tag>) {
-    let mut i = 0;
-    while i < tags.len() {
-        match tags.get(i) {
-            Some(t) if t.code == 0 && t.str() == "FIELDLIST" => {
-                let end = tags.get(i + 1..).and_then(|r| r.iter().position(|t| t.code == 0)).map_or(tags.len(), |p| i + 1 + p);
-                tags.drain(i..end);
-            }
-            Some(t) if t.code == 3 && t.str().eq_ignore_ascii_case("ACAD_FIELDLIST") && tags.get(i + 1).is_some_and(|n| n.code == 350) => {
-                tags.drain(i..i + 2);
-            }
-            _ => i += 1,
         }
     }
 }

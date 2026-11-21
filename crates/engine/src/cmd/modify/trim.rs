@@ -93,6 +93,51 @@ fn prim_to_segments(p: &Prim) -> Vec<Segment> {
     }
 }
 
+/// Explain the generic line failures for JSON handle+pick calls, and a line TRIM picked on its
+/// only cuts ([`ON_THE_CUT`]). Other curves retain their own diagnostics: their nearest-parameter
+/// rules do not prove that a pick is invalid.
+pub(crate) fn json_pick_error(s: &Session, h: Handle, pick: Vec2, edges: Edges, extending: bool, error: EngineError) -> EngineError {
+    let generic = if extending { "Object does not intersect an edge." } else { "Object does not intersect a cutting edge." };
+    if !matches!(&error, EngineError::Other(message) if message == generic || (!extending && message == ON_THE_CUT)) {
+        return error;
+    }
+    let Ok(d) = s.doc() else { return error };
+    let Some(e) = d.entity(h) else { return error };
+    let EntityKind::Line(l) = &e.kind else { return error };
+    let Ok(cut) = edge_segments(s, edges, h) else { return error };
+    let ln = Line::new(l.a.xy(), l.b.xy());
+    let message = if extending {
+        // The selected end already failed. Check the opposite end with the same ray and
+        // forward-intersection rules before attributing the failure to the pick's end choice.
+        let (fixed, end) = if pick.dist(ln.b) < pick.dist(ln.a) { (ln.b, ln.a) } else { (ln.a, ln.b) };
+        let dir = (end - fixed).normalized();
+        let ray = Segment::Line(Line::new(end, end + dir * 1e8));
+        let opposite_hit = cut.iter().flat_map(|c| intersect_ext(&ray, c, false)).any(|x| (x - end).dot(dir) > 1e-9);
+        if opposite_hit {
+            "The `pick` point selects an end with no boundary ahead; choose `pick` toward the boundary to extend to."
+        } else {
+            "No usable boundary intersection was found for either end of the object to extend."
+        }
+    } else {
+        let pick_param = ln.param_of(pick).clamp(0.0, 1.0);
+        let has_cut = cut.iter().flat_map(|c| intersect_ext(&Segment::Line(ln), c, false)).any(|x| {
+            let t = ln.param_of(x);
+            t > 1e-9 && t < 1.0 - 1e-9
+        });
+        if !has_cut {
+            "No usable cutting-edge intersection in the interior of the object to trim."
+        } else if pick_param.is_nan() {
+            return error;
+        } else if !ln.at(pick_param).near(pick, 1e-9_f64.max(64.0 * f64::EPSILON * (1.0 + pick.len().max(ln.a.len()).max(ln.b.len())))) {
+            "The `pick` point is off the line and projects onto a cutting intersection; pick away from that intersection."
+        } else {
+            "The `pick` point is at a cutting intersection; pick a portion of the object away from that intersection."
+        }
+    };
+    EngineError::Other(message.into())
+}
+
+/// Trim `h` at the piece containing `pick`. Returns the handles that replace it.
 /// Trim `h` at the piece containing `pick`. Returns what it became: its pieces, `h` first
 /// ([`replace_with_pieces`]).
 pub(crate) fn trim(s: &mut Session, h: Handle, pick: Vec2, edges: Edges) -> Result<Vec<Handle>> {
@@ -140,11 +185,7 @@ pub(crate) fn trim(s: &mut Session, h: Handle, pick: Vec2, edges: Edges) -> Resu
                 cut.iter().flat_map(|c| intersect_ext(&seg, c, false)).map(param).filter(|t| *t > 1e-9 && *t < sweep - 1e-9).collect();
             ts.sort_by(f64::total_cmp);
             // A pick off the arc is at the end it is nearer, round the circle.
-            let tp = match param(pick) {
-                t if t <= sweep => t,
-                t if t - sweep < TAU - t => sweep,
-                _ => 0.0,
-            };
+            let tp = crate::cmd::curves::seg_param(&seg, pick) * sweep;
             let found = ts.len();
             ts.retain(|t| (t - tp).abs() * ga.radius > ON_CUT);
             let lo = ts.iter().copied().filter(|t| *t < tp).fold(0.0, f64::max);
@@ -381,7 +422,11 @@ fn self_cuts(segs: &[Segment], closed: bool, k: usize) -> Result<Vec<f64>> {
     }
     // A crossing, or a vertex of another segment touching this one, cuts it; so does a crossing
     // where it runs straight on into the next. Two segments meeting at a vertex cut nothing more.
-    let cuts = |t: f64, i: usize| (t > 1e-9 && t < 1.0 - 1e-9) || (t <= 1e-9 && straight(i)) || (t >= 1.0 - 1e-9 && after(i).is_some_and(straight));
+    // An open polyline's ends are no cuts, so a crossing that near one, in parameter, still cuts
+    // it (those within 1e-9 of the ends along it are dropped later).
+    let open_before = |i: usize| before(i).is_none() || straight(i);
+    let open_after = |i: usize| after(i).is_none_or(straight);
+    let cuts = |t: f64, i: usize| (t > 1e-9 && t < 1.0 - 1e-9) || (t <= 1e-9 && open_before(i)) || (t >= 1.0 - 1e-9 && open_after(i));
     let vertices = ts.len();
     for &i in &run {
         let (Some(a), Some(box_a), Some(a0)) = (segs.get(i), boxes.get(i), starts.get(i)) else { continue };
@@ -473,8 +518,10 @@ fn trim_polyline(p: &cadcraft_doc::LwPolyline, cut: &[Segment], pick: Vec2, itse
         // A piece whose ends meet (the polyline touched itself there) is closed, without its
         // repeated vertex, as AutoCAD leaves it.
         let piece = |mut vs: Vec<PolyVertex>| {
-            // Within rounding of the coordinates, however far from the origin, and no more.
-            let meets = vs.len() >= 4
+            // Within rounding of the coordinates, however far from the origin, and no more. Two
+            // spans close only when one is an arc: two lines there would run back on themselves.
+            let spans = vs.len() >= 4 || (vs.len() == 3 && vs.iter().take(2).any(|v| v.bulge.abs() > 1e-12));
+            let meets = spans
                 && matches!((vs.first(), vs.last()), (Some(a), Some(b)) if a.p.near(b.p, 64.0 * f64::EPSILON * (1.0 + a.p.len().max(b.p.len()))));
             if meets {
                 vs.pop();
@@ -491,16 +538,7 @@ fn trim_polyline(p: &cadcraft_doc::LwPolyline, cut: &[Segment], pick: Vec2, itse
     Ok(Some(out.into_iter().filter(|k| matches!(k, EntityKind::LwPolyline(l) if l.vertices.len() >= 2)).collect()))
 }
 
-pub(super) fn param_on(s: &Segment, p: Vec2) -> f64 {
-    match s {
-        Segment::Line(l) => l.param_of(p).clamp(0.0, 1.0),
-        Segment::Arc { arc, ccw } => {
-            let t = norm_angle(arc.center.angle_to(p) - arc.start) / arc.sweep().max(1e-15);
-            let t = t.clamp(0.0, 1.0);
-            if *ccw { t } else { 1.0 - t }
-        }
-    }
-}
+pub(super) use crate::cmd::curves::seg_param as param_on;
 
 /// A polyline arc segment on `ga`'s circle that ends at `end` after turning through `sweep`
 /// (signed, positive counterclockwise), run on round the circle to the nearest boundary edge: the
@@ -563,7 +601,13 @@ pub(crate) fn extend(s: &mut Session, h: Handle, pick: Vec2, edges: Edges) -> Re
         EntityKind::LwPolyline(p) if !p.closed && p.vertices.len() >= 2 => {
             let mut vs = p.vertices.clone();
             let n = vs.len();
-            let from_end = vs.last().is_some_and(|l| pick.dist(l.p) < vs.first().map(|f| pick.dist(f.p)).unwrap_or(f64::INFINITY));
+            // The pick's parameter: the segment it is nearest, plus how far along it. AutoCAD 2024
+            // extends the end on that side of the polyline's middle parameter, the last from the
+            // middle on, not the end nearer the pick. A repeated vertex counts as a segment, so
+            // these come from the vertices, not `Polyline::segments`, which skips it.
+            let spans: Vec<_> = vs.windows(2).filter_map(|w| Some((w.first()?.p, w.get(1)?.p, w.first()?.bulge))).collect();
+            let at = crate::cmd::curves::vertex_param_of(&spans, pick);
+            let from_end = 2.0 * at >= (n - 1) as f64;
             let (i_end, i_prev) = if from_end { (n - 1, n - 2) } else { (0, 1) };
             let end = vs.get(i_end).map(|v| v.p).unwrap_or_default();
             let prev = vs.get(i_prev).map(|v| v.p).unwrap_or_default();

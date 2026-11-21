@@ -235,6 +235,7 @@ fn viewport_ucs_and_settings_survive_a_dxf_save() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn viewport_ucs_and_settings_survive_a_dwg_save() {
+    cadcraft_io::dwg_worker::allow_in_process();
     let d = foreign();
     let dwg = cadcraft_io::write(&d, "x.dwg").unwrap();
     let back = cadcraft_io::read(&dwg, "x.dwg").unwrap();
@@ -397,6 +398,7 @@ fn hostile_viewport_ucs_groups_do_not_panic() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn a_default_viewport_reads_back_without_ucs_or_extras() {
+    cadcraft_io::dwg_worker::allow_in_process();
     for version in [cadcraft_io::Version::R2000, cadcraft_io::Version::R2010] {
         let (d, _) = base();
         let bytes = cadcraft_io::write_with(&d, "viewport.dwg", &cadcraft_io::SaveOptions { version: Some(version), binary: false }).unwrap();
@@ -411,6 +413,7 @@ fn a_default_viewport_reads_back_without_ucs_or_extras() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn a_viewport_with_non_default_snap_keeps_it() {
+    cadcraft_io::dwg_worker::allow_in_process();
     for version in [cadcraft_io::Version::R2000, cadcraft_io::Version::R2010] {
         let (mut d, h) = base();
         d.modify_entity(h, |e| {

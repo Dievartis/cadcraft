@@ -2,6 +2,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
+/// A DWG hatch's elliptic boundary edge angles, in degrees in the DXF the DWG is read through (#3332).
+mod dwg_hatch;
 /// What a DXF file holds that CADCraft doesn't model, kept and written back (#528).
 mod dxf_raw;
 
@@ -10,6 +12,7 @@ mod dxf_clip;
 mod dxf_ext;
 mod dxf_field;
 mod dxf_image;
+mod dxf_layer_states;
 mod dxf_mleader;
 mod dxf_read;
 mod dxf_table;
@@ -40,8 +43,10 @@ use std::path::{Path, PathBuf};
 
 pub use cadcraft_doc::Format;
 pub use craft_dxf::Version;
+
+pub use dxf_raw::{ObjectRecord, object_records};
 pub use dxf_read::entity_from_groups;
-pub use dxf_write::{DanglingBlockRef, dangling_block_refs, entity_groups};
+pub use dxf_write::{DanglingBlockRef, dangling_block_refs, entity_groups, proxies_lost};
 pub use pdf::{PdfOptions, pdf, plot};
 
 /// How a drawing is saved as DXF or DWG.
@@ -84,7 +89,7 @@ fn dwg_error(message: String) -> IoError {
 
 /// How a program runs the DWG reader and writer in a child process (`craft_dwg::worker`).
 pub mod dwg_worker {
-    pub use craft_dwg::{WORKER_ARG, serve_if_asked, use_own_worker};
+    pub use craft_dwg::{WORKER_ARG, allow_in_process, serve_if_asked, use_own_worker};
     #[cfg(all(not(target_arch = "wasm32"), not(all(target_os = "freebsd", target_arch = "aarch64"))))]
     pub use craft_dwg::{crash_worker_for_test, use_worker};
 }
@@ -104,6 +109,8 @@ pub fn read(bytes: &[u8], name: impl AsRef<Path>) -> Result<Drawing> {
 pub(crate) fn read_source(bytes: &[u8], name: &Path) -> Result<(Drawing, Option<Vec<u8>>)> {
     if craft_dwg::is_dwg(bytes) {
         let (dxf, notes) = craft_dwg::decode(bytes, craft_dwg::Limits::DEFAULT).map_err(dwg_error)?;
+        // The decoder writes an elliptic hatch edge's angles in radians; DXF keeps degrees.
+        let dxf = dwg_hatch::elliptic_edge_degrees(dxf);
         let mut d = read_dwg_rendition(&dxf)?;
         d.read_notes = notes.into_iter().map(|note| cadcraft_dwg_message(&note)).collect();
         return Ok((d, Some(dxf)));
@@ -319,15 +326,6 @@ pub fn read_dxf(bytes: &[u8]) -> Result<Drawing> {
 /// The drawing as R2000 ASCII DXF, whatever its own version ([`write_with`] chooses one).
 pub fn write_dxf(d: &Drawing) -> String {
     dxf_write::write(d)
-}
-
-/// The drawing's non-graphic records as a DXF save writes them, at the version it is saved in:
-/// table records, BLOCK records and objects (dictionaries, layouts…), each with its handle, type
-/// and groups after the `0` group. CADCraft keeps no handles for these: they are the handles the
-/// file gets, the same as long as the drawing doesn't change (AutoLISP's `handent`, `entget`,
-/// `tblobjname` and the dictionary functions use them).
-pub fn object_records(d: &Drawing) -> Vec<(cadcraft_doc::Handle, String, Vec<craft_dxf::Tag>)> {
-    dxf_raw::object_records(&dxf_write::tags(d, save_version(d)))
 }
 
 /// Regions, written as closed polylines.

@@ -10,6 +10,7 @@ use crate::theme::Tokens;
 
 pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     crate::mtext_editor::show(app, ctx);
+    crate::line_editor::show(app, ctx);
     crate::quick::quick_properties(app, ctx);
     let Some(d) = app.ui.dialog.clone() else { return };
     let mut open = true;
@@ -35,7 +36,6 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         "preview" => crate::exchange::dialog(app, ctx, &mut open),
         o if o.starts_with("pdfattach:") => crate::pdfattach_dlg::dialog(app, ctx, o.trim_start_matches("pdfattach:"), &mut open),
         "commands" => commands(app, ctx, &mut open),
-        "attedit" => crate::attedit::dialog(app, ctx, &mut open),
         "bedit" => crate::bedit::dialog(app, ctx, &mut open),
         "authoring" => crate::bedit::authoring_dialog(app, ctx, &mut open),
         "stylesmanager" => crate::plotstyles::dialog(app, ctx, &mut open),

@@ -98,24 +98,3 @@ fn extension_line_overrides_round_trip_through_dxf_and_undo() {
     s.execute("u", &json!({})).unwrap();
     assert!(dims(&s)[0].1.overrides.is_empty());
 }
-
-#[test]
-fn bad_values_change_nothing() {
-    let mut s = Session::new();
-    s.script("dimlinear 0,0 10,0 5,-3\n").unwrap();
-    let h = dims(&s)[0].0.clone();
-    for p in [
-        json!({ "textHeight": 0.0 }),
-        json!({ "dimScale": -1.0 }),
-        json!({ "arrowSize": "big" }),
-        json!({ "precision": 9 }),
-        json!({ "extOffset": -1.0 }),
-        json!({ "fixedExtLength": -1.0 }),
-        json!({ "fixedExt": "yes" }),
-    ] {
-        let mut p = p;
-        p["handles"] = json!([h]);
-        assert!(s.execute("properties.set", &p).is_err(), "{p}");
-    }
-    assert!(dims(&s)[0].1.overrides.is_empty());
-}

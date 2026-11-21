@@ -34,6 +34,9 @@ pub(crate) struct LaunchArgs {
     /// The drawing id the shared session is about
     #[arg(long, value_name = "DOC", env = "CADCRAFT_COLLAB_DOC")]
     pub(crate) collab_doc: Option<String>,
+    /// Open the files in a new window, even if CADCraft is already running (Windows)
+    #[arg(long)]
+    pub(crate) new_window: bool,
 }
 
 /// The command line. An empty or blank variable counts as unset.
@@ -91,7 +94,10 @@ mod tests {
         assert_eq!((parsed.control, parsed.sample), (Some(50494), true));
         assert_eq!(parsed.files, [PathBuf::from("a.dxf"), PathBuf::from("b.dwg")]);
         let parsed = parse_args(&[]).unwrap();
-        assert_eq!((parsed.control, parsed.sample, parsed.files.len()), (None, false, 0));
+        assert_eq!((parsed.control, parsed.sample, parsed.new_window, parsed.files.len()), (None, false, false, 0));
+        let parsed = parse_args(&["--new-window", "a.dwg"]).unwrap();
+        assert!(parsed.new_window);
+        assert_eq!(parsed.files, [PathBuf::from("a.dwg")]);
     }
 
     #[test]

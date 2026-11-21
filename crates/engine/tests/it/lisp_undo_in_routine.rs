@@ -8,11 +8,7 @@ use serde_json::json;
 
 /// A session with A, B, C and D in draw order, each its own undo step, and their handles.
 fn drawing() -> (Session, Vec<Handle>) {
-    set_entity_codec(EntityCodec {
-        groups: cadcraft_io::entity_groups,
-        entity: cadcraft_io::entity_from_groups,
-        objects: cadcraft_io::object_records,
-    });
+    set_entity_codec(EntityCodec { groups: cadcraft_io::entity_groups, entity: cadcraft_io::entity_from_groups });
     let mut s = Session::new();
     s.execute("line", &json!({ "points": [[0, 0], [10, 0]] })).unwrap();
     s.execute("line", &json!({ "points": [[0, 10], [10, 10]] })).unwrap();

@@ -309,6 +309,7 @@ fn run_structtakeoff(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(bad(CMD, "`path` is not a usable file name"));
         }
         let path = std::path::Path::new(path);
+        crate::file_access::check_write(path).map_err(other)?;
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir).map_err(|e| other(format!("Cannot write {}: {e}", path.display())))?;
         }

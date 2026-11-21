@@ -665,3 +665,13 @@ Reste aussi, sans ordre : une seule cote imposée avec l'autre calculée ; crois
      - Frigorigènes : la notice du fabricant et la NF EN 378 restent la référence ; règles ERP en moins.
      - Contrôles à coder en premier pour l'onglet Électricité : éclairement minimal par local (R4223-4), repérage et liste des circuits pour le rapport de vérification, hauteurs d'implantation, sections et chutes de tension.
 
+
+## Mise à jour sur la version officielle (21 novembre 2026)
+
+`perso` a été fusionnée avec `upstream/main` (8d3236c5) : 66 fichiers en conflit résolus à la main, `cargo xtask ci` vert.
+
+- **Règle suivie** : pour le code de nos PR intégrées qui touchait les mêmes endroits que la version officielle, on a pris la version officielle ; le code propre au fork (onglets, murs, CVC, électricité, IFC…) est resté.
+- **Fonctions des PR intégrées qui ont disparu** (la version officielle fait autrement ou ne les a pas) : invites de LIMITS, `LAYNEWSEL`, style de tirets par invites, réouverture d'un DXF coupé (RECOVER), copie des champs dans les DWG, boîte ATTEDIT, clics rapides / fenêtre de sélection au vol, refonte de la boîte Tracé, propriétés des cotes (palette), plusieurs traductions françaises de boîtes du gestionnaire, transparence de tracé dans un DWG. Les tests de ces fonctions ont été retirés avec elles.
+- **`vendor/craft-dwg`** refait sur craft-libs 453b0da avec notre correctif (DWG dans la version web, styles de cellules de tableau).
+- **Correctif de sécurité** : les métrés (CVC, électricité, structure, contrôle) vérifient maintenant le dossier autorisé avant d'écrire un fichier.
+- **À refaire si on les veut** : réappliquer ces PR sur la nouvelle base une par une.

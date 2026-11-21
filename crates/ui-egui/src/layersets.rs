@@ -200,9 +200,27 @@ mod tests {
         let mut d = Drawing::new_metric();
         d.layers.push(layer("Walls", true));
         d.layers.push(layer("Plumbing", false));
-        d.layer_states.push(LayerState { name: "all on".into(), layers: vec![layer("Walls", true), layer("Plumbing", true)] });
-        d.layer_states.push(LayerState { name: "no plumbing".into(), layers: vec![layer("walls", true), layer("Plumbing", false)] });
-        d.layer_states.push(LayerState { name: "same".into(), layers: vec![layer("Plumbing", false)] });
+        d.layer_states.push(LayerState {
+            name: "all on".into(),
+            layers: vec![layer("Walls", true), layer("Plumbing", true)],
+            mask: LayerState::ALL,
+            current: String::new(),
+            description: String::new(),
+        });
+        d.layer_states.push(LayerState {
+            name: "no plumbing".into(),
+            layers: vec![layer("walls", true), layer("Plumbing", false)],
+            mask: LayerState::ALL,
+            current: String::new(),
+            description: String::new(),
+        });
+        d.layer_states.push(LayerState {
+            name: "same".into(),
+            layers: vec![layer("Plumbing", false)],
+            mask: LayerState::ALL,
+            current: String::new(),
+            description: String::new(),
+        });
         let at_open = vec![layer("Walls", true), layer("Plumbing", true)];
         let m = |d: &Drawing, last| matching(d, &sets(d, &at_open), last);
         assert_eq!(m(&d, None).as_deref(), Some("no plumbing"), "names match regardless of case");
@@ -213,7 +231,13 @@ mod tests {
         d.layers.iter_mut().for_each(|l| l.locked = true);
         assert_eq!(m(&d, None), None);
         // A set none of whose layers is left fits nothing.
-        d.layer_states.push(LayerState { name: "gone".into(), layers: vec![layer("Renamed", true)] });
+        d.layer_states.push(LayerState {
+            name: "gone".into(),
+            layers: vec![layer("Renamed", true)],
+            mask: LayerState::ALL,
+            current: String::new(),
+            description: String::new(),
+        });
         assert_eq!(m(&d, Some("gone")), None);
         // As opened: "At Open" comes first.
         d.layers.iter_mut().for_each(|l| {

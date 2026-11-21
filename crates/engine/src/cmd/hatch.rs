@@ -2,8 +2,9 @@
 //! HATCHGENERATEBOUNDARY: polylines around existing hatches.
 
 mod patfile;
+pub(super) use edit::{set_pattern, takes_pattern};
+pub(super) use patfile::run_patterns;
 pub use patfile::{PatternChoice, pattern_choices};
-pub(super) use patfile::{lines_for, run_patterns};
 
 use cadcraft_color::Color;
 use cadcraft_doc::{Drawing, Entity, EntityKind, Gradient, Handle, Hatch, HatchLoop, Space, entity_bounds};

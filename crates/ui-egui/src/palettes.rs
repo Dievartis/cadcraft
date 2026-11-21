@@ -11,6 +11,8 @@ use crate::theme::Tokens;
 
 /// The hatch pattern picker.
 mod building;
+/// Rows the engine describes (text, mtext, dimensions).
+mod described;
 mod electricity;
 mod furniture;
 mod hvachelp;
@@ -951,6 +953,172 @@ fn shown_part(s: &str) -> String {
     }
 }
 
+/// The current colour row: its menu of the standard colours; returns the colour picked.
+fn current_color_row(ui: &mut egui::Ui, cecolor: i64) -> Option<(&'static str, Value)> {
+    let mut action = None;
+    prop_row(ui, "Color", |ui| {
+        ui.menu_button(format!("■ {}", crate::i18n::t(&Color::from_aci(cecolor as i16).name())), |ui| {
+            for (n, c) in
+                [("ByLayer", 256), ("ByBlock", 0), ("Red", 1), ("Yellow", 2), ("Green", 3), ("Cyan", 4), ("Blue", 5), ("Magenta", 6), ("White", 7)]
+            {
+                if ui.button(crate::i18n::t(n)).clicked() {
+                    action = Some(("color", json!({ "color": c })));
+                    ui.close();
+                }
+            }
+        });
+    });
+    action
+}
+
+/// In the Block Editor, the edited block's name and description come first; returns the change made.
+fn block_edit_rows(app: &CadApp, d: &cadcraft_doc::Drawing, ui: &mut egui::Ui) -> Option<(&'static str, Value)> {
+    let mut action = None;
+    let edited = app.session.state().ok().and_then(|st| {
+        let be = st.block_edit.as_ref().filter(|be| !be.current)?;
+        let b = d.block(&be.name).or_else(|| be.host.doc.block(&be.name));
+        Some((be.name.clone(), b.map(|b| b.description.clone()).unwrap_or_default()))
+    });
+    if let Some((name, description)) = edited {
+        prop_row(ui, "Name", |ui| {
+            value_box(ui, &name, false, false).on_hover_text(crate::tl!("Read-only"));
+        });
+        prop_row(ui, "Description", |ui| {
+            if let Some(text) = edit_field(ui, ui.scope_id().with("block_description"), description) {
+                action = Some(("blocks.description", json!({ "description": text })));
+            }
+        });
+    }
+    action
+}
+
+/// The properties of nothing selected: the current properties new objects get; each row runs the command that sets it.
+fn current_properties(app: &mut CadApp, ui: &mut egui::Ui) {
+    let Ok(d) = app.session.doc() else { return };
+    let h = &d.header;
+    // Lengths are shown as the drawing's units say (UNITS), and read back in any format.
+    let (lu, lp) = (h.i64("LUNITS", 2), h.i64("LUPREC", 4));
+    let len = |v: f64| cadcraft_engine::units::format_distance(v, lu, lp);
+    let mut bad: Option<String> = None;
+    // Current properties for new objects; each row runs the command that sets it.
+    let layers: Vec<String> = d.layers.iter().map(|l| l.name.clone()).collect();
+    let linetypes: Vec<String> = d.linetypes.iter().map(|l| l.name.clone()).collect();
+    let text_styles: Vec<String> = d.text_styles.iter().map(|l| l.name.clone()).collect();
+    let dim_styles: Vec<String> = d.dim_styles.iter().map(|l| l.name.clone()).collect();
+    let ml_styles: Vec<String> = d.mleader_styles.iter().map(|l| l.name.clone()).collect();
+    let tb_styles: Vec<String> = d.table_styles.iter().map(|l| l.name.clone()).collect();
+    let mut action: Option<(&str, Value)> = None;
+    let mut act = |c: &'static str, p: Value| action = Some((c, p));
+    if let Some((c, p)) = block_edit_rows(app, d, ui) {
+        act(c, p);
+    }
+    if let Some((c, p)) = current_color_row(ui, h.i64("CECOLOR", 256)) {
+        act(c, p);
+    }
+    prop_row(ui, "Layer", |ui| {
+        if let Some(l) = pick_menu(ui, &h.str("CLAYER", "0"), layers) {
+            act("layer.current", json!({ "name": l }));
+        }
+    });
+    prop_row(ui, "Linetype", |ui| {
+        let items = ["ByLayer", "ByBlock"]
+            .map(String::from)
+            .into_iter()
+            .chain(linetypes.into_iter().filter(|l| !["ByLayer", "ByBlock"].contains(&l.as_str())));
+        if let Some(l) = pick_menu(ui, &h.str("CELTYPE", "ByLayer"), items) {
+            act("linetype", json!({ "current": l }));
+        }
+    });
+    prop_row(ui, "Linetype scale", |ui| {
+        if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_celtscale"), format!("{:.4}", h.f64("CELTSCALE", 1.0))), &mut bad) {
+            act("setvar", json!({ "name": "CELTSCALE", "value": f }));
+        }
+    });
+    prop_row(ui, "Lineweight", |ui| {
+        ui.menu_button(crate::i18n::t(&cadcraft_doc::Lineweight::from_dxf(h.i64("CELWEIGHT", -1) as i16).name()), |ui| {
+            for n in ["ByLayer", "ByBlock", "Default"] {
+                if ui.button(crate::i18n::t(n)).clicked() {
+                    act("lweight", json!({ "lineweight": n }));
+                    ui.close();
+                }
+            }
+            for v in cadcraft_doc::Lineweight::STANDARD {
+                if ui.button(format!("{:.2} mm", f64::from(v) / 100.0)).clicked() {
+                    act("lweight", json!({ "lineweight": f64::from(v) / 100.0 }));
+                    ui.close();
+                }
+            }
+        });
+    });
+    prop_row(ui, "Transparency", |ui| unavailable(ui, "ByLayer"));
+    prop_row(ui, "Thickness", |ui| {
+        if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_thickness"), len(h.f64("THICKNESS", 0.0))), &mut bad) {
+            act("setvar", json!({ "name": "THICKNESS", "value": f }));
+        }
+    });
+    prop_row(ui, "Text style", |ui| {
+        if let Some(n) = pick_menu(ui, &h.str("TEXTSTYLE", "Standard"), text_styles) {
+            act("style.current", json!({ "name": n }));
+        }
+    });
+    prop_row(ui, "Dimension style", |ui| {
+        if let Some(n) = pick_menu(ui, &h.str("DIMSTYLE", "Standard"), dim_styles) {
+            act("dimstyle.current", json!({ "name": n }));
+        }
+    });
+    prop_row(ui, "Multileader style", |ui| {
+        if let Some(n) = pick_menu(ui, &h.str("CMLEADERSTYLE", "Standard"), ml_styles) {
+            act("mleaderstyle", json!({ "name": n, "current": true }));
+        }
+    });
+    prop_row(ui, "Table style", |ui| {
+        if let Some(n) = pick_menu(ui, &h.str("CTABLESTYLE", "Standard"), tb_styles) {
+            act("tablestyle", json!({ "name": n, "current": true }));
+        }
+    });
+    prop_row(ui, "Annotation scale", |ui| unavailable(ui, "1:1"));
+    prop_row(ui, "Text height", |ui| {
+        if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_textsize"), len(h.f64("TEXTSIZE", 0.2))), &mut bad) {
+            act("setvar", json!({ "name": "TEXTSIZE", "value": f }));
+        }
+    });
+    // The current layout's plot style table; named tables give the current plot style.
+    let space = app.session.layout_space();
+    let layout = space.layout().and_then(|n| d.layout(n).map(|l| (n.to_string(), l.page.plot_style_table.clone())));
+    let table = layout.as_ref().and_then(|(_, t)| cadcraft_doc::plot_style_table(d, t));
+    match table.as_ref().filter(|t| !t.is_color_dependent()) {
+        Some(t) => prop_row(ui, "Plot style", |ui| {
+            let items = ["ByLayer", "ByBlock"].map(String::from).into_iter().chain(t.styles.iter().map(|s| s.name.clone()));
+            if let Some(n) = pick_menu(ui, &h.str("CPLOTSTYLE", "ByLayer"), items) {
+                act("plotstyle", json!({ "name": n }));
+            }
+        }),
+        None => prop_row(ui, "Plot style", |ui| read_only(ui, "ByColor")),
+    }
+    match &layout {
+        Some((name, current)) => prop_row(ui, "Plot style table", |ui| {
+            let shown = if current.trim().is_empty() { "None".to_string() } else { current.clone() };
+            let items = std::iter::once("None".to_string()).chain(cadcraft_doc::plot_style_table_names(d));
+            if let Some(n) = pick_menu(ui, &shown, items) {
+                act("pagesetup", json!({ "layout": name, "plotStyleTable": n }));
+            }
+        }),
+        None => prop_row(ui, "Plot style table", |ui| unavailable(ui, "None")),
+    }
+    let attached = layout.as_ref().map(|(n, _)| n.clone()).unwrap_or_else(|| "Model".into());
+    prop_row(ui, "Plot style attached to", |ui| read_only(ui, &attached));
+    let kind = match &table {
+        Some(t) if t.is_color_dependent() => "Color-dependent",
+        Some(_) => "Named",
+        None => "Not available",
+    };
+    prop_row(ui, "Plot table type", |ui| read_only(ui, kind));
+    if let Some((c, p)) = action {
+        let _ = app.run(c, p);
+    }
+    report_bad(app, bad);
+}
+
 /// Properties palette: the selection's common properties, or the current defaults when nothing is selected; formats lengths per drawing units and dispatches setter commands.
 pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
     let t = Tokens::get();
@@ -966,153 +1134,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
     let lenx = |v: f64| exact(len(v), v);
     let mut bad: Option<String> = None;
     if sel.is_empty() {
-        // Current properties for new objects; each row runs the command that sets it.
-        let layers: Vec<String> = d.layers.iter().map(|l| l.name.clone()).collect();
-        let linetypes: Vec<String> = d.linetypes.iter().map(|l| l.name.clone()).collect();
-        let text_styles: Vec<String> = d.text_styles.iter().map(|l| l.name.clone()).collect();
-        let dim_styles: Vec<String> = d.dim_styles.iter().map(|l| l.name.clone()).collect();
-        let ml_styles: Vec<String> = d.mleader_styles.iter().map(|l| l.name.clone()).collect();
-        let tb_styles: Vec<String> = d.table_styles.iter().map(|l| l.name.clone()).collect();
-        let mut action: Option<(&str, Value)> = None;
-        let mut act = |c: &'static str, p: Value| action = Some((c, p));
-        // In the Block Editor, the edited block's name and description come first.
-        let edited = app.session.state().ok().and_then(|st| {
-            let be = st.block_edit.as_ref().filter(|be| !be.current)?;
-            let b = d.block(&be.name).or_else(|| be.host.doc.block(&be.name));
-            Some((be.name.clone(), b.map(|b| b.description.clone()).unwrap_or_default()))
-        });
-        if let Some((name, description)) = edited {
-            prop_row(ui, "Name", |ui| {
-                value_box(ui, &name, false, false).on_hover_text(crate::tl!("Read-only"));
-            });
-            prop_row(ui, "Description", |ui| {
-                if let Some(text) = edit_field(ui, ui.scope_id().with("block_description"), description) {
-                    act("blocks.description", json!({ "description": text }));
-                }
-            });
-        }
-        prop_row(ui, "Color", |ui| {
-            ui.menu_button(format!("■ {}", crate::i18n::t(&Color::from_aci(h.i64("CECOLOR", 256) as i16).name())), |ui| {
-                for (n, c) in [
-                    ("ByLayer", 256),
-                    ("ByBlock", 0),
-                    ("Red", 1),
-                    ("Yellow", 2),
-                    ("Green", 3),
-                    ("Cyan", 4),
-                    ("Blue", 5),
-                    ("Magenta", 6),
-                    ("White", 7),
-                ] {
-                    if ui.button(crate::i18n::t(n)).clicked() {
-                        act("color", json!({ "color": c }));
-                        ui.close();
-                    }
-                }
-            });
-        });
-        prop_row(ui, "Layer", |ui| {
-            if let Some(l) = pick_menu(ui, &h.str("CLAYER", "0"), layers) {
-                act("layer.current", json!({ "name": l }));
-            }
-        });
-        prop_row(ui, "Linetype", |ui| {
-            let items = ["ByLayer", "ByBlock"]
-                .map(String::from)
-                .into_iter()
-                .chain(linetypes.into_iter().filter(|l| !["ByLayer", "ByBlock"].contains(&l.as_str())));
-            if let Some(l) = pick_menu(ui, &h.str("CELTYPE", "ByLayer"), items) {
-                act("linetype", json!({ "current": l }));
-            }
-        });
-        prop_row(ui, "Linetype scale", |ui| {
-            if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_celtscale"), format!("{:.4}", h.f64("CELTSCALE", 1.0))), &mut bad) {
-                act("setvar", json!({ "name": "CELTSCALE", "value": f }));
-            }
-        });
-        prop_row(ui, "Lineweight", |ui| {
-            ui.menu_button(crate::i18n::t(&cadcraft_doc::Lineweight::from_dxf(h.i64("CELWEIGHT", -1) as i16).name()), |ui| {
-                for n in ["ByLayer", "ByBlock", "Default"] {
-                    if ui.button(crate::i18n::t(n)).clicked() {
-                        act("lweight", json!({ "lineweight": n }));
-                        ui.close();
-                    }
-                }
-                for v in cadcraft_doc::Lineweight::STANDARD {
-                    if ui.button(format!("{:.2} mm", f64::from(v) / 100.0)).clicked() {
-                        act("lweight", json!({ "lineweight": f64::from(v) / 100.0 }));
-                        ui.close();
-                    }
-                }
-            });
-        });
-        prop_row(ui, "Transparency", |ui| unavailable(ui, "ByLayer"));
-        prop_row(ui, "Thickness", |ui| {
-            if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_thickness"), len(h.f64("THICKNESS", 0.0))), &mut bad) {
-                act("setvar", json!({ "name": "THICKNESS", "value": f }));
-            }
-        });
-        prop_row(ui, "Text style", |ui| {
-            if let Some(n) = pick_menu(ui, &h.str("TEXTSTYLE", "Standard"), text_styles) {
-                act("style.current", json!({ "name": n }));
-            }
-        });
-        prop_row(ui, "Dimension style", |ui| {
-            if let Some(n) = pick_menu(ui, &h.str("DIMSTYLE", "Standard"), dim_styles) {
-                act("dimstyle.current", json!({ "name": n }));
-            }
-        });
-        prop_row(ui, "Multileader style", |ui| {
-            if let Some(n) = pick_menu(ui, &h.str("CMLEADERSTYLE", "Standard"), ml_styles) {
-                act("mleaderstyle", json!({ "name": n, "current": true }));
-            }
-        });
-        prop_row(ui, "Table style", |ui| {
-            if let Some(n) = pick_menu(ui, &h.str("CTABLESTYLE", "Standard"), tb_styles) {
-                act("tablestyle", json!({ "name": n, "current": true }));
-            }
-        });
-        prop_row(ui, "Annotation scale", |ui| unavailable(ui, "1:1"));
-        prop_row(ui, "Text height", |ui| {
-            if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_textsize"), len(h.f64("TEXTSIZE", 0.2))), &mut bad) {
-                act("setvar", json!({ "name": "TEXTSIZE", "value": f }));
-            }
-        });
-        // The current layout's plot style table; named tables give the current plot style.
-        let space = app.session.layout_space();
-        let layout = space.layout().and_then(|n| d.layout(n).map(|l| (n.to_string(), l.page.plot_style_table.clone())));
-        let table = layout.as_ref().and_then(|(_, t)| cadcraft_doc::plot_style_table(d, t));
-        match table.as_ref().filter(|t| !t.is_color_dependent()) {
-            Some(t) => prop_row(ui, "Plot style", |ui| {
-                let items = ["ByLayer", "ByBlock"].map(String::from).into_iter().chain(t.styles.iter().map(|s| s.name.clone()));
-                if let Some(n) = pick_menu(ui, &h.str("CPLOTSTYLE", "ByLayer"), items) {
-                    act("plotstyle", json!({ "name": n }));
-                }
-            }),
-            None => prop_row(ui, "Plot style", |ui| read_only(ui, "ByColor")),
-        }
-        match &layout {
-            Some((name, current)) => prop_row(ui, "Plot style table", |ui| {
-                let shown = if current.trim().is_empty() { "None".to_string() } else { current.clone() };
-                let items = std::iter::once("None".to_string()).chain(cadcraft_doc::plot_style_table_names(d));
-                if let Some(n) = pick_menu(ui, &shown, items) {
-                    act("pagesetup", json!({ "layout": name, "plotStyleTable": n }));
-                }
-            }),
-            None => prop_row(ui, "Plot style table", |ui| unavailable(ui, "None")),
-        }
-        let attached = layout.as_ref().map(|(n, _)| n.clone()).unwrap_or_else(|| "Model".into());
-        prop_row(ui, "Plot style attached to", |ui| read_only(ui, &attached));
-        let kind = match &table {
-            Some(t) if t.is_color_dependent() => "Color-dependent",
-            Some(_) => "Named",
-            None => "Not available",
-        };
-        prop_row(ui, "Plot table type", |ui| read_only(ui, kind));
-        if let Some((c, p)) = action {
-            let _ = app.run(c, p);
-        }
-        report_bad(app, bad);
+        current_properties(app, ui);
         return;
     }
     // Selected objects: common + geometry for a single object.
@@ -1262,7 +1284,11 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
     };
     // Walls (and the other parametric objects) show their own parameters first.
     let object_action = objects::section(ui, d, &sel, &len, &mut bad);
-    if sel.len() == 1 {
+    // Text, mtext and dimensions: the rows the engine describes, for one or many of them.
+    let desc = described::described(ui, app, &sel);
+    let mut edit: Option<described::Edit> = None;
+    let drawn = desc.as_ref().is_some_and(|desc| described::groups(ui, d, desc, ids, &mut edit, &mut bad));
+    if !drawn && sel.len() == 1 {
         group(ui, "Geometry");
         match &e.kind {
             EntityKind::Line(l) => {
@@ -1316,25 +1342,6 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
                 num(ui, "Start angle", "startAngle", real(a.start.to_degrees()), &mut set, &mut bad, ids);
                 num(ui, "End angle", "endAngle", real(a.end.to_degrees()), &mut set, &mut bad, ids);
             }
-            EntityKind::Text(tx) => {
-                prop_row(ui, "Contents", |ui| {
-                    if let Some(s) = edit_field(ui, ui.scope_id().with(("txt", ids)), tx.value.clone()) {
-                        set = Some(json!({ "handles": ids, "text": s }));
-                    }
-                });
-                num(ui, "Height", "height", len(tx.height), &mut set, &mut bad, ids);
-                num(ui, "Rotation", "rotation", real(angles.shown(tx.rotation).to_degrees()), &mut set, &mut bad, ids);
-                num(ui, "Width factor", "widthFactor", real(tx.width_factor), &mut set, &mut bad, ids);
-            }
-            EntityKind::MText(tx) => {
-                prop_row(ui, "Contents", |ui| {
-                    if let Some(s) = edit_field(ui, ui.scope_id().with(("mtxt", ids)), tx.contents.clone()) {
-                        set = Some(json!({ "handles": ids, "text": s }));
-                    }
-                });
-                num(ui, "Text height", "height", len(tx.height), &mut set, &mut bad, ids);
-                num(ui, "Defined width", "width", len(tx.width), &mut set, &mut bad, ids);
-            }
             // A multileader's text (#1081): it had no field, so it couldn't be changed.
             EntityKind::MLeader(ml) => {
                 if let Some(tx) = &ml.text {
@@ -1372,41 +1379,6 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
                 });
                 num(ui, "Scale", "scale", real(hh.scale), &mut set, &mut bad, ids);
                 num(ui, "Angle", "angle", real(hh.angle.to_degrees()), &mut set, &mut bad, ids);
-            }
-            EntityKind::Dimension(dm) => {
-                prop_row(ui, "Text override", |ui| {
-                    if let Some(s) = edit_field(ui, ui.scope_id().with(("dimtxt", ids)), dm.text.clone()) {
-                        set = Some(json!({ "handles": ids, "textOverride": s }));
-                    }
-                });
-                prop_row(ui, "Dim style", |ui| {
-                    if let Some(n) = pick_menu(ui, &dm.style, d.dim_styles.iter().map(|st| st.name.clone())) {
-                        set = Some(json!({ "handles": ids, "dimStyle": n }));
-                    }
-                });
-                // The style's values with this dimension's own overrides; editing one overrides
-                // it for the selected dimensions, as AutoCAD's Properties palette does.
-                let st = d.dim_style(&dm.style).cloned().unwrap_or_default().with_overrides(&dm.overrides);
-                num(ui, "Text height", "textHeight", len(st.text_height), &mut set, &mut bad, ids);
-                num(ui, "Arrow size", "arrowSize", len(st.arrow_size), &mut set, &mut bad, ids);
-                // The gap between the measured points and the extension lines (DIMEXO), or
-                // extension lines of one length from the dimension line (DIMFXLON, DIMFXL).
-                num(ui, "Ext line offset", "extOffset", len(st.ext_offset), &mut set, &mut bad, ids);
-                prop_row(ui, "Ext line fixed", |ui| {
-                    let mut on = st.fixed_ext;
-                    let label = if on { "Yes" } else { "No" };
-                    if ui.checkbox(&mut on, crate::i18n::t(label)).changed() {
-                        set = Some(json!({ "handles": ids, "fixedExt": on }));
-                    }
-                });
-                num(ui, "Ext line fixed length", "fixedExtLength", len(st.fixed_ext_length), &mut set, &mut bad, ids);
-                num(ui, "Dim scale overall", "dimScale", real(st.scale), &mut set, &mut bad, ids);
-                prop_row(ui, "Precision", |ui| {
-                    let cur = st.decimals.to_string();
-                    if let Some(n) = pick_menu(ui, &cur, (0..=8).map(|n: u8| n.to_string())).and_then(|n| n.parse::<u8>().ok()) {
-                        set = Some(json!({ "handles": ids, "precision": n }));
-                    }
-                });
             }
             EntityKind::Insert(i) => {
                 // A dynamic block reference shows its dynamic block's name, not its anonymous
@@ -1463,13 +1435,14 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
             }
             _ => {}
         }
-    } else if let Some(dims) = sel
-        .iter()
-        .map(|h| match d.entity(*h).map(|e| &e.kind) {
-            Some(EntityKind::Dimension(dm)) => Some(dm),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>()
+    } else if !drawn
+        && let Some(dims) = sel
+            .iter()
+            .map(|h| match d.entity(*h).map(|e| &e.kind) {
+                Some(EntityKind::Dimension(dm)) => Some(dm),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
     {
         // Several dimensions: every property of one dimension, `*VARIES*` where they differ; an
         // edit applies to all of them.
@@ -1519,7 +1492,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
                 set = Some(json!({ "handles": ids, "precision": n }));
             }
         });
-    } else if sel.iter().filter_map(|h| d.entity(*h)).all(|x| std::mem::discriminant(&x.kind) == std::mem::discriminant(&e.kind)) {
+    } else if !drawn && sel.iter().filter_map(|h| d.entity(*h)).all(|x| std::mem::discriminant(&x.kind) == std::mem::discriminant(&e.kind)) {
         // Several objects of one type: the properties of one object, `*VARIES*` where they differ.
         // Edits apply to all of them; positions are shown but stay read-only, since typing one
         // would move every object to the same place.
@@ -1701,6 +1674,13 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
     if let Some((c, p)) = object_action {
         let _ = app.run(c, p);
     }
+    // A described row the engine couldn't take (a value out of range…) says so.
+    if let Some(e) = edit
+        && let Ok(r) = app.run("properties.set", e.params)
+        && r["ignored"].as_array().is_some_and(|a| !a.is_empty())
+    {
+        app.session.echo(crate::tf!("{property}: that value can't be used here.", property = crate::i18n::t(e.label)));
+    }
     report_bad(app, bad);
     if let Some(p) = custom_set {
         let _ = app.run("blocks.reference.set", p);
@@ -1865,11 +1845,14 @@ mod tests {
         app.run("select", json!({ "handles": dims.clone() })).unwrap();
         app.run("properties.set", json!({ "handles": [dims[0].clone()], "textHeight": 7.0 })).unwrap();
         app.run("properties.set", json!({ "handles": [dims[1].clone()], "textHeight": 7.0 + 1e-13 })).unwrap();
+        // The row's value is painted after its label (the measurements and text positions of the
+        // two dimensions do differ).
+        let text_height = |texts: &[String]| texts.iter().position(|t| t == "Text height").and_then(|i| texts.get(i + 1)).cloned();
         let texts = painted_texts(&mut app, properties_section);
-        assert!(!texts.iter().any(|t| t == VARIES), "noise below 12 digits is not a difference; painted: {texts:?}");
+        assert_ne!(text_height(&texts).as_deref(), Some(VARIES), "noise below 12 digits is not a difference; painted: {texts:?}");
         app.run("properties.set", json!({ "handles": [dims[1].clone()], "textHeight": 7.000001 })).unwrap();
         let texts = painted_texts(&mut app, properties_section);
-        assert!(texts.iter().any(|t| t == VARIES), "7 and 7.000001 differ although both show as 7.0000; painted: {texts:?}");
+        assert_eq!(text_height(&texts).as_deref(), Some(VARIES), "7 and 7.000001 differ although both show as 7.0000; painted: {texts:?}");
 
         let mut app = CadApp::new(Session::default(), Services::default());
         let circles = circles(&mut app, &[2, 2], json!({}));

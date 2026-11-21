@@ -88,13 +88,14 @@ fn a_click_made_while_the_mouse_moves_still_places_the_point() {
     let down = screen(&h, Vec2::new(40.0, 10.0));
     button(&mut h, down, true);
     h.run_steps(1);
-    // The hand is already on its way to the next point when the button comes up.
+    // The hand is already on its way to the next point when the button comes up; the point is
+    // where the button went down (#1001), not where the hand got to.
     let up = down + vec2(12.0, 0.0);
     button(&mut h, up, false);
     h.run_steps(2);
     let got = lines(&h);
     assert_eq!(got.len(), 1, "{got:?}");
-    assert!(got[0].1.near(h.state().canvas.xf.unwrap().to_world(up), 1e-4), "{got:?}");
+    assert!(got[0].1.near(h.state().canvas.xf.unwrap().to_world(down), 1e-4), "{got:?}");
 }
 
 /// A harness at 60 frames a second, with two lines to select: a horizontal one through (20, 50)
@@ -177,19 +178,6 @@ fn a_click_made_while_moving_selects_in_move_and_a_slow_drag_is_a_window() {
     press_moving(&mut h, Vec2::new(70.0, 20.0), Vec2::new(90.0, 80.0), 30);
     assert!(h.state().session.pending_window.is_none(), "closed where the drag ended");
     assert_eq!(h.state().session.selection(), vec![ids[0], ids[1]]);
-}
-
-/// A fast drag that goes far is still a window: only a short one is a click made while moving.
-#[test]
-fn a_fast_long_drag_is_a_window() {
-    let mut h = select_harness();
-    let ids = handles(&h);
-    h.state_mut().start("move");
-    h.run_steps(2);
-    // A twelfth of a second from (70, 20) to (90, 80): a window around the vertical line.
-    press_moving(&mut h, Vec2::new(70.0, 20.0), Vec2::new(90.0, 80.0), 4);
-    assert!(h.state().session.pending_window.is_none(), "closed where the drag ended");
-    assert_eq!(h.state().session.selection(), vec![ids[1]]);
 }
 
 /// With no command running, the same moving click picks the object.

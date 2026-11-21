@@ -99,6 +99,17 @@ impl Face {
             Some(s.chars().filter(|c| !c.is_control()).take(80).collect::<String>()).filter(|s| !s.trim().is_empty())
         })
     }
+    /// How tall the glyph of `c` is, from its lowest to its highest point, in ems: `None` when the
+    /// face doesn't map `c` or its glyph has no outline (a space, or one too big to keep).
+    pub fn glyph_height(&self, c: char) -> Option<f64> {
+        let g = glyph(self, c);
+        if !g.mapped {
+            return None;
+        }
+        let (low, high) = g.contours.iter().flatten().fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), p| (low.min(p.y), high.max(p.y)));
+        let height = (high - low) / f64::from(UPEM);
+        (height.is_finite() && height > 0.0).then_some(height)
+    }
 
     /// The glyph ids the face's character map gives `chars` (`None` for an unmapped one).
     pub(crate) fn glyph_ids(&self, chars: &[char]) -> Vec<Option<u32>> {
@@ -1100,20 +1111,22 @@ pub fn descent_ratio(face: &Face) -> Option<f64> {
 /// (`LiberationSans=715.8;LiberationSans-Bold=715.8`): a substitute keeps the advance widths of
 /// the font it stands in for but not its cap height, so scaling by the substitute's own OS/2
 /// value draws text the size of the substitute, not of the requested font. Each entry names a
-/// PostScript name and its cap height in font units at 1000 per em.
+/// substitute's PostScript name and the cap height to give it, in font units at 1000 per em: the
+/// cap height of the font it replaces, not its own.
 fn cap_height_overrides() -> &'static HashMap<String, f64> {
     static OVERRIDES: OnceLock<HashMap<String, f64>> = OnceLock::new();
     OVERRIDES.get_or_init(|| parse_cap_height_overrides(&std::env::var("CADCRAFT_CAP_HEIGHT").unwrap_or_default()))
 }
 
-/// Parse a `Name=height;…` list; entries without a name or with a non-positive or non-finite
-/// height are dropped. Names are matched normalised, like family names.
+/// Parse a `Name=height;…` list; entries without a name or with a height below 1 unit or not
+/// finite are dropped (a font's own cap height is never taken below 1 either: a tiny one would
+/// scale its glyphs past any drawing's extent). Names are matched normalised, like family names.
 fn parse_cap_height_overrides(spec: &str) -> HashMap<String, f64> {
     spec.split(';')
         .filter_map(|entry| {
             let (name, height) = entry.split_once('=')?;
             let height: f64 = height.trim().parse().ok()?;
-            (height.is_finite() && height > 0.0 && !name.trim().is_empty()).then(|| (norm(name.trim()), height))
+            (height.is_finite() && height >= 1.0 && !name.trim().is_empty()).then(|| (norm(name.trim()), height))
         })
         .collect()
 }
@@ -1506,6 +1519,10 @@ mod cap_height_override_tests {
             "entries without a name or a positive finite height are dropped"
         );
         assert!(parse_cap_height_overrides("").is_empty());
+        assert!(
+            parse_cap_height_overrides("Arial=0.0001;Arial=1e-300").is_empty(),
+            "a height below 1 unit is dropped, as `cap_height` never goes below 1"
+        );
     }
 
     #[test]

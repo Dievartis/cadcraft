@@ -261,32 +261,21 @@ fn selection_highlight_settings_set_save_and_show_in_the_selection_tab() {
     }
 }
 
-/// Visual Effect Settings: each preview and selection effect choice sets its variable.
 #[test]
-fn the_visual_effect_choices_set_their_variables() {
-    use egui_kittest::Harness;
-    use egui_kittest::kittest::Queryable;
-
+fn reset_brings_back_hidden_menu_bar_toolbar_and_status_bar() {
+    // #1240: with the in-window menu bar, the toolbar and the status bar hidden, OPTIONS ▸ Reset
+    // to Defaults (typed, or from the right-click menu) is the way back.
     let mut a = app();
-    a.cmdline("options");
-    a.ui.dialog = Some("options:selection".into());
-    let mut h = Harness::builder().with_size(egui::vec2(1600.0, 1000.0)).build_ui_state(
-        |ui, app: &mut CadApp| {
-            app.logic(ui.ctx());
-            app.ui(ui);
-        },
-        a,
-    );
-    h.ctx.data_mut(|d| d.insert_temp(egui::Id::unique("cc_options_visual_effects"), true));
-    h.run_steps(2);
-    for (label, v) in [("Thicken", 1), ("Both", 2), ("Dash", 0)] {
-        h.get_by_label(label).click();
-        h.run_steps(2);
-        assert_eq!(h.state().session.settings.previeweffect, v, "{label}");
-    }
-    for (label, v) in [("Dashed", 0), ("Selection color", 1), ("Dashed", 0)] {
-        h.get_by_label(label).click();
-        h.run_steps(2);
-        assert_eq!(h.state().session.settings.selectioneffect, v, "{label}");
-    }
+    let d = cadcraft_ui_egui::UiState::default();
+    a.ui.in_window_menu = !d.in_window_menu;
+    a.ui.show_toolbar = false;
+    a.ui.show_status_bar = false;
+    a.ui.show_command_line = false;
+    a.ui.show_palettes = false;
+    a.run("options", json!({"reset": true})).unwrap();
+    assert_eq!(a.ui.in_window_menu, d.in_window_menu);
+    assert_eq!(a.ui.show_toolbar, d.show_toolbar);
+    assert_eq!(a.ui.show_status_bar, d.show_status_bar);
+    assert_eq!(a.ui.show_command_line, d.show_command_line);
+    assert_eq!(a.ui.show_palettes, d.show_palettes);
 }

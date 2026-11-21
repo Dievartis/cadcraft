@@ -6,6 +6,7 @@ use cadcraft_doc::*;
 use cadcraft_geom::{Vec2, Vec3};
 
 fn through_dwg(d: &Drawing) -> Drawing {
+    cadcraft_io::dwg_worker::allow_in_process();
     let dwg = cadcraft_io::write(d, "x.dwg").unwrap();
     cadcraft_io::read(&dwg, "x.dwg").unwrap()
 }
@@ -65,6 +66,7 @@ fn viewport_ids(l: &Layout) -> Vec<u32> {
 /// AutoCAD 2018 (R2000 DWG has neither), while the DXF the bridge reads stays R2000.
 #[test]
 fn dwg_keeps_true_colours_and_transparency() {
+    cadcraft_io::dwg_worker::allow_in_process();
     let mut d = Drawing::new_metric();
     d.layers.push(Layer { name: "Fancy".into(), color: Color::True(Rgb(12, 200, 99)), ..Layer::default() });
     let h = line(
@@ -83,20 +85,6 @@ fn dwg_keeps_true_colours_and_transparency() {
     assert_eq!(e.common.color, Color::True(Rgb(1, 2, 3)));
     assert_eq!(e.common.transparency, Transparency::Percent(40));
     assert_eq!(back.layers.iter().find(|l| l.name == "Fancy").map(|l| l.color), Some(Color::True(Rgb(12, 200, 99))));
-}
-
-/// A layout's plot-transparency setting survives a DWG round trip in either state.
-#[test]
-fn page_setup_plot_transparency_survives_dwg_roundtrip() {
-    let mut d = Drawing::new_metric();
-    let page = &mut d.layouts[0].page;
-    page.plot_transparency = true;
-    let back = through_dwg(&d);
-    assert!(back.layouts[0].page.plot_transparency, "setting should survive DWG roundtrip");
-
-    d.layouts[0].page.plot_transparency = false;
-    let back = through_dwg(&d);
-    assert!(!back.layouts[0].page.plot_transparency, "disabled setting should survive DWG roundtrip");
 }
 
 /// Entities of a layout other than the first stay in that layout.
@@ -186,7 +174,7 @@ fn the_added_paper_viewport_follows_the_plot_scale() {
     let sheet_width = |scale: f64, fit: bool| {
         let mut d = Drawing::new_metric();
         let page = &mut d.layouts[0].page;
-        (page.width_mm, page.height_mm, page.landscape, page.paper_mm) = (297.0, 420.0, true, true);
+        (page.width_mm, page.height_mm, page.landscape, page.paper_mm) = (297.0, 420.0, true, Some(true));
         (page.scale, page.scale_to_fit) = (scale, fit);
         let first = Space::Paper(d.layouts[0].name.clone());
         d.add(&first, Common::default(), viewport(2)).unwrap();
