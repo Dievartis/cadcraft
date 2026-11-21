@@ -227,7 +227,7 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
             }
         });
         ui.add_space(6.0);
-        ui.label(RichText::new("Opened drawings have no file name: save them to keep them.").color(t.text_dim));
+        ui.label(RichText::new(crate::i18n::t("Opened drawings have no file name: save them to keep them.")).color(t.text_dim));
         ui.add_space(8.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button(crate::i18n::t("Later")).on_hover_text(crate::i18n::t("Keep the files and ask again next time")).clicked() {

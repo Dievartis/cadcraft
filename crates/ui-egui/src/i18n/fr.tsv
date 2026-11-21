@@ -3798,3 +3798,59 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	Save as model of the drawing	Enregistrer comme modèle du dessin
 	Save Equipment Model	Enregistrer un modèle d'équipement
 	Delete Equipment Model	Supprimer un modèle d'équipement
+	Apply to Layout	Appliquer à la mise en page
+	Landscape	Paysage
+	Plot area	Zone de tracé
+	Plot offset	Décalage du tracé
+	Plot transparency	Transparence du tracé
+	Portrait	Portrait
+	Printer/plotter	Imprimante/traceur
+	Save these settings in the layout's page setup	Enregistre ces réglages dans la mise en page
+	Set Size Relative to Screen	Définir la taille relative à l'écran
+	Set Size in Absolute Units	Définir la taille en unités absolues
+	Unnamed	Sans nom
+	World (WCS)	Monde (SCG)
+	Page setup of {name}	Mise en page de {name}
+	A dimension style with this name already exists.	Un style de cotation de ce nom existe déjà.
+	All properties of {style}	Toutes les propriétés de {style}
+	All styles	Tous les styles
+	Alternate Units	Unités alternatives
+	Annotative	Annotatif
+	Compare	Comparer
+	Compare Dimension Styles	Comparer les styles de cotation
+	Compare...	Comparer...
+	Create New Dimension Style	Créer un style de cotation
+	Current dimension style: {style}	Style de cotation courant : {style}
+	DXF 2007 and later keep them. Use Save As to keep them in the drawing.	Le DXF 2007 et les suivants les conservent. Utilisez Enregistrer sous pour les garder dans le dessin.
+	DXF 2013 and later keep them. Use Save As to keep them in the drawing.	Le DXF 2013 et les suivants les conservent. Utilisez Enregistrer sous pour les garder dans le dessin.
+	Dimension Style Manager	Gestionnaire des styles de cotation
+	Fit	Ajustement
+	Leading	Zéros de tête
+	Modify Dimension Style: {style}	Modifier le style de cotation : {style}
+	Modify...	Modifier...
+	New Dimension Style: {style}	Nouveau style de cotation : {style}
+	New...	Nouveau...
+	Override Current Style: {style}	Remplacer le style courant : {style}
+	Override...	Remplacer...
+	Overrides the dimension style. Right-click to use the style's value.	Remplace le style de cotation. Clic droit pour reprendre la valeur du style.
+	Paper units	Unités du papier
+	Preview of: {style}	Aperçu de : {style}
+	Preview of: {style} (overrides)	Aperçu de : {style} (remplacements)
+	Primary Units	Unités principales
+	Save to current style	Enregistrer dans le style courant
+	Some of these dimensions take their text height from a fixed-height text style.	Certaines de ces cotes prennent la hauteur de leur texte d'un style de texte à hauteur fixe.
+	Start with	Commencer avec
+	Styles in use	Styles utilisés
+	Symbols and Arrows	Symboles et flèches
+	Tolerances	Tolérances
+	Trailing	Zéros de fin
+	Use the style's value	Utiliser la valeur du style
+	Variable	Variable
+	What one paper-space unit is on this layout	Ce que vaut une unité de l'espace papier sur cette mise en page
+	With	Avec
+	With no command running, a quick click repeats the last command or runs what was typed.	Sans commande en cours, un clic rapide répète la dernière commande ou exécute ce qui est tapé.
+	{count} differences	{count} différences
+	{count} more types	{count} types de plus
+	{n} more files could not be opened; the command line lists them.	{n} autres fichiers n'ont pas pu être ouverts ; la ligne de commande les liste.
+	{property}: that value can't be used here.	{property} : cette valeur ne peut pas être utilisée ici.
+	<style overrides>	<remplacements du style>

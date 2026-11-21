@@ -119,11 +119,11 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, l: &Layout) {
     }
     let mut action = None;
     resp.context_menu(|ui| {
-        if ui.button("Home").clicked() {
+        if ui.button(crate::i18n::t("Home")).clicked() {
             action = Some(("zoom.extents", json!({})));
             ui.close();
         }
-        if ui.button("Hide ViewCube").clicked() {
+        if ui.button(crate::i18n::t("Hide ViewCube")).clicked() {
             action = Some(("ui.toggle.viewcube", json!({"on": false})));
             ui.close();
         }
@@ -134,7 +134,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, l: &Layout) {
     // The UCS pill (painted by the canvas, wide enough for a cut-short UCS name) opens the
     // coordinate-system menu.
     let pill = ui.interact(l.pill, ui.scope_id().with("viewcube_wcs"), Sense::click_and_drag()).on_hover_cursor(CursorIcon::PointingHand);
-    let pill = pill.on_hover_text("Coordinate system");
+    let pill = pill.on_hover_text(crate::i18n::t("Coordinate system"));
     ucs_menu(app, egui::Popup::menu(&pill));
 }
 
@@ -282,7 +282,7 @@ fn ucs_menu(app: &mut CadApp, popup: egui::Popup<'_>) {
     let names: Vec<String> = app.session.doc().map(|d| d.ucss.iter().map(|u| u.name.clone()).collect()).unwrap_or_default();
     let mut action: Option<(&str, serde_json::Value)> = None;
     popup.show(|ui| {
-        if ui.radio(u.is_world() && current.is_empty(), "World (WCS)").clicked() {
+        if ui.radio(u.is_world() && current.is_empty(), crate::i18n::t("World (WCS)")).clicked() {
             action = Some(("ucs.world", json!({})));
             ui.close();
         }
@@ -293,10 +293,10 @@ fn ucs_menu(app: &mut CadApp, popup: egui::Popup<'_>) {
             }
         }
         if !u.is_world() && current.is_empty() {
-            let _ = ui.radio(true, "Unnamed");
+            let _ = ui.radio(true, crate::i18n::t("Unnamed"));
         }
         ui.separator();
-        if ui.button("Hide UCS Icon").clicked() {
+        if ui.button(crate::i18n::t("Hide UCS Icon")).clicked() {
             action = Some(("ui.toggle.ucsicon", json!({"on": false})));
             ui.close();
         }

@@ -2209,3 +2209,9 @@ menu	View	视图
 	Check Refrigerant Charge	检查制冷剂充注量
 	Save Equipment Model	保存设备型号
 	Delete Equipment Model	删除设备型号
+	Save these settings in the layout's page setup	将这些设置保存到布局的页面设置
+	Set Size Relative to Screen	设置相对于屏幕的大小
+	Set Size in Absolute Units	以绝对单位设置大小
+	Unnamed	未命名
+	World (WCS)	世界 (WCS)
+	Page setup of {name}	{name} 的页面设置
