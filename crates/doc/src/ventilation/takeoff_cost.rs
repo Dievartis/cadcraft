@@ -214,6 +214,9 @@ fn sum_totals<'a>(all: impl Iterator<Item = &'a Totals>) -> Totals {
         t.pipe_count += x.pipe_count;
         t.pipe_length_m = round2(t.pipe_length_m + x.pipe_length_m);
         t.pipe_insulation_m2 = round2(t.pipe_insulation_m2 + x.pipe_insulation_m2);
+        t.pipe_insulation_m3 = (t.pipe_insulation_m3 * 1000.0 + x.pipe_insulation_m3 * 1000.0).round() / 1000.0;
+        t.equipment_weight_kg = (t.equipment_weight_kg * 10.0 + x.equipment_weight_kg * 10.0).round() / 10.0;
+        t.total_weight_kg = (t.total_weight_kg * 10.0 + x.total_weight_kg * 10.0).round() / 10.0;
         t.duct_count += x.duct_count;
         t.duct_length_m = round2(t.duct_length_m + x.duct_length_m);
         t.duct_area_m2 = round2(t.duct_area_m2 + x.duct_area_m2);
@@ -239,7 +242,7 @@ mod tests {
             weight_kg: length * 3.0,
             ..DuctQuantity::default()
         });
-        t.fittings.push(CountQuantity { name: "Elbow 90°".into(), size: "Ø200".into(), count: elbows, power: None });
+        t.fittings.push(CountQuantity { name: "Elbow 90°".into(), size: "Ø200".into(), count: elbows, power: None, weight_kg: None });
         t.totals = Totals { duct_count: 1, duct_length_m: length, duct_area_m2: length * 0.628, duct_weight_kg: length * 3.0, ..Totals::default() };
         t
     }

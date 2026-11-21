@@ -167,6 +167,7 @@ fn a_riser_of_cables_holds_several_lines_with_arrows_that_do_not_overlap() {
         section_mm2: Some(section),
         load_kw: kw,
         incoming_load_kw: from_others,
+        ..CableLine::new(usage)
     };
     let lines = vec![
         line(CableUsage::Power, "TD1-C1", 35.0, Some(18.0), Some(12.0)),

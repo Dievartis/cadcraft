@@ -2446,3 +2446,25 @@ fn a_step_is_drawn_as_the_duct_seen_from_above_rings_on_a_round_duct_and_folds_o
         jogged.generate(false).unwrap().iter().all(|h| !matches!(&h.kind, EntityKind::LwPolyline(l) if l.vertices.iter().any(|v| v.bulge != 0.0)))
     );
 }
+
+#[test]
+fn the_takeoff_weighs_the_equipment_and_the_units_and_measures_the_volume_of_the_pipe_insulation() {
+    use super::*;
+    let mut d = Drawing::new_metric();
+    let units = HvacUnits::default();
+    let model = standard_equipment_models().into_iter().find(|m| m.kind == EquipmentKind::Chiller).unwrap();
+    let mut q = EquipmentParams::from_model(&model, "GE1", units);
+    q.weight_kg = Some(1500.0);
+    d.add_equipment(&crate::Space::Model, crate::Common::default(), &q, Vec2::ZERO, 0.0).unwrap();
+    d.add_equipment(&crate::Space::Model, crate::Common::default(), &q, Vec2::new(5000.0, 0.0), 0.0).unwrap();
+    let p = PipeParams { length: 10_000.0, insulation_mm: 30.0, ..PipeParams::new(PipeService::ChilledWater, 50.0, units) };
+    d.add_pipe(&crate::Space::Model, crate::Common::default(), p.clone(), Vec2::new(0.0, 5000.0), Vec2::new(10_000.0, 5000.0)).unwrap();
+    let t = d.takeoff("RDC").unwrap();
+    assert_eq!(t.equipment[0].weight_kg, Some(3000.0));
+    assert_eq!((t.totals.equipment_weight_kg, t.totals.total_weight_kg), (3000.0, 3000.0));
+    // 10 m of DN50 with 30 mm of insulation: a ring of t (S - pi t L) = 0.03 * (S - pi * 0.03 * 10).
+    let s = t.pipes[0].insulation_m2;
+    let expected = 0.03 * (s - std::f64::consts::PI * 0.03 * 10.0);
+    assert!((t.pipes[0].insulation_m3 - expected).abs() < 0.002 && t.pipes[0].insulation_m3 > 0.0, "{:?}", t.pipes[0]);
+    assert_eq!(t.totals.pipe_insulation_m3, t.pipes[0].insulation_m3);
+}

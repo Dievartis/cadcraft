@@ -84,6 +84,9 @@ pub struct PipeQuantity {
     /// The outer surface of the insulation, m² (0 for a bare pipe).
     #[serde(default)]
     pub insulation_m2: f64,
+    /// The volume of the insulation, m³: `t (S - pi t L)` for a thickness `t`, an outer surface `S` and a length `L`.
+    #[serde(default)]
+    pub insulation_m3: f64,
 }
 
 /// Something counted: a fitting, an accessory, equipment.
@@ -95,6 +98,9 @@ pub struct CountQuantity {
     pub count: usize,
     /// The sum of the powers (kW, CV for a VRV unit) of equipment; none for the rest.
     pub power: Option<f64>,
+    /// The sum of the weights, kg, of the equipment that has one typed.
+    #[serde(default)]
+    pub weight_kg: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -124,6 +130,9 @@ pub struct UnitQuantity {
     pub width_mm: f64,
     pub depth_mm: f64,
     pub height_mm: Option<f64>,
+    /// The weight of the unit, kg, when it is typed.
+    #[serde(default)]
+    pub weight_kg: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -226,6 +235,15 @@ pub struct Totals {
     /// The outer surface of the pipe insulation, m².
     #[serde(default)]
     pub pipe_insulation_m2: f64,
+    /// The volume of the pipe insulation, m³.
+    #[serde(default)]
+    pub pipe_insulation_m3: f64,
+    /// The weight of the equipment and the air handling units that have one typed, kg, and the weight of all that is weighed (those and the sheet steel of
+    /// the ducts; the pipes, their fluid and their insulation are not).
+    #[serde(default)]
+    pub equipment_weight_kg: f64,
+    #[serde(default)]
+    pub total_weight_kg: f64,
     pub terminals: usize,
     pub equipment: usize,
     /// Vertical length of the risers, m.
@@ -288,8 +306,21 @@ fn add_count(list: &mut Vec<CountQuantity>, name: &str, size: &str, power: Optio
                 (a, b) => a.or(b),
             };
         }
-        None => list.push(CountQuantity { name: name.into(), size: size.into(), count: 1, power }),
+        None => list.push(CountQuantity { name: name.into(), size: size.into(), count: 1, power, weight_kg: None }),
     }
+}
+
+/// Adds `weight` (kg) to the line of `name` and `size`, which `add_count` has just made or found.
+fn add_weight(list: &mut [CountQuantity], name: &str, size: &str, weight: Option<f64>) {
+    if let (Some(w), Some(c)) = (weight, list.iter_mut().find(|c| c.name == name && c.size == size)) {
+        c.weight_kg = Some(c.weight_kg.unwrap_or(0.0) + w);
+    }
+}
+
+/// The volume of an insulation `t_mm` thick over `length_m` of pipe whose outer surface is `surface_m2`: `t (S - pi t L)`.
+fn insulation_volume_m3(t_mm: f64, surface_m2: f64, length_m: f64) -> f64 {
+    let t = t_mm / 1000.0;
+    if t <= 0.0 { 0.0 } else { (t * (surface_m2 - std::f64::consts::PI * t * length_m)).max(0.0) }
 }
 
 fn air_rank(a: AirDirection) -> usize {
@@ -346,6 +377,7 @@ impl crate::Drawing {
                     width_mm: u.width_mm,
                     depth_mm: u.depth_mm,
                     height_mm: u.height_mm,
+                    weight_kg: u.weight_kg,
                 });
             } else if let Some(r) = riser_of(e) {
                 t.risers.push(RiserQuantity {
@@ -361,7 +393,9 @@ impl crate::Drawing {
                 add_part(&mut t.parts, &pt);
             } else if let Some(q) = equipment_of(e) {
                 let name = if q.model.is_empty() { q.name.clone() } else { q.model.clone() };
-                add_count(&mut t.equipment, &name, &format!("{:.0}x{:.0}x{:.0}", q.length_mm, q.width_mm, q.height_mm), q.capacity_kw);
+                let size = format!("{:.0}x{:.0}x{:.0}", q.length_mm, q.width_mm, q.height_mm);
+                add_count(&mut t.equipment, &name, &size, q.capacity_kw);
+                add_weight(&mut t.equipment, &name, &size, q.weight_kg);
             }
         }
         t.accessories.sort_by(|a, b| a.name.cmp(&b.name).then(a.size.cmp(&b.size)));
@@ -424,7 +458,11 @@ impl crate::Drawing {
         }
         for q in &mut t.pipes {
             q.insulation_m2 = (q.insulation_m2 * 100.0).round() / 100.0;
+            q.insulation_m3 = (q.insulation_m3 * 1000.0).round() / 1000.0;
         }
+        let equipment_weight_kg =
+            t.equipment.iter().filter_map(|c| c.weight_kg).sum::<f64>() + t.units.iter().filter_map(|u| u.weight_kg).sum::<f64>();
+        let duct_weight_kg = t.ducts.iter().map(|d| d.weight_kg).sum::<f64>();
         t.totals = Totals {
             pipe_count: t.pipes.iter().map(|q| q.count).sum(),
             pipe_length_m: (t.pipes.iter().map(|q| q.length_m).sum::<f64>() * 100.0).round() / 100.0,
@@ -433,6 +471,9 @@ impl crate::Drawing {
             duct_area_m2: (t.ducts.iter().map(|d| d.area_m2).sum::<f64>() * 100.0).round() / 100.0,
             duct_weight_kg: (t.ducts.iter().map(|d| d.weight_kg).sum::<f64>() * 10.0).round() / 10.0,
             pipe_insulation_m2: (t.pipes.iter().map(|q| q.insulation_m2).sum::<f64>() * 100.0).round() / 100.0,
+            pipe_insulation_m3: (t.pipes.iter().map(|q| q.insulation_m3).sum::<f64>() * 1000.0).round() / 1000.0,
+            equipment_weight_kg: (equipment_weight_kg * 10.0).round() / 10.0,
+            total_weight_kg: ((equipment_weight_kg + duct_weight_kg) * 10.0).round() / 10.0,
             terminals: t.terminals.iter().map(|q| q.count).sum(),
             equipment: t.equipment.iter().map(|c| c.count).sum(),
             riser_length_m: (t.risers.iter().filter_map(|r| r.length_m).sum::<f64>() * 100.0).round() / 100.0,
@@ -539,6 +580,9 @@ fn tr(lang: &str, key: &str) -> String {
         "Weight (kg)" => "Poids (kg)",
         "Duct weight (kg)" => "Poids des gaines (kg)",
         "Pipe insulation (m²)" => "Isolant de tuyauterie (m²)",
+        "Pipe insulation (m³)" => "Isolant de tuyauterie (m³)",
+        "Equipment weight (kg)" => "Poids des équipements (kg)",
+        "Total weight (kg)" => "Poids total (kg)",
         "Insulation (m²)" => "Isolant (m²)",
         "Levels" => "Niveaux",
         "Cost" => "Prix",
@@ -686,6 +730,9 @@ impl Takeoff {
             vec![C::head(t("Pipe count")), C::Num(self.totals.pipe_count as f64)],
             vec![C::head(t("Pipe length (m)")), num(self.totals.pipe_length_m)],
             vec![C::head(t("Pipe insulation (m²)")), num(self.totals.pipe_insulation_m2)],
+            vec![C::head(t("Pipe insulation (m³)")), num(self.totals.pipe_insulation_m3)],
+            vec![C::head(t("Equipment weight (kg)")), num(self.totals.equipment_weight_kg)],
+            vec![C::head(t("Total weight (kg)")), num(self.totals.total_weight_kg)],
             vec![],
             vec![C::text(t("Run the sizing first: the sections are the ones it wrote."))],
         ];
@@ -824,9 +871,9 @@ impl Takeoff {
         }
         rows.push(vec![]);
         rows.push(vec![C::head(t("Equipment"))]);
-        rows.push(head(&["Name", "Size", "Count", "Power"]));
+        rows.push(head(&["Name", "Size", "Count", "Power", "Weight (kg)"]));
         for c in &self.equipment {
-            rows.push(vec![C::text(c.name.clone()), C::text(c.size.clone()), C::Num(c.count as f64), C::opt(c.power)]);
+            rows.push(vec![C::text(c.name.clone()), C::text(c.size.clone()), C::Num(c.count as f64), C::opt(c.power), C::opt(c.weight_kg)]);
         }
         wb.sheet(&t("Units and equipment"), rows)?;
         // Spaces: the summary, then the detail of what each holds.
@@ -1142,10 +1189,19 @@ impl crate::Drawing {
                         q.count += 1;
                         q.length_m += length_m;
                         q.insulation_m2 += length_m * per_m;
+                        q.insulation_m3 += insulation_volume_m3(insulation_mm, length_m * per_m, length_m);
                     }
-                    None => {
-                        pipes.push(PipeQuantity { service, leg, size, insulation_mm, network, count: 1, length_m, insulation_m2: length_m * per_m })
-                    }
+                    None => pipes.push(PipeQuantity {
+                        service,
+                        leg,
+                        size,
+                        insulation_mm,
+                        network,
+                        count: 1,
+                        length_m,
+                        insulation_m2: length_m * per_m,
+                        insulation_m3: insulation_volume_m3(insulation_mm, length_m * per_m, length_m),
+                    }),
                 }
             };
         for e in self.model.iter() {
