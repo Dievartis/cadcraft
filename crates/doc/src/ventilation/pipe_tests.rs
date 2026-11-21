@@ -261,6 +261,7 @@ fn the_coils_of_an_air_handling_unit_are_the_loads_of_the_water_pipes_that_end_a
         width_mm: 2000.0,
         depth_mm: 1000.0,
         port_sizes: Vec::new(),
+        port_levels_mm: Vec::new(),
         height_mm: None,
         model: String::new(),
         weight_kg: None,

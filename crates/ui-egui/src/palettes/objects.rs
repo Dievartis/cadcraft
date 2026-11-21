@@ -1886,6 +1886,30 @@ fn ahu_section(ui: &mut egui::Ui, sel: &[Handle], units: &[AhuParams], bad: &mut
     let mut action: Action = None;
     let edit = |key: &str, value: Value| Some(("ahuedit", json!({ "handles": ids, key: value })));
     group(ui, "Air Handling Unit");
+    // The altitude of each connection, in metres, in the order of the collars, separated by commas ("2.7, 2.7, 3, "): an empty one has none.
+    prop_row(ui, "Connection altitudes (m, one per collar)", |ui| {
+        let text = shared(
+            &units
+                .iter()
+                .map(|p| p.port_levels_mm.iter().map(|l| l.map_or(String::new(), |m| format!("{}", m / 1000.0))).collect::<Vec<_>>().join(", "))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_else(|| VARIES.into());
+        if let Some(t) = edit_field(ui, ui.scope_id().with(("ahu_levels", &ids)), text).filter(|t| t != VARIES) {
+            let parsed: Option<Vec<Value>> = t
+                .split(',')
+                .map(|x| match x.trim() {
+                    "" => Some(Value::Null),
+                    v => v.replace(',', ".").parse::<f64>().ok().filter(|m| m.is_finite()).map(|m| json!(m)),
+                })
+                .collect();
+            match parsed {
+                Some(list) if !t.trim().is_empty() => action = edit("portLevels", Value::Array(list)),
+                Some(_) => action = edit("portLevels", Value::Null),
+                None => *bad = Some(crate::i18n::t("Requires altitudes in metres, separated by commas.").to_string()),
+            }
+        }
+    });
     let kind = shared(&units.iter().map(|p| p.kind).collect::<Vec<_>>());
     prop_row(ui, "Type", |ui| {
         let label = |k: AhuKind| match k {

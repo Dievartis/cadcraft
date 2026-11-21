@@ -21,6 +21,7 @@ fn ahu() -> AhuParams {
         exhaust_pressure_pa: None,
         typed_flows: Vec::new(),
         port_sizes: Vec::new(),
+        port_levels_mm: Vec::new(),
         height_mm: None,
         model: String::new(),
         weight_kg: None,
@@ -2467,4 +2468,31 @@ fn the_takeoff_weighs_the_equipment_and_the_units_and_measures_the_volume_of_the
     let expected = 0.03 * (s - std::f64::consts::PI * 0.03 * 10.0);
     assert!((t.pipes[0].insulation_m3 - expected).abs() < 0.002 && t.pipes[0].insulation_m3 > 0.0, "{:?}", t.pipes[0]);
     assert_eq!(t.totals.pipe_insulation_m3, t.pipes[0].insulation_m3);
+}
+
+#[test]
+fn the_run_that_starts_on_a_collar_with_an_altitude_is_at_that_altitude_unless_it_was_given_its_own() {
+    let mut d = Drawing::new_metric();
+    let mut u = ahu();
+    let n = u.kind.default_ports().len();
+    u.port_levels_mm = vec![Some(2700.0); n];
+    d.add_ahu(&Space::Model, Common::default(), &u, Vec2::ZERO, 0.0).unwrap();
+    let trunk = add_duct(&mut d, (500.0, 0.0), (9000.0, 0.0));
+    add_terminal(&mut d, (9000.0, 0.0), 300.0);
+    let net = d.duct_networks().unwrap().remove(0);
+    assert_eq!(net.bottoms_mm, [Some(2700.0)], "the run takes the altitude of the collar it starts on");
+    // A duct with its own altitude keeps it; a collar with none gives none.
+    let mut p = duct_of(d.entity(trunk).unwrap()).unwrap();
+    p.level_mm = Some(2500.0);
+    d.regenerate_duct(trunk, &p).unwrap();
+    assert_eq!(d.duct_networks().unwrap().remove(0).bottoms_mm, [Some(2500.0)]);
+    u.port_levels_mm = Vec::new();
+    let mut d2 = Drawing::new_metric();
+    d2.add_ahu(&Space::Model, Common::default(), &u, Vec2::ZERO, 0.0).unwrap();
+    add_duct(&mut d2, (500.0, 0.0), (9000.0, 0.0));
+    add_terminal(&mut d2, (9000.0, 0.0), 300.0);
+    assert_eq!(d2.duct_networks().unwrap().remove(0).bottoms_mm, [None]);
+    // Too many, or not a number: refused.
+    assert!(AhuParams { port_levels_mm: vec![Some(1.0); n + 1], ..u.clone() }.validate().is_err());
+    assert!(AhuParams { port_levels_mm: vec![Some(f64::NAN)], ..u }.validate().is_err());
 }

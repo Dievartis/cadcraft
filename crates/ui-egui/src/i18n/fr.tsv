@@ -3790,3 +3790,5 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	Use it for every drawing I open	L'utiliser pour chaque dessin que j'ouvre
 	Line {n}: section or cable (3G1.5, 2x0.75…)	Ligne {n} : section ou câble (3G1.5, 2x0.75…)
 	Line {n}: colour (#rrggbb)	Ligne {n} : couleur (#rrggbb)
+	Connection altitudes (m, one per collar)	Altitudes des raccords (m, un par raccord)
+	Requires altitudes in metres, separated by commas.	Il faut des altitudes en mètres, séparées par des virgules.

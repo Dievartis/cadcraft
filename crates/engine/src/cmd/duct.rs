@@ -26,7 +26,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .interactive(|s| Ok(Box::new(AhuAddM::new(s)))),
         CommandSpec::new("ahuedit", "Edit Air Handling Unit", run_ahuedit)
             .params(
-                "{handle | handles, name?, type?: doubleFlow|supplyUnit|extractUnit|vmcBox|stackedDoubleFlow, width? (mm), depth? (mm), height? (mm or null), model?, weight? (kg or null), altitude? (m: the underside of the unit, or null), coils? ({chilledWater?, hotWater?, changeOver?, directExpansion?, electric?, electricPhases? (single|three; three by default)}: the power of each coil, kW, or null for none; an electric coil is a load of the unit's circuit; the water pipes that end at the unit take their load from it), portSizes? (one per collar: a diameter, 800x400 or null: the duct that starts on it takes that section), \
+                "{handle | handles, name?, type?: doubleFlow|supplyUnit|extractUnit|vmcBox|stackedDoubleFlow, width? (mm), depth? (mm), height? (mm or null), model?, weight? (kg or null), altitude? (m: the underside of the unit, or null), coils? ({chilledWater?, hotWater?, changeOver?, directExpansion?, electric?, electricPhases? (single|three; three by default)}: the power of each coil, kW, or null for none; an electric coil is a load of the unit's circuit; the water pipes that end at the unit take their load from it), portSizes? (one per collar: a diameter, 800x400 or null: the duct that starts on it takes that section), portLevels? (one per collar: an altitude in metres or null, [] for none: the duct that starts on it is at that altitude, and a step joins it to the run after it where they differ), \
                  ports? (the direction of the air at each collar, supply|extract|fresh|exhaust, one per collar: four for a double-flux unit or a box, two for a single-flux unit; [] restores the kind's), \
                  flow? | extractFlow? | freshFlow? | exhaustFlow? (m³/h typed for that direction: sizing keeps it and sizes the run that leaves the unit for it; null or auto gives it back)} → {changed}",
             ),
@@ -221,6 +221,7 @@ fn run_ahuadd(s: &mut Session, p: &Value) -> Result<Value> {
         exhaust_pressure_pa: None,
         typed_flows: Vec::new(),
         port_sizes: Vec::new(),
+        port_levels_mm: Vec::new(),
         height_mm: positive(CMD, p, "height")?,
         model: str_param(p, "model").unwrap_or_default().to_string(),
         weight_kg: positive(CMD, p, "weight")?,
@@ -299,6 +300,24 @@ fn run_ahuedit(s: &mut Session, p: &Value) -> Result<Value> {
         Some(Value::Array(list)) if list.len() <= 8 => Some(list.iter().map(|v| super::riser::size_value(CMD, v)).collect::<Result<_>>()?),
         Some(_) => return Err(bad(CMD, "`portSizes` is a list of sizes, one per collar")),
     };
+    // The altitude of each connection, metres (null for none), one per collar: the duct that starts on it is at that altitude unless it has its own.
+    let port_levels: Option<Vec<Option<f64>>> = match p.get("portLevels") {
+        None => None,
+        Some(Value::Null) => Some(Vec::new()),
+        Some(Value::Array(list)) if list.len() <= 8 => Some(
+            list.iter()
+                .map(|v| match v {
+                    Value::Null => Ok(None),
+                    v => v
+                        .as_f64()
+                        .filter(|m| m.is_finite())
+                        .map(|m| Some(m * 1000.0))
+                        .ok_or_else(|| bad(CMD, "`portLevels` are altitudes in metres or null")),
+                })
+                .collect::<Result<_>>()?,
+        ),
+        Some(_) => return Err(bad(CMD, "`portLevels` is a list of altitudes in metres, one per collar")),
+    };
     let kind = ahu_kind_param(CMD, p)?;
     let d = s.doc()?;
     let mut next = Vec::with_capacity(hs.len());
@@ -351,6 +370,9 @@ fn run_ahuedit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if let Some(sizes) = &port_sizes {
             a.port_sizes = sizes.clone();
+        }
+        if let Some(levels) = &port_levels {
+            a.port_levels_mm = levels.clone();
         }
         a.validate().map_err(doc_err)?;
         next.push((*h, a));
@@ -430,6 +452,7 @@ impl AhuAddM {
                     exhaust_pressure_pa: None,
                     typed_flows: Vec::new(),
                     port_sizes: Vec::new(),
+                    port_levels_mm: Vec::new(),
                     height_mm: None,
                     model: String::new(),
                     weight_kg: None,
@@ -520,6 +543,7 @@ impl Interactive for AhuAddM {
             exhaust_pressure_pa: None,
             typed_flows: Vec::new(),
             port_sizes: Vec::new(),
+            port_levels_mm: Vec::new(),
             height_mm: None,
             model: String::new(),
             weight_kg: None,

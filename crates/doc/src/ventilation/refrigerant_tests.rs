@@ -101,6 +101,7 @@ fn an_indoor_unit_reached_from_no_outdoor_unit_is_told_and_a_coil_counts_as_a_un
         width_mm: 2000.0,
         depth_mm: 1000.0,
         port_sizes: Vec::new(),
+        port_levels_mm: Vec::new(),
         height_mm: None,
         model: String::new(),
         weight_kg: None,

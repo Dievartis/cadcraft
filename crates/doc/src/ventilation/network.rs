@@ -177,7 +177,21 @@ impl crate::Drawing {
                 voids.push((outline, h, None));
             }
         }
+        // The altitude given to a collar of a unit, with where its tip is and the direction of its air.
+        let mut collar_levels: std::collections::HashMap<Handle, Vec<(Vec2, AirDirection, f64)>> = std::collections::HashMap::new();
+        for (handle, p, at, rotation) in &ahus {
+            let (roles, tips) = (p.roles(), p.port_tips());
+            let given: Vec<(Vec2, AirDirection, f64)> = tips
+                .iter()
+                .enumerate()
+                .filter_map(|(k, (t, _))| Some((*at + t.rotate(*rotation), roles.get(k).copied()?, p.port_levels_mm.get(k).copied().flatten()?)))
+                .collect();
+            if !given.is_empty() {
+                collar_levels.insert(*handle, given);
+            }
+        }
         let mut scan = Scan {
+            collar_levels,
             ducts: &ducts,
             terminals: &terminals,
             units,
@@ -607,6 +621,8 @@ fn bare_elbow_turn(nodes: &[Node], n: &Node) -> Option<f64> {
 /// What reading the networks of a drawing shares: the objects found, and which ducts and
 /// terminals the units read so far have used.
 struct Scan<'a> {
+    /// The altitude given to the collars of each unit: where the tip of the collar is, the direction of its air and the altitude, mm.
+    collar_levels: std::collections::HashMap<Handle, Vec<(Vec2, AirDirection, f64)>>,
     ducts: &'a [Duct],
     terminals: &'a [TerminalAt],
     units: HvacUnits,
@@ -960,8 +976,19 @@ impl Scan<'_> {
         let index_of = |old: usize| kept.iter().position(|k| *k == old);
         // The altitude of each run's underside: the one it was given, else the one its height zone gives.
         let altitude = |old: usize| -> Option<f64> {
-            let d = nodes.get(old).and_then(|n| self.ducts.get(n.duct))?;
-            d.params.level_mm.or_else(|| self.void_at(d.a.mid(d.b)).and_then(|(_, b)| b))
+            let n = nodes.get(old)?;
+            let d = self.ducts.get(n.duct)?;
+            // A run that starts on a collar with an altitude is at that one, unless it was given its own.
+            let collar = || {
+                let reach = self.units.to_units(500.0);
+                n.parent.is_none().then_some(())?;
+                let tips = self.collar_levels.get(&ahu)?;
+                tips.iter()
+                    .filter(|(t, a, _)| *a == air && (*t - n.from).len() <= reach)
+                    .min_by(|x, y| (x.0 - n.from).len().total_cmp(&(y.0 - n.from).len()))
+                    .map(|(.., l)| *l)
+            };
+            d.params.level_mm.or_else(collar).or_else(|| self.void_at(d.a.mid(d.b)).and_then(|(_, b)| b))
         };
         let mut segments = Vec::with_capacity(kept.len());
         let mut handles = Vec::with_capacity(kept.len());

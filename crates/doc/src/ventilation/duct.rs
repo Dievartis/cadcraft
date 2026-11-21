@@ -278,6 +278,10 @@ pub struct AhuParams {
     /// next runs are sized for their flow with a reducer between.
     #[serde(default)]
     pub port_sizes: Vec<Option<super::RiserSize>>,
+    /// The altitude of each connection, mm, in the order of the collars (empty or `None`: not given). The duct that starts at a collar, when it was not given
+    /// an altitude of its own, is at that one, and a step joins it to the next run where they differ.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub port_levels_mm: Vec<Option<f64>>,
     /// The height of the casing, mm, when it is known: written on the unit's spec block (the plan shows no height).
     #[serde(default)]
     pub height_mm: Option<f64>,
@@ -479,6 +483,11 @@ impl AhuParams {
         }
         if self.port_sizes.len() > self.kind.default_ports().len() || self.port_sizes.iter().flatten().any(|s| s.validate().is_err()) {
             return Err(invalid("A unit's connection sizes: one per connection, each a diameter or two sides."));
+        }
+        if self.port_levels_mm.len() > self.kind.default_ports().len()
+            || self.port_levels_mm.iter().flatten().any(|l| !(l.is_finite() && l.abs() <= 1e6))
+        {
+            return Err(invalid("A unit's connection altitudes: one per connection, each a number of at most 1000 m."));
         }
         if self.height_mm.is_some_and(|v| !size(v)) || self.weight_kg.is_some_and(|v| !(v.is_finite() && v > 0.0 && v <= 1e7)) {
             return Err(invalid("A unit's height and weight are more than 0 (the height at most 100 000 mm)."));
