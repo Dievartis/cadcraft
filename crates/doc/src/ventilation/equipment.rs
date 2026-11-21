@@ -919,3 +919,82 @@ pub fn equipment_model_for(models: &[EquipmentModel], kind: EquipmentKind, power
 pub fn equipment_model_named(models: &[EquipmentModel], name: &str) -> Option<EquipmentModel> {
     models.iter().find(|m| m.name.eq_ignore_ascii_case(name.trim())).cloned()
 }
+
+/// Most equipment models a drawing keeps of its own.
+pub const MAX_EQUIPMENT_MODELS: usize = 512;
+
+impl EquipmentModel {
+    /// Whether the model is one a drawing may keep: a name, sizes above zero, usable numbers and texts.
+    pub fn validate(&self) -> bool {
+        let size = |v: f64| v.is_finite() && v > 0.0 && v <= 1.0e6;
+        let ok = |o: Option<f64>| o.is_none_or(|v| v.is_finite() && (0.0..=1.0e7).contains(&v));
+        let name = self.name.trim();
+        !name.is_empty()
+            && name.chars().count() <= 64
+            && size(self.length_mm)
+            && size(self.width_mm)
+            && size(self.height_mm)
+            && ok(self.capacity_kw)
+            && ok(self.heating_kw)
+            && ok(self.weight_kg)
+            && self.fans <= 64
+            && self.reference.chars().count() <= 200
+            && self.connections.chars().count() <= 200
+    }
+}
+
+impl crate::Drawing {
+    /// The models the drawing can be given equipment from: the library's, and the drawing's own (which win at the same name).
+    pub fn available_equipment_models(&self) -> Vec<EquipmentModel> {
+        let mut all = standard_equipment_models();
+        for m in &self.equipment_models {
+            match all.iter_mut().find(|o| o.name.eq_ignore_ascii_case(&m.name)) {
+                Some(o) => *o = m.clone(),
+                None => all.push(m.clone()),
+            }
+        }
+        all
+    }
+
+    /// Keeps `model` in the drawing, replacing the one of the same name (case-insensitive). The values of the equipment already drawn are not touched.
+    pub fn save_equipment_model(&mut self, mut model: EquipmentModel) -> Result<()> {
+        model.name = model.name.trim().to_string();
+        if !model.validate() {
+            return Err(invalid("An equipment model has a name and sizes above zero."));
+        }
+        if let Some(at) = self.equipment_models.iter().position(|m| m.name.eq_ignore_ascii_case(&model.name)) {
+            self.equipment_models[at] = model;
+        } else if self.equipment_models.len() >= MAX_EQUIPMENT_MODELS {
+            return Err(invalid(format!("A drawing keeps {MAX_EQUIPMENT_MODELS} models at most.")));
+        } else {
+            self.equipment_models.push(model);
+        }
+        Ok(())
+    }
+
+    /// Takes a model the drawing kept out of it (the library's stay); whether there was one.
+    pub fn delete_equipment_model(&mut self, name: &str) -> bool {
+        let before = self.equipment_models.len();
+        self.equipment_models.retain(|m| !m.name.eq_ignore_ascii_case(name.trim()));
+        self.equipment_models.len() != before
+    }
+}
+
+impl EquipmentParams {
+    /// The model whose values this equipment has, to be kept under `name`.
+    pub fn to_model(&self, name: &str) -> EquipmentModel {
+        EquipmentModel {
+            name: name.trim().to_string(),
+            kind: self.kind,
+            reference: self.reference.clone(),
+            capacity_kw: self.capacity_kw,
+            heating_kw: self.heating_kw,
+            length_mm: self.length_mm,
+            width_mm: self.width_mm,
+            height_mm: self.height_mm,
+            weight_kg: self.weight_kg,
+            fans: self.fans,
+            connections: self.connections.clone(),
+        }
+    }
+}

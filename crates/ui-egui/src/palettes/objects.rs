@@ -58,7 +58,7 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     }
     let equipment: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::equipment_of(e))).collect();
     if !equipment.is_empty() && equipment.len() == sel.len() {
-        return equipment_section(ui, sel, &equipment, bad);
+        return equipment_section(ui, d, sel, &equipment, bad);
     }
     let risers: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::any_riser_of(e))).collect();
     if !risers.is_empty() && risers.len() == sel.len() {
@@ -1527,7 +1527,7 @@ fn zone_section(ui: &mut egui::Ui, sel: &[Handle], zones: &[ZoneParams], bad: &m
 // Equipment (chillers, outdoor and indoor units)
 // =====================================================================================
 
-fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::EquipmentParams], bad: &mut Option<String>) -> Action {
+fn equipment_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], items: &[cadcraft_doc::EquipmentParams], bad: &mut Option<String>) -> Action {
     use cadcraft_doc::EquipmentKind;
     let ids = handles(sel);
     let mut action: Action = None;
@@ -1551,13 +1551,21 @@ fn equipment_section(ui: &mut egui::Ui, sel: &[Handle], items: &[cadcraft_doc::E
     let model = shared(&items.iter().map(|e| e.model.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
     prop_row(ui, "Model", |ui| {
         let names: Vec<String> = kind
-            .map(|k| cadcraft_doc::equipment_models_of(&cadcraft_doc::standard_equipment_models(), k).into_iter().map(|m| m.name).collect())
+            .map(|k| cadcraft_doc::equipment_models_of(&d.available_equipment_models(), k).into_iter().map(|m| m.name).collect())
             .unwrap_or_default();
         let shown = if model.is_empty() { "—".to_string() } else { model.clone() };
         if let Some(n) = pick_menu(ui, &shown, names) {
             action = edit("model", json!(n));
         }
     });
+    // The values of this equipment kept as a model of the drawing, to give them to other equipment by name.
+    if let [only] = sel {
+        prop_row(ui, "Save as model of the drawing", |ui| {
+            if let Some(name) = edit_field(ui, ui.scope_id().with(("equip_model_save", only)), String::new()).filter(|n| !n.trim().is_empty()) {
+                action = Some(("equipmentmodelsave", json!({ "handle": only.hex(), "name": name.trim() })));
+            }
+        });
+    }
     prop_row(ui, "Reference", |ui| {
         let reference = shared(&items.iter().map(|e| e.reference.clone()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
         if let Some(r) = edit_field(ui, ui.scope_id().with(("equip_ref", &ids)), reference).filter(|r| r != VARIES) {

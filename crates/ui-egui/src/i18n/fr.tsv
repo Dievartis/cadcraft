@@ -3794,3 +3794,6 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	Requires altitudes in metres, separated by commas.	Il faut des altitudes en mètres, séparées par des virgules.
 	Altitude of the far end (m)	Altitude de l'autre bout (m)
 	True length (m)	Longueur réelle (m)
+	Save as model of the drawing	Enregistrer comme modèle du dessin
+	Save Equipment Model	Enregistrer un modèle d'équipement
+	Delete Equipment Model	Supprimer un modèle d'équipement

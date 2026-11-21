@@ -286,6 +286,10 @@ impl Objects {
                 d.rasters.insert(&path, std::sync::Arc::new(raster));
             }
         }
+        // The drawing's own equipment models.
+        if let Some(models) = self.xrecord_text(crate::dxf_ext::EQUIPMENT_MODELS_KEY).and_then(|t| crate::dxf_ext::parse_equipment_models(&t)) {
+            d.equipment_models = models;
+        }
         // The drawing's cable types.
         if let Some(types) = self.xrecord_text(crate::dxf_ext::CABLE_TYPES_KEY).and_then(|t| crate::dxf_ext::parse_cable_types(&t)) {
             d.cable_types = types;

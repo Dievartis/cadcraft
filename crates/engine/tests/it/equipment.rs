@@ -361,3 +361,34 @@ fn the_charge_of_a_refrigerant_system_is_checked_against_the_rooms_it_serves() {
     assert!(s.execute("refrigerantcharge", &json!({"height": -1})).is_err());
     assert!(s.execute("equipmentedit", &json!({"handle": ue["handle"], "charge": -5})).is_err());
 }
+
+#[test]
+fn an_equipment_is_kept_as_a_model_of_the_drawing_and_the_drawing_gives_it_by_name_and_keeps_it_in_the_file() {
+    let mut s = metric();
+    let a = s
+        .execute("equipmentadd", &json!({"at": [0, 0], "model": "Cassette 600 3.5 kW", "weight": 22, "connections": "1/4 - 3/8", "name": "UI9"}))
+        .unwrap();
+    s.execute("equipmentmodelsave", &json!({"handle": a["handle"], "name": "Cassette maison"})).unwrap();
+    let list = s.execute("equipmentadd", &json!({"list": true, "kind": "cassette"})).unwrap();
+    let own: Vec<_> = list["models"].as_array().unwrap().iter().filter(|m| m["own"] == true).collect();
+    assert_eq!((own.len(), own[0]["name"].as_str(), own[0]["weightKg"].as_f64()), (1, Some("Cassette maison"), Some(22.0)));
+    // Given by its name: its values, the library's untouched.
+    let b = s.execute("equipmentadd", &json!({"at": [3000, 0], "model": "cassette MAISON"})).unwrap();
+    let e = equip(&s, &b["handle"]);
+    assert_eq!((e.model.as_str(), e.weight_kg, e.connections.as_str()), ("Cassette maison", Some(22.0), "1/4 - 3/8"));
+    s.execute("equipmentedit", &json!({"handle": b["handle"], "model": "Cassette 600 3.5 kW"})).unwrap();
+    assert_eq!(equip(&s, &b["handle"]).weight_kg, None);
+    // Kept in the file, DXF and DWG.
+    for name in ["m.dxf", "m.dwg"] {
+        let back = cadcraft_io::read(&cadcraft_io::write(s.doc().unwrap(), name).unwrap(), name).unwrap();
+        assert_eq!(back.equipment_models, s.doc().unwrap().equipment_models, "{name}");
+    }
+    // Replaced under the same name, refused with none, deleted.
+    s.execute("equipmentedit", &json!({"handle": a["handle"], "weight": 30})).unwrap();
+    s.execute("equipmentmodelsave", &json!({"handle": a["handle"], "name": "cassette maison"})).unwrap();
+    assert_eq!(s.doc().unwrap().equipment_models.len(), 1);
+    assert_eq!(s.doc().unwrap().equipment_models[0].weight_kg, Some(30.0));
+    assert!(s.execute("equipmentmodelsave", &json!({"handle": a["handle"], "name": " "})).is_err());
+    assert_eq!(s.execute("equipmentmodeldelete", &json!({"name": "CASSETTE MAISON"})).unwrap()["deleted"], true);
+    assert!(s.execute("equipmentadd", &json!({"at": [0, 0], "model": "Cassette maison"})).is_err());
+}

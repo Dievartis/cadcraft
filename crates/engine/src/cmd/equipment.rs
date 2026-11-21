@@ -4,7 +4,7 @@
 
 use cadcraft_doc::{
     Distribution, Drawing, EquipmentKind, EquipmentModel, EquipmentParams, HvacUnits, MAX_DISTRIBUTED, distribute_in_polygon, equipment_model_for,
-    equipment_model_named, equipment_models_of, equipment_of, standard_equipment_models,
+    equipment_model_named, equipment_models_of, equipment_of,
 };
 use cadcraft_geom::Vec2;
 use serde_json::{Value, json};
@@ -25,6 +25,12 @@ pub fn specs() -> Vec<CommandSpec> {
                  outline's extents, the cells outside it left empty) → {handles, model}",
             )
             .interactive(|s| Ok(Box::new(EquipAddM::new(s)))),
+        CommandSpec::new("equipmentmodelsave", "Save Equipment Model", run_model_save).params(
+            "{handle (an equipment), name} → {models}: keeps the values of the equipment (its kind, power, sizes, weight, fans, reference and connections) as a model of the drawing, \
+             which EQUIPMENTADD and EQUIPMENTEDIT take by that name like the library's; one of the same name is replaced; kept in the DXF and the DWG",
+        ),
+        CommandSpec::new("equipmentmodeldelete", "Delete Equipment Model", run_model_delete)
+            .params("{name} → {deleted}: takes a model of the drawing's own out of it (the library's stay)"),
         CommandSpec::new("equipmentsizedisplay", "Show Equipment Sizes", run_size_display)
             .menu(&["Draw", "HVAC", "Show Equipment Sizes"])
             .params("{show? (true: write the size beside every equipment, the default; false: hide them)} → {changed}"),
@@ -101,8 +107,8 @@ fn next_name(d: &Drawing, kind: EquipmentKind) -> String {
 
 /// Everything about the equipment a call asks for, over the model it names (or the one its power asks for).
 fn params_from(s: &Session, p: &Value, cmd: &str, last: &EquipmentLastUsed) -> Result<EquipmentParams> {
-    let models = standard_equipment_models();
     let d = s.doc()?;
+    let models = d.available_equipment_models();
     let kind = kind_param(cmd, p)?;
     let by_name =
         str_param(p, "model").map(|n| equipment_model_named(&models, n).ok_or_else(|| bad(cmd, format!("unknown model \"{n}\"")))).transpose()?;
@@ -224,14 +230,36 @@ fn run_size_display(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "changed": changed }))
 }
 
-fn models_json(kind: Option<EquipmentKind>) -> Vec<Value> {
-    let models = standard_equipment_models();
+fn models_json(d: &Drawing, kind: Option<EquipmentKind>) -> Vec<Value> {
+    let models = d.available_equipment_models();
+    let own = |name: &str| d.equipment_models.iter().any(|m| m.name.eq_ignore_ascii_case(name));
     EquipmentKind::ALL
         .iter()
         .filter(|k| kind.is_none_or(|w| w == **k))
         .flat_map(|k| equipment_models_of(&models, *k))
-        .map(|m| serde_json::to_value(&m).unwrap_or(Value::Null))
+        .map(|m| {
+            let mut v = serde_json::to_value(&m).unwrap_or(Value::Null);
+            v["own"] = json!(own(&m.name));
+            v
+        })
         .collect()
+}
+
+/// Keeps the values of an equipment as a model of the drawing, under a name: the next equipment can be given them by that name.
+fn run_model_save(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "equipmentmodelsave";
+    let h = super::curves::handle_param(p, "handle").ok_or_else(|| bad(CMD, "`handle` (an equipment) is required"))?;
+    let name = str_param(p, "name").map(str::trim).filter(|n| !n.is_empty()).ok_or_else(|| bad(CMD, "`name` is required"))?;
+    let e = s.doc()?.entity(h).and_then(|e| equipment_of(e)).ok_or_else(|| other("Select an equipment."))?;
+    s.doc_mut()?.save_equipment_model(e.to_model(name)).map_err(doc_err)?;
+    Ok(json!({ "models": s.doc()?.equipment_models.len() }))
+}
+
+/// Takes a model of the drawing's own out of it.
+fn run_model_delete(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "equipmentmodeldelete";
+    let name = str_param(p, "name").ok_or_else(|| bad(CMD, "`name` is required"))?;
+    Ok(json!({ "deleted": s.doc_mut()?.delete_equipment_model(name) }))
 }
 
 fn place(s: &mut Session, e: &EquipmentParams, at: Vec2, rotation: f64) -> Result<cadcraft_doc::Handle> {
@@ -245,7 +273,7 @@ fn place(s: &mut Session, e: &EquipmentParams, at: Vec2, rotation: f64) -> Resul
 fn run_add(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "equipmentadd";
     if p.get("list").and_then(Value::as_bool).unwrap_or(false) {
-        return Ok(json!({ "models": models_json(kind_param(CMD, p)?) }));
+        return Ok(json!({ "models": models_json(s.doc()?, kind_param(CMD, p)?) }));
     }
     let last = s.last_used.equipment.clone();
     let rotation = super::f64_or(p, "rotation", 0.0).to_radians();
@@ -299,7 +327,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     if hs.is_empty() || hs.len() > MAX_EDITED {
         return Err(bad(CMD, format!("select 1 to {MAX_EDITED} equipment")));
     }
-    let models = standard_equipment_models();
+    let models = s.doc()?.available_equipment_models();
     let model =
         str_param(p, "model").map(|n| equipment_model_named(&models, n).ok_or_else(|| bad(CMD, format!("unknown model \"{n}\"")))).transpose()?;
     let kind = kind_param(CMD, p)?;
@@ -451,7 +479,7 @@ impl EquipAddM {
             }
             // A model's name, or a power in kW: the smallest model of the kind that gives it.
             (Ask::Size, Some(t)) if !t.is_empty() => {
-                let models = standard_equipment_models();
+                let models = s.doc()?.available_equipment_models();
                 let m = match t.parse::<f64>() {
                     Ok(kw) => equipment_model_for(&models, self.last.kind, kw),
                     Err(_) => equipment_model_named(&models, t),

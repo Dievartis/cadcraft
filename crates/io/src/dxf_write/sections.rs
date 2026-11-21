@@ -935,6 +935,7 @@ fn data_xrecords(d: &Drawing) -> Vec<(&'static str, Vec<String>)> {
     keep(dxf_ext::COLOUR_CONVENTION_KEY, (!d.colour_convention.is_plan_default()).then(|| vec![d.colour_convention.name().to_string()]));
     keep(dxf_ext::RASTERS_KEY, dxf_ext::raster_chunks(&d.rasters));
     keep(dxf_ext::CABLE_TYPES_KEY, dxf_ext::cable_type_chunks(&d.cable_types));
+    keep(dxf_ext::EQUIPMENT_MODELS_KEY, dxf_ext::equipment_model_chunks(&d.equipment_models));
     keep(dxf_ext::PART_MODELS_KEY, dxf_ext::part_model_chunks(&d.part_models));
     keep(dxf_ext::NETWORK_STYLES_KEY, dxf_ext::network_style_chunks(&d.network_styles));
     keep(dxf_ext::PLOT_STYLES_KEY, dxf_ext::plot_style_chunks(&d.plot_style_tables));
