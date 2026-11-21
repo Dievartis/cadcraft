@@ -13,6 +13,7 @@ mod extents;
 mod format;
 mod gdt;
 mod header;
+mod ifc;
 pub mod library;
 mod opening;
 mod plotstyle;

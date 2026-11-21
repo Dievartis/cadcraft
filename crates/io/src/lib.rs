@@ -241,6 +241,7 @@ pub fn write_framed(d: &Drawing, name: impl AsRef<Path>, window: Option<Bounds2>
         Some(Format::Svg) => Ok(svg::export_window(d, &Space::Model, window).into_bytes()),
         Some(Format::Png) => png_framed(d, &Space::Model, 2400, 1600, window),
         Some(Format::Pdf) => pdf::pdf(d, &Space::Model, &PdfOptions { compress: true, window, ..PdfOptions::default() }),
+        Some(Format::Ifc) => d.to_ifc(&name.to_string_lossy()).map(String::into_bytes).map_err(|e| IoError::Format(e.to_string())),
         _ => Err(IoError::Unsupported(ext(name))),
     }
 }

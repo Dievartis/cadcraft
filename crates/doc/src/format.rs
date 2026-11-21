@@ -12,13 +12,15 @@ pub enum Format {
     Svgz,
     Png,
     Pdf,
+    /// IFC4 (BIM): written only.
+    Ifc,
 }
 
 impl Format {
     /// The formats a drawing can be read from by name. DXF and DWG are also recognised by content.
     pub const READ: &'static [Format] = &[Format::Dxf, Format::Dwg, Format::Svg, Format::Svgz];
     /// The formats a drawing can be written to.
-    pub const WRITE: &'static [Format] = &[Format::Dxf, Format::Dwg, Format::Dwt, Format::Svg, Format::Png, Format::Pdf];
+    pub const WRITE: &'static [Format] = &[Format::Dxf, Format::Dwg, Format::Dwt, Format::Svg, Format::Png, Format::Pdf, Format::Ifc];
 
     /// The format `path`'s extension names. A name without an extension is DXF; an unknown
     /// extension is `None`.
@@ -32,6 +34,7 @@ impl Format {
             "svgz" => Format::Svgz,
             "png" => Format::Png,
             "pdf" => Format::Pdf,
+            "ifc" => Format::Ifc,
             _ => return None,
         })
     }
@@ -46,6 +49,7 @@ impl Format {
             Format::Svgz => "svgz",
             Format::Png => "png",
             Format::Pdf => "pdf",
+            Format::Ifc => "ifc",
         }
     }
 

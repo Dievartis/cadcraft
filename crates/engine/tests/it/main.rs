@@ -83,6 +83,7 @@ mod hatch_options;
 mod helix;
 mod hidden_grip_targets;
 mod hvac;
+mod ifc_export;
 mod inquiry_keywords;
 mod inquiry_variables;
 mod inquiry_z;
