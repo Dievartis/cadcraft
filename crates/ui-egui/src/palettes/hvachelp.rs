@@ -245,8 +245,9 @@ const HELPS: &[Help] = &[
         steps: &[
             "Fill in the project, the parties with their logos, the picture, the revisions and the code of the sheet, then press Insert.",
             "In a layout the column goes to the right edge of the sheet; double-click it to change it.",
+            "Each logo and the picture of the project are kept in the drawing; the table of revisions grows with a new line.",
         ],
-        figures: &[],
+        figures: &[("", title_block)],
     },
     Help {
         id: "Curtain Wall",
@@ -883,7 +884,7 @@ mod tests {
 
     #[test]
     fn every_tool_has_a_help_window_that_draws_and_closes() {
-        assert_eq!(HELPS.len(), 53);
+        assert_eq!(HELPS.len(), 54);
         for help in HELPS {
             let mut h = Harness::builder().with_size(vec2(700.0, 500.0)).build_ui(|ui| {
                 show(ui.ctx());
@@ -1182,6 +1183,17 @@ fn railing(p: &Painter, r: Rect) {
         p.rect_filled(Rect::from_center_size(q, vec2(7.0, 7.0)), 0.0, Color32::WHITE);
     }
     text(p, at(0.1, 0.9), "post spacing", GREY);
+}
+
+fn title_block(p: &Painter, r: Rect) {
+    let at = fx(r);
+    let (a, b) = (at(0.3, 0.05), at(0.7, 0.95));
+    p.rect_stroke(Rect::from_two_pos(a, b), 0.0, Stroke::new(1.5, GREY), egui::StrokeKind::Inside);
+    for y in [0.2, 0.4, 0.78, 0.88] {
+        p.line_segment([at(0.3, y), at(0.7, y)], Stroke::new(1.0, GREY));
+    }
+    p.rect_filled(Rect::from_two_pos(at(0.34, 0.46), at(0.66, 0.7)), 0.0, ZONE);
+    text(p, at(0.32, 0.12), "project", GREY);
 }
 
 fn curtain_wall(p: &Painter, r: Rect) {
