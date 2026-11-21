@@ -65,6 +65,7 @@ fn duct(diameter_mm: f64) -> DuctParams {
         covers: Vec::new(),
         jogs: Vec::new(),
         level_mm: None,
+        end_level_mm: None,
         steps: Vec::new(),
         bottom_mm: None,
         label_height_mm: 100.0,
@@ -2495,4 +2496,28 @@ fn the_run_that_starts_on_a_collar_with_an_altitude_is_at_that_altitude_unless_i
     // Too many, or not a number: refused.
     assert!(AhuParams { port_levels_mm: vec![Some(1.0); n + 1], ..u.clone() }.validate().is_err());
     assert!(AhuParams { port_levels_mm: vec![Some(f64::NAN)], ..u }.validate().is_err());
+}
+
+#[test]
+fn a_sloping_duct_loses_pressure_over_its_true_length_and_says_where_it_ends() {
+    let mut d = Drawing::new_metric();
+    d.add_ahu(&Space::Model, Common::default(), &ahu(), Vec2::ZERO, 0.0).unwrap();
+    let trunk = add_duct(&mut d, (500.0, 0.0), (4500.0, 0.0));
+    add_terminal(&mut d, (4500.0, 0.0), 300.0);
+    let mut p = duct_of(d.entity(trunk).unwrap()).unwrap();
+    assert!((p.length_m() - 4.0).abs() < 1e-9 && p.rise_mm() == 0.0);
+    // From 2.5 m to 5.5 m over 4 m: 3 m up, so a run of 5 m.
+    (p.level_mm, p.end_level_mm) = (Some(2500.0), Some(5500.0));
+    assert!((p.rise_mm() - 3000.0).abs() < 1e-9 && (p.length_m() - 5.0).abs() < 1e-9 && (p.plan_length_m() - 4.0).abs() < 1e-9);
+    d.regenerate_duct(trunk, &p).unwrap();
+    let net = d.duct_networks().unwrap().remove(0);
+    assert!((net.network.segments[0].length_m - 5.0).abs() < 1e-9, "the pressure is lost over the true length");
+    let label: Vec<String> =
+        p.generate(false).unwrap().iter().filter_map(|x| if let EntityKind::Text(t) = &x.kind { Some(t.value.clone()) } else { None }).collect();
+    assert!(label.iter().any(|t| t.contains("→5.50") && t.contains("+75.0%")), "{label:?}");
+    // An end altitude with no start is refused; level again gives the plan length back.
+    assert!(DuctParams { level_mm: None, ..p.clone() }.validate().is_err());
+    assert!(DuctParams { end_level_mm: Some(f64::NAN), ..p.clone() }.validate().is_err());
+    p.end_level_mm = None;
+    assert!((p.length_m() - 4.0).abs() < 1e-9);
 }

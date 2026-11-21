@@ -133,6 +133,7 @@ fn ducted(accessory_at: Option<(AccessoryKind, f64, f64)>) -> (Drawing, Option<H
         covers: Vec::new(),
         jogs: Vec::new(),
         level_mm: None,
+        end_level_mm: None,
         steps: Vec::new(),
         bottom_mm: None,
         label_height_mm: 100.0,

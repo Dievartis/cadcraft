@@ -38,7 +38,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
             .interactive(|s| Ok(Box::new(DuctAddM::new(s)))),
         CommandSpec::new("ductedit", "Edit Duct", run_ductedit)
-            .params("{handle | handles, diameter? (mm, or auto: sizing chooses the size) | width? and/or height? (mm; a rectangular section: a side alone changes that side), kind?, air?, flexible? (true or false), shape? (round or rectangular: each duct keeps its size and takes the other shape), insulation? (outside, inside or none), insulationThickness? (mm, default 30), flow? (m³/h: sizing keeps it and sizes the run for it; auto gives it back)} → {changed}"),
+            .params("{handle | handles, diameter? (mm, or auto: sizing chooses the size) | width? and/or height? (mm; a rectangular section: a side alone changes that side), kind?, air?, flexible? (true or false), shape? (round or rectangular: each duct keeps its size and takes the other shape), insulation? (outside, inside or none), insulationThickness? (mm, default 30), flow? (m³/h: sizing keeps it and sizes the run for it; auto gives it back), altitude? (m: the underside, or null), endAltitude? (m, or null for a level run: the altitude of the underside at the far end, so that the run slopes from its altitude to this one; its true length, longer than its length in plan, is the one that loses pressure and is counted)} → {changed}"),
         CommandSpec::new("ductconnect", "Connect Terminals", run_ductconnect).menu(&["Draw", "HVAC", "Connect Terminals"]).params(
             "{terminals? (handles; default every terminal no duct reaches), maxDistance? (mm, default 3000)} → {created (flexible ducts), skipped}",
         ),
@@ -623,6 +623,7 @@ fn duct_params(s: &Session, last: &DuctLastUsed, label_mm: f64) -> Result<DuctPa
         covers: Vec::new(),
         jogs: Vec::new(),
         level_mm: None,
+        end_level_mm: None,
         steps: Vec::new(),
         bottom_mm: None,
         label_height_mm: label_mm,
@@ -906,6 +907,14 @@ fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
             Some(Some(v.as_f64().filter(|x| x.is_finite()).ok_or_else(|| bad(CMD, "`altitude` must be a number of metres or null"))? * 1000.0))
         }
     };
+    // The altitude of the far end, metres: the run slopes from its altitude to this one (null: level).
+    let end_altitude: Option<Option<f64>> = match p.get("endAltitude") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(v) => {
+            Some(Some(v.as_f64().filter(|x| x.is_finite()).ok_or_else(|| bad(CMD, "`endAltitude` must be a number of metres or null"))? * 1000.0))
+        }
+    };
     // The flow of an open end (a duct on a unit's collar that leads to no terminal); null gives it back to the balance.
     let open_flow: Option<Option<f64>> = match p.get("openFlow") {
         None => None,
@@ -956,6 +965,9 @@ fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
             Some(Some(f)) => (dp.flow_m3h, dp.flow_set) = (Some(f), true),
             Some(None) => dp.flow_set = false,
             None => {}
+        }
+        if let Some(e) = end_altitude {
+            dp.end_level_mm = e;
         }
         if let Some(a) = altitude {
             dp.level_mm = a;
@@ -1082,6 +1094,7 @@ fn run_ductconnect(s: &mut Session, p: &Value) -> Result<Value> {
             covers: Vec::new(),
             jogs: Vec::new(),
             level_mm: None,
+            end_level_mm: None,
             steps: Vec::new(),
             bottom_mm: None,
             label_height_mm: 100.0,

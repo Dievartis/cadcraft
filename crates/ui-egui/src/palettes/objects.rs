@@ -2275,8 +2275,23 @@ fn duct_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[DuctParams], len: &dyn 
             }
         }
     });
+    // A sloping run: the altitude of its far end, metres (empty: level). Its true length, which loses the pressure, is longer than its length in plan.
+    let end = shared(&ds.iter().map(|p| p.end_level_mm.map(|b| format!("{}", b / 1000.0)).unwrap_or_default()).collect::<Vec<_>>())
+        .unwrap_or_else(|| VARIES.into());
+    prop_row(ui, "Altitude of the far end (m)", |ui| {
+        if let Some(t) = edit_field(ui, ui.scope_id().with(("duct_end_altitude", &ids)), end).filter(|t| t != VARIES) {
+            if t.trim().is_empty() {
+                action = edit("endAltitude", Value::Null);
+            } else if let Some(m) = number(Some(t), bad) {
+                action = edit("endAltitude", json!(m));
+            }
+        }
+    });
     if let [p] = ds {
         prop_row(ui, "Length", |ui| read_only(ui, &len(p.length)));
+        if p.rise_mm().abs() > 0.5 {
+            prop_row(ui, "True length (m)", |ui| read_only(ui, &format!("{:.2}", p.length_m())));
+        }
         // The flow the run carries: typed here, sizing keeps it and sizes the run for it; empty gives it back to the terminals.
         let flow = p.flow_m3h.map_or(String::new(), |f| format!("{f:.0}"));
         prop_row(ui, "Flow (m³/h)", |ui| {

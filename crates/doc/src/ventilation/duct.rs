@@ -805,6 +805,10 @@ pub struct DuctParams {
     /// height zone's. Where two joined runs differ, sizing makes the step between them.
     #[serde(default)]
     pub level_mm: Option<f64>,
+    /// The altitude of the underside at the far end of the run, mm, when the run slopes (a ramp): it goes from `level_mm` at its start to this one at its end,
+    /// so its true length is longer than its length in plan, and that is the length that loses pressure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_level_mm: Option<f64>,
     /// The changes of level at the ends of the run, written by sizing.
     #[serde(default)]
     pub steps: Vec<DuctStep>,
@@ -995,6 +999,11 @@ impl DuctParams {
             return Err(invalid("A duct's crossings are not usable."));
         }
         let length_mm = self.length * self.units.mm_per_unit;
+        if self.end_level_mm.is_some_and(|b| !(b.is_finite() && (-100_000.0..=1_000_000.0).contains(&b)))
+            || (self.end_level_mm.is_some() && self.level_mm.is_none())
+        {
+            return Err(invalid("A sloping run has an altitude at both ends."));
+        }
         if self.level_mm.is_some_and(|b| !(b.is_finite() && (-100_000.0..=1_000_000.0).contains(&b))) {
             return Err(invalid("The altitude of a duct's underside is a number of millimetres."));
         }
@@ -1163,9 +1172,22 @@ impl DuctParams {
         }
     }
 
-    /// Length in metres.
-    pub fn length_m(&self) -> f64 {
+    /// Length in plan, metres.
+    pub fn plan_length_m(&self) -> f64 {
         self.length * self.units.mm_per_unit / 1000.0
+    }
+
+    /// The rise of a sloping run from its start to its end, mm (negative when it falls); 0 for a level one.
+    pub fn rise_mm(&self) -> f64 {
+        match (self.level_mm, self.end_level_mm) {
+            (Some(a), Some(b)) => b - a,
+            _ => 0.0,
+        }
+    }
+
+    /// The true length of the run, metres: its length in plan, and its rise if it slopes. It is what loses pressure and what is bought.
+    pub fn length_m(&self) -> f64 {
+        self.plan_length_m().hypot(self.rise_mm() / 1000.0)
     }
 
     /// A step: two 45° elbows, with the inclined run between them, and the change of altitude and the angle written above it. Each elbow is drawn as the
@@ -1178,7 +1200,7 @@ impl DuctParams {
         let run = t.shift_mm.abs();
         // The step is written for the joint at one end of the run: the far one when it sits in the run's second half. The duct goes down along the run where
         // the run is lower than the one it joins at its start, or higher than the one it joins at its end.
-        let at_end = t.at_mm + run / 2.0 > self.length_m() * 500.0;
+        let at_end = t.at_mm + run / 2.0 > self.plan_length_m() * 500.0;
         let falls = if at_end { t.shift_mm > 0.0 } else { t.shift_mm < 0.0 };
         let bend = u(self.plan_width_mm().min(run / std::f64::consts::SQRT_2));
         let (x1, x2) = (u(t.at_mm), u(t.at_mm + run));
@@ -1393,7 +1415,7 @@ impl DuctParams {
         // The bend is under the other duct when the stretches it passes under cover half of what it takes
         // of the run (the arcs are drawn whole or not at all).
         if let Some(e) = self.elbow {
-            let total = self.length_m() * 1000.0;
+            let total = self.plan_length_m() * 1000.0;
             let zone = if e.at_end { (total - self.trim_end_mm, total) } else { (0.0, self.trim_start_mm) };
             let covered: f64 = self.gaps_mm.iter().map(|g| (g[1].min(zone.1) - g[0].max(zone.0)).max(0.0)).sum();
             // A run under another one that goes the same way has its bend drawn: the two bends coincide, and hiding the one over
@@ -1427,6 +1449,10 @@ impl DuctParams {
         }
         if let Some(b) = self.altitude_mm() {
             text.push_str(&format!(" Ai:{:.2}", b / 1000.0));
+        }
+        // A sloping run says where it ends and how steep it is.
+        if let (Some(e), true) = (self.end_level_mm, self.rise_mm().abs() > 0.5) {
+            text.push_str(&format!("→{:.2} {:+.1}%", e / 1000.0, 100.0 * self.rise_mm() / 1000.0 / self.plan_length_m().max(1e-9)));
         }
         let h = self.units.to_units(self.label_height_mm);
         for j in &self.jogs {

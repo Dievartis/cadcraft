@@ -3792,3 +3792,5 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	Line {n}: colour (#rrggbb)	Ligne {n} : couleur (#rrggbb)
 	Connection altitudes (m, one per collar)	Altitudes des raccords (m, un par raccord)
 	Requires altitudes in metres, separated by commas.	Il faut des altitudes en mètres, séparées par des virgules.
+	Altitude of the far end (m)	Altitude de l'autre bout (m)
+	True length (m)	Longueur réelle (m)
