@@ -35,7 +35,7 @@ fn check_step(text: &str) -> Vec<(usize, String)> {
             assert!(depth >= 0, "{line}");
         }
         assert_eq!((depth, in_text), (0, false), "{line}");
-        assert!(refs.iter().all(|r| *r >= 1 && *r <= entities.len() || *r == n + 0 && false), "a reference to a later or missing entity: {line}");
+        assert!(refs.iter().all(|r| *r >= 1 && *r <= entities.len()), "a reference to a later or missing entity: {line}");
         let name = rest.split('(').next().unwrap().to_string();
         entities.push((n, name));
     }

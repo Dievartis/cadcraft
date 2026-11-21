@@ -216,10 +216,43 @@ pub(crate) fn wall_footprints(wall: &crate::WallParams, at: crate::Placement) ->
         .collect()
 }
 
+/// What the entities of one file are written with: the numbering, the shared placements and the body context.
+struct Ctx {
+    s: Step,
+    mm: f64,
+    world: usize,
+    body: usize,
+    storey_place: usize,
+}
+
+impl Ctx {
+    /// A building element made of `solids`: the entity, its placement and its shape, and its property set (layer and handle). `tail` is what comes after the
+    /// tag, `after` what some classes (doors, windows) have beyond it.
+    fn element(&mut self, (class, tail, after): (&str, &str, &str), name: &str, h: Handle, layer: &str, solids: &[usize]) -> Option<usize> {
+        if solids.is_empty() {
+            return None;
+        }
+        let rep = self.s.add(format!("IFCSHAPEREPRESENTATION(#{},'Body','SweptSolid',({}))", self.body, Step::list(solids)));
+        let shape = self.s.add(format!("IFCPRODUCTDEFINITIONSHAPE($,$,(#{rep}))"));
+        let place = self.s.add(format!("IFCLOCALPLACEMENT(#{},#{})", self.storey_place, self.world));
+        let id = guid_of(bits_of(&[class, name, layer], h.0));
+        let e = self.s.add(format!("{class}('{id}',$,{},$,$,#{place},#{shape},$,{tail}{after})", step_text(name)));
+        let layer_p = self.s.add(format!("IFCPROPERTYSINGLEVALUE('Layer',$,IFCLABEL({}),$)", step_text(layer)));
+        let handle_p = self.s.add(format!("IFCPROPERTYSINGLEVALUE('Handle',$,IFCLABEL({}),$)", step_text(&h.hex())));
+        let pset = self.s.add(format!("IFCPROPERTYSET('{}',$,'Pset_CADCRAFT',$,(#{layer_p},#{handle_p}))", guid_of(bits_of(&["pset", class], h.0))));
+        self.s.add(format!("IFCRELDEFINESBYPROPERTIES('{}',$,$,$,(#{e}),#{pset})", guid_of(bits_of(&["rel", class], h.0))));
+        Some(e)
+    }
+
+    /// A box on the plan: `across` long along `angle` and `deep` wide, centred at `at` (millimetres), from `z0` up by `tall`.
+    fn boxed(&mut self, at: Vec2, angle: f64, across: f64, deep: f64, z0: f64, tall: f64) -> Vec<usize> {
+        self.s.extruded_outline(&rectangle(at, angle, across, deep), &[], z0, tall).into_iter().collect()
+    }
+}
+
 impl Drawing {
     /// The drawing's building objects as an IFC4 file (see the module), `name` being the file's name as the header says it.
     pub fn to_ifc(&self, name: &str) -> Result<String> {
-        let mm = HvacUnits::of(self).mm_per_unit;
         let mut s = Step { data: String::new(), n: 0 };
         // The context and the units: millimetres, square metres, cubic metres, radians.
         let world = s.axis3((0.0, 0.0, 0.0), None, None);
@@ -238,7 +271,7 @@ impl Drawing {
         let stem = name.rsplit(['/', '\\']).next().unwrap_or(name).trim_end_matches(".ifc").to_string();
         let project =
             s.add(format!("IFCPROJECT('{}',$,{},$,$,$,$,(#{context}),#{assignment})", guid_of(bits_of(&["project", &stem], 0)), step_text(&stem)));
-        let site_place = s.add(format!("IFCLOCALPLACEMENT($,#{})", world));
+        let site_place = s.add(format!("IFCLOCALPLACEMENT($,#{world})"));
         let site = s.add(format!("IFCSITE('{}',$,'Site',$,$,#{site_place},$,$,.ELEMENT.,$,$,$,$,$)", guid_of(bits_of(&["site"], 0))));
         let building_place = s.add(format!("IFCLOCALPLACEMENT(#{site_place},#{world})"));
         let building = s.add(format!("IFCBUILDING('{}',$,'Building',$,$,#{building_place},$,$,.ELEMENT.,$,$,$)", guid_of(bits_of(&["building"], 0))));
@@ -247,208 +280,149 @@ impl Drawing {
         for (k, (from, to)) in [(project, site), (site, building), (building, storey)].into_iter().enumerate() {
             s.add(format!("IFCRELAGGREGATES('{}',$,$,$,#{from},(#{to}))", guid_of(bits_of(&["aggregates"], k as u64))));
         }
+        let mut cx = Ctx { s, mm: HvacUnits::of(self).mm_per_unit, world, body, storey_place };
         let mut elements: Vec<usize> = Vec::new();
-        let note =
-            |s: &mut Step, class: &str, tail: &str, name: &str, h: Handle, layer: &str, solids: Vec<usize>, extra_tail: &str| -> Option<usize> {
-                if solids.is_empty() {
-                    return None;
-                }
-                let rep = s.add(format!("IFCSHAPEREPRESENTATION(#{body},'Body','SweptSolid',({}))", Step::list(&solids)));
-                let shape = s.add(format!("IFCPRODUCTDEFINITIONSHAPE($,$,(#{rep}))"));
-                let place = s.add(format!("IFCLOCALPLACEMENT(#{storey_place},#{world})"));
-                let id = guid_of(bits_of(&[class, name, layer], h.0));
-                let e = s.add(format!("{class}('{id}',$,{},$,$,#{place},#{shape},$,{tail}{extra_tail})", step_text(name)));
-                // The layer and the handle, in a property set of their own.
-                let layer_p = s.add(format!("IFCPROPERTYSINGLEVALUE('Layer',$,IFCLABEL({}),$)", step_text(layer)));
-                let handle_p = s.add(format!("IFCPROPERTYSINGLEVALUE('Handle',$,IFCLABEL({}),$)", step_text(&h.hex())));
-                let pset =
-                    s.add(format!("IFCPROPERTYSET('{}',$,'Pset_CADCraft',$,(#{layer_p},#{handle_p}))", guid_of(bits_of(&["pset", class], h.0))));
-                s.add(format!("IFCRELDEFINESBYPROPERTIES('{}',$,$,$,(#{e}),#{pset})", guid_of(bits_of(&["rel", class], h.0))));
-                Some(e)
-            };
         for e in self.model.iter() {
             if elements.len() >= MAX_ELEMENTS {
                 break;
             }
-            let EntityKind::Insert(i) = &e.kind else { continue };
-            let (h, layer) = (e.handle, e.common.layer.as_str());
-            let at = Vec2::new(i.insert.x, i.insert.y) * mm;
-            let rot = i.rotation;
-            let c = |p: Vec2| p * mm;
-            if let Some(w) = wall_of(e) {
-                let place = crate::Placement {
-                    insert: Vec2::new(i.insert.x, i.insert.y),
-                    rotation: i.rotation,
-                    scale: Vec2::new(i.scale.x.signum(), i.scale.y.signum()),
-                };
-                let solids: Vec<usize> = wall_footprints(&w, place)
-                    .iter()
-                    .filter_map(|f| s.extruded_outline(&f.iter().map(|p| c(*p)).collect::<Vec<_>>(), &[], 0.0, w.height))
-                    .collect();
-                if let Some(id) = note(&mut s, "IFCWALL", "$", &w.style.name, h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some(sl) = slab_of(e) {
-                let world_pts = |pts: &[Vec2]| -> Vec<Vec2> { pts.iter().map(|p| world_point(i, *p) * mm).collect() };
-                let holes: Vec<Vec<Vec2>> = sl.holes.iter().map(|hole| world_pts(hole)).collect();
-                let solids =
-                    s.extruded_outline(&world_pts(&sl.outline), &holes, sl.elevation_mm - sl.thickness_mm, sl.thickness_mm).into_iter().collect();
-                if let Some(id) = note(&mut s, "IFCSLAB", "$", &sl.name, h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some(st) = struct_of(e) {
-                let Some(sec) = st.profile() else { continue };
-                let u = |v: f64| st.units.to_units(v);
-                let local: Vec<Vec2> = match st.kind {
-                    crate::ventilation::StructKind::Column => {
-                        let (hx, hy) = (sec.b_mm / 2.0 / mm, sec.h_mm / 2.0 / mm);
-                        vec![Vec2::new(-hx, -hy), Vec2::new(hx, -hy), Vec2::new(hx, hy), Vec2::new(-hx, hy)]
-                    }
-                    crate::ventilation::StructKind::Beam => {
-                        let (x0, x1, half) = (u(st.trim_start_mm), st.length - u(st.trim_end_mm), sec.b_mm / 2.0 / mm);
-                        vec![Vec2::new(x0, -half), Vec2::new(x1, -half), Vec2::new(x1, half), Vec2::new(x0, half)]
-                    }
-                };
-                let pts: Vec<Vec2> = local.iter().map(|p| world_point(i, *p) * mm).collect();
-                let (class, height) = match st.kind {
-                    crate::ventilation::StructKind::Column => ("IFCCOLUMN", st.height_mm),
-                    crate::ventilation::StructKind::Beam => ("IFCBEAM", sec.h_mm),
-                };
-                let solids = s.extruded_outline(&pts, &[], st.elevation_mm, height).into_iter().collect();
-                if let Some(id) = note(&mut s, class, "$", &st.name, h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some(op) = opening_of(e) {
-                let across = op.width_mm;
-                let solids = s.extruded_outline(&rectangle(at, rot, across, 150.0), &[], op.sill_mm, op.height_mm).into_iter().collect();
-                let tag = format!("{},{}", real(op.height_mm), real(op.width_mm));
-                // A window and a door each take their own optional attributes.
-                if op.kind == OpeningKind::Window {
-                    if let Some(id) = note(&mut s, "IFCWINDOW", &tag, "Window", h, layer, solids, ",$,$,$") {
-                        elements.push(id);
-                    }
-                } else {
-                    if let Some(id) = note(&mut s, "IFCDOOR", &tag, "Door", h, layer, solids, ",$,$,$") {
-                        elements.push(id);
-                    }
-                }
-            } else if let Some((p, a, b)) = self.duct_ends(h) {
-                let (a, b) = (c(a), c(b));
-                let (w, hgt) = match p.shape {
-                    crate::ventilation::DuctShape::Round => (p.diameter_mm, p.diameter_mm),
-                    crate::ventilation::DuctShape::Rectangular => (p.width_mm, p.height_mm),
-                };
-                let z = p.altitude_mm().unwrap_or(DEFAULT_ALTITUDE_MM) + hgt / 2.0;
-                let round = (p.shape == crate::ventilation::DuctShape::Round).then_some(p.diameter_mm);
-                let solids = s.run_solid(a, b, z, round, (w, hgt)).into_iter().collect();
-                if let Some(id) = note(&mut s, "IFCDUCTSEGMENT", "$", &format!("Duct {}", p.size_label()), h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some((p, a, b)) = self.pipe_ends(h) {
-                let diameter = p.dn_mm + 2.0 * p.insulation_mm;
-                let z = p.level_mm.unwrap_or(DEFAULT_ALTITUDE_MM) + diameter / 2.0;
-                let solids = s.run_solid(c(a), c(b), z, Some(diameter), (0.0, 0.0)).into_iter().collect();
-                if let Some(id) = note(&mut s, "IFCPIPESEGMENT", "$", &p.service.name(), h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some((p, a, b)) = self.cable_ends(h) {
-                let solids = s.run_solid(c(a), c(b), DEFAULT_ALTITUDE_MM + 100.0, Some(20.0), (0.0, 0.0)).into_iter().collect();
-                if let Some(id) = note(&mut s, "IFCCABLESEGMENT", "$", &p.circuit, h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some(q) = equipment_of(e) {
-                let solids = s
-                    .extruded_outline(&rectangle(at, rot, q.length_mm, q.width_mm), &[], q.bottom_mm.unwrap_or(0.0), q.height_mm)
-                    .into_iter()
-                    .collect();
-                let class = if q.kind.is_rack() { "IFCBUILDINGELEMENTPROXY" } else { "IFCUNITARYEQUIPMENT" };
-                if let Some(id) = note(&mut s, class, "$", &q.name, h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some(a) = ahu_of(e) {
-                let solids = s
-                    .extruded_outline(&rectangle(at, rot, a.width_mm, a.depth_mm), &[], a.bottom_mm.unwrap_or(0.0), a.height_mm.unwrap_or(1000.0))
-                    .into_iter()
-                    .collect();
-                if let Some(id) = note(&mut s, "IFCUNITARYEQUIPMENT", "$", &a.name, h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some(t) = air_terminal_of(e) {
-                let solids = s
-                    .extruded_outline(&rectangle(at, rot, t.model.width_mm, t.model.depth_mm), &[], t.bottom_mm.unwrap_or(DEFAULT_ALTITUDE_MM), 100.0)
-                    .into_iter()
-                    .collect();
-                if let Some(id) = note(&mut s, "IFCAIRTERMINAL", "$", &t.model.name, h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some(f) = furniture_of(e) {
-                let solids = s
-                    .extruded_outline(&rectangle(at, rot, f.width_mm, f.depth_mm), &[], f.bottom_mm.unwrap_or(0.0), f.height_mm)
-                    .into_iter()
-                    .collect();
-                if let Some(id) = note(&mut s, "IFCFURNITURE", "$", &f.name, h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some(f) = sanitary_of(e) {
-                let solids =
-                    s.extruded_outline(&rectangle(at, rot, f.width_mm, f.depth_mm), &[], f.bottom_mm.unwrap_or(0.0), 800.0).into_iter().collect();
-                if let Some(id) = note(&mut s, "IFCSANITARYTERMINAL", "$", &f.name, h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some(dv) = device_of(e) {
-                let (class, w, deep, tall) = if dv.kind.is_light() {
-                    ("IFCLIGHTFIXTURE", 200.0, 200.0, 50.0)
-                } else if matches!(dv.kind, crate::ventilation::DeviceKind::Panel) {
-                    (
-                        "IFCELECTRICDISTRIBUTIONBOARD",
-                        dv.board_width_mm.unwrap_or(400.0),
-                        dv.board_depth_mm.unwrap_or(150.0),
-                        dv.board_height_mm.unwrap_or(600.0),
-                    )
-                } else {
-                    ("IFCOUTLET", 80.0, 80.0, 80.0)
-                };
-                let solids = s.extruded_outline(&rectangle(at, rot, w, deep), &[], dv.height_mm, tall).into_iter().collect();
-                if let Some(id) = note(&mut s, class, "$", &dv.name, h, layer, solids, "") {
-                    elements.push(id);
-                }
-            } else if let Some((sp, outline)) = self.space_outline(h).filter(|_| space_of(e).is_some()) {
-                let pts: Vec<Vec2> = outline.iter().map(|p| *p * mm).collect();
-                let solids: Vec<usize> = s.extruded_outline(&pts, &[], 0.0, DEFAULT_SPACE_HEIGHT_MM).into_iter().collect();
-                // A space has no tag: its long name, its composition and its predefined type come where the others have theirs.
-                if solids_ok(&solids) {
-                    let rep = s.add(format!("IFCSHAPEREPRESENTATION(#{body},'Body','SweptSolid',({}))", Step::list(&solids)));
-                    let shape = s.add(format!("IFCPRODUCTDEFINITIONSHAPE($,$,(#{rep}))"));
-                    let place = s.add(format!("IFCLOCALPLACEMENT(#{storey_place},#{world})"));
-                    let sp_id = guid_of(bits_of(&["IFCSPACE", &sp.name], h.0));
-                    let e2 = s.add(format!("IFCSPACE('{sp_id}',$,{},$,$,#{place},#{shape},$,.ELEMENT.,$,0.)", step_text(&sp.name)));
-                    elements.push(e2);
-                }
+            if let Some(id) = self.ifc_element(&mut cx, e) {
+                elements.push(id);
             }
         }
         if !elements.is_empty() {
-            s.add(format!(
+            cx.s.add(format!(
                 "IFCRELCONTAINEDINSPATIALSTRUCTURE('{}',$,$,$,({}),#{storey})",
                 guid_of(bits_of(&["contained"], 0)),
                 Step::list(&elements)
             ));
         }
-        let stamp = "2000-01-01T00:00:00";
-        let mut out = String::with_capacity(s.data.len() + 512);
+        let mut out = String::with_capacity(cx.s.data.len() + 512);
         out.push_str("ISO-10303-21;\nHEADER;\n");
         out.push_str(
             "FILE_DESCRIPTION(('ViewDefinition [CoordinationView]','Written from a description of the schema, not checked by a viewer'),'2;1');\n",
         );
-        let _ = writeln!(out, "FILE_NAME({},'{stamp}',('CADCraft'),(''),'CADCraft','CADCraft','');", step_text(name));
+        let _ = writeln!(out, "FILE_NAME({},'2000-01-01T00:00:00',('CADCraft'),(''),'CADCraft','CADCraft','');", step_text(name));
         out.push_str("FILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n");
-        out.push_str(&s.data);
+        out.push_str(&cx.s.data);
         out.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
         Ok(out)
     }
-}
 
-fn solids_ok(solids: &[usize]) -> bool {
-    !solids.is_empty()
+    /// The IFC element an object of the drawing is, written to `cx`: its entity, when it is one the export knows.
+    fn ifc_element(&self, cx: &mut Ctx, e: &crate::Entity) -> Option<usize> {
+        let EntityKind::Insert(i) = &e.kind else { return None };
+        let (h, layer, mm) = (e.handle, e.common.layer.as_str(), cx.mm);
+        let (at, rot) = (Vec2::new(i.insert.x, i.insert.y) * mm, i.rotation);
+        if let Some(w) = wall_of(e) {
+            let place = crate::Placement {
+                insert: Vec2::new(i.insert.x, i.insert.y),
+                rotation: i.rotation,
+                scale: Vec2::new(i.scale.x.signum(), i.scale.y.signum()),
+            };
+            let solids: Vec<usize> = wall_footprints(&w, place)
+                .iter()
+                .filter_map(|f| cx.s.extruded_outline(&f.iter().map(|p| *p * mm).collect::<Vec<_>>(), &[], 0.0, w.height))
+                .collect();
+            cx.element(("IFCWALL", "$", ""), &w.style.name, h, layer, &solids)
+        } else if let Some(sl) = slab_of(e) {
+            let world_pts = |pts: &[Vec2]| -> Vec<Vec2> { pts.iter().map(|p| world_point(i, *p) * mm).collect() };
+            let holes: Vec<Vec<Vec2>> = sl.holes.iter().map(|hole| world_pts(hole)).collect();
+            let solids: Vec<usize> =
+                cx.s.extruded_outline(&world_pts(&sl.outline), &holes, sl.elevation_mm - sl.thickness_mm, sl.thickness_mm).into_iter().collect();
+            cx.element(("IFCSLAB", "$", ""), &sl.name, h, layer, &solids)
+        } else if let Some(st) = struct_of(e) {
+            let sec = st.profile()?;
+            let u = |v: f64| st.units.to_units(v);
+            let column = st.kind == crate::ventilation::StructKind::Column;
+            let local: Vec<Vec2> = if column {
+                let (hx, hy) = (sec.b_mm / 2.0 / mm, sec.h_mm / 2.0 / mm);
+                vec![Vec2::new(-hx, -hy), Vec2::new(hx, -hy), Vec2::new(hx, hy), Vec2::new(-hx, hy)]
+            } else {
+                let (x0, x1, half) = (u(st.trim_start_mm), st.length - u(st.trim_end_mm), sec.b_mm / 2.0 / mm);
+                vec![Vec2::new(x0, -half), Vec2::new(x1, -half), Vec2::new(x1, half), Vec2::new(x0, half)]
+            };
+            let pts: Vec<Vec2> = local.iter().map(|p| world_point(i, *p) * mm).collect();
+            let (class, height) = if column { ("IFCCOLUMN", st.height_mm) } else { ("IFCBEAM", sec.h_mm) };
+            let solids: Vec<usize> = cx.s.extruded_outline(&pts, &[], st.elevation_mm, height).into_iter().collect();
+            cx.element((class, "$", ""), &st.name, h, layer, &solids)
+        } else if let Some(op) = opening_of(e) {
+            let solids = cx.boxed(at, rot, op.width_mm, 150.0, op.sill_mm, op.height_mm);
+            // A window and a door each take their own optional attributes after the tag.
+            let tail = format!("{},{}", real(op.height_mm), real(op.width_mm));
+            let class = if op.kind == OpeningKind::Window { "IFCWINDOW" } else { "IFCDOOR" };
+            cx.element((class, &tail, ",$,$,$"), if op.kind == OpeningKind::Window { "Window" } else { "Door" }, h, layer, &solids)
+        } else if let Some((p, a, b)) = self.duct_ends(h) {
+            let (w, hgt) = match p.shape {
+                crate::ventilation::DuctShape::Round => (p.diameter_mm, p.diameter_mm),
+                crate::ventilation::DuctShape::Rectangular => (p.width_mm, p.height_mm),
+            };
+            let z = p.altitude_mm().unwrap_or(DEFAULT_ALTITUDE_MM) + hgt / 2.0;
+            let round = (p.shape == crate::ventilation::DuctShape::Round).then_some(p.diameter_mm);
+            let solids: Vec<usize> = cx.s.run_solid(a * mm, b * mm, z, round, (w, hgt)).into_iter().collect();
+            cx.element(("IFCDUCTSEGMENT", "$", ""), &format!("Duct {}", p.size_label()), h, layer, &solids)
+        } else if let Some((p, a, b)) = self.pipe_ends(h) {
+            let diameter = p.dn_mm + 2.0 * p.insulation_mm;
+            let z = p.level_mm.unwrap_or(DEFAULT_ALTITUDE_MM) + diameter / 2.0;
+            let solids: Vec<usize> = cx.s.run_solid(a * mm, b * mm, z, Some(diameter), (0.0, 0.0)).into_iter().collect();
+            cx.element(("IFCPIPESEGMENT", "$", ""), p.service.name(), h, layer, &solids)
+        } else if let Some((p, a, b)) = self.cable_ends(h) {
+            let solids: Vec<usize> = cx.s.run_solid(a * mm, b * mm, DEFAULT_ALTITUDE_MM + 100.0, Some(20.0), (0.0, 0.0)).into_iter().collect();
+            cx.element(("IFCCABLESEGMENT", "$", ""), &p.circuit, h, layer, &solids)
+        } else {
+            self.ifc_equipment(cx, e, h, layer, (at, rot))
+        }
+    }
+
+    /// The equipment, units, terminals, furniture, fixtures, devices and spaces among the objects.
+    fn ifc_equipment(&self, cx: &mut Ctx, e: &crate::Entity, h: Handle, layer: &str, (at, rot): (Vec2, f64)) -> Option<usize> {
+        if let Some(q) = equipment_of(e) {
+            let solids = cx.boxed(at, rot, q.length_mm, q.width_mm, q.bottom_mm.unwrap_or(0.0), q.height_mm);
+            cx.element((if q.kind.is_rack() { "IFCBUILDINGELEMENTPROXY" } else { "IFCUNITARYEQUIPMENT" }, "$", ""), &q.name, h, layer, &solids)
+        } else if let Some(a) = ahu_of(e) {
+            let solids = cx.boxed(at, rot, a.width_mm, a.depth_mm, a.bottom_mm.unwrap_or(0.0), a.height_mm.unwrap_or(1000.0));
+            cx.element(("IFCUNITARYEQUIPMENT", "$", ""), &a.name, h, layer, &solids)
+        } else if let Some(t) = air_terminal_of(e) {
+            let solids = cx.boxed(at, rot, t.model.width_mm, t.model.depth_mm, t.bottom_mm.unwrap_or(DEFAULT_ALTITUDE_MM), 100.0);
+            cx.element(("IFCAIRTERMINAL", "$", ""), &t.model.name, h, layer, &solids)
+        } else if let Some(f) = furniture_of(e) {
+            let solids = cx.boxed(at, rot, f.width_mm, f.depth_mm, f.bottom_mm.unwrap_or(0.0), f.height_mm);
+            cx.element(("IFCFURNITURE", "$", ""), &f.name, h, layer, &solids)
+        } else if let Some(f) = sanitary_of(e) {
+            let solids = cx.boxed(at, rot, f.width_mm, f.depth_mm, f.bottom_mm.unwrap_or(0.0), 800.0);
+            cx.element(("IFCSANITARYTERMINAL", "$", ""), &f.name, h, layer, &solids)
+        } else if let Some(dv) = device_of(e) {
+            let (class, w, deep, tall) = if dv.kind.is_light() {
+                ("IFCLIGHTFIXTURE", 200.0, 200.0, 50.0)
+            } else if matches!(dv.kind, crate::ventilation::DeviceKind::Panel) {
+                (
+                    "IFCELECTRICDISTRIBUTIONBOARD",
+                    dv.board_width_mm.unwrap_or(400.0),
+                    dv.board_depth_mm.unwrap_or(150.0),
+                    dv.board_height_mm.unwrap_or(600.0),
+                )
+            } else {
+                ("IFCOUTLET", 80.0, 80.0, 80.0)
+            };
+            let solids = cx.boxed(at, rot, w, deep, dv.height_mm, tall);
+            cx.element((class, "$", ""), &dv.name, h, layer, &solids)
+        } else if space_of(e).is_some() {
+            let (sp, outline) = self.space_outline(h)?;
+            let pts: Vec<Vec2> = outline.iter().map(|p| *p * cx.mm).collect();
+            let solids: Vec<usize> = cx.s.extruded_outline(&pts, &[], 0.0, DEFAULT_SPACE_HEIGHT_MM).into_iter().collect();
+            if solids.is_empty() {
+                return None;
+            }
+            // A space has no tag: its long name, its composition and its predefined type come where the others have theirs.
+            let rep = cx.s.add(format!("IFCSHAPEREPRESENTATION(#{},'Body','SweptSolid',({}))", cx.body, Step::list(&solids)));
+            let shape = cx.s.add(format!("IFCPRODUCTDEFINITIONSHAPE($,$,(#{rep}))"));
+            let place = cx.s.add(format!("IFCLOCALPLACEMENT(#{},#{})", cx.storey_place, cx.world));
+            let id = guid_of(bits_of(&["IFCSPACE", &sp.name], h.0));
+            Some(cx.s.add(format!("IFCSPACE('{id}',$,{},$,$,#{place},#{shape},$,.ELEMENT.,$,0.)", step_text(&sp.name))))
+        } else {
+            None
+        }
+    }
 }
 
 /// A point of a block reference's block in the drawing (the reference's position, turn and scale applied).
