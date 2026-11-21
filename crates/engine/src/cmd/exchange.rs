@@ -40,7 +40,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("export", "Export...", run_export)
             .menu(&["File", "Export..."])
             .alias(&["exp"])
-            .params("{path? (else returns base64 `data`), format?: dxf|dwg|svg|png|pdf (default: the path's extension)} → {format, bytes, path? | data}")
+            .params("{path? (else returns base64 `data`), format?: dxf|dwg|svg|png|pdf (default: the path's extension), version?: 2000|2004|2007|2010|2013|2018 (DXF and DWG; default: the drawing's own), binary?: false (DXF only)} → {format, bytes, version? (DXF and DWG), path? | data}")
             .noundo(),
         CommandSpec::new("dxfin", "DXF In", run_dxfin)
             .params("{path | data: base64, name?} (DXF or DWG), at?: [x,y] (default 0,0), scale?: (default 1) → as IMPORT; typed: the file name")
@@ -134,15 +134,31 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
     if !EXPORT_FORMATS.contains(&format.as_str()) {
         return Err(bad("export", "`format` must be dxf, dwg, svg, png or pdf (or give a `path` with one of those extensions)"));
     }
-    export_as(s, "export", path, &format)
+    export_as(s, "export", p, path, &format)
 }
 
 /// Write the drawing as `format` to `path`, or return it as base64 without one. A folder made
 /// for it, and what the format can't hold, are reported (EXPORT and DXFOUT alike).
-fn export_as(s: &mut Session, cmd: &str, path: Option<&str>, format: &str) -> Result<Value> {
+fn export_as(s: &mut Session, cmd: &str, p: &Value, path: Option<&str>, format: &str) -> Result<Value> {
     let hooks = io().ok_or_else(|| bad(cmd, "file formats are not available in this build"))?;
     let file = format!("export.{format}");
-    let bytes = (hooks.write)(s.doc()?, &file).map_err(|e| bad(cmd, e))?;
+    // DXF and DWG take SAVEAS's version and binary options; the drawing keeps its own version and
+    // name (an export is not a save).
+    let opts = super::file::save_options(cmd, p)?;
+    let drawing_format = matches!(format, "dxf" | "dwg");
+    if opts.version.is_some() && !drawing_format {
+        return Err(bad(cmd, "`version` applies to DXF and DWG files only"));
+    }
+    if opts.binary && format != "dxf" {
+        return Err(bad(cmd, "`binary` applies to DXF files only"));
+    }
+    let bytes = if opts.version.is_some() || opts.binary {
+        let w =
+            super::file::write_as().ok_or_else(|| bad(cmd, "exporting at a chosen version or as binary DXF is not available in this build"))?;
+        w(s.doc()?, &file, &opts).map_err(|e| bad(cmd, e))?
+    } else {
+        (hooks.write)(s.doc()?, &file).map_err(|e| bad(cmd, e))?
+    };
     let folder = path.and_then(super::file::new_folder);
     let mut r = match path {
         Some(path) => {
@@ -151,8 +167,11 @@ fn export_as(s: &mut Session, cmd: &str, path: Option<&str>, format: &str) -> Re
         }
         None => json!({ "data": base64_encode(&bytes), "format": format, "bytes": bytes.len() }),
     };
+    if let (Some(v), Some(o)) = (opts.version, r.as_object_mut()) {
+        o.insert("version".into(), json!(v.year()));
+    }
     super::file::report_new_folder(s, &mut r, folder);
-    super::file::report_loss(s, &mut r, &file);
+    super::file::report_loss(s, &mut r, &file, opts.version);
     Ok(r)
 }
 
@@ -162,7 +181,7 @@ fn export_as(s: &mut Session, cmd: &str, path: Option<&str>, format: &str) -> Re
 /// a DXF is never written under another format's name (EXPORT picks the format from the name).
 fn run_dxfout(s: &mut Session, p: &Value) -> Result<Value> {
     let path = path_param("dxfout", p)?.map(|p| if extension(p) == "dxf" { p.to_string() } else { format!("{p}.dxf") });
-    export_as(s, "dxfout", path.as_deref(), "dxf")
+    export_as(s, "dxfout", p, path.as_deref(), "dxf")
 }
 
 /// DXFIN: a DXF's (or DWG's) objects into the current drawing, as IMPORT.
