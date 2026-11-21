@@ -1754,7 +1754,22 @@ fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams]
                 action = line_edit("circuit", json!(c.trim()));
             }
         });
-        let mut numbers: Vec<(String, &str, Option<f64>)> = vec![(crate::tf!("Line {n}: section (mm²)", n = n), "section", line.section_mm2)];
+        // The cable as it is written: "3G1.5", "2x0.75 blindé", or a section alone.
+        let cable_label = crate::tf!("Line {n}: section or cable (3G1.5, 2x0.75…)", n = n);
+        prop_row(ui, &cable_label, |ui| {
+            let shown = line.cable_text().map(|t| t.replace(" mm²", "")).unwrap_or_default();
+            if let Some(t) = edit_field(ui, ui.scope_id().with(("criser_cable", n, &ids)), shown) {
+                action = line_edit("section", if t.trim().is_empty() { Value::Null } else { json!(t.trim()) });
+            }
+        });
+        // A colour of its own for the line, "#rrggbb"; empty: the colour of its circuit's wire.
+        let colour_label = crate::tf!("Line {n}: colour (#rrggbb)", n = n);
+        prop_row(ui, &colour_label, |ui| {
+            if let Some(t) = edit_field(ui, ui.scope_id().with(("criser_colour", n, &ids)), line.colour.clone().unwrap_or_default()) {
+                action = line_edit("colour", if t.trim().is_empty() { Value::Null } else { json!(t.trim()) });
+            }
+        });
+        let mut numbers: Vec<(String, &str, Option<f64>)> = Vec::new();
         if !line.usage.is_signal() {
             numbers.push((crate::tf!("Line {n}: load (kW)", n = n), "load", line.load_kw));
             numbers.push((crate::tf!("Line {n}: load from other floors (kW)", n = n), "incomingLoad", line.incoming_load_kw));

@@ -127,3 +127,34 @@ fn cable_types_are_saved_in_the_drawing_listed_and_deleted() {
     assert_eq!(s.execute("cabletypedelete", &json!({"name": "KNX 2X0.8"})).unwrap()["deleted"], true);
     assert_eq!(s.execute("cabletypedelete", &json!({"name": "KNX 2X0.8"})).unwrap()["deleted"], false);
 }
+
+#[test]
+fn a_riser_line_takes_its_cable_as_written_and_a_colour_of_its_own() {
+    let mut s = metric();
+    let r = s
+        .execute(
+            "elecriser",
+            &json!({"at": [0, 0], "width": 600, "depth": 400, "lines": [{"circuit": "TD1-C1", "section": "3G1.5"}, {"usage": "bus", "circuit": "BUS1", "section": "2x0.75 blindé", "colour": "#FF8800"}, {"circuit": "TD1-C2", "section": 16}]}),
+        )
+        .unwrap();
+    let h = hd(&r["handle"]);
+    let riser = |s: &Session| cadcraft_doc::any_riser_of(s.doc().unwrap().entity(h).unwrap()).unwrap();
+    let lines = riser(&s).cable.lines;
+    assert_eq!(lines[0].text(), "TD1-C1 3G1.5");
+    assert_eq!(lines[1].text(), "BUS1 2x0.75 blindé");
+    assert_eq!(lines[2].text(), "TD1-C2 16 mm²", "a section alone keeps the text it had");
+    assert_eq!(lines[1].colour.as_deref(), Some("#ff8800"));
+    // The pieces of the line carry the colour; the others keep the layer's.
+    let d = s.doc().unwrap();
+    let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!("a block reference") };
+    let own = cadcraft_color::Color::True(cadcraft_color::Rgb(0xff, 0x88, 0x00));
+    assert!(d.block(&i.block).unwrap().entities.iter().any(|e| e.common.color == own));
+    assert!(d.layer("E-CABLE-BUS-BUS1").is_none() || d.layers.iter().all(|l| !l.name.contains('#')), "no layer is made of the colour");
+    // Edited: another cable, the colour taken off, a bad colour refused.
+    s.execute("riseredit", &json!({"handle": h.hex(), "line": {"index": 1, "section": "5G2.5", "colour": null}})).unwrap();
+    assert_eq!(riser(&s).cable.lines[0].text(), "TD1-C1 5G2.5");
+    s.execute("riseredit", &json!({"handle": h.hex(), "line": {"index": 2, "colour": ""}})).unwrap();
+    assert!(riser(&s).cable.lines[1].colour.is_none());
+    assert!(s.execute("riseredit", &json!({"handle": h.hex(), "line": {"index": 1, "colour": "orange"}})).is_err());
+    assert!(s.execute("riseredit", &json!({"handle": h.hex(), "line": {"index": 1, "section": "abc"}})).is_err());
+}

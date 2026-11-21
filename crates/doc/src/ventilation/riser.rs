@@ -118,6 +118,20 @@ impl RiserMedium {
     }
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// `"#rrggbb"` as red, green and blue.
+pub fn parse_hex_colour(text: &str) -> Option<(u8, u8, u8)> {
+    let h = text.strip_prefix('#')?;
+    if h.len() != 6 || !h.is_ascii() {
+        return None;
+    }
+    let part = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok();
+    Some((part(0)?, part(2)?, part(4)?))
+}
+
 /// One line of a riser of cables: a circuit (or a bus) that goes through the shaft, with its section and its load.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,6 +142,16 @@ pub struct CableLine {
     pub circuit: String,
     #[serde(default)]
     pub section_mm2: Option<f64>,
+    /// The conductors, the earth and the shield of the cable ("3G1.5", "2x0.75 blindé"), when it was given as such: then the line is written with them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cores: Option<u32>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub earth: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shielded: bool,
+    /// A colour of its own for the line, "#rrggbb", instead of the colour of its circuit's wire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colour: Option<String>,
     /// The load the line carries at this level, kW, and the part of it that goes on to, or comes from, the other floors.
     #[serde(default)]
     pub load_kw: Option<f64>,
@@ -137,7 +161,40 @@ pub struct CableLine {
 
 impl CableLine {
     pub fn new(usage: CableUsage) -> CableLine {
-        CableLine { usage, circuit: String::new(), section_mm2: None, load_kw: None, incoming_load_kw: None }
+        CableLine {
+            usage,
+            circuit: String::new(),
+            section_mm2: None,
+            cores: None,
+            earth: false,
+            shielded: false,
+            colour: None,
+            load_kw: None,
+            incoming_load_kw: None,
+        }
+    }
+
+    /// The cable of the line as it is written: "3G1.5", "2x0.75 blindé", or just the section "35 mm²" when it was given alone.
+    pub fn cable_text(&self) -> Option<String> {
+        let section = self.section_mm2?;
+        if self.cores.is_none() && !self.shielded {
+            return Some(format!("{section:.0} mm²"));
+        }
+        Some(super::CableSpec { cores: self.cores, earth: self.earth, shielded: self.shielded, section_mm2: section }.text())
+    }
+
+    /// The colour of the line when it has one of its own and it is a colour.
+    pub fn own_colour(&self) -> Option<&str> {
+        self.colour.as_deref().filter(|c| parse_hex_colour(c).is_some())
+    }
+
+    /// The layer the pieces of the line are on: its circuit's cable layer, with the colour of its own after the line type when it has one.
+    pub fn piece_layer(&self) -> &'static str {
+        let base = super::cable_layer_of(self.usage, &self.circuit);
+        match self.own_colour() {
+            Some(c) => super::pipe_networks::intern(format!("{base}|ByLayer|{c}")).unwrap_or(base),
+            None => base,
+        }
     }
 
     /// The part of the load that goes on to, or comes from, the other floors, when the line has one apart from what it carries here.
@@ -156,8 +213,9 @@ impl CableLine {
     /// The text of the line for a load of `kw`.
     pub fn text_of(&self, kw: Option<f64>) -> String {
         let mut t = if self.circuit.trim().is_empty() { self.usage.name().to_string() } else { self.circuit.trim().to_string() };
-        if let Some(s) = self.section_mm2 {
-            t.push_str(&format!(" {s:.0} mm²"));
+        if let Some(c) = self.cable_text() {
+            t.push(' ');
+            t.push_str(&c);
         }
         if let Some(k) = kw.filter(|_| !self.usage.is_signal()) {
             t.push(' ');
@@ -206,6 +264,10 @@ impl CableData {
             usage,
             circuit: std::mem::take(&mut self.legacy_circuit),
             section_mm2: self.legacy_section_mm2.take(),
+            cores: None,
+            earth: false,
+            shielded: false,
+            colour: None,
             load_kw: self.legacy_load_kw.take(),
             incoming_load_kw: self.legacy_incoming_load_kw.take(),
         });
@@ -296,6 +358,12 @@ impl RiserParams {
             }
             if l.section_mm2.is_some_and(|s| !(s.is_finite() && (0.5..=2_500.0).contains(&s))) {
                 return Err(invalid("A cable riser's section is 0.5 to 2500 mm²."));
+            }
+            if l.cores.is_some_and(|n| !(1..=100).contains(&n)) {
+                return Err(invalid("A cable riser's cable has 1 to 100 conductors."));
+            }
+            if l.colour.as_deref().is_some_and(|c| parse_hex_colour(c).is_none()) {
+                return Err(invalid("The colour of a riser's line is written #rrggbb."));
             }
             if l.circuit.chars().count() > 64 {
                 return Err(invalid("A circuit name has at most 64 characters."));
@@ -493,7 +561,7 @@ impl RiserParams {
             .lines
             .iter()
             .map(|l| Leader {
-                layer: super::cable_layer_of(l.usage, &l.circuit),
+                layer: l.piece_layer(),
                 width: 2.0 * r,
                 flows_up: self.up,
                 // A current comes from the source: below it when it goes up.
@@ -507,7 +575,7 @@ impl RiserParams {
         let up = self.up;
         let lines = &self.cable.lines;
         pieces.extend(leader_pieces(h, u.to_units((w * w + d * d).sqrt()), &leaders, &centres, |i, c| {
-            let layer = lines.get(i).map_or(RISER_LAYER, |l| super::cable_layer_of(l.usage, &l.circuit));
+            let layer = lines.get(i).map_or(RISER_LAYER, |l| l.piece_layer());
             let mut out = vec![HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: r }) }];
             if up {
                 out.push(HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: 0.15 * r }) });

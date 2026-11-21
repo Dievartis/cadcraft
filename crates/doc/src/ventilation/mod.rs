@@ -354,7 +354,11 @@ impl crate::Drawing {
                 }
             }
             let mut common = crate::Common { layer: layer.into(), linetype: linetype.into(), ..Default::default() };
-            if let Some(c) = colour_of.and_then(|n| self.hvac_colour(n)) {
+            // A colour of its own is written "#rrggbb"; else it is the colour of the layer named.
+            if let Some(c) = colour_of.and_then(|n| match riser::parse_hex_colour(n) {
+                Some((r, g, b)) => Some(cadcraft_color::Color::True(cadcraft_color::Rgb(r, g, b))),
+                None => self.hvac_colour(n),
+            }) {
                 common.color = c;
             }
             b.entities.push(crate::Entity { handle: self.new_handle(), common, kind: piece.kind });

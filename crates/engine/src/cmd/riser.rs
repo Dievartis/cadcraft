@@ -25,7 +25,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("elecriser", "Electrical Riser", run_add_power)
             .menu(&["Draw", "Electricity", "Riser"])
             .params(
-                "{points | handle (closed polyline) | at + width + depth (mm), name?, medium? (power|lighting|data|safety; default power), lines? (a list: a circuit name, or {usage? (power|lighting|data|safety|bus), circuit?, section? (mm²), \
+                "{points | handle (closed polyline) | at + width + depth (mm), name?, medium? (power|lighting|data|safety; default power), lines? (a list: a circuit name, or {usage? (power|lighting|data|safety|bus), circuit?, section? (mm², or the cable as written: 3G1.5, 2x0.75 blindé), colour? (#rrggbb: a colour of its own for the line), \
                  load? (kW carried at this level), incomingLoad? (kW that comes from, or goes on to, the other floors: added to the circuit's load)}; default one line), or circuit, section, load and \
                  incomingLoad for that one line; direction? (up|down: the way the current goes), height? (mm, floor to floor: counted in the length of each circuit it carries), labelHeight? (mm)} → {handle, name}",
             )
@@ -253,10 +253,38 @@ fn apply_cable_line(cmd: &str, line: &mut CableLine, v: &Value) -> Result<()> {
     if let Some(c) = str_param(v, "circuit") {
         line.circuit = c.trim().to_string();
     }
-    for (key, slot) in [("section", &mut line.section_mm2), ("load", &mut line.load_kw), ("incomingLoad", &mut line.incoming_load_kw)] {
+    // The cable: a section, or as it is written ("3G1.5", "5G2.5", "2x0.75 blindé"); null or empty clears it.
+    match v.get("section") {
+        None => {}
+        Some(Value::String(t)) if !t.trim().is_empty() && t.trim().parse::<f64>().is_err() => {
+            let spec = cadcraft_doc::parse_cable_spec(t)
+                .ok_or_else(|| bad(cmd, "`section` is a number of mm² or a cable such as 3G1.5 or 2x0.75 blindé"))?;
+            (line.section_mm2, line.cores, line.earth, line.shielded) = (Some(spec.section_mm2), spec.cores, spec.earth, spec.shielded);
+        }
+        Some(Value::String(t)) if t.trim().is_empty() => (line.section_mm2, line.cores, line.earth, line.shielded) = (None, None, false, false),
+        Some(Value::Null) => (line.section_mm2, line.cores, line.earth, line.shielded) = (None, None, false, false),
+        Some(_) => {
+            if let Some(n) = clearable(cmd, v, "section")? {
+                // A number alone is a section: the cable has no conductors of its own.
+                (line.section_mm2, line.cores, line.earth, line.shielded) = (n, None, false, false);
+            }
+        }
+    }
+    for (key, slot) in [("load", &mut line.load_kw), ("incomingLoad", &mut line.incoming_load_kw)] {
         if let Some(n) = clearable(cmd, v, key)? {
             *slot = n;
         }
+    }
+    // A colour of its own for the line, "#rrggbb"; null or empty gives it back the colour of its circuit's wire.
+    match v.get("colour").or_else(|| v.get("color")) {
+        None => {}
+        Some(Value::Null) => line.colour = None,
+        Some(Value::String(c)) if c.trim().is_empty() => line.colour = None,
+        Some(Value::String(c)) => {
+            cadcraft_doc::parse_hex_colour(c.trim()).ok_or_else(|| bad(cmd, "`colour` is written #rrggbb"))?;
+            line.colour = Some(c.trim().to_ascii_lowercase());
+        }
+        Some(_) => return Err(bad(cmd, "`colour` is written #rrggbb")),
     }
     Ok(())
 }
