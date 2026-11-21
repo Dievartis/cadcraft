@@ -6,6 +6,7 @@ impl Session {
         self.untitled_counter += 1;
         let d = if metric { Drawing::new_metric() } else { Drawing::new_imperial() };
         let mut st = DocState::new(d, &format!("Drawing{}", self.untitled_counter), None);
+        self.apply_default_insunits(&mut st);
         st.set_view_quiet(if metric { View { center: Vec2::new(210.0, 148.5), height: 297.0, twist: 0.0 } } else { View::default() });
         self.end_running();
         self.docs.push(st);
@@ -17,6 +18,7 @@ impl Session {
     /// Append a loaded drawing, fit the view to its model extents (aspect-corrected, minimum height 1e-6) when non-empty, end a running command, make it active, bump the epoch and return its index.
     pub fn open_drawing(&mut self, d: Drawing, title: &str, path: Option<String>) -> usize {
         let mut st = DocState::new(d, title, path);
+        self.apply_default_insunits(&mut st);
         // The view the file was saved at is the one every other reader opens on. Fitting the
         // extents instead showed a drawing whose extents are dominated by far-off geometry at a
         // view hundreds of times its content, with the drawing sub-pixel and no way to zoom in
@@ -38,6 +40,15 @@ impl Session {
         self.active = self.docs.len() - 1;
         self.bump_doc_epoch();
         self.active
+    }
+
+    /// Gives a drawing that is opened or made the unit the user chose to be used every time (INSUNITS 0 to 24), when there is one.
+    fn apply_default_insunits(&self, st: &mut DocState) {
+        if let Some(u) = self.default_insunits.filter(|u| (0..=24).contains(u))
+            && st.doc.header.i64("INSUNITS", 1) != u
+        {
+            std::sync::Arc::make_mut(&mut st.doc).header.set_i64("INSUNITS", u);
+        }
     }
 
     /// Record that which drawing is open or active changed (screenshot binding).

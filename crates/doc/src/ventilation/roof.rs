@@ -244,6 +244,23 @@ impl RoofParams {
         RoofCount { plan_m2, area_m2: plan_m2 / self.pitch_deg.to_radians().cos(), rise_m, ridge_m }
     }
 
+    /// The height of the roof's surface, mm, as the least of these affine functions of a point of the block (drawing units): `terms()[k] = (g, c)` is
+    /// `g · p + c`. The planes start at the walls' outline at the eaves' elevation and rise at the slope, so a point beyond the walls (the overhang) is lower,
+    /// and the surface is the lowest of the planes: a shed's one, a gable's two, a hip roof's four.
+    pub fn height_terms(&self) -> Vec<(Vec2, f64)> {
+        let f = self.frame();
+        let k = self.units.mm_per_unit;
+        let tan = self.pitch_deg.to_radians().tan();
+        // `a · p` in drawing units makes `a · p * k` millimetres.
+        let plane = |dir: Vec2, from: f64| (dir * (tan * k), self.elevation_mm - tan * k * from);
+        let (up_v, down_v) = (plane(f.v, f.v_min), plane(-f.v, -f.v_max));
+        match self.kind {
+            RoofKind::Shed => vec![up_v],
+            RoofKind::Gable => vec![up_v, down_v],
+            RoofKind::Hip => vec![up_v, down_v, plane(f.u, f.u_min), plane(-f.u, -f.u_max)],
+        }
+    }
+
     pub fn label_text(&self) -> String {
         let n = self.count();
         format!("{} {} {:.0}\u{b0} top {:+.2} m", self.name, self.kind.name(), self.pitch_deg, self.elevation_mm / 1000.0 + n.rise_m)

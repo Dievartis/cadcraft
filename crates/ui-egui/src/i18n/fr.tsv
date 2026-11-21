@@ -3260,7 +3260,7 @@ echo	Pipe riser {a}: {b} line(s)	Colonne de tuyauterie {a} : {b} ligne(s)
 echo	Current settings: Name = {a}, Air = {b}, Direction = {c}	Paramètres actuels : Nom = {a}, Air = {b}, Sens = {c}
 echo	Roof {a}: {b} m² in plan, {c} m² of slopes, rise {d} m	Toit {a} : {b} m² en plan, {c} m² de pans, hauteur {d} m
 echo	Current settings: Kind = {a}, Pitch = {b}°	Paramètres actuels : Type = {a}, Pente = {b}°
-echo	Section: {a} walls, {b} openings, {c} slabs, {d} columns, {e} beams, {f} ceilings cut	Coupe : {a} murs, {b} ouvertures, {c} dalles, {d} poteaux, {e} poutres, {f} faux plafonds coupés
+echo	Section: {a} walls, {b} openings, {c} slabs, {d} columns, {e} beams, {f} ceilings, {g} roofs cut	Coupe : {a} murs, {b} ouvertures, {c} dalles, {d} poteaux, {e} poutres, {f} faux plafonds, {g} toits coupés
 echo	Unknown variable {a}. Type SETVAR ? to list variables.	Variable {a} inconnue. Tapez SETVAR ? pour lister les variables.
 echo	{a} = {b} (read only)	{a} = {b} (lecture seule)
 echo	Openings from the risers: {a}	Trémies des colonnes : {a}
@@ -3787,3 +3787,4 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	Overhang (mm)	Débord de toit (mm)
 	Enter the overhang (mm)	Entrez le débord de toit (mm)
 	Requires an overhang of 0 to 5000 mm.	Il faut un débord de 0 à 5000 mm.
+	Use it for every drawing I open	L'utiliser pour chaque dessin que j'ouvre

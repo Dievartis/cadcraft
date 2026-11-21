@@ -282,6 +282,9 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             .unwrap_or([2, 4, 0, 0, 1])
     });
     let (mut apply, mut cancel) = (false, false);
+    // Whether the insertion unit is the one every drawing takes when it is opened: chosen once, kept with the preferences.
+    let keep_id = id.with("keep_insunits");
+    let mut keep = ctx.data_mut(|d| d.get_temp::<bool>(keep_id)).unwrap_or(app.session.default_insunits.is_some());
     egui::Window::new(crate::i18n::t("Drawing Units")).open(open).resizable(false).collapsible(false).show(ctx, |ui| {
         let [lu, lp, au, ap, ins] = &mut v;
         let types = |t: &[(i64, &str)]| t.iter().map(|(k, l)| (*k, crate::i18n::t(l).to_string())).collect::<Vec<_>>();
@@ -308,6 +311,9 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             let names = INSERTION_UNITS.iter().enumerate().map(|(k, l)| (k as i64, crate::i18n::t(l).to_string())).collect::<Vec<_>>();
             pick(ui, "units_insunits", ins, &names);
             ui.end_row();
+            ui.label("");
+            ui.checkbox(&mut keep, crate::i18n::t("Use it for every drawing I open"));
+            ui.end_row();
             ui.strong(crate::i18n::t("Sample output"));
             ui.end_row();
             ui.label("");
@@ -326,12 +332,19 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
     if apply {
         let [lu, lp, au, ap, ins] = v;
         let _ = app.run("units", json!({ "lunits": lu, "luprec": lp, "aunits": au, "auprec": ap, "insunits": ins }));
+        app.session.default_insunits = keep.then_some(ins);
     }
     if apply || cancel || !*open {
-        ctx.data_mut(|d| d.remove::<[i64; 5]>(id));
+        ctx.data_mut(|d| {
+            d.remove::<[i64; 5]>(id);
+            d.remove::<bool>(keep_id);
+        });
         *open = false;
     } else {
-        ctx.data_mut(|d| d.insert_temp(id, v));
+        ctx.data_mut(|d| {
+            d.insert_temp(id, v);
+            d.insert_temp(keep_id, keep);
+        });
     }
 }
 

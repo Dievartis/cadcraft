@@ -2,12 +2,12 @@
 //! drawn with their openings (sill and head), the slabs with their thickness and openings, the steel columns and beams, and the false ceilings, each
 //! at its elevation, with the levels in the margin. The air terminals, the ducts, the air handling units, the equipment and the pipes the line crosses are
 //! drawn too, each at the altitude of its underside (the terminals at 2.50 m and the ducts at 2.50 m where none was given). It is one block reference, so it moves, copies and explodes like any other object, and it is a
-//! picture made now: it does not follow later changes to the plan. Slopes of slabs and roofs are not drawn.
+//! picture made now: it does not follow later changes to the plan. Roofs are drawn as the line of their surface (with the overhang, the ridge and the slope) and the thickness of 200 mm; slopes of slabs are not drawn.
 
 use cadcraft_geom::{PolyVertex, Vec2};
 
 use super::{WallParams, joint, wall_of};
-use crate::ventilation::{HvacPiece, HvacUnits, ahu_of, air_terminal_of, ceiling_of, duct_of, equipment_of, pipe_of, slab_of, struct_of};
+use crate::ventilation::{HvacPiece, HvacUnits, ahu_of, air_terminal_of, ceiling_of, duct_of, equipment_of, pipe_of, roof_of, slab_of, struct_of};
 use crate::{
     Common, DocError, Drawing, EntityKind, HAlign, Handle, Hatch, HatchLoop, Insert, Line, LwPolyline, OpeningKind, Result, Space, Text, VAlign,
     opening_of,
@@ -32,6 +32,8 @@ pub struct SectionCount {
     pub columns: usize,
     pub beams: usize,
     pub ceilings: usize,
+    /// The roofs the line crosses.
+    pub roofs: usize,
     /// The ducts, the air terminals, the units and equipment, and the pipes the line goes through (a duct it crosses twice counts twice).
     pub ducts: usize,
     pub terminals: usize,
@@ -294,6 +296,8 @@ impl Drawing {
                         }
                     }
                 }
+            } else if let Some(r) = roof_of(e) {
+                section_roof(&mut pic, &cut, i, &r);
             } else if let Some(c) = ceiling_of(e) {
                 let outline: Vec<Vec2> = c.outline.iter().map(|q| to_world(i, *q)).collect();
                 let stretches = cut.inside(&outline);
@@ -461,6 +465,65 @@ impl Drawing {
 }
 
 /// The cut of one wall: for each segment the line crosses, the wall from the ground to its height, with a gap where an opening stands.
+/// A point of the drawing in the block of a block reference: what [`to_world`] undoes.
+fn to_local(i: &Insert, p: Vec2) -> Vec2 {
+    let (c, s) = (i.rotation.cos(), i.rotation.sin());
+    let (dx, dy) = (p.x - i.insert.x, p.y - i.insert.y);
+    let (x, y) = (dx * c + dy * s, -dx * s + dy * c);
+    Vec2::new(if i.scale.x.abs() > 1e-12 { x / i.scale.x } else { 0.0 }, if i.scale.y.abs() > 1e-12 { y / i.scale.y } else { 0.0 })
+}
+
+/// How thick a roof is drawn in a section, mm (a roof has no thickness of its own).
+const SECTION_ROOF_THICKNESS_MM: f64 = 200.0;
+
+/// A roof the cut line crosses: the line of its surface, with the slopes where the planes meet (the ridge) and where the overhang ends, and the same line
+/// a little lower, closed at both ends.
+fn section_roof(pic: &mut Picture, cut: &Cut, i: &Insert, r: &crate::ventilation::RoofParams) {
+    let eaves: Vec<Vec2> = r.eaves_outline().iter().map(|q| to_world(i, *q)).collect();
+    let terms = r.height_terms();
+    let stretches = cut.inside(&eaves);
+    if stretches.is_empty() || terms.is_empty() {
+        return;
+    }
+    pic.count.roofs += 1;
+    for (x0, x1) in stretches {
+        let (la, lb) = (to_local(i, cut.a + cut.d * x0), to_local(i, cut.a + cut.d * x1));
+        // Each plane's height at the two ends of the stretch: it is a straight line between them, and the roof is the lowest plane.
+        let at = |p: Vec2| terms.iter().map(|(g, c)| g.dot(p) + c).collect::<Vec<f64>>();
+        let (va, vb) = (at(la), at(lb));
+        let mut steps = vec![0.0, 1.0];
+        for a in 0..terms.len() {
+            for b in a + 1..terms.len() {
+                let (da, db) = (va[a] - va[b], vb[a] - vb[b]);
+                if (da - db).abs() > 1e-12 {
+                    let s = da / (da - db);
+                    if s > 1e-9 && s < 1.0 - 1e-9 {
+                        steps.push(s);
+                    }
+                }
+            }
+        }
+        steps.sort_by(f64::total_cmp);
+        steps.dedup_by(|p, q| (*p - *q).abs() < 1e-9);
+        let height = |s: f64| (0..terms.len()).map(|n| va[n] + (vb[n] - va[n]) * s).fold(f64::MAX, f64::min);
+        let top: Vec<Vec2> = steps.iter().map(|s| Vec2::new(x0 + s * (x1 - x0), pic.u(height(*s)))).collect();
+        let low: Vec<Vec2> = top.iter().map(|p| Vec2::new(p.x, p.y - pic.u(SECTION_ROOF_THICKNESS_MM))).collect();
+        for w in top.windows(2).chain(low.windows(2)) {
+            if let [a, b] = w {
+                pic.line(SECTION_LAYER, *a, *b);
+            }
+        }
+        if let (Some(a), Some(b), Some(c), Some(d)) = (top.first(), low.first(), top.last(), low.last()) {
+            pic.line(SECTION_LAYER, *a, *b);
+            pic.line(SECTION_LAYER, *c, *d);
+        }
+        // The level of the top, in the margin.
+        if let Some(y) = top.iter().map(|p| p.y).reduce(f64::max) {
+            pic.levels.push(y * pic.units.mm_per_unit);
+        }
+    }
+}
+
 fn section_wall(pic: &mut Picture, cut: &Cut, i: &Insert, wall: &WallParams, openings: &[(Vec2, f64, crate::OpeningParams)]) {
     let place = joint::Placement {
         insert: Vec2::new(i.insert.x, i.insert.y),

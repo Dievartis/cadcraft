@@ -719,8 +719,8 @@ fn a_history_line_is_translated_by_its_pattern_and_its_values_by_the_catalog() {
         assert_eq!(echo("Block \"MUR\" defined with 3 object(s)."), "Bloc « MUR » défini avec 3 objet(s).");
         assert_eq!(echo("Command: LINE"), "Commande : LINE");
         assert_eq!(
-            echo("Section: 3 walls, 2 openings, 1 slabs, 0 columns, 4 beams, 5 ceilings cut"),
-            "Coupe : 3 murs, 2 ouvertures, 1 dalles, 0 poteaux, 4 poutres, 5 faux plafonds coupés"
+            echo("Section: 3 walls, 2 openings, 1 slabs, 0 columns, 4 beams, 5 ceilings, 6 roofs cut"),
+            "Coupe : 3 murs, 2 ouvertures, 1 dalles, 0 poteaux, 4 poutres, 5 faux plafonds, 6 toits coupés"
         );
         // What fits nothing stays as it is.
         assert_eq!(echo("Something unknown 12"), "Something unknown 12");

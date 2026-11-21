@@ -799,6 +799,9 @@ impl CadApp {
             "refrigerantSizes": options::refrigerant_defaults(self),
             "takeoffStore": self.takeoff_store,
         });
+        if let Some(u) = self.session.default_insunits {
+            prefs["defaultInsunits"] = json!(u);
+        }
         if self.spacemouse.settings != spacemouse::Settings::default() {
             prefs["spacemouse"] = json!(self.spacemouse.settings);
         }
@@ -851,6 +854,9 @@ impl CadApp {
         }
         if let Some(v) = v.get("saveVersion").and_then(Value::as_str).and_then(SaveVersion::parse) {
             self.ui.save_version = v.year().to_string();
+        }
+        if let Some(u) = v.get("defaultInsunits").and_then(Value::as_i64).filter(|u| (0..=24).contains(u)) {
+            self.session.default_insunits = Some(u);
         }
         if let Some(files) = v.get("recentFiles").and_then(Value::as_array) {
             self.ui.recent_files = files.iter().filter_map(Value::as_str).filter(|p| !p.is_empty()).take(RECENT_FILES).map(str::to_string).collect();

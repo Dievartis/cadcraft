@@ -148,6 +148,8 @@ pub struct Session {
     /// SIngle typed at "Select objects": the next selection ends the prompt.
     pub select_single: bool,
     pub untitled_counter: u32,
+    /// The unit (INSUNITS) every drawing opened or made takes, when the user chose one to be used each time; `None`: each drawing keeps its own.
+    pub default_insunits: Option<i64>,
     /// The last dimension created (DIMCONTINUE / DIMBASELINE).
     pub last_dim: Option<Handle>,
     /// Options remembered between invocations of interactive commands.
@@ -220,6 +222,7 @@ impl Session {
             select_mode: None,
             select_single: false,
             untitled_counter: 0,
+            default_insunits: None,
             last_dim: None,
             last_used: LastUsed::default(),
             clipboard_source: None,

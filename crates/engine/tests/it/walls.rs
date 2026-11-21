@@ -1292,3 +1292,28 @@ fn walls_edited_by_hand_are_left_alone_and_counted_unless_regeneration_is_asked_
     assert_eq!(r["regenerated"], 1);
     assert!(s.doc().unwrap().wall_is_intact(b), "at its own size again");
 }
+
+#[test]
+fn a_roof_is_cut_by_a_section_with_its_overhang_its_ridge_and_its_slope() {
+    let mut s = metric();
+    // A gable roof of 30 degrees over 10 x 6 m, the ridge along x, the eaves at 3 m, an overhang of 0.5 m.
+    s.execute("roofadd", &json!({"points": [[0, 0], [10000, 0], [10000, 6000], [0, 6000]], "pitch": 30, "elevation": 3, "overhang": 500})).unwrap();
+    let r = s.execute("sectionadd", &json!({"a": [5000, -2000], "b": [5000, 8000]})).unwrap();
+    assert_eq!(r["roofs"].as_u64(), Some(1), "{r}");
+    // Across the roof: the edge is 0.5 m past each wall, so the picture spans 7 m of it, between the points where the line meets the edge.
+    let d = s.doc().unwrap();
+    let sec = d.model.iter().find(|e| e.common.layer == cadcraft_doc::SECTION_LAYER).unwrap();
+    let EntityKind::Insert(i) = &sec.kind else { panic!("a block reference") };
+    let ys: Vec<f64> = d
+        .block(&i.block)
+        .unwrap()
+        .entities
+        .iter()
+        .filter_map(|e| if let EntityKind::Line(l) = &e.kind { Some([l.a.y, l.b.y]) } else { None })
+        .flatten()
+        .collect();
+    let top = ys.iter().cloned().fold(f64::MIN, f64::max);
+    // The ridge: 3 m + 3 m * tan 30 degrees = 4.732 m; the edge of the overhang is lower than the walls' 3 m by 0.5 m * tan 30 degrees = 0.289 m.
+    assert!((top - (3000.0 + 3000.0 * 30f64.to_radians().tan())).abs() < 1.0, "{top}");
+    assert!(ys.iter().any(|y| (y - (3000.0 - 500.0 * 30f64.to_radians().tan())).abs() < 1.0), "the edge of the roof");
+}
