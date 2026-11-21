@@ -3,12 +3,12 @@
 //! by its height; every opening in it is drawn at its place with its sill and height, and a chain of
 //! dimensions below gives the distances between the openings. It is one block reference, so it
 //! moves, copies and explodes like any other object, and it is a picture made now: it does not
-//! follow later changes to the plan.
+//! follow later changes to the plan. What stands against the face seen (equipment, air terminals, units, devices, furniture, within a metre of it) is drawn too, at its place and height.
 
 use cadcraft_geom::{PolyVertex, Vec2};
 
 use super::{WallParams, joint, wall_of};
-use crate::ventilation::HvacPiece;
+use crate::ventilation::{HvacPiece, ahu_of, air_terminal_of, device_of, equipment_of, furniture_of};
 use crate::{Common, DocError, Drawing, EntityKind, HAlign, Handle, Line, LwPolyline, OpeningKind, Result, Space, Text, VAlign, opening_of};
 
 /// The layers of an elevation.
@@ -16,6 +16,22 @@ pub const ELEVATION_LAYER: &str = "A-ELEV";
 pub const ELEVATION_DOOR_LAYER: &str = "A-ELEV-DOOR";
 pub const ELEVATION_WINDOW_LAYER: &str = "A-ELEV-GLAZ";
 pub const ELEVATION_DIM_LAYER: &str = "A-ELEV-DIMS";
+/// What stands in front of the wall: equipment, air terminals, units, devices and furniture, seen as they are on it.
+pub const ELEVATION_OBJECT_LAYER: &str = "A-ELEV-OBJ";
+
+/// Most objects drawn in front of one wall, and how far from its face (mm) one still counts as standing against it.
+const MAX_ELEVATION_OBJECTS: usize = 512;
+const OBJECT_DEPTH_MM: f64 = 1000.0;
+
+/// An object standing in front of a wall, seen from the front: where it is along the wall and in height (drawing units) and what it is called.
+#[derive(Clone, Debug, PartialEq)]
+struct FrontObject {
+    from: f64,
+    to: f64,
+    bottom: f64,
+    top: f64,
+    name: String,
+}
 
 /// Most openings drawn in one elevation.
 const MAX_ELEVATION_OPENINGS: usize = 512;
@@ -47,7 +63,12 @@ fn v3(p: Vec2) -> cadcraft_geom::Vec3 {
 /// What an elevation is made of, in the block's coordinates: its width (the wall's developed
 /// length) and its pieces. `openings` are, for each opening, its kind, its centre along the wall,
 /// its width, sill and height (all in drawing units).
-fn pieces_of(wall: &WallParams, openings: &[(OpeningKind, f64, f64, f64, f64)], side: ElevationSide) -> (f64, Vec<HvacPiece>) {
+fn pieces_of(
+    wall: &WallParams,
+    openings: &[(OpeningKind, f64, f64, f64, f64)],
+    objects: &[FrontObject],
+    side: ElevationSide,
+) -> (f64, Vec<HvacPiece>) {
     let u = |mm: f64| wall.units.to_units(mm);
     let mm = wall.units.mm_per_unit;
     let path = wall.centreline();
@@ -112,6 +133,14 @@ fn pieces_of(wall: &WallParams, openings: &[(OpeningKind, f64, f64, f64, f64)], 
         out.push(text(ELEVATION_DIM_LAYER, Vec2::new(mid, top + 1.5 * text_height), label));
         edges.extend([centre - w / 2.0, centre + w / 2.0]);
     }
+    // What stands in front of the wall, with its name above it.
+    for o in objects {
+        let (a, b) = (x(o.from), x(o.to));
+        out.push(rect(ELEVATION_OBJECT_LAYER, a, o.bottom, b, o.top));
+        if !o.name.is_empty() {
+            out.push(text(ELEVATION_OBJECT_LAYER, Vec2::new((a + b) / 2.0, o.top + 0.8 * text_height), o.name.clone()));
+        }
+    }
     // The wall's height, on its left, and the chain of dimensions below.
     out.push(text(ELEVATION_DIM_LAYER, Vec2::new(-u(300.0), height / 2.0), format!("{:.0}", wall.height)));
     edges.retain(|e| e.is_finite() && *e >= -1e-9 && *e <= length + 1e-9);
@@ -165,7 +194,73 @@ impl Drawing {
             }
         }
         openings.sort_by(|a, b| a.1.total_cmp(&b.1));
-        Ok(pieces_of(&params, &openings, side))
+        let objects = self.front_objects(space, &placed, &start, side);
+        Ok(pieces_of(&params, &openings, &objects, side))
+    }
+
+    /// The equipment, air terminals, units, devices and furniture of `space` that stand against the face of the wall seen from `side` (within a metre of it,
+    /// in front of the segment they are nearest to), as the elevation shows them: their extent along the wall and in height, from the altitude of their
+    /// underside (the floor, or 2.50 m for a terminal that has none, as a section puts it).
+    fn front_objects(&self, space: &Space, wall: &joint::Placed, start: &[f64], side: ElevationSide) -> Vec<FrontObject> {
+        let params = &wall.params;
+        let units = params.units;
+        let (u, mm) = (|v: f64| units.to_units(v), units.mm_per_unit);
+        let path: Vec<Vec2> = params.centreline().iter().map(|p| wall.at.to_world(*p)).collect();
+        let n = path.len();
+        let segments = if params.closed { n } else { n.saturating_sub(1) };
+        let thick = params.style.thickness() / mm;
+        let depth = OBJECT_DEPTH_MM / mm;
+        let sign = if side == ElevationSide::Right { 1.0 } else { -1.0 };
+        let mut out = Vec::new();
+        for o in self.space(space).into_iter().flat_map(|s| s.iter()) {
+            let EntityKind::Insert(i) = &o.kind else { continue };
+            // (half sizes in plan, mm; underside and height, mm; name)
+            let (half, bottom, height, name) = if let Some(q) = equipment_of(o) {
+                ((q.length_mm / 2.0, q.width_mm / 2.0), q.bottom_mm.unwrap_or(0.0), q.height_mm, q.name)
+            } else if let Some(t) = air_terminal_of(o) {
+                ((t.model.width_mm / 2.0, t.model.depth_mm / 2.0), t.bottom_mm.unwrap_or(2500.0), 100.0, String::new())
+            } else if let Some(a) = ahu_of(o) {
+                ((a.width_mm / 2.0, a.depth_mm / 2.0), a.bottom_mm.unwrap_or(0.0), a.height_mm.unwrap_or(1000.0), a.name)
+            } else if let Some(f) = furniture_of(o) {
+                ((f.width_mm / 2.0, f.depth_mm / 2.0), f.bottom_mm.unwrap_or(0.0), f.height_mm, f.name)
+            } else if let Some(d) = device_of(o) {
+                // A device is a plate of 80 mm, at its mounting height; a board is as big as it is.
+                let (w, h) = (d.board_width_mm.unwrap_or(80.0), d.board_height_mm.unwrap_or(80.0));
+                ((w / 2.0, d.board_depth_mm.unwrap_or(80.0) / 2.0), d.height_mm, h, d.name)
+            } else {
+                continue;
+            };
+            let c = Vec2::new(i.insert.x, i.insert.y);
+            // The segment nearest to the object's centre.
+            let mut best: Option<(f64, usize, f64, f64, Vec2)> = None;
+            for k in 0..segments {
+                let (Some(&a), Some(&b)) = (path.get(k), path.get((k + 1) % n)) else { continue };
+                let len = a.dist(b);
+                if len <= 1e-9 {
+                    continue;
+                }
+                let d = (b - a) / len;
+                let t = (c - a).dot(d).clamp(0.0, len);
+                let off = (c - (a + d * t)).len();
+                if best.as_ref().is_none_or(|x| off < x.0) {
+                    best = Some((off, k, t, (c - a).dot(Vec2::new(d.y, -d.x)) * sign, d));
+                }
+            }
+            let Some((_, k, t, side_off, d)) = best else { continue };
+            if side_off < -thick || side_off > depth + thick / 2.0 {
+                continue;
+            }
+            // How far the object reaches along the wall: its half sizes turned to the wall's direction.
+            let phi = i.rotation - d.angle();
+            let (hx, hy) = (half.0 / mm, half.1 / mm);
+            let along = hx * phi.cos().abs() + hy * phi.sin().abs();
+            let centre = start.get(k).copied().unwrap_or(0.0) + t;
+            out.push(FrontObject { from: centre - along, to: centre + along, bottom: u(bottom), top: u(bottom + height), name });
+            if out.len() >= MAX_ELEVATION_OBJECTS {
+                break;
+            }
+        }
+        out
     }
 
     /// Draws the elevation of wall `wall` with its lower left corner at `at` (drawing coordinates),
@@ -175,7 +270,7 @@ impl Drawing {
             return Err(DocError::Invalid("An elevation needs a usable place.".into()));
         }
         let (width, pieces) = self.wall_elevation_pieces(space, wall, side)?;
-        for layer in [ELEVATION_LAYER, ELEVATION_DOOR_LAYER, ELEVATION_WINDOW_LAYER, ELEVATION_DIM_LAYER] {
+        for layer in [ELEVATION_LAYER, ELEVATION_DOOR_LAYER, ELEVATION_WINDOW_LAYER, ELEVATION_DIM_LAYER, ELEVATION_OBJECT_LAYER] {
             self.ensure_layer(layer);
         }
         let block = self.hvac_block(pieces);

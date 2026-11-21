@@ -1317,3 +1317,51 @@ fn a_roof_is_cut_by_a_section_with_its_overhang_its_ridge_and_its_slope() {
     assert!((top - (3000.0 + 3000.0 * 30f64.to_radians().tan())).abs() < 1.0, "{top}");
     assert!(ys.iter().any(|y| (y - (3000.0 - 500.0 * 30f64.to_radians().tan())).abs() < 1.0), "the edge of the roof");
 }
+
+#[test]
+fn the_elevation_of_a_wall_shows_the_equipment_terminals_and_devices_that_stand_against_its_face() {
+    let mut s = metric();
+    let w = s.execute("walladd", &json!({"points": [[0, 0], [6000, 0]], "style": PARTITION})).unwrap();
+    // On the right of the path (below it in plan): a wall unit 600 mm from the face, a socket against it; on the left, another unit that is not seen.
+    s.execute("equipmentadd", &json!({"at": [3000, -600], "model": "Wall unit 2.5 kW", "name": "UI1"})).unwrap();
+    s.execute("elecdeviceadd", &json!({"at": [1000, -40], "kind": "socket"})).unwrap();
+    s.execute("equipmentadd", &json!({"at": [4500, 600], "model": "Wall unit 2.5 kW", "name": "UI2"})).unwrap();
+    s.execute("equipmentadd", &json!({"at": [3000, -3000], "model": "Wall unit 2.5 kW", "name": "FAR"})).unwrap();
+    let r = s.execute("wallelevation", &json!({"handle": w["handle"], "at": [0, -20000]})).unwrap();
+    let h = Handle::parse_hex(r["created"][0].as_str().unwrap()).unwrap();
+    let d = s.doc().unwrap();
+    let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!("a block reference") };
+    let names: Vec<String> = d
+        .block(&i.block)
+        .unwrap()
+        .entities
+        .iter()
+        .filter(|e| e.common.layer == cadcraft_doc::ELEVATION_OBJECT_LAYER)
+        .filter_map(|e| if let EntityKind::Text(t) = &e.kind { Some(t.value.clone()) } else { None })
+        .collect();
+    assert!(names.contains(&"UI1".to_string()) && !names.contains(&"UI2".to_string()) && !names.contains(&"FAR".to_string()), "{names:?}");
+    assert_eq!(names.len(), 2, "the unit in front and the socket (named by its tag): {names:?}");
+    let rects = d
+        .block(&i.block)
+        .unwrap()
+        .entities
+        .iter()
+        .filter(|e| e.common.layer == cadcraft_doc::ELEVATION_OBJECT_LAYER && matches!(e.kind, EntityKind::LwPolyline(_)))
+        .count();
+    assert_eq!(rects, 2, "the unit and the socket");
+    // From the other side, the unit behind is the one seen.
+    let r = s.execute("wallelevation", &json!({"handle": w["handle"], "at": [0, -30000], "side": "left"})).unwrap();
+    let h = Handle::parse_hex(r["created"][0].as_str().unwrap()).unwrap();
+    let d = s.doc().unwrap();
+    let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!("a block reference") };
+    let names: Vec<String> = d
+        .block(&i.block)
+        .unwrap()
+        .entities
+        .iter()
+        .filter(|e| e.common.layer == cadcraft_doc::ELEVATION_OBJECT_LAYER)
+        .filter_map(|e| if let EntityKind::Text(t) = &e.kind { Some(t.value.clone()) } else { None })
+        .collect();
+    // (The socket is in the thickness of the wall: it is seen from both faces.)
+    assert!(names.contains(&"UI2".to_string()) && !names.contains(&"UI1".to_string()), "{names:?}");
+}
