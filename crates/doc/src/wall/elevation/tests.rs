@@ -39,7 +39,7 @@ fn an_elevation_is_the_developed_length_by_the_height_with_its_openings_at_their
     let w = wall(&[(0.0, 0.0), (3000.0, 0.0), (3000.0, 4000.0)]);
     // A door (900 x 2100, no sill) centred at 1000, and a window (1200 x 1200, sill 900) at 5000.
     let openings = [(OpeningKind::Door, 1000.0, 900.0, 0.0, 2100.0), (OpeningKind::Window, 5000.0, 1200.0, 900.0, 1200.0)];
-    let (length, pieces) = pieces_of(&w, &openings, ElevationSide::Right);
+    let (length, pieces) = pieces_of(&w, &openings, &[], &[], ElevationSide::Right);
     assert!((length - 7000.0).abs() < 1e-9);
     assert_eq!(corners(&pieces[0]), [(0.0, 0.0), (7000.0, 0.0), (7000.0, 2500.0), (0.0, 2500.0)], "the outline");
     let door = pieces.iter().find(|p| p.layer == ELEVATION_DOOR_LAYER).expect("a door");
@@ -57,7 +57,7 @@ fn an_elevation_is_the_developed_length_by_the_height_with_its_openings_at_their
 fn seen_from_the_left_the_elevation_is_the_mirror_image() {
     let w = wall(&[(0.0, 0.0), (4000.0, 0.0)]);
     let openings = [(OpeningKind::Door, 1000.0, 900.0, 0.0, 2100.0)];
-    let (_, pieces) = pieces_of(&w, &openings, ElevationSide::Left);
+    let (_, pieces) = pieces_of(&w, &openings, &[], ElevationSide::Left);
     let door = pieces.iter().find(|p| p.layer == ELEVATION_DOOR_LAYER).expect("a door");
     // At 1000 from the start of a 4000 wall: 3000 from the left edge when mirrored.
     assert_eq!(corners(door), [(2550.0, 0.0), (3450.0, 0.0), (3450.0, 2100.0), (2550.0, 2100.0)]);
@@ -67,13 +67,13 @@ fn seen_from_the_left_the_elevation_is_the_mirror_image() {
 
 #[test]
 fn a_wall_with_no_opening_has_one_dimension_and_an_arc_wall_is_as_long_as_its_arc() {
-    let (length, pieces) = pieces_of(&wall(&[(0.0, 0.0), (6000.0, 0.0)]), &[], ElevationSide::Right);
+    let (length, pieces) = pieces_of(&wall(&[(0.0, 0.0), (6000.0, 0.0)]), &[], &[], ElevationSide::Right);
     assert!((length - 6000.0).abs() < 1e-9);
     assert_eq!(texts(&pieces), ["2500", "6000"]);
     // A half circle of radius 2000 between (0, 0) and (4000, 0): about 6283, never the 4000 chord.
     let mut arc = wall(&[(0.0, 0.0), (4000.0, 0.0)]);
     arc.bulges = vec![1.0];
-    let (long, _) = pieces_of(&arc, &[], ElevationSide::Right);
+    let (long, _) = pieces_of(&arc, &[], &[], ElevationSide::Right);
     assert!((long - std::f64::consts::PI * 2000.0).abs() < 20.0, "{long}");
 }
 
