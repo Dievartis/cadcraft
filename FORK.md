@@ -682,3 +682,10 @@ Reste aussi, sans ordre : une seule cote imposée avec l'autre calculée ; crois
 - **Nouvelles PR** : #3162, #3238, #3256, #3259, #3153, #3349, #3154, #3232, #3289, #3291, #3260, #3340.
 - **Non fusionnées** (conflit avec notre code) : #3290, #3264, #3240, #3231, #3288, #3166, #3214, #3263, #3171.
 - **Traductions** : étiquettes de la boîte Mise en page, du menu du SCU et de la fenêtre de récupération remises en français ; 56 lignes françaises ajoutées.
+
+### Outil Cartouche (21 novembre 2026)
+
+- **Commandes** : `TITLEBLOCKADD` (alias `TTLB`, menu Insertion, onglet Architecture ▸ Conception) et `TITLEBLOCKEDIT`. Tapées sans paramètre, elles ouvrent la boîte « Cartouche » (onglets Projet, Intervenants, Image, Indices, Codification) ; double-clic sur un cartouche pour le modifier. En JSON, le bloc entier se donne en paramètres.
+- **Cartouche** : colonne à droite de la planche, de A4 à A0 (largeur par défaut 100 / 130 / 160 / 190 / 220 mm, réglable), avec projet, intervenants (rôle, coordonnées, logo), image du projet, libellé, tableau des indices (4 lignes vides au départ, extensible), ligne de codification (dix cases de départ, renommables). Dessiné par `crates/doc/src/ventilation/titleblock.rs`, données en xdata `CADCRAFT_TITLEBLOCK`.
+- **Images** : logos et image du projet réduits à 1600 px au plus, gardés dans le dessin (XRECORD `CADCRAFT_RASTERS`, clés `titleblock-image:`). Dans un DXF/DWG ouvert ailleurs, l'image apparaît comme une image dont le fichier est introuvable.
+- **Limites** : choix d'un fichier image seulement dans l'application de bureau (pas dans la version web) ; PNG/JPEG/BMP/TIFF, pas de SVG.
