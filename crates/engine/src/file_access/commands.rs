@@ -7,6 +7,8 @@
 
 /// Commands that read or write files, each path held to the roots where the file is touched.
 pub const FILES: &[&str] = &[
+    "titleblockadd",
+    "titleblockedit",
     "electakeoff",
     "controltakeoff",
     "structtakeoff",
