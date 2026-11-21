@@ -1,7 +1,18 @@
-# Dievartis Preview 0.6 preparation
+# Dievartis Preview 0.6
 
 Follow-up to preview 0.5, implementing the fork owner's priorities 5–8.
-No Windows binary or public release is produced by this preparation.
+Published source: [dievart-preview-0.6](https://github.com/Dievartis/cadcraft/releases/tag/dievart-preview-0.6),
+commit `0fb5808afd7685552b47b9925a7f44e1bfd36ec9`.
+The fork owner confirmed successful Windows testing and authorized publication
+on 2026-11-21. ZIP integrity verification passed for the supplied `cadcraft.zip`
+(25,451,213 bytes), containing `cadcraft.exe` (68,753,920 bytes).
+
+Archive SHA-256: `eb1884e23c1c54c549ff0e7305bf2e9fd6be92c9bb8e8ecc79d424ab76368ad8`.
+
+The release asset endpoint rejected the upload with HTTP 401. The release notes
+mark the Windows archive as pending manual attachment; sources are available.
+This records the owner's test and supplied archive, not a reproducible-build
+attestation. Older release archives are not substitutes for this executable.
 
 ## Layer states
 
