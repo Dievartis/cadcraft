@@ -39,7 +39,7 @@ fn an_elevation_is_the_developed_length_by_the_height_with_its_openings_at_their
     let w = wall(&[(0.0, 0.0), (3000.0, 0.0), (3000.0, 4000.0)]);
     // A door (900 x 2100, no sill) centred at 1000, and a window (1200 x 1200, sill 900) at 5000.
     let openings = [(OpeningKind::Door, 1000.0, 900.0, 0.0, 2100.0), (OpeningKind::Window, 5000.0, 1200.0, 900.0, 1200.0)];
-    let (length, pieces) = pieces_of(&w, &openings, &[], &[], ElevationSide::Right);
+    let (length, pieces) = pieces_of(&w, &openings, &[], ElevationSide::Right);
     assert!((length - 7000.0).abs() < 1e-9);
     assert_eq!(corners(&pieces[0]), [(0.0, 0.0), (7000.0, 0.0), (7000.0, 2500.0), (0.0, 2500.0)], "the outline");
     let door = pieces.iter().find(|p| p.layer == ELEVATION_DOOR_LAYER).expect("a door");
