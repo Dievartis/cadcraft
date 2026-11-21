@@ -1,4 +1,3 @@
-mod fields_roundtrip;
 mod acad_interop;
 #[cfg(not(target_arch = "wasm32"))]
 mod acis_data_store;
@@ -29,6 +28,7 @@ mod dxf_versions;
 mod dynblock_read;
 mod entity_props_roundtrip;
 mod exhausted_handseed;
+mod fields_roundtrip;
 mod followups_626;
 mod groups_roundtrip;
 mod hatch_assoc_roundtrip;

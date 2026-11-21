@@ -97,9 +97,6 @@ pub fn shortcut_commands(app: &mut CadApp, ctx: &egui::Context) -> Vec<&'static 
                 }
                 out.push(paste_cmd());
             }
-            // An image holds no drawing to load: paste the drawing clipboard as it is, as the
-            // shortcut menu's Paste does. Images aren't pasted as objects (yet).
-            egui::Event::PasteImage(_) => out.push(if shift { "pasteblock" } else { "pasteclip" }),
             _ => {}
         }
     }

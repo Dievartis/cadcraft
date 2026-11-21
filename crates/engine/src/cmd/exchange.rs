@@ -153,8 +153,7 @@ fn export_as(s: &mut Session, cmd: &str, p: &Value, path: Option<&str>, format: 
         return Err(bad(cmd, "`binary` applies to DXF files only"));
     }
     let bytes = if opts.version.is_some() || opts.binary {
-        let w =
-            super::file::write_as().ok_or_else(|| bad(cmd, "exporting at a chosen version or as binary DXF is not available in this build"))?;
+        let w = super::file::write_as().ok_or_else(|| bad(cmd, "exporting at a chosen version or as binary DXF is not available in this build"))?;
         w(s.doc()?, &file, &opts).map_err(|e| bad(cmd, e))?
     } else {
         (hooks.write)(s.doc()?, &file).map_err(|e| bad(cmd, e))?
