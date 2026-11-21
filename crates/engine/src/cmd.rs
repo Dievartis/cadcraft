@@ -88,7 +88,7 @@ mod qselect;
 mod selecttools;
 mod settings;
 mod spline_opts;
-mod table;
+pub mod table;
 mod tolerance;
 mod trimextend;
 mod txt2mtxt;
