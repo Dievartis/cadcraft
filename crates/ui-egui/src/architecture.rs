@@ -29,8 +29,9 @@ struct State {
     error: Option<String>,
 }
 
-pub(crate) fn panel(app: &mut CadApp, ui: &mut Ui) {
-    ui.label(crate::tl!("Walls and openings"));
+pub(crate) const GROUPS: [&str; 3] = ["Walls", "Openings", "Elevations"];
+
+pub(crate) fn panel(app: &mut CadApp, ui: &mut Ui, category: &str) {
     if !matches!(app.session.space(), cadcraft_doc::Space::Model) {
         ui.label(crate::tl!("Switch to Model or enter a model viewport to draw walls and openings."));
         if ui.button(crate::tl!("Wall Styles")).clicked() {
@@ -39,52 +40,56 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut Ui) {
         return;
     }
 
-    let styles = app.session.doc().map(|d| d.available_wall_styles()).unwrap_or_default();
-    if app.session.last_used.wall_style.is_empty()
-        && let Some(first) = styles.first()
-    {
-        app.session.last_used.wall_style = first.name.clone();
-    }
-    let label = ui.label(crate::tl!("Wall style"));
-    craft_ui::ComboBox::from_id_salt("architecture-wall-style")
-        .selected_text(&app.session.last_used.wall_style)
-        .show_ui(ui, |ui| {
-            for style in &styles {
-                ui.selectable_value(&mut app.session.last_used.wall_style, style.name.clone(), &style.name);
+    if category == "Walls" {
+        let styles = app.session.doc().map(|d| d.available_wall_styles()).unwrap_or_default();
+        if app.session.last_used.wall_style.is_empty()
+            && let Some(first) = styles.first()
+        {
+            app.session.last_used.wall_style = first.name.clone();
+        }
+        let label = ui.label(crate::tl!("Wall style"));
+        craft_ui::ComboBox::from_id_salt("architecture-wall-style")
+            .selected_text(&app.session.last_used.wall_style)
+            .show_ui(ui, |ui| {
+                for style in &styles {
+                    ui.selectable_value(&mut app.session.last_used.wall_style, style.name.clone(), &style.name);
+                }
+            })
+            .response
+            .labelled_by(label.id);
+        ui.horizontal_wrapped(|ui| {
+            if ui.button(crate::tl!("Draw Wall")).clicked() {
+                app.start("walladd");
             }
-        })
-        .response
-        .labelled_by(label.id);
-    ui.horizontal_wrapped(|ui| {
-        if ui.button(crate::tl!("Draw Wall")).clicked() {
-            app.start("walladd");
-        }
-        if ui.button(crate::tl!("Wall Styles")).clicked() {
-            crate::wallstyledlg::open(app);
-        }
-    });
-    ui.separator();
-    kind_choice(ui, &mut app.session.last_used.opening.kind);
-    style_choice(ui, &mut app.session.last_used.opening.style);
-    ui.horizontal_wrapped(|ui| {
-        if ui.button(crate::tl!("Place Opening")).clicked() {
-            app.start("openingadd");
-        }
-        if ui.button(crate::tl!("Corner Window")).clicked() {
-            app.start("cornerwindow");
-        }
-    });
-    ui.separator();
+            if ui.button(crate::tl!("Wall Styles")).clicked() {
+                crate::wallstyledlg::open(app);
+            }
+        });
+    }
+    if category == "Openings" {
+        kind_choice(ui, &mut app.session.last_used.opening.kind);
+        style_choice(ui, &mut app.session.last_used.opening.style);
+        ui.horizontal_wrapped(|ui| {
+            if ui.button(crate::tl!("Place Opening")).clicked() {
+                app.start("openingadd");
+            }
+            if ui.button(crate::tl!("Corner Window")).clicked() {
+                app.start("cornerwindow");
+            }
+        });
+    }
     let id = egui::Id::unique("architecture-editor");
     let mut state = ui.data(|d| d.get_temp::<State>(id)).unwrap_or_default();
-    ui.horizontal_wrapped(|ui| {
-        if ui.button(crate::tl!("Wall Junctions")).clicked() {
-            state.error = app.run("wallcleanup", json!({})).err();
-        }
-        if ui.button(crate::tl!("Wall Elevation")).clicked() {
-            app.start("wallelevation");
-        }
-    });
+    if category == "Elevations" {
+        ui.horizontal_wrapped(|ui| {
+            if ui.button(crate::tl!("Wall Junctions")).clicked() {
+                state.error = app.run("wallcleanup", json!({})).err();
+            }
+            if ui.button(crate::tl!("Wall Elevation")).clicked() {
+                app.start("wallelevation");
+            }
+        });
+    }
     editor(app, ui, &mut state);
     if let Some(error) = &state.error {
         ui.colored_label(crate::theme::Tokens::get().warn, error);

@@ -88,29 +88,18 @@ fn blocks_palette_offers_catalogue_sources_and_starts_parametric_placement() {
     h.run_steps(4);
     h.get_by_label("Furniture").click();
     h.run_steps(3);
-    assert!(h.query_by_label("Living room").is_some(), "furniture keeps its collapsible category headers");
+    assert!(h.query_by_label("Living room").is_some(), "furniture keeps category navigation visible");
     assert!(h.query_by_label("View").is_some());
     assert!(h.query_by_label("Filter").is_some());
     assert!(
         h.get_by_label("Sofa, three seats").rect().top() > h.get_by_label("Sofa, two seats").rect().bottom(),
         "details retain compact model rows"
     );
-    assert!(h.query_by_label("Select one catalogue object to edit its dimensions.").is_none(), "help does not consume gallery space");
-    h.get_by_label("?").click();
-    h.run_steps(3);
-    assert!(h.query_by_label("Select one catalogue object to edit its dimensions.").is_some());
-    h.get_by_label("?").click();
-    h.run_steps(3);
+    verify_direct_help(&mut h);
     if let Some(path) = &shot {
         h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("furniture.png")).unwrap();
     }
-    assert!(h.query_by_label("Dining").is_some());
-    h.get_by_role_and_label(egui::Role::TextInput, "Filter").focus();
-    h.run_steps(2);
-    h.get_by_role_and_label(egui::Role::TextInput, "Filter").type_text("Sofa");
-    h.run_steps(3);
-    assert_eq!(h.get_by_role_and_label(egui::Role::TextInput, "Filter").value().as_deref(), Some("Sofa"));
-    assert!(h.query_by_label("Dining").is_none(), "the filter removes categories without matching models");
+    verify_furniture_categories(&mut h);
     h.get_by_role_and_label(egui::Role::ComboBox, "View").click();
     h.run_steps(3);
     h.get_by_label("Large Icons").click();
@@ -132,8 +121,7 @@ fn blocks_palette_offers_catalogue_sources_and_starts_parametric_placement() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
     h.key_press(egui::Key::Backspace);
     h.run_steps(3);
-    h.get_by_label("Equipment").click();
-    h.run_steps(3);
+    verify_equipment_categories(&mut h);
     if let Some(path) = &shot {
         h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("equipment.png")).unwrap();
     }
@@ -189,6 +177,17 @@ fn optional_architecture_has_wall_and_opening_editors_and_a_style_dialog() {
     h.get_by_label("Trade Libraries").click();
     h.run_steps(5);
     assert!(h.query_by_label("Draw Wall").is_some());
+    h.get_by_label("Openings").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Place Opening").is_some());
+    assert!(h.query_by_label("Draw Wall").is_none());
+    h.get_by_label("Elevations").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Wall Elevation").is_some());
+    assert!(h.query_by_label("Place Opening").is_none());
+    h.get_by_label("Walls").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Draw Wall").is_some());
     h.state_mut().session.state_mut().unwrap().selection = vec![wall];
     h.run_steps(5);
     assert!(h.query_by_label("Selected wall").is_some());
@@ -217,4 +216,70 @@ fn optional_architecture_has_wall_and_opening_editors_and_a_style_dialog() {
     assert!(h.query_by_label("Enable trade libraries from Library settings.").is_some());
     assert!(wall_of(h.state().session.doc().unwrap().entity(wall).unwrap()).is_some());
     assert!(opening_of(h.state().session.doc().unwrap().entity(door).unwrap()).is_some());
+}
+
+fn verify_direct_help(h: &mut Harness<'static, CadApp>) {
+    assert!(h.query_by_label("Select one catalogue object to edit its dimensions.").is_none(), "help does not consume gallery space");
+    h.get_by_label("?").hover();
+    h.run_steps(45);
+    assert!(h.query_by_label("Select one catalogue object to edit its dimensions.").is_some());
+    assert!(h.query_by_label("Library help").is_none());
+    h.get_by_label("?").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Catalogue recipes: freemans32/cadcraft (MIT OR Apache-2.0).").is_some());
+    h.get_by_label("?").click();
+    h.run_steps(3);
+}
+
+fn verify_furniture_categories(h: &mut Harness<'static, CadApp>) {
+    assert!(h.get_by_label("Dining").rect().left() < h.get_by_label("Sofa, two seats").rect().left());
+    assert!(h.get_by_label("Dining").rect().top() > h.get_by_label("Living room").rect().bottom());
+    h.get_by_label("Dining").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Table, 4 seats").is_some());
+    assert!(h.query_by_label("Sofa, two seats").is_none(), "only the active category is shown");
+    h.get_by_label("Living room").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Sofa, two seats").is_some());
+    h.get_by_role_and_label(egui::Role::TextInput, "Filter").focus();
+    h.run_steps(2);
+    h.get_by_role_and_label(egui::Role::TextInput, "Filter").type_text("Sofa");
+    h.run_steps(3);
+    assert_eq!(h.get_by_role_and_label(egui::Role::TextInput, "Filter").value().as_deref(), Some("Sofa"));
+    assert!(h.query_by_label("Dining").is_some(), "navigation remains available while filtering");
+    h.get_by_label("Dining").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("No block matches the filter.").is_some());
+    assert!(h.query_by_label("Sofa, two seats").is_none());
+    h.get_by_label("Living room").click();
+    h.run_steps(3);
+}
+
+fn verify_equipment_categories(h: &mut Harness<'static, CadApp>) {
+    h.get_by_label("Equipment").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Chiller 41.7 kW").is_some());
+    assert!(h.query_by_label("VRV 4 CV").is_none());
+    h.get_by_label("VRF outdoor units").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("VRV 4 CV").is_some());
+    assert!(h.query_by_label("Chiller 41.7 kW").is_none());
+    h.get_by_label("Split outdoor units").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Split outdoor 2 kW").is_some());
+    assert!(h.query_by_label("VRV 4 CV").is_none());
+    assert!(
+        h.get_by_label("Place Split outdoor 7.1 kW").rect().top() > h.get_by_label("Place Split outdoor 2 kW").rect().bottom(),
+        "tiles wrap instead of extending past the explorer"
+    );
+    assert!(h.get_by_label("Place Split outdoor 7.1 kW").rect().right() < h.ctx.content_rect().right());
+    let first = h.get_by_label("Place Split outdoor 2 kW").rect();
+    let last = h.get_by_label("Place Split outdoor 7.1 kW").rect();
+    assert!(last.top() - first.bottom() < first.height(), "wrapped rows remain compact rather than reserving the viewport height");
+    h.get_by_label("Furniture").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Sofa, two seats").is_some());
+    h.get_by_label("Equipment").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Split outdoor 2 kW").is_some(), "each trade library retains its own active category");
 }
