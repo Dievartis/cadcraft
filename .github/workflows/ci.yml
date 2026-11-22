@@ -1,0 +1,37 @@
+name: Publish verified Dievartis Preview 0.7 assets
+# Isolated distribution branch: manually transfer an already owner-built binary.
+# The app source and release target remain pinned to bc1bf5380.
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: github.repository == 'Dievartis/cadcraft'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify archive and executable
+        run: |
+          sha256sum --check SHA256SUMS.txt
+          python3 - <<'PYVERIFY'
+          import hashlib, zipfile, struct
+          with zipfile.ZipFile('cadcraft-0.7-windows-x64.zip') as z:
+              assert z.testzip() is None
+              data = z.read('cadcraft.exe')
+              assert hashlib.sha256(data).hexdigest() == 'cf55a81812e3668d152a7c560f24f4c238b567bc6a1fbcc998bb80362f374d0a'
+              pe = struct.unpack_from('<I', data, 0x3c)[0]
+              assert data[:2] == b'MZ' and data[pe:pe+4] == b'PE\0\0'
+              assert struct.unpack_from('<H', data, pe+4)[0] == 0x8664
+              for name in ['LICENSE-MIT','LICENSE-APACHE','NOTICE','ATTRIBUTION.md']:
+                  assert name in z.namelist()
+          PYVERIFY
+      - name: Attach verified assets and publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view dievart-preview-0.7 --repo Dievartis/cadcraft --json targetCommitish --jq .targetCommitish | grep -Fx bc1bf538012eeb34bb44e06f8fb61259bdc30729
+          gh release upload dievart-preview-0.7 cadcraft-0.7-windows-x64.zip SHA256SUMS.txt --repo Dievartis/cadcraft
+          gh release edit dievart-preview-0.7 --repo Dievartis/cadcraft --notes-file release-notes.md --draft=false --prerelease --latest=false
