@@ -71,6 +71,14 @@ pub const REFUSED: &[(&str, &str)] = &[
 
 /// Commands that touch no file.
 pub const NO_FILES: &[&str] = &[
+    "equipmentadd",
+    "equipmentedit",
+    "equipmentmodelsave",
+    "equipmentmodeldelete",
+    "equipmentsizedisplay",
+    "furnitureadd",
+    "furnitureedit",
+    "furniturelist",
     "imageedit",
     "vertexedit",
     "scalexy",

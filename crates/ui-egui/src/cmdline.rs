@@ -103,7 +103,7 @@ fn tab(app: &mut CadApp) {
     {
         // Both values typed: Tab locks the second one as well.
         app.cmd.locked_second = Some(app.cmd.buffer.clone());
-    } else if let Some(s) = suggestions_in(&app.session, &app.cmd.buffer).first() {
+    } else if let Some(s) = catalogue_suggestions(app, &app.cmd.buffer).first() {
         app.cmd.buffer = s.id.clone();
     }
 }
@@ -123,6 +123,13 @@ pub struct Suggestion {
 /// alias, a command the drawing's LISP defines) stays as typed.
 fn suggestions_in(session: &cadcraft_engine::Session, prefix: &str) -> Vec<Suggestion> {
     suggestions(prefix, &|word| session.greek_word_is_a_command(word))
+}
+
+fn catalogue_suggestions(app: &CadApp, prefix: &str) -> Vec<Suggestion> {
+    suggestions_in(&app.session, prefix)
+        .into_iter()
+        .filter(|s| app.ui.catalogue_tools || !crate::catalogue::command(&s.id.to_ascii_lowercase()))
+        .collect()
 }
 
 /// Matching command names/aliases for AutoComplete. `is_own_command` tells whether a Greek-layout
@@ -353,7 +360,9 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
         match ev {
             egui::Event::Text(t) => {
                 if t == "\t" {
-                    tab(app);
+                    if ctx.input(|i| i.modifiers.shift) || !app.cmd.buffer.is_empty() || !app.session.cycle_alignment() {
+                        tab(app);
+                    }
                 } else if t == " " && !text_prompt {
                     submit(app);
                 } else {
@@ -411,7 +420,11 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                         }
                     }
                 }
-                Key::Tab => tab(app),
+                Key::Tab => {
+                    if modifiers.shift || !app.cmd.buffer.is_empty() || !app.session.cycle_alignment() {
+                        tab(app);
+                    }
+                }
                 Key::Delete if app.cmd.buffer.is_empty() && !app.session.prompting() => {
                     let _ = app.run("erase.selection", serde_json::json!({}));
                 }
@@ -468,7 +481,7 @@ pub fn submit(app: &mut CadApp) {
         return;
     }
     // A partly typed command name runs the highlighted (first) AutoComplete suggestion.
-    let completion = if app.session.prompting() { None } else { suggestions_in(&app.session, text.trim()).into_iter().next() };
+    let completion = if app.session.prompting() { None } else { catalogue_suggestions(app, text.trim()).into_iter().next() };
     app.cmdline_or(&text, completion.map(|s| s.id.to_ascii_lowercase()).as_deref());
 }
 
@@ -609,7 +622,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     );
     // AutoComplete list.
     if !app.session.prompting() {
-        let sug = suggestions_in(&app.session, &app.cmd.buffer);
+        let sug = catalogue_suggestions(app, &app.cmd.buffer);
         if !sug.is_empty() {
             let rh = 20.0;
             let lr = Rect::from_min_size(
@@ -671,7 +684,7 @@ fn zones(app: &CadApp, canvas: Rect, bar: Rect) -> Zones {
     let grip = Rect::from_min_max(pos2(bar.left(), top - 3.0), pos2(bar.right(), top + 3.0));
     let mut all = bar.union(grip);
     if !app.session.prompting() {
-        let k = suggestions_in(&app.session, &app.cmd.buffer).len();
+        let k = catalogue_suggestions(app, &app.cmd.buffer).len();
         if k > 0 {
             let above = if n == 0 { 0.0 } else { LINE_H * n as f32 + 6.0 };
             all = all.union(Rect::from_min_size(pos2(bar.left(), bar.top() - 6.0 - 20.0 * k as f32 - above), vec2(bar.width(), 1.0)));

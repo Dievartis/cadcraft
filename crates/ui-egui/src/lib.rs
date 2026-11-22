@@ -48,6 +48,7 @@ pub mod textdlg;
 pub mod xrefs;
 
 pub mod blocks_palette;
+mod catalogue;
 
 pub mod dyngrips;
 pub mod dyninput;
@@ -109,6 +110,8 @@ pub struct UiState {
     pub show_command_line: bool,
     pub show_viewcube: bool,
     pub show_layer_list: bool,
+    /// Show optional freemans32 furniture and equipment catalogues. Geometry is always readable.
+    pub catalogue_tools: bool,
     /// Keep the system cursor visible over the drawing area (a small crosshair at the centre of the
     /// drawn one) instead of hiding it. Screen magnifiers (Windows Magnifier "follow the mouse
     /// pointer"), screen readers, recorders and remote desktops track the system cursor and lose it
@@ -206,6 +209,7 @@ impl Default for UiState {
             show_command_line: true,
             show_viewcube: true,
             show_layer_list: false,
+            catalogue_tools: false,
             system_cursor: false,
             toolset_tab: "Drafting".into(),
             collapsed_groups: Vec::new(),
@@ -725,6 +729,7 @@ impl CadApp {
             "saveVersion": self.ui.save_version,
             "defaultTemplate": cadcraft_engine::cmd::file::qnew_template(),
             "quickcalc": self.quickcalc.prefs(),
+            "catalogueTools": self.ui.catalogue_tools,
         });
         if self.spacemouse.settings != spacemouse::Settings::default() {
             prefs["spacemouse"] = json!(self.spacemouse.settings);
@@ -749,6 +754,9 @@ impl CadApp {
         let Ok(v) = serde_json::from_str::<Value>(json) else { return };
         if let Some(path) = v.get("defaultTemplate").and_then(Value::as_str) {
             cadcraft_engine::cmd::file::set_qnew_template(path);
+        }
+        if let Some(enabled) = v.get("catalogueTools").and_then(Value::as_bool) {
+            self.ui.catalogue_tools = enabled;
         }
         if let Some(calculator) = v.get("quickcalc") {
             self.quickcalc.load_prefs(calculator);

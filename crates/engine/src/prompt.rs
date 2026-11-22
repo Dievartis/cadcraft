@@ -306,6 +306,10 @@ pub enum Step {
 
 /// A prompt-driven command.
 pub trait Interactive: Send {
+    /// Cycle a parametric object's insertion anchor while placing it.
+    fn cycle_alignment(&mut self, _s: &mut Session) -> Option<String> {
+        None
+    }
     /// Command-specific vertex handles: world position and selected state.
     fn vertex_markers(&self, _s: &Session) -> Vec<(Vec2, bool)> {
         Vec::new()

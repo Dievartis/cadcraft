@@ -986,3 +986,42 @@ mod tests {
         assert!(!is_named_frame(&unit, Vec3::ZERO, Vec3::new(0.0, 1.0, 0.0), Vec3::new(-1.0, 0.0, 0.0)));
     }
 }
+
+/// Named-object-dictionary key of the drawing's own equipment models XRECORD.
+pub(crate) const EQUIPMENT_MODELS_KEY: &str = "CADCRAFT_EQUIPMODELS";
+
+#[derive(Serialize, Deserialize)]
+struct EquipmentModelsPayload {
+    version: u32,
+    #[serde(default)]
+    models: Vec<cadcraft_doc::EquipmentModel>,
+}
+
+/// JSON chunks for the equipment models XRECORD, or `None` when the drawing keeps none of its own.
+pub(crate) fn equipment_model_chunks(models: &[cadcraft_doc::EquipmentModel]) -> Option<Vec<String>> {
+    if models.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&EquipmentModelsPayload { version: 1, models: models.to_vec() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// The valid models of the equipment models XRECORD text, the first of each name; `None` when it is not a payload we understand.
+pub(crate) fn parse_equipment_models(text: &str) -> Option<Vec<cadcraft_doc::EquipmentModel>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: EquipmentModelsPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 || p.models.len() > cadcraft_doc::MAX_EQUIPMENT_MODELS {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(p.models.len());
+    for mut m in p.models {
+        m.name = m.name.trim().to_string();
+        if m.validate() && seen.insert(m.name.to_lowercase()) {
+            out.push(m);
+        }
+    }
+    Some(out)
+}

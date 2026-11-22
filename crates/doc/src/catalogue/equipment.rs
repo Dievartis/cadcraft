@@ -1,0 +1,1017 @@
+//! Heating and cooling equipment seen from above: chillers, outdoor units (split, multi-split, Sky
+//! Air, VRV) and indoor units (cassette, ducted, wall, ceiling, floor), each a block reference with
+//! its generated outline, fans, service clearance and spec text, its parameters in extended data.
+//!
+//! Every value of an object is the user's to change (name, make and model, power, sizes, weight, number
+//! of fans, clearance, connections); the library only fills them in from a model, by size or power.
+//! The sizes of the standard models are plain numbers; the symbols are drawn here, in code.
+
+use cadcraft_geom::{PolyVertex, Vec2};
+use serde::{Deserialize, Serialize};
+
+use super::{HvacPiece, HvacUnits, check_label_height, check_name, invalid, label, label_left, v3, xdata};
+use crate::{Circle, EntityKind, Line, LwPolyline, RawTag, Result};
+
+/// The registered application name of an equipment's extended data.
+pub const EQUIPMENT_APP: &str = "CADCRAFT_EQUIP";
+/// The layer of an equipment's outline and symbol; its service clearance is on its own layer.
+pub const EQUIPMENT_LAYER: &str = "M-HVAC-EQUIP";
+pub const EQUIPMENT_ZONE_LAYER: &str = "M-HVAC-EQUIP-ZONE";
+const XDATA_FORMAT: &str = "EQUIP1";
+/// Largest side of an equipment, mm.
+pub const MAX_EQUIPMENT_MM: f64 = 100_000.0;
+/// Most fans one equipment draws.
+pub const MAX_EQUIPMENT_FANS: u32 = 32;
+const MAX_TEXT_CHARS: usize = 64;
+
+fn default_label_mm() -> f64 {
+    100.0
+}
+
+/// What an equipment is: it sets how it is drawn from above.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EquipmentKind {
+    /// An air-cooled chiller or heat pump: fans in rows over the coil.
+    #[default]
+    Chiller,
+    /// A VRV or VRF outdoor unit.
+    VrfOutdoor,
+    /// A split, multi-split or Sky Air outdoor unit.
+    SplitOutdoor,
+    /// A ceiling cassette.
+    Cassette,
+    /// A ducted unit (gainable).
+    Ducted,
+    /// A wall-mounted unit.
+    WallUnit,
+    /// A ceiling-suspended unit (plafonnier).
+    CeilingUnit,
+    /// A floor or console unit.
+    FloorUnit,
+    /// A cooling cabinet of a server room: in a row between racks, or along a wall.
+    ServerCooler,
+    /// A pool dehumidifier with duct connections (ducted, or an air handling unit of a pool hall).
+    Dehumidifier,
+    /// A small pool dehumidifier hung on a wall: no duct, it takes the air in at the bottom and blows it out at the top.
+    DehumidifierWall,
+    /// A computer rack hung on a wall (6 to 18 U).
+    WallRack,
+    /// A computer rack standing on the floor (24 to 47 U).
+    FloorRack,
+}
+
+impl EquipmentKind {
+    pub const ALL: [EquipmentKind; 13] = [
+        EquipmentKind::Chiller,
+        EquipmentKind::VrfOutdoor,
+        EquipmentKind::SplitOutdoor,
+        EquipmentKind::Cassette,
+        EquipmentKind::Ducted,
+        EquipmentKind::WallUnit,
+        EquipmentKind::CeilingUnit,
+        EquipmentKind::FloorUnit,
+        EquipmentKind::ServerCooler,
+        EquipmentKind::Dehumidifier,
+        EquipmentKind::DehumidifierWall,
+        EquipmentKind::WallRack,
+        EquipmentKind::FloorRack,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            EquipmentKind::Chiller => "chiller",
+            EquipmentKind::VrfOutdoor => "vrfOutdoor",
+            EquipmentKind::SplitOutdoor => "splitOutdoor",
+            EquipmentKind::Cassette => "cassette",
+            EquipmentKind::Ducted => "ducted",
+            EquipmentKind::WallUnit => "wallUnit",
+            EquipmentKind::CeilingUnit => "ceilingUnit",
+            EquipmentKind::FloorUnit => "floorUnit",
+            EquipmentKind::ServerCooler => "serverCooler",
+            EquipmentKind::Dehumidifier => "dehumidifier",
+            EquipmentKind::DehumidifierWall => "dehumidifierWall",
+            EquipmentKind::WallRack => "wallRack",
+            EquipmentKind::FloorRack => "floorRack",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<EquipmentKind> {
+        let t: String = text.trim().to_ascii_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        match t.as_str() {
+            "chiller" | "chilleur" | "groupeeau" | "pac" | "pompeachaleur" => Some(EquipmentKind::Chiller),
+            "vrfoutdoor" | "vrv" | "vrf" | "vrvoutdoor" | "groupevrv" => Some(EquipmentKind::VrfOutdoor),
+            "splitoutdoor" | "split" | "multisplit" | "skyair" | "groupeexterieur" | "outdoor" => Some(EquipmentKind::SplitOutdoor),
+            "cassette" => Some(EquipmentKind::Cassette),
+            "ducted" | "gainable" => Some(EquipmentKind::Ducted),
+            "wallunit" | "wall" | "mural" | "murale" => Some(EquipmentKind::WallUnit),
+            "ceilingunit" | "ceiling" | "plafonnier" => Some(EquipmentKind::CeilingUnit),
+            "floorunit" | "floor" | "console" | "allege" => Some(EquipmentKind::FloorUnit),
+            "servercooler" | "crac" | "crah" | "climatisationsalleserveur" | "armoireserveur" => Some(EquipmentKind::ServerCooler),
+            "dehumidifier" | "deshumidificateur" | "deshumidificateurgainable" | "poolunit" => Some(EquipmentKind::Dehumidifier),
+            "dehumidifierwall" | "deshumidificateurmural" => Some(EquipmentKind::DehumidifierWall),
+            "wallrack" | "baiemurale" | "rackmural" => Some(EquipmentKind::WallRack),
+            "floorrack" | "baieausol" | "baiesol" | "rack" | "baie" => Some(EquipmentKind::FloorRack),
+            _ => None,
+        }
+    }
+
+    /// Whether the unit stands outdoors (fans over a coil, a service clearance all round).
+    pub fn is_outdoor(self) -> bool {
+        matches!(self, EquipmentKind::Chiller | EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor)
+    }
+
+    /// Whether duct connections can be given to the unit and ducts laid on its sides (the air goes across it).
+    pub fn takes_ducts(self) -> bool {
+        matches!(self, EquipmentKind::Ducted | EquipmentKind::Dehumidifier)
+    }
+
+    /// Whether it is a computer rack, which the Electricity tab offers (the others are in the HVAC tab).
+    pub fn is_rack(self) -> bool {
+        matches!(self, EquipmentKind::WallRack | EquipmentKind::FloorRack)
+    }
+
+    /// The altitude of the underside a new equipment of the kind starts with, mm, which can be changed: a cassette 2.50 m, a wall unit and a ceiling unit
+    /// 2.00 m, a ducted unit 2.70 m, a console on the floor; none for the units that stand outdoors.
+    pub fn default_bottom_mm(self) -> Option<f64> {
+        match self {
+            EquipmentKind::Cassette => Some(2500.0),
+            EquipmentKind::WallUnit | EquipmentKind::CeilingUnit => Some(2000.0),
+            EquipmentKind::Ducted => Some(2700.0),
+            EquipmentKind::FloorUnit | EquipmentKind::ServerCooler | EquipmentKind::Dehumidifier | EquipmentKind::FloorRack => Some(0.0),
+            EquipmentKind::DehumidifierWall => Some(1500.0),
+            EquipmentKind::WallRack => Some(1200.0),
+            EquipmentKind::Chiller | EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor => None,
+        }
+    }
+
+    /// The service clearance a new equipment of the kind starts with, mm.
+    pub fn default_clearance_mm(self) -> f64 {
+        match self {
+            EquipmentKind::Chiller => 1000.0,
+            EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor => 500.0,
+            _ => 0.0,
+        }
+    }
+}
+
+/// A model of the library: the values an equipment takes when it is chosen.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EquipmentModel {
+    pub name: String,
+    pub kind: EquipmentKind,
+    /// Free text; empty in the library.
+    pub reference: String,
+    /// Nominal cooling power, kW (CV for a VRV outdoor unit), and heating power, kW, for a heat pump.
+    pub capacity_kw: Option<f64>,
+    pub heating_kw: Option<f64>,
+    /// Length (along the block's x axis), width (its y axis) and height, mm.
+    pub length_mm: f64,
+    pub width_mm: f64,
+    pub height_mm: f64,
+    pub weight_kg: Option<f64>,
+    pub fans: u32,
+    /// Connections, free text ("Victaulic 5\"", "1/4 - 3/8").
+    pub connections: String,
+}
+
+/// One duct connection of a ducted unit: on its back side (+y of the block) the air comes in (the return), on its front side (-y) it goes out (the supply), across
+/// the unit, as the unit's air goes through it; its size and where it is along that side.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AirPort {
+    /// Whether the air comes into the unit by it (the back side) or goes out (the front side).
+    pub inlet: bool,
+    /// A round diameter or a rectangle: the opening, drawn as wide as the duct's width in plan.
+    pub size: super::RiserSize,
+    /// Where its centre is along the side, mm from the middle of the unit (along its length). Drawings made when the connections were on the ends
+    /// kept this as `yMm`.
+    #[serde(alias = "yMm")]
+    pub along_mm: f64,
+}
+
+/// Most duct connections a unit has.
+pub const MAX_AIR_PORTS: usize = 16;
+
+/// An equipment: what its block reference keeps to regenerate it. It is centred on the block's origin.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EquipmentParams {
+    pub name: String,
+    #[serde(default)]
+    pub kind: EquipmentKind,
+    /// The library model it was made from, or empty (an equipment is never tied to it).
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub reference: String,
+    #[serde(default)]
+    pub capacity_kw: Option<f64>,
+    #[serde(default)]
+    pub heating_kw: Option<f64>,
+    pub length_mm: f64,
+    pub width_mm: f64,
+    pub height_mm: f64,
+    #[serde(default)]
+    pub weight_kg: Option<f64>,
+    #[serde(default)]
+    pub fans: u32,
+    /// The service zone drawn round the equipment, mm; 0 for none.
+    #[serde(default)]
+    pub clearance_mm: f64,
+    #[serde(default)]
+    pub connections: String,
+    /// The duct connections of a ducted unit, each with its size and its side (empty: one of each, as the kind draws them).
+    #[serde(default)]
+    pub air_ports: Vec<AirPort>,
+    /// The electrical power the equipment draws, kW, and the circuit that feeds it (kept independently of the electrical tools).
+    #[serde(default)]
+    pub electric_kw: Option<f64>,
+    #[serde(default)]
+    pub circuit: String,
+    /// The address of the unit (an indoor unit's address on its refrigerant or communication line), written beside it when `show_address`.
+    #[serde(default)]
+    pub address: String,
+    #[serde(default = "super::yes")]
+    pub show_address: bool,
+    /// Whether the size ("Dim. 1400x800x245H") is written beside the equipment.
+    #[serde(default = "super::yes")]
+    pub show_size: bool,
+    /// The refrigerant of the system the unit is the outdoor unit of ("R410A"), and the charge of that system, kg (from the manufacturer's data): the charge
+    /// is checked against the volume of the rooms the system serves.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub refrigerant: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charge_kg: Option<f64>,
+    #[serde(default = "default_label_mm")]
+    pub label_height_mm: f64,
+    /// The altitude of the underside of the element, mm above the drawing's zero, when it is given: written beside it ("Ai:2.50") and kept for the takeoff.
+    #[serde(default)]
+    pub bottom_mm: Option<f64>,
+    #[serde(default)]
+    pub units: HvacUnits,
+}
+
+fn text_ok(t: &str) -> bool {
+    t.chars().count() <= MAX_TEXT_CHARS && !t.chars().any(char::is_control)
+}
+
+impl EquipmentParams {
+    /// A new equipment of `model`, its values the model's.
+    pub fn from_model(m: &EquipmentModel, name: &str, units: HvacUnits) -> EquipmentParams {
+        EquipmentParams {
+            name: name.to_string(),
+            kind: m.kind,
+            model: m.name.clone(),
+            reference: m.reference.clone(),
+            capacity_kw: m.capacity_kw,
+            heating_kw: m.heating_kw,
+            length_mm: m.length_mm,
+            width_mm: m.width_mm,
+            height_mm: m.height_mm,
+            weight_kg: m.weight_kg,
+            fans: m.fans,
+            clearance_mm: m.kind.default_clearance_mm(),
+            connections: m.connections.clone(),
+            air_ports: Vec::new(),
+            bottom_mm: m.kind.default_bottom_mm(),
+            electric_kw: None,
+            circuit: String::new(),
+            address: String::new(),
+            show_address: true,
+            show_size: true,
+            refrigerant: String::new(),
+            charge_kg: None,
+            label_height_mm: 100.0,
+            units,
+        }
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if self.charge_kg.is_some_and(|c| !(c.is_finite() && c > 0.0 && c <= 100_000.0)) {
+            return Err(invalid("The refrigerant charge is above 0 and at most 100000 kg."));
+        }
+        if self.refrigerant.chars().count() > 32 {
+            return Err(invalid("The refrigerant is named in 32 characters at most."));
+        }
+        check_name("equipment", &self.name)?;
+        check_label_height(self.label_height_mm)?;
+        self.units.validate()?;
+        let side = |v: f64| v.is_finite() && (50.0..=MAX_EQUIPMENT_MM).contains(&v);
+        if !(side(self.length_mm) && side(self.width_mm) && side(self.height_mm)) {
+            return Err(invalid(format!("An equipment's sizes are 50 to {MAX_EQUIPMENT_MM} mm.")));
+        }
+        super::check_circuit_name(&self.circuit, true)?;
+        super::check_circuit_name(&self.address, true)?;
+        if self.electric_kw.is_some_and(|v| !(v.is_finite() && (0.0..=1.0e5).contains(&v))) {
+            return Err(invalid("An equipment's electrical power is 0 or more kW."));
+        }
+        let power = |v: Option<f64>| v.is_none_or(|v| v.is_finite() && v > 0.0 && v <= 1.0e5);
+        if !(power(self.capacity_kw) && power(self.heating_kw)) {
+            return Err(invalid("An equipment's power is more than 0 and at most 100 000 kW."));
+        }
+        if self.weight_kg.is_some_and(|w| !(w.is_finite() && w > 0.0 && w <= 1.0e7)) {
+            return Err(invalid("An equipment's weight is more than 0 and at most 10 000 000 kg."));
+        }
+        if self.fans > MAX_EQUIPMENT_FANS {
+            return Err(invalid(format!("An equipment has at most {MAX_EQUIPMENT_FANS} fans.")));
+        }
+        if !(self.clearance_mm.is_finite() && (0.0..=10_000.0).contains(&self.clearance_mm)) {
+            return Err(invalid("The service clearance is 0 to 10 000 mm."));
+        }
+        super::check_altitude(self.bottom_mm)?;
+        if self.air_ports.len() > MAX_AIR_PORTS {
+            return Err(invalid(format!("A unit has at most {MAX_AIR_PORTS} duct connections.")));
+        }
+        for p in &self.air_ports {
+            p.size.validate()?;
+            if !(p.along_mm.is_finite() && p.along_mm.abs() <= MAX_EQUIPMENT_MM) {
+                return Err(invalid("A duct connection is on the unit's side."));
+            }
+        }
+        if !(text_ok(&self.model) && text_ok(&self.reference) && text_ok(&self.connections)) {
+            return Err(invalid(format!(
+                "The model, reference and connections have at most {MAX_TEXT_CHARS} characters, without control characters."
+            )));
+        }
+        Ok(())
+    }
+
+    /// The sizes of the connections on one side: the ones the air comes in by (`inlet`, the back side) or goes out by (the front side).
+    pub fn air_sizes(&self, inlet: bool) -> Vec<super::RiserSize> {
+        self.air_ports.iter().filter(|p| p.inlet == inlet).map(|p| p.size).collect()
+    }
+
+    /// Gives the unit these connections, spread evenly along each long side (the length of the unit).
+    pub fn set_air_ports(&mut self, inlets: &[super::RiserSize], outlets: &[super::RiserSize]) {
+        let along = self.length_mm;
+        let side = |sizes: &[super::RiserSize], inlet: bool| {
+            let n = sizes.len();
+            sizes
+                .iter()
+                .enumerate()
+                .map(move |(i, size)| AirPort { inlet, size: *size, along_mm: -along / 2.0 + (i as f64 + 0.5) * along / n.max(1) as f64 })
+                .collect::<Vec<_>>()
+        };
+        self.air_ports = [side(inlets, true), side(outlets, false)].concat();
+    }
+
+    /// How far a connection stands out of the side of the unit, drawing units.
+    fn collar_depth(&self) -> f64 {
+        let (hl, hw) = (self.units.to_units(self.length_mm) / 2.0, self.units.to_units(self.width_mm) / 2.0);
+        0.12 * hl.min(hw) * 2.0
+    }
+
+    /// Where each duct connection ends, in the block's coordinates, whether the air comes in by it, and its size: the end of the collar a duct starts on.
+    /// A unit with none given has one of each, as the kind draws them (unsized).
+    pub fn air_port_tips(&self) -> Vec<(Vec2, bool, Option<super::RiserSize>)> {
+        let (hw, depth) = (self.units.to_units(self.width_mm) / 2.0, self.collar_depth());
+        self.air_ports
+            .iter()
+            .map(|p| (Vec2::new(self.units.to_units(p.along_mm), if p.inlet { hw + depth } else { -hw - depth }), p.inlet, Some(p.size)))
+            .collect()
+    }
+
+    /// How wide each connection is drawn, drawing units: its size, less where the neighbours on its side would touch (a unit can take more connections than fit
+    /// side by side at their full size).
+    fn drawn_half_widths(&self) -> Vec<f64> {
+        let u = |mm: f64| self.units.to_units(mm);
+        let hl = u(self.length_mm) / 2.0;
+        self.air_ports
+            .iter()
+            .map(|p| {
+                let (at, full) = (u(p.along_mm), u(p.size.width_mm()) / 2.0);
+                // The room each side leaves: half the distance to the nearest neighbour of its side, less a small gap.
+                let room = self
+                    .air_ports
+                    .iter()
+                    .filter(|o| o.inlet == p.inlet && !std::ptr::eq(*o, p))
+                    .map(|o| (u(o.along_mm) - at).abs() / 2.0)
+                    .fold(f64::MAX, f64::min);
+                full.min((room - u(2.0)).max(u(10.0))).min(hl)
+            })
+            .collect()
+    }
+
+    /// The spec lines written beside the equipment: the reference, "Dim. LxPxH" (length x width x
+    /// height), the weight, the connections; only what is known.
+    pub fn spec_lines(&self) -> Vec<String> {
+        let mut v = Vec::new();
+        if !self.reference.trim().is_empty() {
+            v.push(self.reference.trim().to_string());
+        }
+        if self.show_size {
+            v.push(format!("Dim. {:.0}x{:.0}x{:.0}H", self.length_mm, self.width_mm, self.height_mm));
+        }
+        if let Some(w) = self.weight_kg {
+            v.push(format!("Poids {w:.0}kg"));
+        }
+        if let Some(t) = super::altitude_tag(self.bottom_mm) {
+            v.push(t);
+        }
+        if !self.connections.trim().is_empty() {
+            v.push(self.connections.trim().to_string());
+        }
+        v
+    }
+
+    /// The text under the equipment: its name and its power.
+    pub fn text(&self) -> String {
+        let mut t = self.name.clone();
+        // The power in kW, or in CV for a VRV outdoor unit, whose name already says it when it came from the library.
+        let unit = if self.kind == EquipmentKind::VrfOutdoor { "CV" } else { "kW" };
+        if !self.name.contains(unit) {
+            match (self.capacity_kw, self.heating_kw) {
+                (Some(c), Some(h)) => t.push_str(&format!(" {c} / {h} {unit}")),
+                (Some(c), None) => t.push_str(&format!(" {c} {unit}")),
+                (None, Some(h)) => t.push_str(&format!(" {h} {unit}")),
+                (None, None) => {}
+            }
+        }
+        t
+    }
+
+    /// The outline, the symbol of its kind, the service clearance and the text.
+    pub fn generate(&self) -> Result<Vec<HvacPiece>> {
+        self.validate()?;
+        let u = |mm: f64| self.units.to_units(mm);
+        let (hl, hw) = (u(self.length_mm) / 2.0, u(self.width_mm) / 2.0);
+        let h = u(self.label_height_mm);
+        let mut pieces = vec![polyline(EQUIPMENT_LAYER, rect_points(hl, hw), true)];
+        let line = |a: Vec2, b: Vec2| HvacPiece { layer: EQUIPMENT_LAYER, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
+        match self.kind {
+            EquipmentKind::Chiller | EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor => {
+                // Fans in one row, or two over a wide unit: a circle crossed by two diameters.
+                let n = self.fans as usize;
+                let rows = if n >= 4 && self.width_mm >= 1600.0 { 2 } else { 1 };
+                let cols = n.div_ceil(rows).max(1);
+                let d = 0.8 * (2.0 * hl / cols as f64).min(2.0 * hw / rows as f64);
+                for i in 0..n {
+                    let (row, col) = (i / cols, i % cols);
+                    let c = Vec2::new(-hl + (col as f64 + 0.5) * 2.0 * hl / cols as f64, hw - (row as f64 + 0.5) * 2.0 * hw / rows as f64);
+                    pieces.push(HvacPiece { layer: EQUIPMENT_LAYER, kind: EntityKind::Circle(Circle { center: v3(c), radius: d / 2.0 }) });
+                    let r = d / 2.0 * std::f64::consts::FRAC_1_SQRT_2;
+                    pieces.push(line(c + Vec2::new(-r, -r), c + Vec2::new(r, r)));
+                    pieces.push(line(c + Vec2::new(-r, r), c + Vec2::new(r, -r)));
+                }
+            }
+            EquipmentKind::Cassette => {
+                // The panel, an outlet slot along each side and the crossed diagonals of the grille.
+                let (pl, pw) = (0.82 * hl, 0.82 * hw);
+                pieces.push(polyline(EQUIPMENT_LAYER, rect_points(pl, pw), true));
+                for (a, b) in [
+                    (Vec2::new(-0.6 * pl, pw), Vec2::new(0.6 * pl, pw)),
+                    (Vec2::new(-0.6 * pl, -pw), Vec2::new(0.6 * pl, -pw)),
+                    (Vec2::new(pl, -0.6 * pw), Vec2::new(pl, 0.6 * pw)),
+                    (Vec2::new(-pl, -0.6 * pw), Vec2::new(-pl, 0.6 * pw)),
+                ] {
+                    pieces.push(line(a, b));
+                }
+                pieces.push(line(Vec2::new(-0.5 * pl, -0.5 * pw), Vec2::new(0.5 * pl, 0.5 * pw)));
+                pieces.push(line(Vec2::new(-0.5 * pl, 0.5 * pw), Vec2::new(0.5 * pl, -0.5 * pw)));
+            }
+            EquipmentKind::Ducted | EquipmentKind::Dehumidifier => {
+                // The air goes across the unit, by its short dimension: it comes in by the back (+y) and goes out by the front (-y), as the arrow shows. The
+                // connections are on those two long sides, the ones given each as wide as its duct (less where its neighbours would touch); else a supply
+                // flange along the front and a wider return flange along the back.
+                let depth = self.collar_depth();
+                if self.air_ports.is_empty() {
+                    pieces.push(polyline(EQUIPMENT_LAYER, rect_points_at(0.0, -hw - depth / 2.0, 0.4 * hl, depth / 2.0), true));
+                    pieces.push(polyline(EQUIPMENT_LAYER, rect_points_at(0.0, hw + depth / 2.0, 0.55 * hl, depth / 2.0), true));
+                }
+                for (p, half) in self.air_ports.iter().zip(self.drawn_half_widths()) {
+                    let cy = if p.inlet { hw + depth / 2.0 } else { -hw - depth / 2.0 };
+                    pieces.push(polyline(EQUIPMENT_LAYER, rect_points_at(u(p.along_mm), cy, half, depth / 2.0), true));
+                }
+                let wing = 0.2 * hw.min(hl);
+                let (from, to) = (Vec2::new(0.0, 0.5 * hw), Vec2::new(0.0, -0.5 * hw));
+                pieces.extend([line(from, to), line(to, to + Vec2::new(-0.6 * wing, wing)), line(to, to + Vec2::new(0.6 * wing, wing))]);
+                if self.kind == EquipmentKind::Dehumidifier {
+                    // The compressor, beside the air path.
+                    pieces.push(HvacPiece {
+                        layer: EQUIPMENT_LAYER,
+                        kind: EntityKind::Circle(Circle { center: v3(Vec2::new(0.6 * hl, 0.0)), radius: 0.22 * hw.min(hl) }),
+                    });
+                }
+            }
+            EquipmentKind::ServerCooler => {
+                // The grille along the front, and an arrow for each fan, the air going out by the front (-y).
+                for k in [0.55, 0.68, 0.81] {
+                    pieces.push(line(Vec2::new(-0.85 * hl, -hw * k), Vec2::new(0.85 * hl, -hw * k)));
+                }
+                let n = self.fans.clamp(1, 8) as f64;
+                let wing = 0.2 * hw.min(hl / n);
+                for i in 0..n as usize {
+                    let x = -hl + (i as f64 + 0.5) * 2.0 * hl / n;
+                    let (from, to) = (Vec2::new(x, 0.3 * hw), Vec2::new(x, -0.35 * hw));
+                    pieces.extend([line(from, to), line(to, to + Vec2::new(-0.6 * wing, wing)), line(to, to + Vec2::new(0.6 * wing, wing))]);
+                }
+            }
+            EquipmentKind::WallRack | EquipmentKind::FloorRack => {
+                // The 19 inch mounting rails, and the front door shown opened a quarter turn: its swing is the room to leave in front.
+                for sx in [-0.78, 0.78] {
+                    pieces.push(line(Vec2::new(sx * hl, -0.7 * hw), Vec2::new(sx * hl, 0.7 * hw)));
+                }
+                let (hinge, r) = (Vec2::new(-hl, -hw), 2.0 * hl);
+                let arc = (0..=8).map(|k| hinge + Vec2::from_angle(-(k as f64) / 8.0 * std::f64::consts::FRAC_PI_2) * r).collect();
+                pieces.push(polyline(EQUIPMENT_LAYER, arc, false));
+                pieces.push(line(hinge, hinge + Vec2::new(0.0, -r)));
+                if self.kind == EquipmentKind::FloorRack {
+                    // The fan unit and the cable entry on its roof.
+                    pieces.push(HvacPiece {
+                        layer: EQUIPMENT_LAYER,
+                        kind: EntityKind::Circle(Circle { center: v3(Vec2::new(0.0, 0.3 * hw)), radius: 0.25 * hl.min(hw) }),
+                    });
+                }
+            }
+            EquipmentKind::DehumidifierWall => {
+                // Against the wall (the back, +y): a plate, and the curved front of the casing.
+                pieces.push(line(Vec2::new(-0.9 * hl, 0.6 * hw), Vec2::new(0.9 * hl, 0.6 * hw)));
+                let front = (0..=12)
+                    .map(|k| {
+                        let x = -0.9 * hl + 1.8 * hl * k as f64 / 12.0;
+                        Vec2::new(x, -hw * (0.2 + 0.7 * (1.0 - (x / hl).powi(2))))
+                    })
+                    .collect();
+                pieces.push(polyline(EQUIPMENT_LAYER, front, false));
+            }
+            EquipmentKind::WallUnit | EquipmentKind::CeilingUnit | EquipmentKind::FloorUnit => {
+                // The air outlet: lines along the front, an arrow out of it; a ceiling unit also shows its fan.
+                for k in [-0.55, 0.0, 0.55] {
+                    pieces.push(line(Vec2::new(-0.8 * hl, hw * (0.55 + 0.3 * k)), Vec2::new(0.8 * hl, hw * (0.55 + 0.3 * k))));
+                }
+                let (from, to) = (Vec2::new(0.0, -hw), Vec2::new(0.0, -hw - 0.9 * hw.max(h)));
+                pieces.extend([
+                    line(from, to),
+                    line(to, to + Vec2::new(-0.2 * hw.max(h), 0.3 * hw.max(h))),
+                    line(to, to + Vec2::new(0.2 * hw.max(h), 0.3 * hw.max(h))),
+                ]);
+                if self.kind == EquipmentKind::CeilingUnit {
+                    pieces.push(HvacPiece {
+                        layer: EQUIPMENT_LAYER,
+                        kind: EntityKind::Circle(Circle { center: v3(Vec2::new(-0.5 * hl, 0.0)), radius: 0.35 * hw }),
+                    });
+                }
+            }
+        }
+        // The service clearance, dashed so it is not taken for the equipment.
+        if self.clearance_mm > 0.0 {
+            let c = u(self.clearance_mm);
+            let (zl, zw) = (hl + c, hw + c);
+            let (dash, gap) = (u(250.0), u(150.0));
+            for (a, b) in [
+                (Vec2::new(-zl, -zw), Vec2::new(zl, -zw)),
+                (Vec2::new(zl, -zw), Vec2::new(zl, zw)),
+                (Vec2::new(zl, zw), Vec2::new(-zl, zw)),
+                (Vec2::new(-zl, zw), Vec2::new(-zl, -zw)),
+            ] {
+                let (len, dir) = (a.dist(b), (b - a).normalized());
+                let step = (dash + gap).max(1e-9);
+                let count = ((len / step).ceil() as usize).min(2_000);
+                for k in 0..count {
+                    let s = k as f64 * step;
+                    pieces.push(HvacPiece {
+                        layer: EQUIPMENT_ZONE_LAYER,
+                        kind: EntityKind::Line(Line { a: v3(a + dir * s), b: v3(a + dir * (s + dash).min(len)) }),
+                    });
+                }
+            }
+        }
+        // The name and power below; the spec lines to the right.
+        let zone = u(self.clearance_mm);
+        // A unit with an air outlet draws its arrow under it: the text goes below the arrow.
+        let arrow = match self.kind {
+            EquipmentKind::WallUnit | EquipmentKind::CeilingUnit | EquipmentKind::FloorUnit => 1.1 * hw.max(h),
+            // The supply connections are on the front side: the text goes below them.
+            EquipmentKind::Ducted | EquipmentKind::Dehumidifier => self.collar_depth(),
+            // The door of a rack swings out in front of it.
+            EquipmentKind::WallRack | EquipmentKind::FloorRack => 2.0 * hl,
+            _ => 0.0,
+        };
+        pieces.push(HvacPiece {
+            layer: EQUIPMENT_LAYER,
+            kind: label(
+                Vec2::new(0.0, -hw - zone - arrow - 1.2 * h),
+                h,
+                format!("{}{}", self.text(), super::address_suffix(&self.address, self.show_address)),
+            ),
+        });
+        let x = hl + zone + 2.0 * h;
+        for (i, t) in self.spec_lines().into_iter().enumerate() {
+            pieces.push(HvacPiece { layer: EQUIPMENT_LAYER, kind: label_left(Vec2::new(x, hw - (i as f64) * 1.6 * h - h), h, t) });
+        }
+        Ok(pieces)
+    }
+
+    /// The equipment as it will look at `at`, turned `rotation` radians; empty when it can't be drawn.
+    pub fn preview(&self, at: Vec2, rotation: f64) -> Vec<crate::Entity> {
+        self.generate().map(|p| super::preview_entities(p, at, rotation)).unwrap_or_default()
+    }
+
+    pub fn to_xdata(&self) -> Result<Vec<RawTag>> {
+        xdata::to_xdata(EQUIPMENT_APP, XDATA_FORMAT, self)
+    }
+
+    pub fn from_xdata(tags: &[RawTag]) -> Option<EquipmentParams> {
+        let p: EquipmentParams = xdata::from_xdata(EQUIPMENT_APP, XDATA_FORMAT, tags)?;
+        p.validate().is_ok().then_some(p)
+    }
+}
+
+fn rect_points(hl: f64, hw: f64) -> Vec<Vec2> {
+    rect_points_at(0.0, 0.0, hl, hw)
+}
+
+fn rect_points_at(cx: f64, cy: f64, hl: f64, hw: f64) -> Vec<Vec2> {
+    vec![Vec2::new(cx - hl, cy - hw), Vec2::new(cx + hl, cy - hw), Vec2::new(cx + hl, cy + hw), Vec2::new(cx - hl, cy + hw)]
+}
+
+fn polyline(layer: &'static str, pts: Vec<Vec2>, closed: bool) -> HvacPiece {
+    let vertices = pts.into_iter().map(|p| PolyVertex { p, bulge: 0.0, start_width: 0.0, end_width: 0.0 }).collect();
+    HvacPiece { layer, kind: EntityKind::LwPolyline(LwPolyline { vertices, closed, const_width: 0.0, elevation: 0.0, plinegen: false }) }
+}
+
+/// The equipment an object is, when it is a block reference carrying usable equipment data.
+pub fn equipment_of(e: &crate::Entity) -> Option<EquipmentParams> {
+    match &e.kind {
+        EntityKind::Insert(_) => EquipmentParams::from_xdata(&e.common.xdata),
+        _ => None,
+    }
+}
+
+impl crate::Drawing {
+    /// Adds equipment `p` centred at `at`, turned `rotation` radians.
+    pub fn add_equipment(
+        &mut self,
+        space: &crate::Space,
+        mut common: crate::Common,
+        p: &EquipmentParams,
+        at: Vec2,
+        rotation: f64,
+    ) -> Result<crate::Handle> {
+        if !at.is_finite() || !rotation.is_finite() {
+            return Err(invalid("An equipment needs a usable position and angle."));
+        }
+        let pieces = p.generate()?;
+        common.xdata = xdata::replace(EQUIPMENT_APP, &common.xdata, p.to_xdata()?);
+        common.layer = EQUIPMENT_LAYER.into();
+        let block = self.hvac_block(pieces);
+        self.ensure_layer(EQUIPMENT_LAYER);
+        let insert = crate::Insert { block, insert: v3(at), rotation, ..Default::default() };
+        self.add(space, common, EntityKind::Insert(insert))
+    }
+
+    /// Gives equipment `h` the parameters `p`, redrawing it in place.
+    pub fn regenerate_equipment(&mut self, h: crate::Handle, p: &EquipmentParams) -> Result<()> {
+        let pieces = p.generate()?;
+        let old = self.entity(h).ok_or(crate::DocError::NoEntity(h))?.common.xdata.clone();
+        let tags = xdata::replace(EQUIPMENT_APP, &old, p.to_xdata()?);
+        self.regenerate_hvac(h, pieces, tags)
+    }
+}
+
+// =====================================================================================
+// The standard models
+// =====================================================================================
+
+#[allow(clippy::too_many_arguments)]
+fn model(
+    name: String,
+    kind: EquipmentKind,
+    capacity: f64,
+    heating_kw: Option<f64>,
+    (length_mm, width_mm, height_mm): (f64, f64, f64),
+    fans: u32,
+) -> EquipmentModel {
+    EquipmentModel {
+        name,
+        kind,
+        reference: String::new(),
+        capacity_kw: Some(capacity),
+        heating_kw,
+        length_mm,
+        width_mm,
+        height_mm,
+        weight_kg: None,
+        fans,
+        connections: String::new(),
+    }
+}
+
+/// The models the library starts with: a name made of the kind and the power (kW; CV for a VRV unit),
+/// sizes in millimetres as length x width x height, and the number of fans drawn. They only fill the
+/// values in: nothing ties an equipment to them, and every value can be changed.
+pub fn standard_equipment_models() -> Vec<EquipmentModel> {
+    use EquipmentKind::{Cassette, CeilingUnit, Chiller, Ducted, FloorUnit, SplitOutdoor, VrfOutdoor, WallUnit};
+    let mut v = Vec::new();
+    // Chillers: cooling only, then heat pumps (cooling and heating powers), then the larger casings.
+    let cooling = [
+        (41.7, 2109.0, 1090.0, 1),
+        (47.3, 2109.0, 1090.0, 1),
+        (52.9, 2109.0, 1090.0, 1),
+        (56.1, 2109.0, 1090.0, 1),
+        (63.6, 2109.0, 1090.0, 1),
+        (71.2, 2109.0, 1090.0, 1),
+        (81.1, 2109.0, 1090.0, 1),
+        (93.4, 2275.0, 2125.0, 2),
+        (107.0, 2275.0, 2125.0, 2),
+        (124.0, 2275.0, 2125.0, 2),
+        (140.0, 2275.0, 2125.0, 2),
+        (160.0, 2275.0, 2125.0, 2),
+    ];
+    for (kw, l, w, fans) in cooling {
+        v.push(model(format!("Chiller {kw} kW"), Chiller, kw, None, (l, w, 1330.0), fans));
+    }
+    let heat_pumps = [
+        (41.0, 42.7, 2109.0, 1090.0, 1),
+        (43.1, 47.0, 2109.0, 1090.0, 1),
+        (50.3, 53.5, 2109.0, 1090.0, 1),
+        (60.2, 59.5, 2109.0, 1090.0, 1),
+        (65.2, 67.2, 2109.0, 1090.0, 1),
+        (74.3, 75.7, 2109.0, 1090.0, 1),
+        (87.0, 91.7, 2275.0, 2125.0, 2),
+        (99.9, 105.0, 2275.0, 2125.0, 2),
+        (114.0, 118.0, 2275.0, 2125.0, 2),
+        (132.0, 135.0, 2275.0, 2125.0, 2),
+        (147.0, 150.0, 2275.0, 2125.0, 2),
+    ];
+    for (cool, heat, l, w, fans) in heat_pumps {
+        v.push(model(format!("Heat-pump chiller {cool} kW"), Chiller, cool, Some(heat), (l, w, 1330.0), fans));
+    }
+    let large = [
+        (168.0, 2410.0, 3),
+        (181.0, 2410.0, 4),
+        (198.0, 2410.0, 4),
+        (216.0, 2410.0, 4),
+        (261.0, 2410.0, 4),
+        (300.0, 3604.0, 5),
+        (331.0, 3604.0, 5),
+        (365.0, 3604.0, 6),
+        (397.0, 3604.0, 6),
+        (430.0, 4797.0, 7),
+        (464.0, 4797.0, 7),
+        (523.0, 4797.0, 8),
+    ];
+    for (kw, l, fans) in large {
+        v.push(model(format!("Chiller {kw} kW"), Chiller, kw, None, (l, 2253.0, 2297.0), fans));
+    }
+    v.push(model("Heat-pump chiller 570 kW".into(), Chiller, 570.0, None, (7185.0, 2259.0, 2324.0), 10));
+
+    // VRV outdoor units, by power in CV (HP): the compact casing, then single modules.
+    for hp in [4.0, 5.0, 6.0] {
+        v.push(model(format!("VRV {hp} CV"), VrfOutdoor, hp, None, (940.0, 500.0, 823.0), 1));
+    }
+    for (hp, l) in [(8.0, 930.0), (10.0, 930.0), (12.0, 1240.0), (14.0, 1240.0), (16.0, 1240.0), (18.0, 1240.0), (20.0, 1240.0)] {
+        v.push(model(format!("VRV {hp} CV"), VrfOutdoor, hp, None, (l, 765.0, 1685.0), if l > 1000.0 { 2 } else { 1 }));
+    }
+    // Split and multi-split outdoor units, by power in kW.
+    for kw in [2.0, 2.5, 3.5] {
+        v.push(model(format!("Split outdoor {kw} kW"), SplitOutdoor, kw, None, (840.0, 350.0, 552.0), 1));
+    }
+    for kw in [4.2, 5.0] {
+        v.push(model(format!("Split outdoor {kw} kW"), SplitOutdoor, kw, None, (954.0, 401.0, 734.0), 1));
+    }
+    for kw in [7.1, 10.0, 12.5, 14.0] {
+        v.push(model(format!("Split outdoor {kw} kW"), SplitOutdoor, kw, None, (1100.0, 490.0, 870.0), 1));
+    }
+    v.push(model("Split outdoor compact 7.1 kW".into(), SplitOutdoor, 7.1, None, (900.0, 350.0, 770.0), 1));
+    for kw in [10.0, 12.5, 14.0] {
+        v.push(model(format!("Split outdoor compact {kw} kW"), SplitOutdoor, kw, None, (940.0, 350.0, 990.0), 1));
+    }
+    for kw in [4.0, 5.0] {
+        v.push(model(format!("Multi-split outdoor {kw} kW"), SplitOutdoor, kw, None, (852.0, 350.0, 552.0), 1));
+    }
+    for kw in [6.8, 8.0, 9.0] {
+        v.push(model(format!("Multi-split outdoor {kw} kW"), SplitOutdoor, kw, None, (974.0, 408.0, 734.0), 1));
+    }
+    // Indoor units, by power in kW.
+    for kw in [2.5, 3.5, 5.0, 6.0] {
+        v.push(model(format!("Cassette 600 {kw} kW"), Cassette, kw, None, (620.0, 620.0, 260.0), 0));
+    }
+    for kw in [7.1, 10.0, 12.5, 14.0] {
+        v.push(model(format!("Cassette 950 {kw} kW"), Cassette, kw, None, (950.0, 950.0, 288.0), 0));
+    }
+    for kw in [2.5, 3.5] {
+        v.push(model(format!("Slim ducted {kw} kW"), Ducted, kw, None, (750.0, 620.0, 200.0), 0));
+    }
+    for kw in [5.0, 6.0] {
+        v.push(model(format!("Slim ducted {kw} kW"), Ducted, kw, None, (1150.0, 620.0, 200.0), 0));
+    }
+    // The slim-body ducted series: its width grows with the power (550, 700, 1000, 1400, then 1550 mm for the largest), 800 deep, 245 high. The powers are
+    // the cooling one, then the heating one.
+    for (kw, heat, length) in [
+        (2.2, 2.5, 550.0),
+        (2.8, 3.2, 550.0),
+        (3.6, 4.0, 550.0),
+        (4.5, 5.0, 700.0),
+        (5.6, 6.3, 700.0),
+        (7.1, 8.0, 1000.0),
+        (9.0, 10.0, 1000.0),
+        (11.2, 12.5, 1400.0),
+        (14.0, 16.0, 1400.0),
+        (16.0, 18.0, 1550.0),
+    ] {
+        v.push(model(format!("Ducted {kw} kW"), Ducted, kw, Some(heat), (length, 800.0, 245.0), 0));
+    }
+    v.push(model("High-pressure ducted 12.5 kW".into(), Ducted, 12.5, None, (1400.0, 700.0, 300.0), 0));
+    for kw in [20.0, 25.0] {
+        v.push(model(format!("High-pressure ducted {kw} kW"), Ducted, kw, None, (1490.0, 1100.0, 470.0), 0));
+    }
+    for kw in [2.0, 2.5, 3.5, 5.0] {
+        v.push(model(format!("Wall unit {kw} kW"), WallUnit, kw, None, (804.0, 252.0, 298.0), 0));
+    }
+    for kw in [6.0, 7.1] {
+        v.push(model(format!("Wall unit {kw} kW"), WallUnit, kw, None, (997.0, 292.0, 298.0), 0));
+    }
+    v.push(model("Wall unit 10 kW".into(), WallUnit, 10.0, None, (1200.0, 262.0, 340.0), 0));
+    for kw in [3.5, 5.0] {
+        v.push(model(format!("Ceiling unit {kw} kW"), CeilingUnit, kw, None, (960.0, 690.0, 235.0), 0));
+    }
+    v.push(model("Ceiling unit 7.1 kW".into(), CeilingUnit, 7.1, None, (1270.0, 690.0, 235.0), 0));
+    for kw in [10.0, 12.5, 14.0] {
+        v.push(model(format!("Ceiling unit {kw} kW"), CeilingUnit, kw, None, (1590.0, 690.0, 235.0), 0));
+    }
+    for kw in [2.5, 3.5, 5.0] {
+        v.push(model(format!("Floor unit {kw} kW"), FloorUnit, kw, None, (750.0, 238.0, 600.0), 0));
+    }
+    v.extend(server_room_models());
+    v
+}
+
+/// A model of the new families: its power in kW (cooling for a cabinet, absorbed for a dehumidifier, dissipated for a rack), a text written beside it, a weight.
+fn described(mut m: EquipmentModel, connections: &str, weight_kg: Option<f64>) -> EquipmentModel {
+    m.connections = connections.into();
+    m.weight_kg = weight_kg;
+    m
+}
+
+/// Server room cooling cabinets, pool dehumidifiers and computer racks: typical sizes of the market, to be changed to the sizes of the unit chosen.
+fn server_room_models() -> Vec<EquipmentModel> {
+    use EquipmentKind::{DehumidifierWall, FloorRack, ServerCooler, WallRack};
+    let mut v = Vec::new();
+    // In a row between the racks (300 and 600 wide), then along a wall.
+    v.push(model("In-row cooler 10 kW".into(), ServerCooler, 10.0, None, (300.0, 1100.0, 2000.0), 2));
+    v.push(model("In-row cooler 30 kW".into(), ServerCooler, 30.0, None, (600.0, 1100.0, 2000.0), 3));
+    for (kw, l, fans) in
+        [(8.0, 750.0, 1), (14.0, 1000.0, 2), (25.0, 1400.0, 2), (35.0, 1750.0, 3), (45.0, 2000.0, 3), (65.0, 2600.0, 4), (80.0, 3000.0, 4)]
+    {
+        v.push(model(format!("Server room cooler {kw} kW"), ServerCooler, kw, None, (l, 890.0, 1980.0), fans));
+    }
+    // Pool dehumidifiers: small ones hung on the wall, a ducted one, then units that look like air handling units.
+    v.push(described(
+        model("Pool dehumidifier 40 (wall)".into(), DehumidifierWall, 0.65, None, (700.0, 320.0, 570.0), 0),
+        "400 m3/h - 40 l/24h",
+        None,
+    ));
+    v.push(described(
+        model("Pool dehumidifier 65 (wall)".into(), DehumidifierWall, 0.9, None, (900.0, 350.0, 650.0), 0),
+        "650 m3/h - 65 l/24h",
+        None,
+    ));
+    v.push(described(
+        model("Pool dehumidifier 75 (ducted)".into(), EquipmentKind::Dehumidifier, 1.2, None, (1100.0, 700.0, 400.0), 0),
+        "750 m3/h - 75 l/24h",
+        None,
+    ));
+    for (flow, kg_h, kw, l, w, h) in [
+        (3000, 6, 12.0, 2500.0, 1100.0, 1600.0),
+        (6000, 12, 24.0, 3500.0, 1200.0, 1700.0),
+        (10000, 20, 40.0, 4500.0, 1400.0, 1900.0),
+        (20000, 40, 80.0, 6000.0, 1600.0, 2200.0),
+    ] {
+        v.push(described(
+            model(format!("Pool dehumidifier unit {flow} m3/h"), EquipmentKind::Dehumidifier, kw, None, (l, w, h), 0),
+            &format!("{flow} m3/h - {kg_h} kg/h"),
+            None,
+        ));
+    }
+    // Racks: wall (6 to 18 U) and floor (24 to 47 U).
+    for (u, kw, d, h) in [(6, 0.3, 450.0, 370.0), (9, 0.5, 450.0, 500.0), (12, 0.7, 600.0, 635.0), (15, 0.9, 600.0, 770.0), (18, 1.0, 600.0, 900.0)] {
+        v.push(described(model(format!("Wall rack {u} U"), WallRack, kw, None, (600.0, d, h), 0), &format!("{u} U 19\""), None));
+    }
+    for (name, u, kw, w, d, h) in [
+        ("Floor rack 24 U", 24, 3.0, 600.0, 800.0, 1200.0),
+        ("Floor rack 32 U", 32, 4.0, 600.0, 1000.0, 1600.0),
+        ("Floor rack 42 U", 42, 6.0, 600.0, 1000.0, 2000.0),
+        ("Floor rack 42 U wide", 42, 8.0, 800.0, 1200.0, 2000.0),
+        ("Floor rack 47 U", 47, 8.0, 800.0, 1200.0, 2200.0),
+    ] {
+        v.push(described(model(name.into(), FloorRack, kw, None, (w, d, h), 0), &format!("{u} U 19\""), None));
+    }
+    v
+}
+
+/// The models of `kind`, smallest power first.
+pub fn equipment_models_of(models: &[EquipmentModel], kind: EquipmentKind) -> Vec<EquipmentModel> {
+    let mut v: Vec<EquipmentModel> = models.iter().filter(|m| m.kind == kind).cloned().collect();
+    v.sort_by(|a, b| a.capacity_kw.unwrap_or(0.0).total_cmp(&b.capacity_kw.unwrap_or(0.0)).then(a.name.cmp(&b.name)));
+    v
+}
+
+/// The smallest model of `kind` that gives `power` or more, else the largest one.
+pub fn equipment_model_for(models: &[EquipmentModel], kind: EquipmentKind, power: f64) -> Option<EquipmentModel> {
+    let of = equipment_models_of(models, kind);
+    of.iter().find(|m| m.capacity_kw.is_some_and(|c| c >= power)).or(of.last()).cloned()
+}
+
+/// The model named `name` (case-insensitive).
+pub fn equipment_model_named(models: &[EquipmentModel], name: &str) -> Option<EquipmentModel> {
+    models.iter().find(|m| m.name.eq_ignore_ascii_case(name.trim())).cloned()
+}
+
+/// Most equipment models a drawing keeps of its own.
+pub const MAX_EQUIPMENT_MODELS: usize = 512;
+
+impl EquipmentModel {
+    /// Whether the model is one a drawing may keep: a name, sizes above zero, usable numbers and texts.
+    pub fn validate(&self) -> bool {
+        let size = |v: f64| v.is_finite() && v > 0.0 && v <= 1.0e6;
+        let ok = |o: Option<f64>| o.is_none_or(|v| v.is_finite() && (0.0..=1.0e7).contains(&v));
+        let name = self.name.trim();
+        !name.is_empty()
+            && name.chars().count() <= 64
+            && size(self.length_mm)
+            && size(self.width_mm)
+            && size(self.height_mm)
+            && ok(self.capacity_kw)
+            && ok(self.heating_kw)
+            && ok(self.weight_kg)
+            && self.fans <= 64
+            && self.reference.chars().count() <= 200
+            && self.connections.chars().count() <= 200
+    }
+}
+
+impl crate::Drawing {
+    /// The models the drawing can be given equipment from: the library's, and the drawing's own (which win at the same name).
+    pub fn available_equipment_models(&self) -> Vec<EquipmentModel> {
+        let mut all = standard_equipment_models();
+        for m in &self.equipment_models {
+            match all.iter_mut().find(|o| o.name.eq_ignore_ascii_case(&m.name)) {
+                Some(o) => *o = m.clone(),
+                None => all.push(m.clone()),
+            }
+        }
+        all
+    }
+
+    /// Keeps `model` in the drawing, replacing the one of the same name (case-insensitive). The values of the equipment already drawn are not touched.
+    pub fn save_equipment_model(&mut self, mut model: EquipmentModel) -> Result<()> {
+        model.name = model.name.trim().to_string();
+        if !model.validate() {
+            return Err(invalid("An equipment model has a name and sizes above zero."));
+        }
+        if let Some(at) = self.equipment_models.iter().position(|m| m.name.eq_ignore_ascii_case(&model.name)) {
+            self.equipment_models[at] = model;
+        } else if self.equipment_models.len() >= MAX_EQUIPMENT_MODELS {
+            return Err(invalid(format!("A drawing keeps {MAX_EQUIPMENT_MODELS} models at most.")));
+        } else {
+            self.equipment_models.push(model);
+        }
+        Ok(())
+    }
+
+    /// Takes a model the drawing kept out of it (the library's stay); whether there was one.
+    pub fn delete_equipment_model(&mut self, name: &str) -> bool {
+        let before = self.equipment_models.len();
+        self.equipment_models.retain(|m| !m.name.eq_ignore_ascii_case(name.trim()));
+        self.equipment_models.len() != before
+    }
+}
+
+impl EquipmentParams {
+    /// The model whose values this equipment has, to be kept under `name`.
+    pub fn to_model(&self, name: &str) -> EquipmentModel {
+        EquipmentModel {
+            name: name.trim().to_string(),
+            kind: self.kind,
+            reference: self.reference.clone(),
+            capacity_kw: self.capacity_kw,
+            heating_kw: self.heating_kw,
+            length_mm: self.length_mm,
+            width_mm: self.width_mm,
+            height_mm: self.height_mm,
+            weight_kg: self.weight_kg,
+            fans: self.fans,
+            connections: self.connections.clone(),
+        }
+    }
+}
+
+impl crate::Drawing {
+    /// Change size labels throughout model space and layouts, preserving each object's values.
+    pub fn set_equipment_size_display(&mut self, show: bool) -> Result<usize> {
+        let hs: Vec<_> = self.model.iter().chain(self.layouts.iter().flat_map(|l| l.entities.iter())).map(|e| e.handle).collect();
+        let mut changed = 0;
+        for h in hs {
+            let Some(mut p) = self.entity(h).and_then(|e| equipment_of(e)) else { continue };
+            if p.show_size != show {
+                p.show_size = show;
+                self.regenerate_equipment(h, &p)?;
+                changed += 1;
+            }
+        }
+        Ok(changed)
+    }
+}
