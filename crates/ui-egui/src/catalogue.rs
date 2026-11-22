@@ -30,9 +30,12 @@ enum Editor {
 pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
     let id = egui::Id::unique("parametric-catalogue-state");
     let mut st = ui.data(|d| d.get_temp::<State>(id)).unwrap_or_default();
-    let gallery_height = (ui.available_height() * 0.45).clamp(120.0, 360.0);
+    let panel_height = ui.available_height();
+    let footer_id = id.with("footer-height");
+    let footer_height = ui.data(|d| d.get_temp::<f32>(footer_id)).unwrap_or(140.0);
     egui::ScrollArea::vertical().id_salt("catalogue-body").auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::NONE.inner_margin(8.0).show(ui, |ui| {
+            let content_top = ui.cursor().top();
             ui.horizontal_wrapped(|ui| {
                 for (equipment, label) in [(false, "Furniture"), (true, "Equipment")] {
                     if ui.selectable_label(st.equipment == equipment, label).clicked() {
@@ -45,7 +48,10 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
             ui.add(egui::TextEdit::singleline(&mut st.filter).hint_text("Search catalogue...").desired_width(f32::INFINITY));
             let equipment = app.session.doc().map(|d| d.available_equipment_models()).unwrap_or_default();
             let groups: Vec<&str> = if st.equipment { EquipmentKind::ALL.iter().map(|k| k.name()).collect() } else { furniture_groups().to_vec() };
-            let height = gallery_height;
+            // Give the gallery the remaining viewport after the actual header and properties.
+            // The outer scroll area keeps properties reachable in very small windows.
+            let header_height = ui.cursor().top() - content_top;
+            let height = (panel_height - header_height - footer_height - 16.0).max(80.0);
             let mut insert = None;
             ui.horizontal_top(|ui| {
                 egui::ScrollArea::vertical().id_salt("catalogue-categories").max_height(height).show(ui, |ui| {
@@ -103,6 +109,7 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
                     });
                 });
             });
+            let footer_top = ui.cursor().top();
             ui.label("Click a model to place it. Tab changes the insertion anchor; the next click sets rotation. Esc ends placement.");
             ui.separator();
             if let Some(model) = insert {
@@ -124,6 +131,11 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
             }
             ui.separator();
             ui.small("Catalogue recipes: freemans32/cadcraft (MIT OR Apache-2.0).");
+            let measured = ui.cursor().top() - footer_top;
+            ui.data_mut(|d| d.insert_temp(footer_id, measured));
+            if (measured - footer_height).abs() > 0.5 {
+                ui.ctx().request_repaint();
+            }
         });
     });
     ui.data_mut(|d| d.insert_temp(id, st));

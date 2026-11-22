@@ -78,6 +78,13 @@ fn blocks_palette_offers_catalogue_sources_and_starts_parametric_placement() {
     if let Some(path) = &shot {
         h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("furniture.png")).unwrap();
     }
+    let tall_footer = h.get_by_label("Select one catalogue object to edit its dimensions.").rect().top();
+    h.state_mut().run("ui.dock", json!({"operation":"float","panel":"blocks","rect":[740,40,680,560]})).unwrap();
+    h.run_steps(5);
+    let short_footer = h.get_by_label("Select one catalogue object to edit its dimensions.").rect().top();
+    assert!(tall_footer - short_footer > 200.0, "the gallery grows with the window instead of keeping a fixed height");
+    h.state_mut().run("ui.dock", json!({"operation":"float","panel":"blocks","rect":[740,40,680,880]})).unwrap();
+    h.run_steps(5);
     h.get_by_label("Sofa, two seats").click();
     h.run_steps(3);
     assert_eq!(h.state().session.running.as_ref().map(|r| r.id.as_str()), Some("furnitureadd"));
@@ -88,6 +95,14 @@ fn blocks_palette_offers_catalogue_sources_and_starts_parametric_placement() {
     if let Some(path) = &shot {
         h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("equipment.png")).unwrap();
     }
+    let equipment = h.state_mut().session.execute("equipmentadd", &json!({"at":[0,0]})).unwrap();
+    let handle = cadcraft_engine::doc::Handle::parse_hex(equipment["handle"].as_str().unwrap()).unwrap();
+    h.state_mut().session.state_mut().unwrap().selection = vec![handle];
+    h.run_steps(5);
+    assert!(
+        h.get_by_label("Apply changes").rect().bottom() < h.ctx.content_rect().bottom(),
+        "selected-object properties remain reachable below the resized gallery"
+    );
     h.state_mut().run("options", json!({"catalogueTools":false})).unwrap();
     h.run_steps(4);
     assert!(h.query_by_label("Catalogues").is_none());
