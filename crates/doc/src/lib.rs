@@ -16,13 +16,19 @@ mod format;
 mod gdt;
 mod header;
 pub mod library;
+mod opening;
 mod plotstyle;
 mod plotter;
 mod raster;
 mod refedit;
 mod store;
 mod tables;
+mod wall;
+mod wall_library;
 mod xclip;
+pub use opening::*;
+pub use wall::*;
+pub use wall_library::*;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -164,6 +170,8 @@ pub struct Drawing {
     pub rasters: Rasters,
     /// Drawing-local parametric equipment models (freemans32 catalogue).
     pub equipment_models: Vec<EquipmentModel>,
+    /// Architectural styles used by parametric walls.
+    pub wall_styles: Vec<WallStyle>,
 }
 
 impl Default for Drawing {
@@ -229,6 +237,7 @@ impl Drawing {
             portable_fonts: false,
             rasters: Rasters::default(),
             equipment_models: Vec::new(),
+            wall_styles: Vec::new(),
         }
     }
 

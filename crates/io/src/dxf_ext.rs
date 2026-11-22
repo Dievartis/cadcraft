@@ -1025,3 +1025,43 @@ pub(crate) fn parse_equipment_models(text: &str) -> Option<Vec<cadcraft_doc::Equ
     }
     Some(out)
 }
+
+use cadcraft_doc::WallStyle;
+pub(crate) const WALL_STYLES_KEY: &str = "CADCRAFT_WALLSTYLES";
+const MAX_WALL_STYLES: usize = 10_000;
+#[derive(Serialize, Deserialize)]
+struct WallStylesPayload {
+    version: u32,
+    #[serde(default)]
+    styles: Vec<WallStyle>,
+}
+
+/// JSON chunks for the wall styles XRECORD, or `None` when the drawing defines no wall style.
+pub(crate) fn wall_style_chunks(styles: &[WallStyle]) -> Option<Vec<String>> {
+    if styles.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&WallStylesPayload { version: 1, styles: styles.to_vec() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// Parse the wall styles XRECORD text: the valid styles, names trimmed, the first of each name
+/// (case-insensitive); `None` when it is not a payload we understand.
+pub(crate) fn parse_wall_styles(text: &str) -> Option<Vec<WallStyle>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: WallStylesPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 || p.styles.len() > MAX_WALL_STYLES {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<WallStyle> = Vec::with_capacity(p.styles.len());
+    for mut s in p.styles {
+        s.name = s.name.trim().to_string();
+        if s.validate().is_ok() && seen.insert(s.name.to_lowercase()) {
+            out.push(s);
+        }
+    }
+    Some(out)
+}

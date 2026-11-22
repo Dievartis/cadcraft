@@ -6,7 +6,7 @@ pub use distribute::*;
 pub use equipment::*;
 mod furniture;
 mod furniture_catalog;
-mod xdata;
+pub(crate) mod xdata;
 use crate::{DocError, Result};
 use cadcraft_geom::{Vec2, Vec3};
 pub use furniture::*;

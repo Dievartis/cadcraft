@@ -47,8 +47,10 @@ pub mod textdlg;
 // The External References palette.
 pub mod xrefs;
 
+mod architecture;
 pub mod blocks_palette;
 mod catalogue;
+mod wallstyledlg;
 
 pub mod dyngrips;
 pub mod dyninput;
@@ -112,6 +114,7 @@ pub struct UiState {
     pub show_layer_list: bool,
     /// Show optional freemans32 furniture and equipment catalogues. Geometry is always readable.
     pub catalogue_tools: bool,
+    pub architecture_tools: bool,
     /// Keep the system cursor visible over the drawing area (a small crosshair at the centre of the
     /// drawn one) instead of hiding it. Screen magnifiers (Windows Magnifier "follow the mouse
     /// pointer"), screen readers, recorders and remote desktops track the system cursor and lose it
@@ -210,6 +213,7 @@ impl Default for UiState {
             show_viewcube: true,
             show_layer_list: false,
             catalogue_tools: false,
+            architecture_tools: false,
             system_cursor: false,
             toolset_tab: "Drafting".into(),
             collapsed_groups: Vec::new(),
@@ -292,6 +296,7 @@ struct PendingPick {
 }
 
 pub struct CadApp {
+    wall_style_dlg: Option<wallstyledlg::WallStyleDlgState>,
     pub system_languages: Vec<String>,
     /// Whether the operating system shows animations, as the host reads it; `None` when the OS
     /// states nothing or the host cannot ask ([`animation`]).
@@ -414,6 +419,7 @@ impl CadApp {
             textstyles::initialize_fonts();
         }
         CadApp {
+            wall_style_dlg: None,
             system_languages: Vec::new(),
             system_animations: None,
             system_cursor_default: false,
@@ -730,6 +736,7 @@ impl CadApp {
             "defaultTemplate": cadcraft_engine::cmd::file::qnew_template(),
             "quickcalc": self.quickcalc.prefs(),
             "catalogueTools": self.ui.catalogue_tools,
+            "architectureTools": self.ui.architecture_tools,
         });
         if self.spacemouse.settings != spacemouse::Settings::default() {
             prefs["spacemouse"] = json!(self.spacemouse.settings);
@@ -754,6 +761,9 @@ impl CadApp {
         let Ok(v) = serde_json::from_str::<Value>(json) else { return };
         if let Some(path) = v.get("defaultTemplate").and_then(Value::as_str) {
             cadcraft_engine::cmd::file::set_qnew_template(path);
+        }
+        if let Some(enabled) = v.get("architectureTools").and_then(Value::as_bool) {
+            self.ui.architecture_tools = enabled;
         }
         if let Some(enabled) = v.get("catalogueTools").and_then(Value::as_bool) {
             self.ui.catalogue_tools = enabled;

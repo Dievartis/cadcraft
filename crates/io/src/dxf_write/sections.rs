@@ -1097,6 +1097,9 @@ pub(super) fn tags_kept_for(
     if let Some(chunks) = dxf_ext::plot_style_chunks(&d.plot_style_tables) {
         xrecords.push((dxf_ext::PLOT_STYLES_KEY, w.h(), chunks));
     }
+    if let Some(chunks) = dxf_ext::wall_style_chunks(&d.wall_styles) {
+        xrecords.push((dxf_ext::WALL_STYLES_KEY, w.h(), chunks));
+    }
     if let Some(chunks) = dxf_ext::equipment_model_chunks(&d.equipment_models) {
         xrecords.push((dxf_ext::EQUIPMENT_MODELS_KEY, w.h(), chunks));
     }

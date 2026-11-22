@@ -5,7 +5,8 @@ snapshot `e4964f0ba` inspected on 2026-11-22. A local source reference
 `integration/freemans32-audit` preserves the inspected snapshot. This is a source
 and dependency assessment of that snapshot. The first furniture/equipment
 extraction is tracked separately in [catalogue integration](freemans32-catalogues.md);
-the remaining building tools have not been integrated or tested here.
+the wall/opening extraction is tracked in [walls integration](freemans32-walls.md).
+The remaining building tools have not been integrated or tested here.
 
 ## Finding
 

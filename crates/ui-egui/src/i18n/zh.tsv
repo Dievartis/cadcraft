@@ -1544,3 +1544,13 @@ menu	View	视图
 	Show Equipment Sizes	显示设备尺寸
 	Edit Equipment	编辑设备
 	HVAC	暖通空调
+	Wall	墙
+	Wall Styles	墙体样式
+	Wall Elevation	墙体立面
+	Wall Junctions	墙体连接
+	Edit Wall	编辑墙体
+	Architecture	建筑
+	Opening	墙体洞口
+	Corner Window	转角窗
+	Convert to Openings	转换为墙体洞口
+	Edit Opening	编辑墙体洞口

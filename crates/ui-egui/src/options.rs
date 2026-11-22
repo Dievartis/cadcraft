@@ -231,6 +231,7 @@ struct UiChanges {
     save_format: Option<crate::SaveFormat>,
     system_cursor: Option<bool>,
     catalogue_tools: Option<bool>,
+    architecture_tools: Option<bool>,
     history_lines: Option<usize>,
     model_background: Option<Option<Color32>>,
     paper_background: Option<Option<Color32>>,
@@ -268,6 +269,7 @@ fn parse_ui(key: &str, v: &Value, c: &mut UiChanges) -> Result<bool, String> {
             )
         }
         "saveFormat" => c.save_format = Some(crate::SaveFormat::parse(text()?).ok_or("saveFormat must be dxf or dwg")?),
+        "architectureTools" => c.architecture_tools = Some(v.as_bool().ok_or("architectureTools must be true or false")?),
         "catalogueTools" => c.catalogue_tools = Some(v.as_bool().ok_or("catalogueTools must be true or false")?),
         "systemCursor" => c.system_cursor = Some(v.as_bool().ok_or("systemCursor must be true or false")?),
         "historyLines" => {
@@ -331,6 +333,7 @@ fn ui_json(app: &CadApp) -> Map<String, Value> {
     m.insert("animations".into(), json!(app.ui.animations.as_str()));
     m.insert("interfaceLanguage".into(), json!(app.ui.interface_language.code()));
     m.insert("saveFormat".into(), json!(app.ui.save_format.as_str()));
+    m.insert("architectureTools".into(), json!(app.ui.architecture_tools));
     m.insert("catalogueTools".into(), json!(app.ui.catalogue_tools));
     m.insert("systemCursor".into(), json!(app.ui.system_cursor));
     m.insert("historyLines".into(), json!(app.ui.history_lines));
@@ -388,6 +391,9 @@ fn run_json(app: &mut CadApp, params: &Value) -> Result<Value, String> {
     }
     if let Some(f) = ui.save_format {
         app.ui.save_format = f;
+    }
+    if let Some(b) = ui.architecture_tools {
+        app.ui.architecture_tools = b;
     }
     if let Some(b) = ui.catalogue_tools {
         app.ui.catalogue_tools = b;
@@ -478,6 +484,7 @@ fn reset_ui(app: &mut CadApp) {
     app.ui.in_window_menu = !app.native_menus;
     app.ui.system_cursor = app.system_cursor_default;
     app.ui.catalogue_tools = false;
+    app.ui.architecture_tools = false;
     app.options = UiOptions::default();
 }
 
@@ -493,6 +500,7 @@ impl CadApp {
             "aliases": cadcraft_engine::cmd::file::alias_profile(),
             "systemCursor": self.ui.system_cursor,
             "catalogueTools": self.ui.catalogue_tools,
+            "architectureTools": self.ui.architecture_tools,
             "modelBackground": color_json(self.options.model_background),
             "paperBackground": color_json(self.options.paper_background),
             "selectionColor": color_json(self.options.selection_color),
@@ -526,6 +534,7 @@ impl CadApp {
         let mut c = UiChanges::default();
         for key in [
             "catalogueTools",
+            "architectureTools",
             "systemCursor",
             "modelBackground",
             "paperBackground",
@@ -542,6 +551,9 @@ impl CadApp {
             if let Some(value) = v.get(key) {
                 let _ = parse_ui(key, value, &mut c);
             }
+        }
+        if let Some(b) = c.architecture_tools {
+            self.ui.architecture_tools = b;
         }
         if let Some(b) = c.catalogue_tools {
             self.ui.catalogue_tools = b;

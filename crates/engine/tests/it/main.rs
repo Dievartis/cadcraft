@@ -61,6 +61,7 @@ mod fillet_chamfer;
 mod fix_holds_grips;
 mod followups_626;
 mod freeman_equipment;
+mod freeman_walls;
 mod furniture;
 mod greek_keyboard;
 mod grip_dim_input;

@@ -29,6 +29,7 @@ mod dynblock_read;
 mod entity_props_roundtrip;
 mod exhausted_handseed;
 mod followups_626;
+mod freeman_wall_roundtrip;
 mod groups_roundtrip;
 mod hatch_assoc_roundtrip;
 mod hatch_pattern_def;

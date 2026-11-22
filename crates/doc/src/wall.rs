@@ -1,0 +1,1203 @@
+//! Architectural walls: a wall style lists the wall's components (brick, insulation,
+//! plasterboard…) with their thicknesses, from the exterior face to the interior face; a wall is
+//! a block reference to an anonymous block holding the lines and hatches generated from its
+//! style and its path.
+//!
+//! The wall's parameters ([`WallParams`]) travel as extended data of their own registered
+//! application ([`WALL_APP`]) on the block reference. Entity xdata is what a DWG save keeps
+//! (xdata on block records is dropped there, see `docs/file-format-parity.md`), and copying the
+//! reference (COPY, MIRROR, paste) copies the wall with it, as xdata is part of the object.
+//! Other programs see an ordinary block reference with lines and hatches.
+//!
+//! Units: styles measure their components in millimetres; a wall keeps the factor it was drawn
+//! with ([`WallUnits`]), so its geometry is the same however the drawing's units change later.
+//!
+//! The path is in the block's coordinates: moving, rotating or mirroring the reference moves
+//! the wall without regenerating it.
+
+use cadcraft_color::Color;
+use cadcraft_geom::{PolyVertex, Vec2, Vec3, shoelace};
+use serde::{Deserialize, Serialize};
+
+use crate::{DocError, EntityKind, Hatch, HatchLoop, Line, LwPolyline, OpeningParams, RawTag, Result, opening_of};
+
+mod elevation;
+mod grips;
+mod joint;
+pub use elevation::{ELEVATION_DIM_LAYER, ELEVATION_DOOR_LAYER, ELEVATION_LAYER, ELEVATION_OBJECT_LAYER, ELEVATION_WINDOW_LAYER, ElevationSide};
+pub use joint::{EndCut, ForeignBand, MAX_FOREIGN_BANDS, MAX_OPENINGS_PER_WALL, OpeningCut, Placement, WallJoints};
+
+/// The registered application name of a wall's extended data.
+pub const WALL_APP: &str = "CADCRAFT_WALL";
+/// Most components a wall style has.
+pub const MAX_WALL_COMPONENTS: usize = 16;
+/// Most vertices of one wall's path; a longer run is drawn as several walls.
+pub const MAX_WALL_VERTICES: usize = 64;
+/// Largest bulge of an arc segment (the tangent of a quarter of its angle): a half circle.
+pub const MAX_WALL_BULGE: f64 = 1.0;
+/// An arc segment is drawn as straight pieces at most this many radians apart (3°).
+const ARC_STEP: f64 = 0.052_359_877_559_829_89;
+/// Most points a wall's centre line has once its arcs are drawn as straight pieces.
+const MAX_CENTRELINE_POINTS: usize = 1024;
+/// Thickest component and highest wall, in millimetres (100 m).
+pub const MAX_WALL_SIZE_MM: f64 = 100_000.0;
+/// Longest style or component name, in characters.
+pub const MAX_WALL_NAME_CHARS: usize = 64;
+/// Longest wall style description, in characters.
+pub const MAX_WALL_DESCRIPTION_CHARS: usize = 255;
+/// Most bytes of a wall's parameters in its extended data, each non-ASCII character counted as
+/// the 7-byte `\U+XXXX` escape an older DXF file writes it as: within the 16 KB other programs
+/// allow per object whatever the file version.
+pub const MAX_WALL_XDATA_BYTES: usize = 12_000;
+/// The layer of a wall's block reference and lines.
+pub const WALL_LAYER: &str = "A-WALL";
+/// The layer of a wall's hatches.
+pub const WALL_PATTERN_LAYER: &str = "A-WALL-PATT";
+/// The smallest angle between two segments of a wall: a sharper corner has no clean miter (its
+/// point would run far past the wall's faces), so the path is refused.
+const MIN_CORNER_DEGREES: f64 = 30.0;
+/// The first string of a wall's extended data, naming the format of the JSON that follows.
+const XDATA_FORMAT: &str = "WALL1";
+/// Bytes per xdata string, each non-ASCII character counted as its 7-byte `\U+XXXX` escape: a
+/// string stays under the 255-byte limit in any file version (see `json_strings`).
+const XDATA_CHUNK_COST: usize = 240;
+
+fn one() -> f64 {
+    1.0
+}
+
+fn default_priority() -> u16 {
+    500
+}
+
+fn default_height() -> f64 {
+    2500.0
+}
+
+/// What a component is for: it sets the default cleanup priority, and how the style manager
+/// groups components.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ComponentFunction {
+    /// Load-bearing material: concrete, brick, block, studs.
+    #[default]
+    Structure,
+    Insulation,
+    /// Plasterboard, render, cladding.
+    Finish,
+    /// A membrane (vapour control layer, breather membrane): drawn as a line, no thickness.
+    Membrane,
+    /// An air gap or a service void: never hatched.
+    AirGap,
+}
+
+/// One layer of a wall style.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WallComponent {
+    pub name: String,
+    /// Millimetres; 0 for a membrane.
+    pub thickness: f64,
+    /// The hatch pattern name (`SOLID` for a solid fill); empty for no hatch.
+    #[serde(default)]
+    pub pattern: String,
+    /// The pattern scale for a metric drawing in millimetres (or an imperial one in inches).
+    #[serde(default = "one")]
+    pub pattern_scale: f64,
+    /// The pattern angle in degrees.
+    #[serde(default)]
+    pub pattern_angle: f64,
+    #[serde(default)]
+    pub color: Color,
+    /// Cleanup priority, kept with the style for joining walls (not used yet): where two walls
+    /// meet, a component with a lower number will cut through components with a higher one.
+    #[serde(default = "default_priority")]
+    pub priority: u16,
+    #[serde(default)]
+    pub function: ComponentFunction,
+    /// Whether the component wraps into the reveal of an opening, as a lining around a window
+    /// does; kept with the style for openings (not used yet).
+    #[serde(default)]
+    pub returns_at_openings: bool,
+}
+
+impl WallComponent {
+    /// A component with the default priority of its function.
+    pub fn new(name: &str, thickness: f64, function: ComponentFunction) -> Self {
+        let priority = match function {
+            ComponentFunction::Structure => 300,
+            ComponentFunction::Insulation => 500,
+            ComponentFunction::AirGap => 600,
+            ComponentFunction::Membrane => 700,
+            ComponentFunction::Finish => 800,
+        };
+        WallComponent {
+            name: name.into(),
+            thickness,
+            pattern: String::new(),
+            pattern_scale: 1.0,
+            pattern_angle: 0.0,
+            color: Color::ByLayer,
+            priority,
+            function,
+            returns_at_openings: false,
+        }
+    }
+    /// The same component hatched with `pattern` at `scale`.
+    pub fn hatched(mut self, pattern: &str, scale: f64) -> Self {
+        self.pattern = pattern.into();
+        self.pattern_scale = scale;
+        self
+    }
+    /// The same component wrapping into openings.
+    pub fn returning(mut self) -> Self {
+        self.returns_at_openings = true;
+        self
+    }
+}
+
+/// A wall style: the components from the exterior face to the interior face.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WallStyle {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub components: Vec<WallComponent>,
+    /// The height of new walls, in millimetres.
+    #[serde(default = "default_height")]
+    pub default_height: f64,
+}
+
+impl WallStyle {
+    /// The total thickness, in millimetres.
+    pub fn thickness(&self) -> f64 {
+        self.components.iter().map(|c| c.thickness).sum()
+    }
+
+    /// Checks a style from a file, a command or a script; the message says what is wrong.
+    pub fn validate(&self) -> Result<()> {
+        let name = self.name.trim();
+        if name.is_empty() || name.chars().count() > MAX_WALL_NAME_CHARS {
+            return Err(invalid(format!("A wall style name has 1 to {MAX_WALL_NAME_CHARS} characters.")));
+        }
+        if self.description.chars().count() > MAX_WALL_DESCRIPTION_CHARS {
+            return Err(invalid(format!("A wall style description has at most {MAX_WALL_DESCRIPTION_CHARS} characters.")));
+        }
+        if self.components.is_empty() || self.components.len() > MAX_WALL_COMPONENTS {
+            return Err(invalid(format!("A wall style has 1 to {MAX_WALL_COMPONENTS} components.")));
+        }
+        for c in &self.components {
+            let n = c.name.trim();
+            if n.is_empty() || n.chars().count() > MAX_WALL_NAME_CHARS {
+                return Err(invalid(format!("A wall component name has 1 to {MAX_WALL_NAME_CHARS} characters.")));
+            }
+            if !c.thickness.is_finite() || c.thickness < 0.0 || c.thickness > MAX_WALL_SIZE_MM {
+                return Err(invalid(format!("Component \"{n}\": the thickness must be 0 to {MAX_WALL_SIZE_MM} mm.")));
+            }
+            if (c.thickness == 0.0) != (c.function == ComponentFunction::Membrane) {
+                return Err(invalid(format!("Component \"{n}\": only a membrane has no thickness, and a membrane has none.")));
+            }
+            if c.pattern.chars().count() > MAX_WALL_NAME_CHARS {
+                return Err(invalid(format!("Component \"{n}\": the pattern name is too long.")));
+            }
+            if !c.pattern_scale.is_finite() || c.pattern_scale <= 0.0 || c.pattern_scale > 1e6 {
+                return Err(invalid(format!("Component \"{n}\": the pattern scale must be above 0.")));
+            }
+            if !c.pattern_angle.is_finite() {
+                return Err(invalid(format!("Component \"{n}\": the pattern angle must be a number.")));
+            }
+        }
+        if self.thickness() <= 0.0 {
+            return Err(invalid("A wall style needs at least one component with a thickness."));
+        }
+        if !self.default_height.is_finite() || self.default_height <= 0.0 || self.default_height > MAX_WALL_SIZE_MM {
+            return Err(invalid(format!("The default wall height must be above 0 and at most {MAX_WALL_SIZE_MM} mm.")));
+        }
+        Ok(())
+    }
+}
+
+/// Where the wall's path runs, looking along the drawing direction: the exterior face is on
+/// the left. Drawing a building's outline clockwise puts the exterior outside.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WallJustification {
+    /// The path is the exterior face; the wall lies to its right.
+    #[default]
+    Left,
+    /// The path is the middle of the wall.
+    Center,
+    /// The path is the interior face; the wall lies to its left.
+    Right,
+}
+
+impl WallJustification {
+    pub fn name(self) -> &'static str {
+        match self {
+            WallJustification::Left => "Left",
+            WallJustification::Center => "Center",
+            WallJustification::Right => "Right",
+        }
+    }
+    /// The justification a command option or a JSON value names.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "l" | "left" => Some(WallJustification::Left),
+            "c" | "center" | "centre" => Some(WallJustification::Center),
+            "r" | "right" => Some(WallJustification::Right),
+            _ => None,
+        }
+    }
+}
+
+/// How a wall's millimetres become drawing units.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WallUnits {
+    /// Millimetres per drawing unit (1 for millimetres, 25.4 for inches).
+    pub mm_per_unit: f64,
+    /// Whether the drawing's hatch patterns are the metric ones (`MEASUREMENT` 1), measured in
+    /// millimetres, rather than the imperial ones, measured in inches.
+    pub metric_patterns: bool,
+}
+
+impl Default for WallUnits {
+    fn default() -> Self {
+        WallUnits { mm_per_unit: 1.0, metric_patterns: true }
+    }
+}
+
+impl WallUnits {
+    /// The units of drawing `d`: its `INSUNITS`, or millimetres in a metric drawing and inches in
+    /// an imperial one when it has none.
+    pub fn of(d: &crate::Drawing) -> Self {
+        let metric_patterns = d.header.i64("MEASUREMENT", 0) == 1;
+        let mm_per_unit = match d.header.i64("INSUNITS", 0) {
+            1 => 25.4,   // inches
+            2 => 304.8,  // feet
+            4 => 1.0,    // millimetres
+            5 => 10.0,   // centimetres
+            6 => 1000.0, // metres
+            14 => 100.0, // decimetres
+            _ if metric_patterns => 1.0,
+            _ => 25.4,
+        };
+        WallUnits { mm_per_unit, metric_patterns }
+    }
+    fn valid(self) -> bool {
+        self.mm_per_unit.is_finite() && self.mm_per_unit > 0.0 && self.mm_per_unit <= 1e6
+    }
+    /// Millimetres as drawing units.
+    pub fn to_units(self, mm: f64) -> f64 {
+        mm / self.mm_per_unit
+    }
+    /// A pattern scale defined for millimetres (or inches) as the scale for this drawing.
+    fn pattern_scale(self, scale: f64) -> f64 {
+        let pattern_unit_mm = if self.metric_patterns { 1.0 } else { 25.4 };
+        scale * pattern_unit_mm / self.mm_per_unit
+    }
+}
+
+/// A wall: what its block reference keeps to regenerate it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WallParams {
+    /// A copy of the style the wall was drawn with, so the wall stands on its own.
+    pub style: WallStyle,
+    /// The path in the block's coordinates (drawing units); no repeated point.
+    pub path: Vec<Vec2>,
+    #[serde(default)]
+    pub closed: bool,
+    /// The bulge of each segment, as in a polyline: 0 straight, the tangent of a quarter of the
+    /// arc's angle otherwise, positive turning left (counter-clockwise). Empty: all straight.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bulges: Vec<f64>,
+    #[serde(default)]
+    pub justification: WallJustification,
+    /// Millimetres.
+    #[serde(default = "default_height")]
+    pub height: f64,
+    #[serde(default)]
+    pub units: WallUnits,
+    /// What the wall keeps about the walls it meets (none: drawn on its own).
+    #[serde(default, skip_serializing_if = "WallJoints::is_empty")]
+    pub joints: WallJoints,
+    /// Whether the start (or the end) of an open wall is left as drawn: not cut to the walls it
+    /// meets, not extended to them. The walls' overlap is still drawn once.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub start_free: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub end_free: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// The radius of the arc from `a` to `b` with `bulge`; `None` for a straight segment.
+pub fn arc_radius(a: Vec2, b: Vec2, bulge: f64) -> Option<f64> {
+    let theta = 4.0 * bulge.atan();
+    let c = a.dist(b);
+    (bulge != 0.0 && bulge.is_finite() && c > 0.0).then(|| c / (2.0 * (theta / 2.0).sin().abs())).filter(|r| r.is_finite())
+}
+
+/// The bulge of the arc from `start` to `end` that turns about `centre`, the short way round (half a circle at most), and the end on the circle:
+/// `None` when the centre is on the start or on the end, or the three points are on a line (the arc would be a half circle at most, but not defined).
+/// The end given need not be exactly on the circle: it only says in which direction from the centre the arc ends.
+pub fn bulge_from_centre(start: Vec2, centre: Vec2, end: Vec2) -> Option<(f64, Vec2)> {
+    let r = start.dist(centre);
+    let to_end = end - centre;
+    if !(r.is_finite() && r > 1e-9 && to_end.len() > 1e-9) {
+        return None;
+    }
+    let end_on = centre + to_end / to_end.len() * r;
+    // The turn counter-clockwise from the start to the end; more than half a circle that way is less than half the other way.
+    let ccw = (end_on - centre).angle() - (start - centre).angle();
+    let mut sweep = ccw.rem_euclid(std::f64::consts::TAU);
+    if sweep > std::f64::consts::PI {
+        sweep -= std::f64::consts::TAU;
+    }
+    (sweep.abs() > 1e-9).then(|| ((sweep / 4.0).tan(), end_on))
+}
+
+/// An arc segment of a wall, in terms of the facets of its centreline: see [`WallParams::arc_span_of`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ArcSpan {
+    /// The index of the arc's segment in the path.
+    pub segment: usize,
+    /// The first facet of the arc and the one after its last.
+    pub first: usize,
+    pub end: usize,
+    /// The arc's radius, in drawing units.
+    pub radius: f64,
+}
+
+/// The bulge of the arc from `a` to `b` that passes through `m`: `None` when the three points are
+/// on a line, or the arc is more than a half circle.
+pub fn bulge_through(a: Vec2, m: Vec2, b: Vec2) -> Option<f64> {
+    let chord = b - a;
+    let c = chord.len();
+    let side = chord.cross(m - a);
+    if !(c > 0.0 && side.is_finite()) || side.abs() <= 1e-9 * c * c {
+        return None;
+    }
+    // The circle through the three points: its centre is where the chord's and a–m's bisectors meet.
+    let (u, v) = (m - a, b - a);
+    let d = 2.0 * u.cross(v);
+    let (uu, vv) = (u.dot(u), v.dot(v));
+    let centre = a + Vec2::new((v.y * uu - u.y * vv) / d, (u.x * vv - v.x * uu) / d);
+    let r = centre.dist(a);
+    let theta_minor = 2.0 * (c / (2.0 * r)).clamp(-1.0, 1.0).asin();
+    // `m` on the side of the chord away from the centre: it is on the minor arc.
+    let minor = chord.cross(m - a) * chord.cross(centre - a) < 0.0;
+    let theta = if minor { theta_minor } else { std::f64::consts::TAU - theta_minor };
+    // A point to the right of a→b is on a counter-clockwise arc (positive bulge).
+    let bulge = (theta / 4.0).tan() * if side < 0.0 { 1.0 } else { -1.0 };
+    (bulge.abs() <= MAX_WALL_BULGE + 1e-9).then_some(bulge.clamp(-MAX_WALL_BULGE, MAX_WALL_BULGE))
+}
+
+/// The points between `a` and `b` that draw the arc of `bulge` as straight pieces.
+fn arc_points(a: Vec2, b: Vec2, bulge: f64) -> Vec<Vec2> {
+    let Some(r) = arc_radius(a, b, bulge) else { return Vec::new() };
+    let theta = 4.0 * bulge.atan();
+    let c = a.dist(b);
+    // The centre is to the left of the chord for a counter-clockwise arc, to the right otherwise.
+    let centre = (a + b) / 2.0 + (b - a).perp() / c * ((c / 2.0) / (theta / 2.0).tan());
+    let first = (a - centre).angle();
+    let n = ((theta.abs() / ARC_STEP).ceil() as usize).max(1);
+    (1..n)
+        .map(|k| {
+            let ang = first + theta * k as f64 / n as f64;
+            centre + Vec2::new(ang.cos(), ang.sin()) * r
+        })
+        .collect()
+}
+
+/// One object of a wall's generated geometry: lines go on [`WALL_LAYER`], hatches on
+/// [`WALL_PATTERN_LAYER`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct WallPiece {
+    pub layer: &'static str,
+    pub color: Color,
+    pub kind: EntityKind,
+}
+
+impl WallParams {
+    /// The wall turned round: the same footprint (the same points of the drawing, the same side of the path) with its components in the opposite order, so
+    /// the face that was on the outside is on the inside. The path is walked the other way and the justification is mirrored (left and right swap), the
+    /// bulges follow their segments with their sign changed; what the wall kept about its neighbours is left to be worked out again.
+    pub fn flipped(&self) -> WallParams {
+        let n = self.path.len();
+        let segments = if self.closed { n } else { n.saturating_sub(1) };
+        let mut w = self.clone();
+        w.path.reverse();
+        w.justification = match self.justification {
+            WallJustification::Left => WallJustification::Right,
+            WallJustification::Right => WallJustification::Left,
+            WallJustification::Center => WallJustification::Center,
+        };
+        if !self.bulges.is_empty() && segments > 0 {
+            // The segment k of the new path is the segment (n - 2 - k) of the old one, walked backwards.
+            w.bulges = (0..segments)
+                .map(|k| {
+                    let old = (n as i64 - 2 - k as i64).rem_euclid(segments as i64) as usize;
+                    -self.bulges.get(old).copied().unwrap_or(0.0)
+                })
+                .collect();
+        }
+        (w.start_free, w.end_free) = (self.end_free, self.start_free);
+        w.joints = WallJoints::default();
+        w
+    }
+
+    /// Checks parameters from a file, a command or a script.
+    pub fn validate(&self) -> Result<()> {
+        self.style.validate()?;
+        if !self.units.valid() {
+            return Err(invalid("The wall's units are not valid."));
+        }
+        if !self.height.is_finite() || self.height <= 0.0 || self.height > MAX_WALL_SIZE_MM {
+            return Err(invalid(format!("The wall height must be above 0 and at most {MAX_WALL_SIZE_MM} mm.")));
+        }
+        let min = if self.closed { 3 } else { 2 };
+        if self.path.len() < min || self.path.len() > MAX_WALL_VERTICES {
+            return Err(invalid(format!("A wall has {min} to {MAX_WALL_VERTICES} points.")));
+        }
+        if self.path.iter().any(|p| !p.is_finite() || p.x.abs() > 1e12 || p.y.abs() > 1e12) {
+            return Err(invalid("A wall point is not a finite coordinate."));
+        }
+        self.validate_arcs()?;
+        self.joints.validate()?;
+        // Thickness and segment lengths are checked when the geometry is built, the data size
+        // when the extended data is.
+        self.generate()?;
+        self.to_xdata().map(|_| ())
+    }
+
+    /// The wall's centre line: its path with every arc segment drawn as short straight pieces, the
+    /// line the lines, hatches and junctions are worked out along.
+    pub fn centreline(&self) -> Vec<Vec2> {
+        if self.bulges.iter().all(|b| *b == 0.0) {
+            return self.path.clone();
+        }
+        let n = self.path.len();
+        let segs = if self.closed { n } else { n.saturating_sub(1) };
+        let mut out = Vec::with_capacity(n * 4);
+        for (i, &a) in self.path.iter().enumerate() {
+            out.push(a);
+            if i < segs
+                && let Some(&b) = self.path.get((i + 1) % n)
+            {
+                out.extend(arc_points(a, b, self.bulges.get(i).copied().unwrap_or(0.0)));
+            }
+            if out.len() > MAX_CENTRELINE_POINTS * 2 {
+                break;
+            }
+        }
+        out
+    }
+
+    /// The arc the facet `facet` of the centreline belongs to, when its segment is an arc: the facets it is drawn with (`first` to `end`, the
+    /// end excluded), the index of its segment in the path and its radius. `None` for a straight segment or a facet that is not there.
+    pub fn arc_span_of(&self, facet: usize) -> Option<ArcSpan> {
+        if self.bulges.iter().all(|b| *b == 0.0) {
+            return None;
+        }
+        let n = self.path.len();
+        let segs = if self.closed { n } else { n.saturating_sub(1) };
+        let mut start = 0usize;
+        for i in 0..segs {
+            let (a, b) = (*self.path.get(i)?, *self.path.get((i + 1) % n)?);
+            let bulge = self.bulges.get(i).copied().unwrap_or(0.0);
+            let m = arc_points(a, b, bulge).len();
+            if (start..=start + m).contains(&facet) {
+                return arc_radius(a, b, bulge).map(|radius| ArcSpan { segment: i, first: start, end: start + m + 1, radius });
+            }
+            start += m + 1;
+            if start > MAX_CENTRELINE_POINTS * 2 {
+                break;
+            }
+        }
+        None
+    }
+
+    /// The total thickness in drawing units.
+    pub fn thickness(&self) -> f64 {
+        self.units.to_units(self.style.thickness())
+    }
+
+    /// Checks the arcs: a bulge per segment at most, usable, no more than a half circle, and an arc
+    /// whose radius is at least the wall's thickness (a tighter one would fold the wall over itself).
+    fn validate_arcs(&self) -> Result<()> {
+        if self.bulges.is_empty() {
+            return Ok(());
+        }
+        let n = self.path.len();
+        let segs = if self.closed { n } else { n.saturating_sub(1) };
+        if self.bulges.len() > segs {
+            return Err(invalid("A wall has one bulge per segment at most."));
+        }
+        let reach = self.boundaries().iter().fold(0.0_f64, |m, b| m.max(b.abs()));
+        for (i, &bulge) in self.bulges.iter().enumerate() {
+            if !bulge.is_finite() || bulge.abs() > MAX_WALL_BULGE {
+                return Err(invalid("An arc wall turns by half a circle at most."));
+            }
+            if let (Some(&a), Some(&b)) = (self.path.get(i), self.path.get((i + 1) % n))
+                && let Some(r) = arc_radius(a, b, bulge)
+                && r < reach
+            {
+                return Err(invalid("The arc's radius is smaller than the wall's thickness."));
+            }
+        }
+        if self.centreline().len() > MAX_CENTRELINE_POINTS {
+            return Err(invalid("The wall has too many arcs."));
+        }
+        Ok(())
+    }
+
+    /// The offsets of the component boundaries from the path (left positive), exterior face
+    /// first: one more than there are components.
+    pub(crate) fn boundaries(&self) -> Vec<f64> {
+        let total = self.thickness();
+        let mut at = match self.justification {
+            WallJustification::Left => 0.0,
+            WallJustification::Center => total / 2.0,
+            WallJustification::Right => total,
+        };
+        let mut v = Vec::with_capacity(self.style.components.len() + 1);
+        v.push(at);
+        for c in &self.style.components {
+            at -= self.units.to_units(c.thickness);
+            v.push(at);
+        }
+        v
+    }
+
+    /// The wall's lines and hatches in the block's coordinates: one line along each component
+    /// boundary (a membrane's included), the two end lines of an open wall, and a hatch per
+    /// component with a pattern.
+    pub fn generate(&self) -> Result<Vec<WallPiece>> {
+        let bounds = self.boundaries();
+        let reach = bounds.iter().fold(0.0_f64, |m, b| m.max(b.abs()));
+        let joins = joins(&self.centreline(), self.closed, reach)?;
+        // A wall that meets others is drawn component by component, cut where they meet.
+        if !self.joints.is_empty() {
+            return self.generate_jointed(&joins);
+        }
+        let mut pieces = boundary_lines(&joins, &bounds, self.closed, reach);
+        if !self.closed {
+            pieces.extend(end_lines(&joins, &bounds));
+        }
+        for (c, pair) in self.style.components.iter().zip(bounds.windows(2)) {
+            if let &[outer, inner] = pair
+                && let Some(h) = self.hatch(c, &joins, outer, inner)
+            {
+                pieces.push(h);
+            }
+        }
+        Ok(pieces)
+    }
+
+    /// The hatch of component `c` between offsets `outer` and `inner`, when it has a pattern.
+    fn hatch(&self, c: &WallComponent, joins: &[Join], outer: f64, inner: f64) -> Option<WallPiece> {
+        let pattern = c.pattern.trim();
+        if pattern.is_empty() || c.thickness <= 0.0 || matches!(c.function, ComponentFunction::Membrane | ComponentFunction::AirGap) {
+            return None;
+        }
+        let a = offset(joins, outer);
+        let b = offset(joins, inner);
+        let loops = if self.closed {
+            // The larger ring is the outer boundary, whichever way the wall was drawn.
+            let a_outer = shoelace(&a).abs() >= shoelace(&b).abs();
+            vec![hatch_loop(a, a_outer), hatch_loop(b, !a_outer)]
+        } else {
+            let mut ring = a;
+            ring.extend(b.into_iter().rev());
+            vec![hatch_loop(ring, true)]
+        };
+        let solid = pattern.eq_ignore_ascii_case("SOLID");
+        let hatch = Hatch {
+            pattern: pattern.to_ascii_uppercase(),
+            solid,
+            loops,
+            scale: if solid { 1.0 } else { self.units.pattern_scale(c.pattern_scale) },
+            angle: c.pattern_angle.to_radians(),
+            associative: false,
+            style: 0,
+            elevation: 0.0,
+            gradient: None,
+            origin: Vec2::ZERO,
+            background: None,
+            pattern_lines: Vec::new(),
+        };
+        Some(WallPiece { layer: WALL_PATTERN_LAYER, color: c.color, kind: EntityKind::Hatch(hatch) })
+    }
+
+    /// Whether `entities` are still the objects these parameters generate, with their layers and
+    /// colours: a wall whose block was edited elsewhere (another program, BEDIT) no longer
+    /// matches, and is not regenerated, so those edits are never overwritten.
+    pub fn matches<'a>(&self, entities: impl IntoIterator<Item = &'a crate::Entity>) -> bool {
+        let Ok(pieces) = self.generate() else { return false };
+        let tol = 1e-6 * self.path.iter().fold(1.0_f64, |m, p| m.max(p.x.abs()).max(p.y.abs())).max(self.thickness());
+        let mut it = entities.into_iter();
+        for p in &pieces {
+            let Some(e) = it.next() else { return false };
+            if !e.common.layer.eq_ignore_ascii_case(p.layer) || e.common.color != p.color || !same_shape(&p.kind, &e.kind, tol) {
+                return false;
+            }
+        }
+        it.next().is_none()
+    }
+
+    /// The wall's extended data: `1001` [`WALL_APP`], `1000 WALL1`, then the parameters as JSON
+    /// in `1000` strings.
+    pub fn to_xdata(&self) -> Result<Vec<RawTag>> {
+        let json = serde_json::to_string(self).map_err(|e| invalid(format!("The wall can't be saved: {e}")))?;
+        let strings = json_strings(&json);
+        if strings.iter().map(|s| xdata_cost(s)).sum::<usize>() > MAX_WALL_XDATA_BYTES {
+            return Err(invalid("The wall has too much data to save: use fewer points, or shorter style and component names."));
+        }
+        let mut tags = vec![tag(1001, WALL_APP), tag(1000, XDATA_FORMAT)];
+        tags.extend(strings.into_iter().map(|s| RawTag { code: 1000, value: s }));
+        Ok(tags)
+    }
+
+    /// The wall parameters in an object's extended data, when they are there and usable.
+    pub fn from_xdata(xdata: &[RawTag]) -> Option<WallParams> {
+        let start = xdata.iter().position(|t| t.code == 1001 && t.value.trim().eq_ignore_ascii_case(WALL_APP))?;
+        let ours = xdata.get(start + 1..)?;
+        let ours = ours.get(..ours.iter().position(|t| t.code == 1001).unwrap_or(ours.len()))?;
+        let mut strings = ours.iter().filter(|t| t.code == 1000);
+        if strings.next()?.value != XDATA_FORMAT {
+            return None;
+        }
+        let mut json = String::new();
+        let mut cost = 0usize;
+        for t in strings {
+            cost = cost.saturating_add(xdata_cost(&t.value));
+            if cost > MAX_WALL_XDATA_BYTES {
+                return None;
+            }
+            json.push_str(&t.value);
+        }
+        let p: WallParams = serde_json::from_str(&json).ok()?;
+        p.validate().is_ok().then_some(p)
+    }
+
+    /// `xdata` with this wall's data in place of any wall data it had (other applications'
+    /// data kept).
+    pub fn replace_xdata(&self, xdata: &[RawTag]) -> Result<Vec<RawTag>> {
+        let mut out = without_wall_xdata(xdata);
+        out.extend(self.to_xdata()?);
+        Ok(out)
+    }
+}
+
+impl crate::Drawing {
+    /// The drawing's wall style `name` (case-insensitive).
+    pub fn wall_style(&self, name: &str) -> Option<&WallStyle> {
+        self.wall_styles.iter().find(|s| s.name.eq_ignore_ascii_case(name.trim()))
+    }
+    /// Wall style `name` from the drawing, else from the standard styles.
+    pub fn wall_style_or_standard(&self, name: &str) -> Option<WallStyle> {
+        let n = name.trim();
+        self.wall_style(n).cloned().or_else(|| crate::standard_wall_styles().into_iter().find(|s| s.name.eq_ignore_ascii_case(n)))
+    }
+    /// Every wall style a new wall can use: the drawing's, then the standard ones it doesn't
+    /// replace (a drawing style of the same name wins).
+    pub fn available_wall_styles(&self) -> Vec<WallStyle> {
+        let mut v = self.wall_styles.clone();
+        for s in crate::standard_wall_styles() {
+            if self.wall_style(&s.name).is_none() {
+                v.push(s);
+            }
+        }
+        v
+    }
+}
+
+impl crate::Drawing {
+    /// Adds wall `p` to `space`, its path given in drawing coordinates: an anonymous block holding
+    /// the wall's geometry, and a block reference to it on [`WALL_LAYER`] at the path's first
+    /// point carrying the wall's data. `common` gives the reference's other properties.
+    pub fn add_wall(&mut self, space: &crate::Space, mut common: crate::Common, mut p: WallParams) -> Result<crate::Handle> {
+        let origin = p.path.first().copied().ok_or_else(|| invalid("A wall needs at least two points."))?;
+        for v in &mut p.path {
+            *v -= origin;
+        }
+        // Everything that can fail comes before the drawing changes.
+        p.validate()?;
+        common.xdata = p.replace_xdata(&common.xdata)?;
+        common.layer = WALL_LAYER.into();
+        let block = self.wall_block(&p)?;
+        self.ensure_wall_layers();
+        let insert = crate::Insert { block, insert: v3(origin), ..Default::default() };
+        self.add(space, common, EntityKind::Insert(insert))
+    }
+
+    /// Gives wall `h` the parameters `p` (path in the block's coordinates): a new block with the
+    /// new geometry, the old block removed when nothing else refers to it.
+    pub fn regenerate_wall(&mut self, h: crate::Handle, p: &WallParams) -> Result<()> {
+        let e = self.entity(h).ok_or(DocError::NoEntity(h))?;
+        let EntityKind::Insert(old) = &e.kind else { return Err(invalid("The object is not a wall.")) };
+        let old = old.block.clone();
+        p.validate()?;
+        let xdata = p.replace_xdata(&e.common.xdata)?;
+        let block = self.wall_block(p)?;
+        self.ensure_wall_layers();
+        self.modify_entity(h, |e| {
+            if let EntityKind::Insert(i) = &mut e.kind {
+                i.block = block;
+            }
+            e.common.xdata = xdata;
+        })?;
+        self.drop_unreferenced_block(&old);
+        Ok(())
+    }
+
+    /// Whether a wall or an opening of `space` was added, changed or removed since `before`
+    /// (an older state of this drawing): only entities whose storage differs are looked at.
+    pub fn walls_touched_since(&self, before: &crate::Drawing, space: &crate::Space) -> bool {
+        let (Some(now), Some(then)) = (self.space(space), before.space(space)) else { return false };
+        let relevant =
+            |e: &std::sync::Arc<crate::Entity>| matches!(e.kind, EntityKind::Insert(_)) && (wall_of(e).is_some() || opening_of(e).is_some());
+        now.iter().any(|e| then.get(e.handle).is_none_or(|old| !std::sync::Arc::ptr_eq(old, e)) && relevant(e))
+            || then.iter().any(|e| now.get(e.handle).is_none() && relevant(e))
+    }
+
+    /// Works out where the intact walls of `space` meet (L, T and X junctions) and redraws
+    /// those whose junctions changed; returns how many were redrawn. A wall edited by hand is
+    /// left alone and takes no part. A wall that can't take its junctions is drawn on its own.
+    pub fn cleanup_walls(&mut self, space: &crate::Space) -> Result<usize> {
+        let Some(store) = self.space(space) else { return Ok(0) };
+        let mut handles = Vec::new();
+        let mut placed = Vec::new();
+        let mut openings: Vec<(crate::Handle, OpeningParams, Vec2, f64)> = Vec::new();
+        for e in store.iter() {
+            if let (EntityKind::Insert(i), Some(op)) = (&e.kind, opening_of(e)) {
+                openings.push((e.handle, op, Vec2::new(i.insert.x, i.insert.y), i.rotation));
+                continue;
+            }
+            let (EntityKind::Insert(i), Some(p)) = (&e.kind, wall_of(e)) else { continue };
+            if !self.wall_is_intact(e.handle) {
+                continue;
+            }
+            if placed.len() >= MAX_CLEANUP_WALLS {
+                return Err(invalid(format!("Walls are joined {MAX_CLEANUP_WALLS} at a time at most.")));
+            }
+            let at = joint::Placement {
+                insert: Vec2::new(i.insert.x, i.insert.y),
+                rotation: i.rotation,
+                scale: Vec2::new(i.scale.x.signum(), i.scale.y.signum()),
+            };
+            handles.push(e.handle);
+            placed.push(joint::Placed { params: p, at });
+        }
+        let mut joints = joint::work_out_joints(&placed);
+        // The openings in each wall: the cuts it keeps, and the faces each opening is drawn across.
+        let mut faces: Vec<(crate::Handle, OpeningParams, f64, f64)> = Vec::new();
+        for (w, j) in placed.iter().zip(joints.iter_mut()) {
+            let mut hosted: Vec<(joint::OpeningCut, f64)> = Vec::new();
+            let bounds = w.params.boundaries();
+            let to_mm = |v: f64| v / w.params.units.to_units(1.0);
+            let (left, right) = (bounds.first().copied().map(to_mm), bounds.last().copied().map(to_mm));
+            for (oh, op, centre, rotation) in &openings {
+                if let Some((cut, _)) = w.host(*centre, *rotation, op.width()) {
+                    hosted.push((cut, 0.0));
+                    if let (Some(l), Some(r)) = (left, right) {
+                        faces.push((*oh, op.clone(), l, r));
+                    }
+                }
+            }
+            hosted.sort_by(|a, b| (a.0.segment, a.0.from).partial_cmp(&(b.0.segment, b.0.from)).unwrap_or(std::cmp::Ordering::Equal));
+            j.openings = hosted.into_iter().take(joint::MAX_OPENINGS_PER_WALL).map(|(c, _)| c).collect();
+        }
+        let mut redrawn = 0;
+        for ((h, w), j) in handles.into_iter().zip(placed).zip(joints) {
+            if w.params.joints == j {
+                continue;
+            }
+            let mut p = w.params;
+            p.joints = j;
+            if p.validate().is_err() {
+                // Too much to keep, or a junction the wall can't draw: on its own.
+                p.joints = WallJoints::default();
+                if w_unchanged(&p, h, self) {
+                    continue;
+                }
+            }
+            if self.regenerate_wall(h, &p).is_ok() {
+                redrawn += 1;
+            }
+        }
+        // Each opening is drawn across the faces of the wall it is in.
+        for (oh, mut op, left, right) in faces {
+            if (op.left_mm - left).abs() > 1e-6 || (op.right_mm - right).abs() > 1e-6 {
+                (op.left_mm, op.right_mm) = (left, right);
+                let _ = self.regenerate_opening(oh, &op);
+            }
+        }
+        Ok(redrawn)
+    }
+
+    /// Where the faces of the walls that wall `h` meets lie at its two ends (see [`joint::end_faces`]):
+    /// from the start and from the end of its path, inward, in drawing units; `None` at an end that
+    /// meets no wall.
+    pub fn wall_end_faces(&self, h: crate::Handle) -> (Option<f64>, Option<f64>) {
+        let mut placed = Vec::new();
+        let mut index = None;
+        for e in self.model.iter() {
+            let (EntityKind::Insert(i), Some(p)) = (&e.kind, wall_of(e)) else { continue };
+            if !self.wall_is_intact(e.handle) {
+                continue;
+            }
+            if e.handle == h {
+                index = Some(placed.len());
+            }
+            if placed.len() >= MAX_CLEANUP_WALLS {
+                break;
+            }
+            let at = joint::Placement {
+                insert: Vec2::new(i.insert.x, i.insert.y),
+                rotation: i.rotation,
+                scale: Vec2::new(i.scale.x.signum(), i.scale.y.signum()),
+            };
+            placed.push(joint::Placed { params: p, at });
+        }
+        index.map_or((None, None), |i| joint::end_faces(&placed, i))
+    }
+
+    /// Whether wall `h`'s block still holds the geometry its parameters generate, and the
+    /// reference keeps the wall's size (no scale but a mirror): only then may it be regenerated.
+    pub fn wall_is_intact(&self, h: crate::Handle) -> bool {
+        let Some(e) = self.entity(h) else { return false };
+        let (EntityKind::Insert(i), Some(p)) = (&e.kind, wall_of(e)) else { return false };
+        let unit = |s: f64| (s.abs() - 1.0).abs() <= 1e-9;
+        let Some(b) = self.block(&i.block) else { return false };
+        if !(unit(i.scale.x) && unit(i.scale.y) && i.cols <= 1 && i.rows <= 1) {
+            return false;
+        }
+        // Drawing the wall again to compare it is what costs: done once for an object and its block (neither changes without being replaced).
+        let key = (std::sync::Arc::as_ptr(e) as usize, std::sync::Arc::as_ptr(b) as usize);
+        if let Some(known) = INTACT_CACHE.with(|c| c.try_borrow().ok().and_then(|c| c.get(&key).map(|(_, _, ok)| *ok))) {
+            return known;
+        }
+        let ok = p.matches(b.entities.iter().map(AsRef::as_ref));
+        INTACT_CACHE.with(|c| {
+            if let Ok(mut c) = c.try_borrow_mut() {
+                if c.len() >= WALL_CACHE_MAX {
+                    c.clear();
+                }
+                c.insert(key, (e.clone(), b.clone(), ok));
+            }
+        });
+        ok
+    }
+
+    /// A new anonymous block holding wall `p`'s geometry; returns its name.
+    fn wall_block(&mut self, p: &WallParams) -> Result<String> {
+        let pieces = p.generate()?;
+        let name = self.anonymous_block_name("*U");
+        let mut b = crate::Block::new(&name);
+        b.anonymous = true;
+        for piece in pieces {
+            let common = crate::Common { layer: piece.layer.into(), color: piece.color, ..Default::default() };
+            b.entities.push(crate::Entity { handle: self.new_handle(), common, kind: piece.kind });
+        }
+        self.blocks.insert(name.clone(), std::sync::Arc::new(b));
+        Ok(name)
+    }
+
+    /// The wall layers, created when missing: lines in the default colour, hatches grey.
+    fn ensure_wall_layers(&mut self) {
+        self.ensure_layer(WALL_LAYER);
+        if self.ensure_layer(WALL_PATTERN_LAYER)
+            && let Some(l) = self.layer_mut(WALL_PATTERN_LAYER)
+        {
+            l.color = Color::Index(8);
+        }
+    }
+
+    /// Removes anonymous block `name` when no object refers to it.
+    fn drop_unreferenced_block(&mut self, name: &str) {
+        let refers = |e: &std::sync::Arc<crate::Entity>| matches!(&e.kind, EntityKind::Insert(i) if i.block.eq_ignore_ascii_case(name));
+        let used = self.model.iter().any(refers)
+            || self.layouts.iter().any(|l| l.entities.iter().any(refers))
+            || self.blocks.values().any(|b| b.entities.iter().any(refers) || b.array.as_ref().is_some_and(|a| a.source.eq_ignore_ascii_case(name)));
+        if !used && self.block(name).is_some_and(|b| b.anonymous) {
+            self.blocks.retain(|k, _| !k.eq_ignore_ascii_case(name));
+        }
+    }
+}
+
+/// Most walls one cleanup joins.
+pub const MAX_CLEANUP_WALLS: usize = 2_000;
+
+/// Whether wall `h` already has parameters `p`.
+fn w_unchanged(p: &WallParams, h: crate::Handle, d: &crate::Drawing) -> bool {
+    d.entity(h).and_then(|e| wall_of(e)).is_some_and(|w| w == *p)
+}
+
+/// The wall an object is, when it is a block reference carrying usable wall data.
+///
+/// Reading a wall's data (parsing and checking it, which a wall with arcs makes slow) is asked again and again: by every cursor move while an opening is
+/// placed, for every wall. The result is kept for the data it was read from, the same data giving the same wall.
+pub fn wall_of(e: &crate::Entity) -> Option<WallParams> {
+    match &e.kind {
+        EntityKind::Insert(_) => cached_wall(&e.common.xdata),
+        _ => None,
+    }
+}
+
+/// Most walls (distinct data) kept by [`wall_of`]; the cache is emptied when it is full.
+const WALL_CACHE_MAX: usize = 4_096;
+
+type WallCache = std::collections::HashMap<u64, (Vec<RawTag>, Option<WallParams>)>;
+
+thread_local! {
+    static WALL_CACHE: std::cell::RefCell<WallCache> = std::cell::RefCell::new(WallCache::new());
+    /// What [`Drawing::wall_is_intact`] found for an object and its block, both held so that neither can be freed and its address given to another.
+    static INTACT_CACHE: std::cell::RefCell<std::collections::HashMap<(usize, usize), (std::sync::Arc<crate::Entity>, std::sync::Arc<crate::Block>, bool)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+fn cached_wall(xdata: &[RawTag]) -> Option<WallParams> {
+    use std::hash::{Hash, Hasher};
+    // Only data that says it is a wall's is looked up: the others (every other block reference) are left at once.
+    if !xdata.iter().any(|t| t.code == 1001 && t.value.trim().eq_ignore_ascii_case(WALL_APP)) {
+        return None;
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for t in xdata {
+        (t.code, &t.value).hash(&mut h);
+    }
+    let key = h.finish();
+    let hit = WALL_CACHE.with(|c| c.try_borrow().ok().and_then(|c| c.get(&key).filter(|(tags, _)| tags.as_slice() == xdata).map(|(_, w)| w.clone())));
+    if let Some(w) = hit {
+        return w;
+    }
+    let w = WallParams::from_xdata(xdata);
+    WALL_CACHE.with(|c| {
+        if let Ok(mut c) = c.try_borrow_mut() {
+            if c.len() >= WALL_CACHE_MAX {
+                c.clear();
+            }
+            c.insert(key, (xdata.to_vec(), w.clone()));
+        }
+    });
+    w
+}
+
+/// `xdata` without a wall's application data.
+fn without_wall_xdata(xdata: &[RawTag]) -> Vec<RawTag> {
+    let mut out = Vec::with_capacity(xdata.len());
+    let mut ours = false;
+    for t in xdata {
+        if t.code == 1001 {
+            ours = t.value.trim().eq_ignore_ascii_case(WALL_APP);
+        }
+        if !ours {
+            out.push(t.clone());
+        }
+    }
+    out
+}
+
+/// A path vertex and the direction its offset points move in: an offset point is
+/// `at + miter * offset`, on the line parallel to each adjacent segment at that distance.
+#[derive(Clone, Copy, Debug)]
+struct Join {
+    at: Vec2,
+    miter: Vec2,
+}
+
+/// The joins of `path`, checking that every offset up to `reach` from the path draws cleanly:
+/// no zero-length segment, no fold back, no corner sharper than the miter limit, and no segment
+/// too short for the corners at its two ends.
+fn joins(path: &[Vec2], closed: bool, reach: f64) -> Result<Vec<Join>> {
+    let n = path.len();
+    let segs = if closed { n } else { n.saturating_sub(1) };
+    if n < 2 || (closed && n < 3) {
+        return Err(invalid("A wall needs at least two points (three when closed)."));
+    }
+    // Unit directions of the segments.
+    let mut dirs = Vec::with_capacity(segs);
+    for i in 0..segs {
+        let (Some(&a), Some(&b)) = (path.get(i), path.get((i + 1) % n)) else {
+            return Err(invalid("A wall point is missing."));
+        };
+        let len = a.dist(b);
+        if len.is_nan() || len <= 1e-9 * reach.max(1.0) {
+            return Err(invalid("A wall can't have two points in the same place."));
+        }
+        dirs.push((b - a) / len);
+    }
+    let mut out = Vec::with_capacity(n);
+    for (i, &at) in path.iter().enumerate() {
+        let incoming = if i == 0 { closed.then(|| dirs.last().copied()).flatten() } else { dirs.get(i - 1).copied() };
+        let outgoing = if closed || i + 1 < n { dirs.get(i).copied() } else { None };
+        let miter = match (incoming, outgoing) {
+            (Some(a), Some(b)) => {
+                let m = a.perp() + b.perp();
+                let half = m.len() / 2.0; // cos of half the turn
+                // `half` is the sine of half the angle between the two segments.
+                if half < (MIN_CORNER_DEGREES / 2.0).to_radians().sin() {
+                    return Err(invalid(format!(
+                        "A wall can't turn this sharply: the angle between two segments must be at least {MIN_CORNER_DEGREES} degrees."
+                    )));
+                }
+                m.normalized() / half
+            }
+            (Some(d), None) | (None, Some(d)) => d.perp(),
+            (None, None) => return Err(invalid("A wall needs at least two points.")),
+        };
+        out.push(Join { at, miter });
+    }
+    // Each segment must be long enough for the miters at both of its ends at the widest offset.
+    for i in 0..segs {
+        let (Some(a), Some(b), Some(d)) = (out.get(i), out.get((i + 1) % n), dirs.get(i)) else { continue };
+        let along = |j: &Join| (j.miter.dot(*d)).abs() * reach;
+        let len = a.at.dist(b.at);
+        if along(a) + along(b) > len + 1e-9 * len.max(1.0) {
+            return Err(invalid("A wall segment is too short for the wall's thickness at its corners."));
+        }
+    }
+    Ok(out)
+}
+
+/// The points at `o` from the path.
+fn offset(joins: &[Join], o: f64) -> Vec<Vec2> {
+    joins.iter().map(|j| j.at + j.miter * o).collect()
+}
+
+/// A line along each component boundary, once per distinct offset (a membrane shares its
+/// position with the boundary next to it).
+fn boundary_lines(joins: &[Join], bounds: &[f64], closed: bool, reach: f64) -> Vec<WallPiece> {
+    let mut pieces = Vec::with_capacity(bounds.len());
+    let mut last: Option<f64> = None;
+    for &b in bounds {
+        if last.is_some_and(|l| (l - b).abs() <= f64::EPSILON * reach.max(1.0)) {
+            continue;
+        }
+        last = Some(b);
+        pieces.push(line_piece(offset(joins, b), closed));
+    }
+    pieces
+}
+
+/// The two end lines of an open wall, across all its components.
+fn end_lines(joins: &[Join], bounds: &[f64]) -> Vec<WallPiece> {
+    let (Some(&ext), Some(&int)) = (bounds.first(), bounds.last()) else { return Vec::new() };
+    [joins.first(), joins.last()]
+        .into_iter()
+        .flatten()
+        .map(|j| {
+            let kind = EntityKind::Line(Line { a: v3(j.at + j.miter * ext), b: v3(j.at + j.miter * int) });
+            WallPiece { layer: WALL_LAYER, color: Color::ByLayer, kind }
+        })
+        .collect()
+}
+
+fn line_piece(points: Vec<Vec2>, closed: bool) -> WallPiece {
+    let vertices = points.into_iter().map(PolyVertex::new).collect();
+    let kind = EntityKind::LwPolyline(LwPolyline { vertices, closed, const_width: 0.0, elevation: 0.0, plinegen: false });
+    WallPiece { layer: WALL_LAYER, color: Color::ByLayer, kind }
+}
+
+fn hatch_loop(points: Vec<Vec2>, outer: bool) -> HatchLoop {
+    HatchLoop { vertices: points.into_iter().map(PolyVertex::new).collect(), outer, sources: Vec::new() }
+}
+
+fn v3(p: Vec2) -> Vec3 {
+    p.to3(0.0)
+}
+
+fn tag(code: i32, value: &str) -> RawTag {
+    RawTag { code, value: value.into() }
+}
+
+fn invalid(m: impl Into<String>) -> DocError {
+    DocError::Invalid(m.into())
+}
+
+/// Whether two generated objects have the same shape within `tol`.
+fn same_shape(a: &EntityKind, b: &EntityKind, tol: f64) -> bool {
+    let pts = |x: &[PolyVertex], y: &[PolyVertex]| x.len() == y.len() && x.iter().zip(y).all(|(p, q)| p.p.near(q.p, tol) && p.bulge == q.bulge);
+    match (a, b) {
+        (EntityKind::LwPolyline(x), EntityKind::LwPolyline(y)) => x.closed == y.closed && pts(&x.vertices, &y.vertices),
+        (EntityKind::Line(x), EntityKind::Line(y)) => x.a.xy().near(y.a.xy(), tol) && x.b.xy().near(y.b.xy(), tol),
+        (EntityKind::Hatch(x), EntityKind::Hatch(y)) => {
+            x.pattern.eq_ignore_ascii_case(&y.pattern)
+                && x.loops.len() == y.loops.len()
+                && x.loops.iter().zip(&y.loops).all(|(l, m)| pts(&l.vertices, &m.vertices))
+                && (x.scale - y.scale).abs() <= 1e-9 * x.scale.abs().max(1.0)
+                && (x.angle - y.angle).abs() <= 1e-9
+        }
+        _ => false,
+    }
+}
+
+/// JSON text in strings short enough for a DXF xdata string. A JSON escaped backslash (two
+/// characters) is written as the six characters `\u005c`, so no string contains a DXF `\U+`
+/// escape; a string costs at most [`XDATA_CHUNK_COST`] bytes ([`xdata_cost`]) and never begins
+/// or ends with a space.
+fn json_strings(json: &str) -> Vec<String> {
+    let mut safe = String::with_capacity(json.len());
+    let mut it = json.chars();
+    while let Some(c) = it.next() {
+        if c == '\\' {
+            match it.next() {
+                Some('\\') => safe.push_str("\\u005c"),
+                Some(n) => {
+                    safe.push('\\');
+                    safe.push(n);
+                }
+                None => safe.push('\\'),
+            }
+        } else {
+            safe.push(c);
+        }
+    }
+    let chars: Vec<char> = safe.chars().collect();
+    let cost = |c: &char| char_cost(*c);
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start < chars.len() {
+        // The longest run from `start` within the cost limit (always at least one character).
+        let mut end = start;
+        let mut total = 0;
+        while let Some(c) = chars.get(end) {
+            if end > start && total + cost(c) > XDATA_CHUNK_COST {
+                break;
+            }
+            total += cost(c);
+            end += 1;
+        }
+        // A string never begins or ends with a space: some readers trim them. Back off to a
+        // boundary between two other characters when there is one in the run.
+        let edge = |i: usize| chars.get(i - 1).is_some_and(|c| *c == ' ') || chars.get(i).is_some_and(|c| *c == ' ');
+        if end < chars.len()
+            && let Some(cut) = (start + 1..=end).rev().find(|&i| !edge(i))
+        {
+            end = cut;
+        }
+        out.push(chars.get(start..end).unwrap_or_default().iter().collect());
+        start = end;
+    }
+    out
+}
+
+/// The bytes `c` takes in an xdata string in any file version: an older DXF writes a non-ASCII
+/// character as a 7-byte `\U+XXXX` escape (two of them outside the Basic Multilingual Plane).
+fn char_cost(c: char) -> usize {
+    if c.is_ascii() { 1 } else { 7 * c.len_utf16() }
+}
+
+/// The bytes `s` takes in an xdata string in any file version ([`char_cost`]).
+fn xdata_cost(s: &str) -> usize {
+    s.chars().map(char_cost).sum()
+}
+
+#[cfg(test)]
+mod tests;

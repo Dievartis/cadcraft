@@ -108,3 +108,69 @@ fn blocks_palette_offers_catalogue_sources_and_starts_parametric_placement() {
     assert!(h.query_by_label("Catalogues").is_none());
     assert!(h.query_by_label("Current Drawing").is_some());
 }
+
+#[test]
+fn optional_architecture_has_wall_and_opening_editors_and_a_style_dialog() {
+    use cadcraft_engine::doc::{Handle, opening_of, wall_of};
+    let mut app = CadApp::new(Session::new(), Services::default());
+    *app.session.doc_mut().unwrap() = Drawing::new_metric();
+    app.ui.start_tab = false;
+    app.ui.in_window_menu = false;
+    assert!(!menus::tree(&app).iter().any(|(_, e)| contains(e, "walladd")));
+    app.run("options", json!({"architectureTools":true})).unwrap();
+    assert!(menus::tree(&app).iter().any(|(_, e)| contains(e, "walladd")));
+    let mut restored = CadApp::new(Session::new(), Services::default());
+    restored.load_prefs(&app.prefs_json());
+    assert!(restored.ui.architecture_tools);
+    restored.ui.architecture_tools = false;
+    restored.load_profile(&app.profile_json());
+    assert!(restored.ui.architecture_tools);
+    let wall = app.run("walladd", json!({"points":[[0,0],[6000,0]]})).unwrap();
+    let wall = Handle::parse_hex(wall["handle"].as_str().unwrap()).unwrap();
+    let door = app.run("openingadd", json!({"wall":wall.hex(),"distance":1200,"type":"door"})).unwrap();
+    let door = Handle::parse_hex(door["handle"].as_str().unwrap()).unwrap();
+    let builder = Harness::builder().with_size(egui::vec2(1500.0, 1000.0));
+    let shot = std::env::var_os("CADCRAFT_ARCHITECTURE_SHOT");
+    let builder = if shot.is_some() { builder.wgpu() } else { builder };
+    let mut h = builder.build_ui_state(
+        |ui, app: &mut CadApp| {
+            app.logic(ui.ctx());
+            app.ui(ui);
+        },
+        app,
+    );
+    h.state_mut().run("blockspalette", Value::Null).unwrap();
+    h.state_mut().run("ui.dock", json!({"operation":"float","panel":"blocks","rect":[740,40,680,880]})).unwrap();
+    h.run_steps(5);
+    h.state_mut().run("zoom", json!({"mode":"extents"})).unwrap();
+    h.get_by_label("Catalogues").click();
+    h.run_steps(5);
+    assert!(h.query_by_label("Draw Wall").is_some());
+    h.state_mut().session.state_mut().unwrap().selection = vec![wall];
+    h.run_steps(5);
+    assert!(h.query_by_label("Selected wall").is_some());
+    h.get_by_label("Apply architectural changes").click();
+    h.run_steps(4);
+    assert!(wall_of(h.state().session.doc().unwrap().entity(wall).unwrap()).is_some());
+    if let Some(path) = &shot {
+        h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("wall.png")).unwrap();
+    }
+    h.state_mut().session.state_mut().unwrap().selection = vec![door];
+    h.run_steps(5);
+    assert!(h.query_by_label("Selected opening").is_some());
+    h.get_by_label("Apply architectural changes").click();
+    h.run_steps(4);
+    assert!(opening_of(h.state().session.doc().unwrap().entity(door).unwrap()).is_some());
+    h.state_mut().run("wallstyleedit", Value::Null).unwrap();
+    h.run_steps(4);
+    assert_eq!(h.state().ui.dialog.as_deref(), Some("wallstyles"));
+    if let Some(path) = &shot {
+        h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("styles.png")).unwrap();
+    }
+    h.state_mut().ui.dialog = None;
+    h.state_mut().run("options", json!({"architectureTools":false})).unwrap();
+    h.run_steps(4);
+    assert!(h.query_by_label("Catalogues").is_none());
+    assert!(wall_of(h.state().session.doc().unwrap().entity(wall).unwrap()).is_some());
+    assert!(opening_of(h.state().session.doc().unwrap().entity(door).unwrap()).is_some());
+}
