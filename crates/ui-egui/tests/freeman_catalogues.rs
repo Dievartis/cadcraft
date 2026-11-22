@@ -125,6 +125,7 @@ fn blocks_palette_offers_catalogue_sources_and_starts_parametric_placement() {
     if let Some(path) = &shot {
         h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("equipment.png")).unwrap();
     }
+    verify_combined_equipment(&mut h);
     let equipment = h.state_mut().session.execute("equipmentadd", &json!({"at":[0,0]})).unwrap();
     let handle = cadcraft_engine::doc::Handle::parse_hex(equipment["handle"].as_str().unwrap()).unwrap();
     h.state_mut().session.state_mut().unwrap().selection = vec![handle];
@@ -176,18 +177,7 @@ fn optional_architecture_has_wall_and_opening_editors_and_a_style_dialog() {
     h.state_mut().run("zoom", json!({"mode":"extents"})).unwrap();
     h.get_by_label("Trade Libraries").click();
     h.run_steps(5);
-    assert!(h.query_by_label("Draw Wall").is_some());
-    h.get_by_label("Openings").click();
-    h.run_steps(3);
-    assert!(h.query_by_label("Place Opening").is_some());
-    assert!(h.query_by_label("Draw Wall").is_none());
-    h.get_by_label("Elevations").click();
-    h.run_steps(3);
-    assert!(h.query_by_label("Wall Elevation").is_some());
-    assert!(h.query_by_label("Place Opening").is_none());
-    h.get_by_label("Walls").click();
-    h.run_steps(3);
-    assert!(h.query_by_label("Draw Wall").is_some());
+    verify_architecture_models(&mut h);
     h.state_mut().session.state_mut().unwrap().selection = vec![wall];
     h.run_steps(5);
     assert!(h.query_by_label("Selected wall").is_some());
@@ -237,21 +227,27 @@ fn verify_furniture_categories(h: &mut Harness<'static, CadApp>) {
     h.get_by_label("Dining").click();
     h.run_steps(3);
     assert!(h.query_by_label("Table, 4 seats").is_some());
-    assert!(h.query_by_label("Sofa, two seats").is_none(), "only the active category is shown");
+    assert!(h.query_by_label("Sofa, two seats").is_some(), "categories combine without disabling their neighbours");
     h.get_by_label("Living room").click();
     h.run_steps(3);
-    assert!(h.query_by_label("Sofa, two seats").is_some());
+    assert!(h.query_by_label("Sofa, two seats").is_none());
+    assert!(h.query_by_label("Table, 4 seats").is_some());
+    h.get_by_label("Living room").click();
+    h.run_steps(3);
     h.get_by_role_and_label(egui::Role::TextInput, "Filter").focus();
     h.run_steps(2);
     h.get_by_role_and_label(egui::Role::TextInput, "Filter").type_text("Sofa");
     h.run_steps(3);
     assert_eq!(h.get_by_role_and_label(egui::Role::TextInput, "Filter").value().as_deref(), Some("Sofa"));
-    assert!(h.query_by_label("Dining").is_some(), "navigation remains available while filtering");
-    h.get_by_label("Dining").click();
+    assert!(h.query_by_label("Dining").is_some());
+    assert!(h.query_by_label("Table, 4 seats").is_none(), "the filter applies to all enabled categories");
+    h.get_by_label("Living room").click();
     h.run_steps(3);
     assert!(h.query_by_label("No block matches the filter.").is_some());
     assert!(h.query_by_label("Sofa, two seats").is_none());
     h.get_by_label("Living room").click();
+    h.run_steps(3);
+    h.get_by_label("Dining").click();
     h.run_steps(3);
 }
 
@@ -263,10 +259,16 @@ fn verify_equipment_categories(h: &mut Harness<'static, CadApp>) {
     h.get_by_label("VRF outdoor units").click();
     h.run_steps(3);
     assert!(h.query_by_label("VRV 4 CV").is_some());
+    assert!(h.query_by_label("Chiller 41.7 kW").is_some());
+    h.get_by_label("Chillers").click();
+    h.run_steps(3);
     assert!(h.query_by_label("Chiller 41.7 kW").is_none());
     h.get_by_label("Split outdoor units").click();
     h.run_steps(3);
     assert!(h.query_by_label("Split outdoor 2 kW").is_some());
+    assert!(h.query_by_label("VRV 4 CV").is_some());
+    h.get_by_label("VRF outdoor units").click();
+    h.run_steps(3);
     assert!(h.query_by_label("VRV 4 CV").is_none());
     assert!(
         h.get_by_label("Place Split outdoor 7.1 kW").rect().top() > h.get_by_label("Place Split outdoor 2 kW").rect().bottom(),
@@ -282,4 +284,67 @@ fn verify_equipment_categories(h: &mut Harness<'static, CadApp>) {
     h.get_by_label("Equipment").click();
     h.run_steps(3);
     assert!(h.query_by_label("Split outdoor 2 kW").is_some(), "each trade library retains its own active category");
+}
+
+fn verify_combined_equipment(h: &mut Harness<'static, CadApp>) {
+    h.get_by_label("Split outdoor units").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Select one or more categories.").is_some(), "turning all categories off does not force a default back on");
+    for category in ["Wall units", "Wall racks", "Floor racks"] {
+        h.get_by_label(category).click();
+        h.run_steps(3);
+    }
+    for model in ["Wall unit 2 kW", "Wall rack 6 U", "Floor rack 24 U"] {
+        assert!(h.query_by_label(model).is_some(), "{model}");
+    }
+    assert!(h.query_by_label("Split outdoor 2 kW").is_none());
+    if let Some(path) = std::env::var_os("CADCRAFT_CATALOGUE_SHOT") {
+        h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("combined.png")).unwrap();
+    }
+    h.get_by_label("Wall racks").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Wall rack 6 U").is_none());
+    assert!(h.query_by_label("Wall unit 2 kW").is_some());
+    assert!(h.query_by_label("Floor rack 24 U").is_some());
+}
+
+fn verify_architecture_models(h: &mut Harness<'static, CadApp>) {
+    use cadcraft_engine::doc::{OpeningKind, OpeningStyle};
+    assert!(h.query_by_label("Draw Wall").is_some());
+    assert!(h.query_by_role_and_label(egui::Role::ComboBox, "Wall style").is_none(), "wall recipes use preview tiles in the explorer");
+    h.get_by_label("Place Partition 72/48").click();
+    h.run_steps(3);
+    assert_eq!(h.state().session.running.as_ref().map(|r| r.id.as_str()), Some("walladd"));
+    assert_eq!(h.state().session.last_used.wall_style, "Partition 72/48");
+    h.state_mut().session.cancel();
+    h.get_by_label("Openings").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Opening models").is_some());
+    assert!(h.query_by_label("Wall styles").is_some(), "architecture categories also combine");
+    h.get_by_label("Walls").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Draw Wall").is_none());
+    assert!(h.query_by_label("Place Opening").is_some());
+    assert!(h.query_by_role_and_label(egui::Role::ComboBox, "Opening type").is_none());
+    assert!(h.query_by_role_and_label(egui::Role::ComboBox, "Opening style").is_none());
+    if let Some(path) = std::env::var_os("CADCRAFT_ARCHITECTURE_SHOT") {
+        h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("openings.png")).unwrap();
+    }
+    h.get_by_label("Place Door · Sliding").click();
+    h.run_steps(3);
+    assert_eq!(h.state().session.running.as_ref().map(|r| r.id.as_str()), Some("openingadd"));
+    assert_eq!(h.state().session.last_used.opening.kind, OpeningKind::Door);
+    assert_eq!(h.state().session.last_used.opening.style, OpeningStyle::Sliding);
+    h.state_mut().session.cancel();
+    h.get_by_label("Elevations").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Wall Elevation").is_some());
+    assert!(h.query_by_label("Place Opening").is_some());
+    h.get_by_label("Elevations").click();
+    h.run_steps(3);
+    h.get_by_label("Openings").click();
+    h.run_steps(3);
+    h.get_by_label("Walls").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Draw Wall").is_some());
 }

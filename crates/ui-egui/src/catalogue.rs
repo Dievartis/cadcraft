@@ -21,13 +21,26 @@ struct State {
     architecture: bool,
     view: Option<crate::blocks_palette::View>,
     filter: String,
-    furniture_group: String,
-    equipment_group: String,
-    architecture_group: String,
+    furniture_group: Categories,
+    equipment_group: Categories,
+    architecture_group: Categories,
+    architecture_view: Option<crate::blocks_palette::View>,
+    architecture_filter: String,
     chosen: String,
     error: Option<String>,
     editor: Option<(Handle, Editor)>,
     saved_model: String,
+}
+/// `None` selects the first category on first use; an empty set stays empty.
+#[derive(Clone, Debug, Default, Hash)]
+pub(crate) struct Categories(Option<std::collections::BTreeSet<String>>);
+impl Categories {
+    pub(crate) fn contains(&self, group: &str) -> bool {
+        self.0.as_ref().is_some_and(|active| active.contains(group))
+    }
+    fn is_empty(&self) -> bool {
+        self.0.as_ref().is_none_or(|active| active.is_empty())
+    }
 }
 #[derive(Clone)]
 enum Editor {
@@ -70,11 +83,14 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
                 ui.menu_button("?", |ui| help(ui, st.architecture)).response.on_hover_ui(|ui| help(ui, st.architecture));
             });
             if st.architecture {
+                let view = st.architecture_view.get_or_insert(crate::blocks_palette::View::Medium);
+                crate::blocks_palette::filter_view(ui, &mut st.architecture_filter, view, "architecture-library-view");
+                let view = *view;
                 let header_height = ui.cursor().top() - content_top;
                 let height = (panel_height - header_height - 16.0).max(80.0);
                 ui.horizontal_top(|ui| {
                     categories(ui, height, &crate::architecture::GROUPS, &mut st.architecture_group, false);
-                    ui.vertical(|ui| crate::architecture::panel(app, ui, &st.architecture_group));
+                    ui.vertical(|ui| crate::architecture::panel(app, ui, &st.architecture_group, view, &st.architecture_filter, height));
                 });
                 return;
             }
@@ -104,18 +120,20 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
                         ui.allocate_ui_with_layout(vec2(ui.available_width(), ui.spacing().interact_size.y), layout, |ui| {
                             let filter = st.filter.to_lowercase();
                             let matches = if st.equipment {
-                                equipment.iter().any(|m| m.kind.name() == group && m.name.to_lowercase().contains(&filter))
+                                equipment.iter().any(|m| group.contains(m.kind.name()) && m.name.to_lowercase().contains(&filter))
                             } else {
                                 furniture_models()
                                     .iter()
-                                    .any(|m| m.group == group && (m.label.to_lowercase().contains(&filter) || m.id.contains(&filter)))
+                                    .any(|m| group.contains(m.group) && (m.label.to_lowercase().contains(&filter) || m.id.contains(&filter)))
                             };
-                            if !matches {
+                            if group.is_empty() {
+                                ui.label(crate::tl!("Select one or more categories."));
+                            } else if !matches {
                                 ui.label(crate::tl!("No block matches the filter."));
                             }
                             if st.equipment {
                                 for m in &equipment {
-                                    if m.kind.name() != group || !m.name.to_lowercase().contains(&filter) {
+                                    if !group.contains(m.kind.name()) || !m.name.to_lowercase().contains(&filter) {
                                         continue;
                                     }
                                     let mut params = EquipmentParams::from_model(m, "Preview", HvacUnits::default());
@@ -136,7 +154,7 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
                                 }
                             } else {
                                 for m in furniture_models() {
-                                    if m.group != group || !(m.label.to_lowercase().contains(&filter) || m.id.contains(&filter)) {
+                                    if !group.contains(m.group) || !(m.label.to_lowercase().contains(&filter) || m.id.contains(&filter)) {
                                         continue;
                                     }
                                     let size = format!("{} × {} × {} mm", m.width_mm, m.depth_mm, m.height_mm);
@@ -200,17 +218,23 @@ fn help(ui: &mut egui::Ui, architecture: bool) {
 }
 
 /// Category navigation remains visible while filtering or scrolling the models on the right.
-fn categories(ui: &mut egui::Ui, height: f32, groups: &[&str], selected: &mut String, equipment: bool) {
-    if !groups.contains(&selected.as_str()) {
-        *selected = groups.first().copied().unwrap_or_default().to_owned();
-    }
+fn categories(ui: &mut egui::Ui, height: f32, groups: &[&str], selected: &mut Categories, equipment: bool) {
+    let active = selected.0.get_or_insert_with(|| groups.first().map(|group| (*group).to_owned()).into_iter().collect());
+    active.retain(|group| groups.contains(&group.as_str()));
     let width = (ui.available_width() * 0.28).clamp(72.0, 150.0);
     egui::ScrollArea::vertical().id_salt(("trade-categories", equipment, groups.first())).max_height(height).show(ui, |ui| {
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_width(width);
             for group in groups {
                 let label = if equipment { equipment_group_label(group) } else { crate::i18n::t(group) };
-                ui.selectable_value(selected, (*group).to_owned(), label);
+                let enabled = active.contains(*group);
+                if ui.selectable_label(enabled, label).clicked() {
+                    if enabled {
+                        active.remove(*group);
+                    } else {
+                        active.insert((*group).to_owned());
+                    }
+                }
             }
         });
     });
@@ -218,7 +242,7 @@ fn categories(ui: &mut egui::Ui, height: f32, groups: &[&str], selected: &mut St
     ui.painter().line_segment([divider.left_top(), divider.left_bottom()], ui.visuals().widgets.noninteractive.bg_stroke);
 }
 
-fn tile(
+pub(crate) fn tile(
     ui: &mut egui::Ui,
     view: crate::blocks_palette::View,
     name: &str,

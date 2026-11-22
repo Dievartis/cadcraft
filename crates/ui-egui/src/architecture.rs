@@ -27,11 +27,19 @@ struct State {
     version: String,
     draft: Option<(cadcraft_doc::Handle, Draft)>,
     error: Option<String>,
+    footer_height: f32,
 }
 
 pub(crate) const GROUPS: [&str; 3] = ["Walls", "Openings", "Elevations"];
 
-pub(crate) fn panel(app: &mut CadApp, ui: &mut Ui, category: &str) {
+pub(crate) fn panel(
+    app: &mut CadApp,
+    ui: &mut Ui,
+    categories: &crate::catalogue::Categories,
+    view: crate::blocks_palette::View,
+    filter: &str,
+    height: f32,
+) {
     if !matches!(app.session.space(), cadcraft_doc::Space::Model) {
         ui.label(crate::tl!("Switch to Model or enter a model viewport to draw walls and openings."));
         if ui.button(crate::tl!("Wall Styles")).clicked() {
@@ -39,63 +47,142 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut Ui, category: &str) {
         }
         return;
     }
+    let id = egui::Id::unique("architecture-editor");
+    let mut state = ui.data(|d| d.get_temp::<State>(id)).unwrap_or_default();
+    let gallery_height = (height - state.footer_height).max(80.0);
+    egui::ScrollArea::vertical().id_salt(("architecture-models", categories)).max_height(gallery_height).auto_shrink([false, false]).show(ui, |ui| {
+        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+            if categories.contains("Walls") {
+                wall_models(app, ui, view, filter);
+            }
+            if categories.contains("Openings") {
+                opening_models(app, ui, view, filter);
+            }
+            if categories.contains("Elevations") {
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button(crate::tl!("Wall Junctions")).clicked() {
+                        state.error = app.run("wallcleanup", json!({})).err();
+                    }
+                    if ui.button(crate::tl!("Wall Elevation")).clicked() {
+                        app.start("wallelevation");
+                    }
+                });
+            }
+            if !GROUPS.iter().any(|group| categories.contains(group)) {
+                ui.label(crate::tl!("Select one or more categories."));
+            }
+        });
+    });
+    let footer_top = ui.cursor().top();
+    placement_tools(app, ui, categories);
+    editor(app, ui, &mut state);
+    if let Some(error) = &state.error {
+        ui.colored_label(crate::theme::Tokens::get().warn, error);
+    }
+    let measured = ui.cursor().top() - footer_top + ui.spacing().item_spacing.y;
+    if (measured - state.footer_height).abs() > 0.5 {
+        ui.ctx().request_repaint();
+    }
+    state.footer_height = measured;
+    ui.data_mut(|d| d.insert_temp(id, state));
+}
 
-    if category == "Walls" {
-        let styles = app.session.doc().map(|d| d.available_wall_styles()).unwrap_or_default();
-        if app.session.last_used.wall_style.is_empty()
-            && let Some(first) = styles.first()
-        {
-            app.session.last_used.wall_style = first.name.clone();
-        }
-        let label = ui.label(crate::tl!("Wall style"));
-        craft_ui::ComboBox::from_id_salt("architecture-wall-style")
-            .selected_text(&app.session.last_used.wall_style)
-            .show_ui(ui, |ui| {
-                for style in &styles {
-                    ui.selectable_value(&mut app.session.last_used.wall_style, style.name.clone(), &style.name);
-                }
-            })
-            .response
-            .labelled_by(label.id);
-        ui.horizontal_wrapped(|ui| {
+fn placement_tools(app: &mut CadApp, ui: &mut Ui, categories: &crate::catalogue::Categories) {
+    ui.horizontal_wrapped(|ui| {
+        if categories.contains("Walls") {
             if ui.button(crate::tl!("Draw Wall")).clicked() {
                 app.start("walladd");
             }
             if ui.button(crate::tl!("Wall Styles")).clicked() {
                 crate::wallstyledlg::open(app);
             }
-        });
-    }
-    if category == "Openings" {
-        kind_choice(ui, &mut app.session.last_used.opening.kind);
-        style_choice(ui, &mut app.session.last_used.opening.style);
-        ui.horizontal_wrapped(|ui| {
+        }
+        if categories.contains("Openings") {
             if ui.button(crate::tl!("Place Opening")).clicked() {
                 app.start("openingadd");
             }
             if ui.button(crate::tl!("Corner Window")).clicked() {
                 app.start("cornerwindow");
             }
-        });
-    }
-    let id = egui::Id::unique("architecture-editor");
-    let mut state = ui.data(|d| d.get_temp::<State>(id)).unwrap_or_default();
-    if category == "Elevations" {
-        ui.horizontal_wrapped(|ui| {
-            if ui.button(crate::tl!("Wall Junctions")).clicked() {
-                state.error = app.run("wallcleanup", json!({})).err();
-            }
-            if ui.button(crate::tl!("Wall Elevation")).clicked() {
-                app.start("wallelevation");
-            }
-        });
-    }
-    editor(app, ui, &mut state);
-    if let Some(error) = &state.error {
-        ui.colored_label(crate::theme::Tokens::get().warn, error);
-    }
-    ui.data_mut(|d| d.insert_temp(id, state));
+        }
+    });
 }
+
+fn model_grid(ui: &mut Ui, view: crate::blocks_palette::View, contents: impl FnOnce(&mut Ui)) {
+    let layout = if view.tile().is_some() {
+        egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true)
+    } else {
+        egui::Layout::top_down(egui::Align::Min)
+    };
+    ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), ui.spacing().interact_size.y), layout, contents);
+}
+
+fn wall_models(app: &mut CadApp, ui: &mut Ui, view: crate::blocks_palette::View, filter: &str) {
+    let styles = app.session.doc().map(|d| d.available_wall_styles()).unwrap_or_default();
+    let filter = filter.to_lowercase();
+    ui.label(crate::tl!("Wall styles"));
+    model_grid(ui, view, |ui| {
+        for style in styles.iter().filter(|style| style.name.to_lowercase().contains(&filter)) {
+            let params = cadcraft_doc::WallParams {
+                style: style.clone(),
+                path: vec![cadcraft_engine::geom::Vec2::ZERO, cadcraft_engine::geom::Vec2::new((style.thickness() * 4.0).max(1600.0), 0.0)],
+                closed: false,
+                bulges: Vec::new(),
+                justification: WallJustification::Center,
+                height: style.default_height,
+                units: cadcraft_doc::WallUnits::default(),
+                joints: Default::default(),
+                start_free: false,
+                end_free: false,
+            };
+            let recipe = serde_json::to_string(&params).unwrap_or_default();
+            if crate::catalogue::tile(ui, view, &style.name, &style.description, app.session.last_used.wall_style == style.name, &recipe, || {
+                params
+                    .generate()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|piece| cadcraft_doc::HvacPiece { layer: piece.layer, kind: piece.kind })
+                    .collect()
+            }) {
+                app.cmd.buffer.clear();
+                app.session.last_used.wall_style = style.name.clone();
+                app.start("walladd");
+            }
+        }
+    });
+}
+
+fn opening_models(app: &mut CadApp, ui: &mut Ui, view: crate::blocks_palette::View, filter: &str) {
+    let filter = filter.to_lowercase();
+    ui.label(crate::tl!("Opening models"));
+    model_grid(ui, view, |ui| {
+        for kind in OpeningKind::ALL {
+            for style in OpeningStyle::ALL {
+                let name = format!("{} · {}", crate::i18n::t(kind_label(kind)), crate::i18n::t(opening_style_label(style)));
+                if !name.to_lowercase().contains(&filter) {
+                    continue;
+                }
+                let mut params = OpeningParams::new(kind, cadcraft_doc::WallUnits::default());
+                params.style = style;
+                let recipe = serde_json::to_string(&params).unwrap_or_default();
+                let selected = app.session.last_used.opening.kind == kind && app.session.last_used.opening.style == style;
+                if crate::catalogue::tile(ui, view, &name, &format!("{} × {} mm", params.width_mm, params.height_mm), selected, &recipe, || {
+                    params.generate().unwrap_or_default()
+                }) {
+                    app.cmd.buffer.clear();
+                    let last = &mut app.session.last_used.opening;
+                    last.kind = kind;
+                    last.style = style;
+                    last.size = None;
+                    last.flip_side = false;
+                    last.flip_hand = false;
+                    app.start("openingadd");
+                }
+            }
+        }
+    });
+}
+
 fn kind_label(kind: OpeningKind) -> &'static str {
     match kind {
         OpeningKind::Door => "Door",
