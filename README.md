@@ -1,3 +1,7 @@
+> **Dievartis personal fork:** [Integration tracker](docs/dievartis-integration-tracker.md) · [Preview 0.7 and Windows download](https://github.com/Dievartis/cadcraft/releases/tag/dievart-preview-0.7)
+>
+> The tracker records released adaptations, original authors/PRs, retained features, pending candidates and contributor notices. Use the release tag/assets for the integrated fork build; the default branch is not that source snapshot.
+
 <p align="center">
   <a href="https://getartcraft.com/">
     <picture>
