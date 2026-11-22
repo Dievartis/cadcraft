@@ -19,7 +19,7 @@ pub(crate) fn visible(app: &CadApp, id: &str) -> bool {
 struct State {
     equipment: bool,
     architecture: bool,
-    group: String,
+    view: Option<crate::blocks_palette::View>,
     filter: String,
     chosen: String,
     error: Option<String>,
@@ -41,6 +41,12 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
     if !app.ui.architecture_tools {
         st.architecture = false;
     }
+    if !(app.ui.catalogue_tools || app.ui.architecture_tools) {
+        egui::Frame::NONE.inner_margin(8.0).show(ui, |ui| {
+            ui.label(crate::tl!("Enable trade libraries from Library settings."));
+        });
+        return;
+    }
     let panel_height = ui.available_height();
     let footer_id = id.with("footer-height");
     let footer_height = ui.data(|d| d.get_temp::<f32>(footer_id)).unwrap_or(140.0);
@@ -52,19 +58,37 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
                     if app.ui.catalogue_tools && ui.selectable_label(!st.architecture && st.equipment == equipment, label).clicked() {
                         st.architecture = false;
                         st.equipment = equipment;
-                        st.group.clear();
                         st.chosen.clear();
                     }
                 }
                 if app.ui.architecture_tools && ui.selectable_label(st.architecture, crate::tl!("Architecture")).clicked() {
                     st.architecture = true;
                 }
+                ui.menu_button("?", |ui| {
+                    ui.label(crate::tl!(
+                        "Click a model to place it. Tab changes the insertion anchor; the next click sets rotation. Esc ends placement."
+                    ));
+                    ui.label(crate::tl!("Select one catalogue object to edit its dimensions."));
+                    ui.label("Catalogue recipes: freemans32/cadcraft (MIT OR Apache-2.0).");
+                    if st.architecture {
+                        ui.label(crate::tl!("Place doors and windows on a wall; the wall is cut automatically."));
+                        ui.label(crate::tl!(
+                            "Elevations are 2D snapshots of walls, openings, furniture and equipment. Regenerate them after changing the plan."
+                        ));
+                        ui.label(crate::tl!("Select a wall or opening to edit its parameters."));
+                        ui.label(crate::tl!("Wall and opening recipes: freemans32/cadcraft (MIT OR Apache-2.0)."));
+                    }
+                })
+                .response
+                .on_hover_text(crate::tl!("Library help"));
             });
             if st.architecture {
                 crate::architecture::panel(app, ui);
                 return;
             }
-            ui.add(egui::TextEdit::singleline(&mut st.filter).hint_text("Search catalogue...").desired_width(f32::INFINITY));
+            let view = st.view.get_or_insert(crate::blocks_palette::View::Details);
+            crate::blocks_palette::filter_view(ui, &mut st.filter, view, "trade-library-view");
+            let view = *view;
             let equipment = app.session.doc().map(|d| d.available_equipment_models()).unwrap_or_default();
             let groups: Vec<&str> = if st.equipment { EquipmentKind::ALL.iter().map(|k| k.name()).collect() } else { furniture_groups().to_vec() };
             // Give the gallery the remaining viewport after the actual header and properties.
@@ -72,65 +96,69 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
             let header_height = ui.cursor().top() - content_top;
             let height = (panel_height - header_height - footer_height - 16.0).max(80.0);
             let mut insert = None;
-            ui.horizontal_top(|ui| {
-                egui::ScrollArea::vertical().id_salt("catalogue-categories").max_height(height).show(ui, |ui| {
-                    ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                        ui.set_width(110.0);
-                        ui.selectable_value(&mut st.group, String::new(), "All categories");
-                        for group in &groups {
-                            ui.selectable_value(&mut st.group, (*group).to_string(), if st.equipment { equipment_group_label(group) } else { group });
-                        }
-                    });
-                });
-                let (divider, _) = ui.allocate_exact_size(vec2(1.0, height), Sense::hover());
-                ui.painter().line_segment([divider.left_top(), divider.left_bottom()], ui.visuals().widgets.noninteractive.bg_stroke);
-                egui::ScrollArea::vertical().id_salt("catalogue-gallery").max_height(height).auto_shrink([false, false]).show(ui, |ui| {
-                    ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                        let filter = st.filter.to_lowercase();
-                        if st.equipment {
-                            for m in &equipment {
-                                if (!st.group.is_empty() && m.kind.name() != st.group) || !m.name.to_lowercase().contains(&filter) {
-                                    continue;
+            egui::ScrollArea::vertical().id_salt("catalogue-gallery").max_height(height).auto_shrink([false, false]).show(ui, |ui| {
+                for group in &groups {
+                    let filter = st.filter.to_lowercase();
+                    let matches = if st.equipment {
+                        equipment.iter().any(|m| m.kind.name() == *group && m.name.to_lowercase().contains(&filter))
+                    } else {
+                        furniture_models().iter().any(|m| m.group == *group && (m.label.to_lowercase().contains(&filter) || m.id.contains(&filter)))
+                    };
+                    if !matches {
+                        continue;
+                    }
+                    egui::CollapsingHeader::new(if st.equipment { equipment_group_label(group) } else { group })
+                        .id_salt(("trade-group", st.equipment, group))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            let layout = if view.tile().is_some() {
+                                egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true)
+                            } else {
+                                egui::Layout::top_down(egui::Align::Min)
+                            };
+                            ui.with_layout(layout, |ui| {
+                                let filter = st.filter.to_lowercase();
+                                if st.equipment {
+                                    for m in &equipment {
+                                        if m.kind.name() != *group || !m.name.to_lowercase().contains(&filter) {
+                                            continue;
+                                        }
+                                        let mut params = EquipmentParams::from_model(m, "Preview", HvacUnits::default());
+                                        params.show_size = false;
+                                        let recipe = serde_json::to_string(&params).unwrap_or_default();
+                                        let size = format!("{} × {} × {} mm", m.length_mm, m.width_mm, m.height_mm);
+                                        if tile(ui, view, &m.name, &size, st.chosen == m.name, &recipe, || {
+                                            params
+                                                .generate()
+                                                .unwrap_or_default()
+                                                .into_iter()
+                                                .filter(|p| !matches!(p.kind, cadcraft_doc::EntityKind::Text(_)))
+                                                .collect()
+                                        }) {
+                                            st.chosen = m.name.clone();
+                                            insert = Some(m.name.clone());
+                                        }
+                                    }
+                                } else {
+                                    for m in furniture_models() {
+                                        if m.group != *group || !(m.label.to_lowercase().contains(&filter) || m.id.contains(&filter)) {
+                                            continue;
+                                        }
+                                        let size = format!("{} × {} × {} mm", m.width_mm, m.depth_mm, m.height_mm);
+                                        let selected = st.chosen == m.id;
+                                        if tile(ui, view, m.label, &size, selected, m.id, || {
+                                            FurnitureParams::new(m, HvacUnits::default()).generate().unwrap_or_default()
+                                        }) {
+                                            st.chosen = m.id.to_string();
+                                            insert = Some(m.id.to_string());
+                                        }
+                                    }
                                 }
-                                let mut params = EquipmentParams::from_model(m, "Preview", HvacUnits::default());
-                                params.show_size = false;
-                                let recipe = serde_json::to_string(&params).unwrap_or_default();
-                                let size = format!("{} × {} × {} mm", m.length_mm, m.width_mm, m.height_mm);
-                                if tile(ui, &m.name, &size, st.chosen == m.name, &recipe, || {
-                                    params
-                                        .generate()
-                                        .unwrap_or_default()
-                                        .into_iter()
-                                        .filter(|p| !matches!(p.kind, cadcraft_doc::EntityKind::Text(_)))
-                                        .collect()
-                                }) {
-                                    st.chosen = m.name.clone();
-                                    insert = Some(m.name.clone());
-                                }
-                            }
-                        } else {
-                            for m in furniture_models() {
-                                if (!st.group.is_empty() && m.group != st.group)
-                                    || !(m.label.to_lowercase().contains(&filter) || m.id.contains(&filter))
-                                {
-                                    continue;
-                                }
-                                let size = format!("{} × {} × {} mm", m.width_mm, m.depth_mm, m.height_mm);
-                                let selected = st.chosen == m.id;
-                                if tile(ui, m.label, &size, selected, m.id, || {
-                                    FurnitureParams::new(m, HvacUnits::default()).generate().unwrap_or_default()
-                                }) {
-                                    st.chosen = m.id.to_string();
-                                    insert = Some(m.id.to_string());
-                                }
-                            }
-                        }
-                    });
-                });
+                            });
+                        });
+                }
             });
             let footer_top = ui.cursor().top();
-            ui.label("Click a model to place it. Tab changes the insertion anchor; the next click sets rotation. Esc ends placement.");
-            ui.separator();
             if let Some(model) = insert {
                 app.cmd.buffer.clear();
                 if st.equipment {
@@ -148,8 +176,6 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
             if let Some(error) = &st.error {
                 ui.colored_label(crate::theme::Tokens::get().warn, error);
             }
-            ui.separator();
-            ui.small("Catalogue recipes: freemans32/cadcraft (MIT OR Apache-2.0).");
             let measured = ui.cursor().top() - footer_top;
             ui.data_mut(|d| d.insert_temp(footer_id, measured));
             if (measured - footer_height).abs() > 0.5 {
@@ -160,21 +186,42 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
     ui.data_mut(|d| d.insert_temp(id, st));
 }
 
-fn tile(ui: &mut egui::Ui, name: &str, size: &str, selected: bool, recipe: &str, pieces: impl FnOnce() -> Vec<cadcraft_doc::HvacPiece>) -> bool {
+fn tile(
+    ui: &mut egui::Ui,
+    view: crate::blocks_palette::View,
+    name: &str,
+    size: &str,
+    selected: bool,
+    recipe: &str,
+    pieces: impl FnOnce() -> Vec<cadcraft_doc::HvacPiece>,
+) -> bool {
+    use crate::blocks_palette::View;
     let mut clicked = false;
     ui.push_id(recipe, |ui| {
-        ui.horizontal(|ui| {
-            let (rect, response) = ui.allocate_exact_size(vec2(74.0, 60.0), Sense::click());
-            if ui.is_rect_visible(rect) {
-                crate::blocks_palette::catalogue_preview(ui, rect.shrink(4.0), recipe, pieces());
-            }
-            response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), format!("Place {name}")));
-            clicked |= response.on_hover_text(format!("Place {name}")).clicked();
+        if let Some(side) = view.tile() {
             ui.vertical(|ui| {
+                ui.set_width(side);
+                let (rect, response) = ui.allocate_exact_size(vec2(side, side), Sense::click());
+                if ui.is_rect_visible(rect) {
+                    crate::blocks_palette::catalogue_preview(ui, rect.shrink(4.0), recipe, pieces());
+                }
+                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), format!("Place {name}")));
+                clicked |= response.on_hover_text(format!("{name}\n{size}")).clicked();
                 clicked |= ui.selectable_label(selected, name).clicked();
-                ui.small(size);
             });
-        });
+        } else {
+            ui.allocate_ui_with_layout(vec2(ui.available_width(), 0.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                if view == View::Details {
+                    let (rect, response) = ui.allocate_exact_size(vec2(54.0, 32.0), Sense::click());
+                    if ui.is_rect_visible(rect) {
+                        crate::blocks_palette::catalogue_preview(ui, rect.shrink(3.0), recipe, pieces());
+                    }
+                    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), format!("Place {name}")));
+                    clicked |= response.clicked();
+                }
+                clicked |= ui.selectable_label(selected, name).on_hover_text(size).clicked();
+            });
+        }
     });
     clicked
 }
@@ -215,7 +262,6 @@ fn editor(app: &mut CadApp, ui: &mut egui::Ui, st: &mut State) {
         ui.data_mut(|d| d.insert_temp(seen_id, version));
     }
     let Some((h, params)) = st.editor.as_mut() else {
-        ui.label("Select one catalogue object to edit its dimensions.");
         return;
     };
     ui.label("Selected object");

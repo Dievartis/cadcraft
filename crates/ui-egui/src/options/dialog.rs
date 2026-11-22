@@ -53,7 +53,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, name: &str, open: &mut bool
             ui.add_space(4.0);
             let top = ui.cursor().top();
             match tab {
-                "workflow" => workflow(app, ui, &mut changes, &mut start),
+                "workflow" => workflow(ui, &mut start),
                 "files" => files(app, ui, &mut changes),
                 "drafting" => drafting(app, ui, &mut changes, &mut start),
                 "selection" => selection(app, ui, &mut changes),
@@ -87,17 +87,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, name: &str, open: &mut bool
     }
 }
 
-fn workflow(app: &mut CadApp, ui: &mut egui::Ui, changes: &mut Map<String, Value>, start: &mut Option<&'static str>) {
-    let mut enabled = app.ui.catalogue_tools;
-    if ui.checkbox(&mut enabled, "Furniture and equipment catalogues (freemans32)").changed() {
-        changes.insert("catalogueTools".into(), json!(enabled));
-    }
-    let mut architecture = app.ui.architecture_tools;
-    if ui.checkbox(&mut architecture, crate::tl!("Architectural walls and openings (freemans32)")).changed() {
-        changes.insert("architectureTools".into(), json!(architecture));
-    }
-    ui.label("Adds Catalogues to Window > Blocks. Existing objects remain visible when disabled.");
-    ui.separator();
+fn workflow(ui: &mut egui::Ui, start: &mut Option<&'static str>) {
     ui.label("Default drawing template");
     let template = cadcraft_engine::cmd::file::qnew_template();
     ui.label(if template.is_empty() { "None" } else { &template });

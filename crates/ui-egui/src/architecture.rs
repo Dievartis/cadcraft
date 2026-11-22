@@ -74,7 +74,6 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut Ui) {
             app.start("cornerwindow");
         }
     });
-    ui.label(crate::tl!("Place doors and windows on a wall; the wall is cut automatically."));
     ui.separator();
     let id = egui::Id::unique("architecture-editor");
     let mut state = ui.data(|d| d.get_temp::<State>(id)).unwrap_or_default();
@@ -86,12 +85,10 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut Ui) {
             app.start("wallelevation");
         }
     });
-    ui.label(crate::tl!("Elevations are 2D snapshots of walls, openings, furniture and equipment. Regenerate them after changing the plan."));
     editor(app, ui, &mut state);
     if let Some(error) = &state.error {
         ui.colored_label(crate::theme::Tokens::get().warn, error);
     }
-    ui.small(crate::tl!("Wall and opening recipes: freemans32/cadcraft (MIT OR Apache-2.0)."));
     ui.data_mut(|d| d.insert_temp(id, state));
 }
 fn kind_label(kind: OpeningKind) -> &'static str {
@@ -163,7 +160,6 @@ fn editor(app: &mut CadApp, ui: &mut Ui, state: &mut State) {
         state.draft = next;
     }
     let Some((h, draft)) = &mut state.draft else {
-        ui.label(crate::tl!("Select a wall or opening to edit its parameters."));
         return;
     };
     ui.separator();

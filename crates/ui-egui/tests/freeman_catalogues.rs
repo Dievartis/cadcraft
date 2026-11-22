@@ -61,35 +61,77 @@ fn blocks_palette_offers_catalogue_sources_and_starts_parametric_placement() {
     h.state_mut().run("blockspalette", Value::Null).unwrap();
     h.state_mut().run("ui.dock", json!({"operation":"float","panel":"blocks","rect":[740,40,680,880]})).unwrap();
     h.run_steps(4);
-    assert!(h.query_by_label("Catalogues").is_none());
-    h.state_mut().run("options", json!({"catalogueTools":true})).unwrap();
+    let tall_options = h.get_by_label("Repeat Placement").rect().bottom();
+    assert!(h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Scale").rect().is_positive());
+    assert!(h.query_by_label("Rotation").is_some());
+    assert!(h.get_by_role_and_label(egui::Role::CheckBox, "Explode").rect().is_positive());
+    h.state_mut().run("ui.dock", json!({"operation":"float","panel":"blocks","rect":[740,40,680,560]})).unwrap();
+    h.run_steps(5);
+    let short_options = h.get_by_label("Repeat Placement").rect().bottom();
+    assert!(tall_options - short_options > 200.0, "insertion options stay anchored to the bottom when resized");
+    h.state_mut().run("ui.dock", json!({"operation":"float","panel":"blocks","rect":[740,40,680,880]})).unwrap();
+    h.run_steps(5);
+    if let Some(path) = &shot {
+        h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("blocks.png")).unwrap();
+    }
+    h.get_by_label("Trade Libraries").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Enable trade libraries from Library settings.").is_some());
+    h.get_by_label("Library settings").click();
+    h.run_steps(3);
+    h.get_by_label("Furniture and equipment").click();
+    h.run_steps(3);
+    assert!(h.state().ui.catalogue_tools);
+    h.get_by_label("Library settings").click();
     h.run_steps(4);
-    h.get_by_label("Catalogues").click();
+    h.get_by_label("Trade Libraries").click();
     h.run_steps(4);
     h.get_by_label("Furniture").click();
     h.run_steps(3);
-    assert!(h.query_by_label("All categories").is_some());
-    assert!(h.get_by_label("Bedroom").rect().top() > h.get_by_label("Living room").rect().bottom(), "categories form a vertical column");
+    assert!(h.query_by_label("Living room").is_some(), "furniture keeps its collapsible category headers");
+    assert!(h.query_by_label("View").is_some());
+    assert!(h.query_by_label("Filter").is_some());
     assert!(
         h.get_by_label("Sofa, three seats").rect().top() > h.get_by_label("Sofa, two seats").rect().bottom(),
-        "catalogue items form separate rows"
+        "details retain compact model rows"
     );
-    assert!(h.query_by_label("Select one catalogue object to edit its dimensions.").is_some(), "the editor stays visible below the gallery");
+    assert!(h.query_by_label("Select one catalogue object to edit its dimensions.").is_none(), "help does not consume gallery space");
+    h.get_by_label("?").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Select one catalogue object to edit its dimensions.").is_some());
+    h.get_by_label("?").click();
+    h.run_steps(3);
     if let Some(path) = &shot {
         h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("furniture.png")).unwrap();
     }
-    let tall_footer = h.get_by_label("Select one catalogue object to edit its dimensions.").rect().top();
-    h.state_mut().run("ui.dock", json!({"operation":"float","panel":"blocks","rect":[740,40,680,560]})).unwrap();
-    h.run_steps(5);
-    let short_footer = h.get_by_label("Select one catalogue object to edit its dimensions.").rect().top();
-    assert!(tall_footer - short_footer > 200.0, "the gallery grows with the window instead of keeping a fixed height");
-    h.state_mut().run("ui.dock", json!({"operation":"float","panel":"blocks","rect":[740,40,680,880]})).unwrap();
-    h.run_steps(5);
+    assert!(h.query_by_label("Dining").is_some());
+    h.get_by_role_and_label(egui::Role::TextInput, "Filter").focus();
+    h.run_steps(2);
+    h.get_by_role_and_label(egui::Role::TextInput, "Filter").type_text("Sofa");
+    h.run_steps(3);
+    assert_eq!(h.get_by_role_and_label(egui::Role::TextInput, "Filter").value().as_deref(), Some("Sofa"));
+    assert!(h.query_by_label("Dining").is_none(), "the filter removes categories without matching models");
+    h.get_by_role_and_label(egui::Role::ComboBox, "View").click();
+    h.run_steps(3);
+    h.get_by_label("Large Icons").click();
+    h.run_steps(4);
+    assert!(
+        h.get_by_label("Sofa, three seats").rect().left() > h.get_by_label("Sofa, two seats").rect().right(),
+        "icon view wraps tiles horizontally"
+    );
+    if let Some(path) = &shot {
+        h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("icons.png")).unwrap();
+    }
     h.get_by_label("Sofa, two seats").click();
     h.run_steps(3);
     assert_eq!(h.state().session.running.as_ref().map(|r| r.id.as_str()), Some("furnitureadd"));
     assert!(!h.state().session.preview(cadcraft_engine::geom::Vec2::ZERO).is_empty());
     h.state_mut().session.cancel();
+    h.get_by_role_and_label(egui::Role::TextInput, "Filter").focus();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.key_press(egui::Key::Backspace);
+    h.run_steps(3);
     h.get_by_label("Equipment").click();
     h.run_steps(3);
     if let Some(path) = &shot {
@@ -105,7 +147,8 @@ fn blocks_palette_offers_catalogue_sources_and_starts_parametric_placement() {
     );
     h.state_mut().run("options", json!({"catalogueTools":false})).unwrap();
     h.run_steps(4);
-    assert!(h.query_by_label("Catalogues").is_none());
+    assert!(h.query_by_label("Trade Libraries").is_some());
+    assert!(h.query_by_label("Enable trade libraries from Library settings.").is_some());
     assert!(h.query_by_label("Current Drawing").is_some());
 }
 
@@ -143,7 +186,7 @@ fn optional_architecture_has_wall_and_opening_editors_and_a_style_dialog() {
     h.state_mut().run("ui.dock", json!({"operation":"float","panel":"blocks","rect":[740,40,680,880]})).unwrap();
     h.run_steps(5);
     h.state_mut().run("zoom", json!({"mode":"extents"})).unwrap();
-    h.get_by_label("Catalogues").click();
+    h.get_by_label("Trade Libraries").click();
     h.run_steps(5);
     assert!(h.query_by_label("Draw Wall").is_some());
     h.state_mut().session.state_mut().unwrap().selection = vec![wall];
@@ -170,7 +213,8 @@ fn optional_architecture_has_wall_and_opening_editors_and_a_style_dialog() {
     h.state_mut().ui.dialog = None;
     h.state_mut().run("options", json!({"architectureTools":false})).unwrap();
     h.run_steps(4);
-    assert!(h.query_by_label("Catalogues").is_none());
+    assert!(h.query_by_label("Trade Libraries").is_some());
+    assert!(h.query_by_label("Enable trade libraries from Library settings.").is_some());
     assert!(wall_of(h.state().session.doc().unwrap().entity(wall).unwrap()).is_some());
     assert!(opening_of(h.state().session.doc().unwrap().entity(door).unwrap()).is_some());
 }

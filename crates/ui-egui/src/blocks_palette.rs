@@ -85,7 +85,7 @@ enum Tab {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum View {
+pub(crate) enum View {
     ExtraLarge,
     Large,
     #[default]
@@ -96,10 +96,10 @@ enum View {
 }
 
 impl View {
-    const ALL: [View; 6] = [View::ExtraLarge, View::Large, View::Medium, View::Small, View::Details, View::List];
+    pub(crate) const ALL: [View; 6] = [View::ExtraLarge, View::Large, View::Medium, View::Small, View::Details, View::List];
 
     /// The name shown on the view's button.
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             View::ExtraLarge => crate::tl!("Extra Large Icons"),
             View::Large => crate::tl!("Large Icons"),
@@ -111,7 +111,7 @@ impl View {
     }
 
     /// The side of a gallery tile, for the icon views.
-    fn tile(self) -> Option<f32> {
+    pub(crate) fn tile(self) -> Option<f32> {
         match self {
             View::ExtraLarge => Some(150.0),
             View::Large => Some(104.0),
@@ -837,24 +837,35 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
     let state_id = egui::Id::unique("blocks-state");
     let mut st: State = ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
     let mut act = None;
-    if !(app.ui.catalogue_tools || app.ui.architecture_tools) && st.tab == Tab::Catalogues {
-        st.tab = Tab::Current;
-    }
     if st.libraries.is_none() {
         st.libraries = Some(libraries(app, json!({})));
     }
 
     ui.add_space(6.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add_space(8.0);
         for (tab, label) in [(Tab::Current, crate::tl!("Current Drawing")), (Tab::Libraries, crate::tl!("Libraries"))] {
             if ui.selectable_label(st.tab == tab, label).clicked() {
                 st.tab = tab;
             }
         }
-        if (app.ui.catalogue_tools || app.ui.architecture_tools) && ui.selectable_label(st.tab == Tab::Catalogues, "Catalogues").clicked() {
+        if ui.selectable_label(st.tab == Tab::Catalogues, crate::tl!("Trade Libraries")).clicked() {
             st.tab = Tab::Catalogues;
         }
+        ui.menu_button(crate::tl!("Library settings"), |ui| {
+            let mut furniture = app.ui.catalogue_tools;
+            let mut architecture = app.ui.architecture_tools;
+            let mut changes = serde_json::Map::new();
+            if ui.checkbox(&mut furniture, crate::tl!("Furniture and equipment")).changed() {
+                changes.insert("catalogueTools".into(), json!(furniture));
+            }
+            if ui.checkbox(&mut architecture, crate::tl!("Architecture")).changed() {
+                changes.insert("architectureTools".into(), json!(architecture));
+            }
+            if !changes.is_empty() {
+                let _ = app.run("options", serde_json::Value::Object(changes));
+            }
+        });
     });
     if st.tab == Tab::Catalogues {
         crate::catalogue::panel(app, ui);
@@ -864,21 +875,7 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
     if st.tab == Tab::Libraries {
         libraries_bar(ui, &mut st, &mut act);
     }
-    ui.horizontal(|ui| {
-        ui.add_space(8.0);
-        let w = (ui.available_width() - 150.0).max(80.0);
-        ui.add(egui::TextEdit::singleline(&mut st.filter).hint_text(crate::tl!("Filter")).desired_width(w));
-        let view_label = ui.label(crate::tl!("View"));
-        craft_ui::ComboBox::from_id_salt("blocks-view")
-            .selected_text(st.view.label())
-            .show_ui(ui, |ui| {
-                for v in View::ALL {
-                    ui.selectable_value(&mut st.view, v, v.label());
-                }
-            })
-            .response
-            .labelled_by(view_label.id);
-    });
+    filter_view(ui, &mut st.filter, &mut st.view, "blocks-view");
     ui.add_space(4.0);
 
     let pictures: SharedPictures = ui.data_mut(|d| d.get_temp_mut_or_default::<SharedPictures>(egui::Id::unique("blocks-pictures")).clone());
@@ -908,10 +905,12 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
         });
     }
 
-    let options_h = 150.0;
-    // The panel scrolls when it is shorter than the gallery and the options together.
+    // Reserve the footer's measured content height, anchored to the palette bottom.
+    // A width change remeasures wrapping; there is no fixed gallery-height ceiling.
+    let footer_id = state_id.with("insertion-footer-height");
+    let footer_h = ui.data(|d| d.get_temp::<f32>(footer_id)).unwrap_or(100.0);
     let room = ui.available_height();
-    let gallery_h = if room.is_finite() { (room - options_h).clamp(150.0, 600.0) } else { 260.0 };
+    let gallery_h = if room.is_finite() { (room - footer_h).max(0.0) } else { 260.0 };
     egui::ScrollArea::vertical().id_salt("blocks-gallery").max_height(gallery_h).auto_shrink([false, false]).show(ui, |ui| {
         if items.is_empty() {
             ui.horizontal_wrapped(|ui| {
@@ -936,10 +935,15 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
         st.selected = selected;
     });
 
-    ui.add_space(4.0);
+    let footer_top = ui.cursor().top();
     ui.separator();
     let placing = app.session.prompt_text() != "Command:";
     ui.add_enabled_ui(!placing, |ui| options(ui, &mut st));
+    let measured = ui.cursor().top() - footer_top + ui.spacing().item_spacing.y;
+    ui.data_mut(|d| d.insert_temp(footer_id, measured));
+    if (measured - footer_h).abs() > 0.5 {
+        ui.ctx().request_repaint();
+    }
 
     repeat_placement(app, ui, &mut st);
     match act {
@@ -1197,15 +1201,30 @@ fn gallery(ui: &mut egui::Ui, view: View, items: &[&Item], act: &mut Option<Act>
     }
 }
 
+/// Shared filter and view controls for drawing, file and trade libraries.
+pub(crate) fn filter_view(ui: &mut egui::Ui, filter: &mut String, view: &mut View, salt: &str) {
+    ui.horizontal_wrapped(|ui| {
+        let width = (ui.available_width() - 175.0).max(80.0);
+        ui.add(egui::TextEdit::singleline(filter).hint_text(crate::tl!("Filter")).desired_width(width))
+            .widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, ui.is_enabled(), crate::tl!("Filter")));
+        let label = ui.label(crate::tl!("View"));
+        craft_ui::ComboBox::from_id_salt(salt)
+            .selected_text(view.label())
+            .show_ui(ui, |ui| {
+                for v in View::ALL {
+                    ui.selectable_value(view, v, v.label());
+                }
+            })
+            .response
+            .labelled_by(label.id);
+    });
+}
+
 /// The insertion options: what INSERT asks on the drawing, or the values used instead.
 fn options(ui: &mut egui::Ui, st: &mut State) {
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add_space(8.0);
-        ui.label(RichText::new(crate::tl!("Options")).strong());
-    });
-    ui.horizontal(|ui| {
-        ui.add_space(8.0);
+        ui.label(RichText::new(crate::tl!("Options")).strong()).on_hover_text(crate::tl!("Click a block, then pick its insertion point."));
         ui.checkbox(&mut st.scale_on_screen, crate::tl!("Scale"));
         ui.add_enabled_ui(!st.scale_on_screen, |ui| {
             for (axis, v) in ["X", "Y", "Z"].iter().zip(st.scale.iter_mut()) {
@@ -1214,7 +1233,7 @@ fn options(ui: &mut egui::Ui, st: &mut State) {
             }
         });
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add_space(8.0);
         ui.checkbox(&mut st.rotation_on_screen, crate::tl!("Rotation"));
         ui.add_enabled_ui(!st.rotation_on_screen, |ui| {
@@ -1222,14 +1241,10 @@ fn options(ui: &mut egui::Ui, st: &mut State) {
             ui.add(egui::DragValue::new(&mut st.rotation).speed(1.0).suffix("°")).labelled_by(label.id);
         });
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add_space(8.0);
         ui.checkbox(&mut st.explode, crate::tl!("Explode"));
         ui.checkbox(&mut st.repeat, crate::tl!("Repeat Placement"));
-    });
-    ui.horizontal(|ui| {
-        ui.add_space(8.0);
-        ui.label(RichText::new(crate::tl!("Click a block, then pick its insertion point.")).color(crate::theme::Tokens::get().text_dim));
     });
 }
 
