@@ -21,14 +21,17 @@ impl StretchArea {
     }
 }
 
-/// Add to `hs` the visible multilines in `space` with a control vertex inside `area`. A crossing
-/// selection tests the drawn element lines, which sit away from the control vertices by the
-/// multiline's scale, so a small area around a vertex alone would miss them.
-fn add_mline_vertex_hits(d: &cadcraft_doc::Drawing, space: &cadcraft_doc::Space, area: &StretchArea, hs: &mut Vec<Handle>) {
-    let Some(store) = d.space(space) else { return };
+/// Add to `hs` the multilines in the edit space that a selection can take there (visible, and
+/// inside an MSPACE viewport not on a layer frozen in it) with a control vertex inside `area`. A
+/// crossing selection tests the drawn element lines, which sit away from the control vertices by
+/// the multiline's scale, so a small area around a vertex alone would miss them.
+fn add_mline_vertex_hits(s: &Session, area: &StretchArea, hs: &mut Vec<Handle>) {
+    let Ok(d) = s.doc() else { return };
+    let Some(store) = d.space(&s.space()) else { return };
+    let frozen = s.viewport_frozen();
     for e in store.iter() {
         if let EntityKind::MLine(m) = &e.kind
-            && d.is_visible(e)
+            && crate::select::selectable(d, e, frozen)
             && !hs.contains(&e.handle)
             && m.vertices.iter().any(|v| area.contains(v.p.xy()))
         {
@@ -94,19 +97,19 @@ pub(super) fn run_stretch(s: &mut Session, p: &Value) -> Result<Value> {
     };
     // A fence marks no area: the objects it crosses move whole.
     if let Some(fence) = listed("fence", 2)? {
-        let hs = crate::select::select_fence(s.doc()?, &space, &fence);
+        let hs = crate::select::select_fence_in(s.doc()?, &space, s.viewport_frozen(), &fence);
         let moved = transform_entities(s, &hs, &Mat3::translate(d), false)?;
         return Ok(json!({ "stretched": moved.len() }));
     }
     let (mut hs, area) = if let Some(poly) = listed("polygon", 3)? {
-        (crate::select::select_polygon(s.doc()?, &space, &poly, true), StretchArea::Polygon(poly))
+        (crate::select::select_polygon_in(s.doc()?, &space, s.viewport_frozen(), &poly, true), StretchArea::Polygon(poly))
     } else {
         let w = points_param(p, "window").ok_or_else(|| bad("stretch", "`window` [[x,y],[x,y]], `polygon` or `fence` is required"))?;
         let (Some(a), Some(b)) = (w.first(), w.get(1)) else { return Err(bad("stretch", "window needs 2 corners")) };
         let bx = cadcraft_geom::Bounds2::new(*a, *b);
-        (crate::select::select_window(s.doc()?, &space, bx, true), StretchArea::Box(bx))
+        (crate::select::select_window_in(s.doc()?, &space, s.viewport_frozen(), bx, true), StretchArea::Box(bx))
     };
-    add_mline_vertex_hits(s.doc()?, &space, &area, &mut hs);
+    add_mline_vertex_hits(s, &area, &mut hs);
     hs.retain(|h| !crate::cmd::curves::is_locked(s, *h));
     let doc = s.doc_mut()?;
     let areas = [area];
@@ -128,7 +131,9 @@ enum StretchPhase {
 /// STRETCH: "Select objects" repeats until Enter. Crossing windows (implied right to left, or after
 /// `C`), windows (left to right, or after `W`) and polygons (`CP`, `WP`) select objects and mark
 /// the area whose vertices move; objects picked one at a time (or by a fence, `F`, or
-/// All/Last/Previous) move whole. Then the base point or Displacement, and the second point.
+/// All/Last/Previous) move whole. A pickfirst selection skips "Select objects": the windows that
+/// selected it with no command running mark the area, and its picked objects move whole. Then
+/// the base point or Displacement, and the second point.
 #[derive(Default)]
 pub(super) struct StretchM {
     phase: StretchPhase,
@@ -137,6 +142,9 @@ pub(super) struct StretchM {
     whole: Vec<Handle>,
     /// The selection windows and polygons: vertices inside any of them move.
     windows: Vec<StretchArea>,
+    /// For a pickfirst selection, the windows that selected each object: only those move its
+    /// vertices (another window over it that did not select it leaves them).
+    own_windows: std::collections::HashMap<Handle, Vec<StretchArea>>,
     removing: bool,
     /// `C`, `W`, `BOX`, `CP`, `WP` or `F` was typed: the next points are that kind of selection.
     mode: Option<SelectMode>,
@@ -146,6 +154,11 @@ pub(super) struct StretchM {
 }
 
 impl StretchM {
+    /// The areas whose vertices of `h` move.
+    fn areas(&self, h: Handle) -> &[StretchArea] {
+        self.own_windows.get(&h).map_or(&self.windows, Vec::as_slice)
+    }
+
     fn add(&mut self, s: &mut Session, hs: Vec<Handle>, whole: bool) {
         let n = hs.len();
         for h in hs {
@@ -173,7 +186,7 @@ impl StretchM {
     /// of two) the mode is dropped.
     fn finish_mode(&mut self, s: &mut Session, m: SelectMode) -> Result<()> {
         let space = s.space();
-        let Some(mut hs) = m.select(s.doc()?, &space) else { return Ok(()) };
+        let Some(mut hs) = m.select_in(s.doc()?, &space, s.viewport_frozen()) else { return Ok(()) };
         let crossing = match (m.kind, m.pts.first().zip(m.pts.get(1))) {
             (SelectKind::Crossing | SelectKind::CPolygon, _) => true,
             (SelectKind::Box, Some((a, b))) => b.x < a.x,
@@ -189,7 +202,7 @@ impl StretchM {
         };
         let whole = area.is_none();
         if let (Some(a), true, false) = (&area, crossing, self.removing) {
-            add_mline_vertex_hits(s.doc()?, &space, a, &mut hs);
+            add_mline_vertex_hits(s, a, &mut hs);
         }
         if let (Some(a), false) = (area, self.removing) {
             self.windows.push(a);
@@ -228,10 +241,10 @@ impl StretchM {
                 Some(c) => {
                     let bx = cadcraft_geom::Bounds2::new(c, p);
                     let space = s.space();
-                    let mut hs = crate::select::select_window(s.doc()?, &space, bx, p.x < c.x);
+                    let mut hs = crate::select::select_window_in(s.doc()?, &space, s.viewport_frozen(), bx, p.x < c.x);
                     if !self.removing {
                         if p.x < c.x {
-                            add_mline_vertex_hits(s.doc()?, &space, &StretchArea::Box(bx), &mut hs);
+                            add_mline_vertex_hits(s, &StretchArea::Box(bx), &mut hs);
                         }
                         self.windows.push(StretchArea::Box(bx));
                     }
@@ -240,7 +253,8 @@ impl StretchM {
                 None => {
                     let aperture = s.pixel_size() * s.settings.pickbox.max(1.0) * 1.5;
                     let space = s.space();
-                    match crate::select::pick(s.doc()?, &space, p, aperture) {
+                    // A removal names its object (`picks_one`): the named one is found, not another lying there.
+                    match s.pick_object(&space, p, aperture)? {
                         Some(h) => self.add(s, vec![h], true),
                         None => self.corner = Some(p),
                     }
@@ -251,6 +265,7 @@ impl StretchM {
                 self.corner = None;
                 let d = s.doc()?;
                 let store = d.space(&s.space());
+                let frozen = s.viewport_frozen();
                 let word = t.trim().to_ascii_lowercase();
                 // `_C`, `_L`: the English name, as scripts write it.
                 let word = word.strip_prefix('_').unwrap_or(&word).to_string();
@@ -267,9 +282,25 @@ impl StretchM {
                         self.removing = false;
                         None
                     }
-                    "all" => Some(store.map(|st| st.iter().filter(|e| d.is_visible(e)).map(|e| e.handle).collect()).unwrap_or_default()),
-                    "l" | "last" => Some(store.and_then(|st| st.last()).map(|e| vec![e.handle]).unwrap_or_default()),
-                    "p" | "previous" => Some(s.state()?.previous_selection.clone()),
+                    "all" => Some(
+                        store.map(|st| st.iter().filter(|e| crate::select::selectable(d, e, frozen)).map(|e| e.handle).collect()).unwrap_or_default(),
+                    ),
+                    "l" | "last" => Some(
+                        store
+                            .and_then(|st| crate::select::last_in(st, frozen))
+                            .filter(|h| !d.entity(*h).is_some_and(|e| crate::select::locked_against_selection(d, e)))
+                            .map(|h| vec![h])
+                            .unwrap_or_default(),
+                    ),
+                    "p" | "previous" => {
+                        let st = s.state()?;
+                        Some(
+                            st.drawn_in_viewport(&st.previous_selection)
+                                .into_iter()
+                                .filter(|h| !d.entity(*h).is_some_and(|e| crate::select::locked_against_selection(d, e)))
+                                .collect(),
+                        )
+                    }
                     _ => {
                         s.echo("*Invalid selection*");
                         None
@@ -297,7 +328,7 @@ impl StretchM {
         for h in self.objs.iter().filter(|h| !self.whole.contains(h)) {
             let locked = doc.entity(*h).and_then(|e| doc.layer(&e.common.layer)).is_some_and(|l| l.locked);
             if !locked {
-                doc.modify_entity(*h, |e| stretch_entity(e, &self.windows, d))?;
+                doc.modify_entity(*h, |e| stretch_entity(e, self.areas(*h), d))?;
             }
         }
         s.set_selection(Vec::new());
@@ -309,18 +340,51 @@ impl Interactive for StretchM {
     fn name(&self) -> &'static str {
         "STRETCH"
     }
+    fn input_with_shift(&mut self, s: &mut Session, input: Input, shift: bool) -> Result<Step> {
+        if !shift || !matches!(self.phase, StretchPhase::Select) || !matches!(&input, Input::Point(_) | Input::Pick(_)) {
+            return self.input(s, input);
+        }
+        let removing = self.removing;
+        self.removing = true;
+        let result = self.input(s, input);
+        self.removing = removing;
+        result
+    }
     fn begin(&mut self, s: &mut Session) -> Result<Step> {
+        // A pickfirst selection is stretched at once: the vertices inside the windows that
+        // selected its objects move, and objects picked one at a time move whole (#832).
+        let pre = s.selection();
+        // Windows drawn before the drawing changed don't say what to stretch: select again.
+        if !pre.is_empty()
+            && s.settings.pickfirst
+            && let Some(windows) = s.selection_windows()
+        {
+            for (bx, hs) in windows {
+                for h in hs {
+                    self.own_windows.entry(h).or_default().push(StretchArea::Box(bx));
+                }
+            }
+            self.whole = pre.iter().copied().filter(|h| !self.own_windows.contains_key(h)).collect();
+            self.objs = pre;
+            s.remember_selection(&self.objs);
+            s.echo(format!("{} found", self.objs.len()));
+            self.phase = StretchPhase::Base;
+            return Ok(Step::Continue);
+        }
         s.set_selection(Vec::new());
         s.echo("Select objects to stretch by crossing-window or crossing-polygon...");
         Ok(Step::Continue)
     }
+    /// Returns the active interactive prompt for the current `STRETCH` phase.
     fn prompt(&self, _s: &Session) -> Prompt {
         if let (StretchPhase::Select, Some(m)) = (self.phase, &self.mode) {
             return m.prompt();
         }
         match (self.phase, self.corner) {
             (StretchPhase::Select, Some(c)) => Prompt::new("Specify opposite corner", Accept::POINT).corner(c),
-            (StretchPhase::Select, None) => Prompt::new(if self.removing { "Remove objects" } else { "Select objects" }, Accept::POINT),
+            (StretchPhase::Select, None) => {
+                Prompt { picks_one: self.removing, ..Prompt::new(if self.removing { "Remove objects" } else { "Select objects" }, Accept::POINT) }
+            }
             (StretchPhase::Base, _) => Prompt::new("Specify base point", Accept::POINT).kw(&["Displacement"]).default("Displacement"),
             (StretchPhase::Displacement, _) => Prompt::new("Specify displacement", Accept::POINT).default("0,0"),
             (StretchPhase::Second, _) => Prompt::new("Specify second point or <use first point as displacement>", Accept::POINT).base_opt(self.base),
@@ -382,7 +446,8 @@ impl Interactive for StretchM {
                         if self.whole.contains(&e.handle) {
                             e.kind.transform(&m);
                         } else {
-                            stretch_entity(&mut e, &self.windows, c - base);
+                            let h = e.handle;
+                            stretch_entity(&mut e, self.areas(h), c - base);
                         }
                         e.kind
                     })

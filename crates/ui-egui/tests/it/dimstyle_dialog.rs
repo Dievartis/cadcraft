@@ -1,8 +1,8 @@
-//! The dockable Dimension Style Manager: bare DIMSTYLE and its aliases open the panel,
-//! while JSON calls edit styles; New, Modify, Override and Compare keep working.
+//! The Dimension Style Manager (#850): DIMSTYLE typed or from the menus opens it (JSON calls
+//! don't); Modify, New, Override, Set Current, Compare and Delete do what AutoCAD's do.
 
 use cadcraft_engine::Session;
-use cadcraft_ui_egui::{CadApp, Services, docking, managers, menus};
+use cadcraft_ui_egui::{CadApp, Services, dialogs, menus};
 use egui::{Key, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable, by};
@@ -14,22 +14,17 @@ fn dimstyle_typed_or_from_the_menus_opens_the_manager() {
     for typed in ["DIMSTYLE", "dimstyle", "D", "DST", "DDIM"] {
         app.ui.dialog = None;
         assert!(app.cmdline(typed).is_none(), "bare {typed} is not an error");
-        assert!(app.ui.docking.layout.contains(&docking::Panel::DimStyles), "{typed}");
-        assert!(app.ui.dialog.is_none(), "no legacy floating dialog for {typed}");
+        assert_eq!(app.ui.dialog.as_deref(), Some("dimstyle"), "{typed}");
     }
     for item in ["dimstyle", "dimstyle.dimension"] {
         app.ui.dialog = None;
         menus::activate(&mut app, item);
-        assert!(app.ui.docking.layout.contains(&docking::Panel::DimStyles), "{item}");
-        assert!(app.ui.dialog.is_none(), "no legacy floating dialog for {item}");
+        assert_eq!(app.ui.dialog.as_deref(), Some("dimstyle"), "{item}");
     }
-    // Programmatic calls still edit the engine, without opening a dialog or changing docking.
-    app.run("ui.dock.reset", json!({})).unwrap();
-    assert!(!app.ui.docking.layout.contains(&docking::Panel::DimStyles));
+    // Programmatic calls never open it.
+    app.ui.dialog = None;
     app.run("dimstyle", json!({ "name": "Plan", "current": false })).unwrap();
     assert!(app.ui.dialog.is_none());
-    assert!(!app.ui.docking.layout.contains(&docking::Panel::DimStyles));
-    assert!(app.session.doc().unwrap().dim_style("Plan").is_some());
 }
 
 /// The manager open on a new drawing after `setup`.
@@ -41,6 +36,7 @@ fn manager(setup: impl FnOnce(&mut CadApp)) -> Harness<'static, CadApp> {
 fn harness(setup: impl FnOnce(&mut CadApp), render: bool) -> Harness<'static, CadApp> {
     let mut app = CadApp::new(Session::new(), Services::default());
     setup(&mut app);
+    app.ui.dialog = Some("dimstyle".into());
     let builder = Harness::builder().with_size(vec2(1000.0, 640.0));
     let builder = if render { builder.wgpu() } else { builder };
     let mut h = builder.build_ui_state(
@@ -49,7 +45,7 @@ fn harness(setup: impl FnOnce(&mut CadApp), render: bool) -> Harness<'static, Ca
                 cadcraft_ui_egui::theme::apply(ui.ctx(), egui::Theme::Dark, false);
             }
             app.logic(&ui.ctx().clone());
-            managers::dimstyle_panel(app, ui);
+            dialogs::show(app, ui.ctx());
         },
         app,
     );
@@ -96,7 +92,32 @@ fn modify_edits_the_style() {
     assert_eq!(text_height(&h, "Standard"), 0.18);
     click(&mut h, "OK");
     assert_eq!(text_height(&h, "Standard"), 0.25);
-    h.get_by_label("Current dimension style: Standard");
+    assert_eq!(h.state().ui.dialog.as_deref(), Some("dimstyle"), "back to the list");
+}
+
+#[test]
+fn modify_keeps_closed_filled_per_end_arrowheads() {
+    let mut h = manager(|app| {
+        app.run("dimstyle", json!({ "name": "Standard", "DIMBLK": "_DOT" })).unwrap();
+    });
+    click(&mut h, "Modify...");
+    click(&mut h, "Symbols and Arrows");
+    for label in ["Arrow 1", "Arrow 2"] {
+        h.get(by().label(label).role(egui::accesskit::Role::ComboBox)).click();
+        h.run_steps(3);
+        click(&mut h, "Closed filled");
+    }
+    click(&mut h, "OK");
+    let style = h.state().session.doc().unwrap().dim_style("Standard").unwrap();
+    assert_eq!(style.arrow_block, "_DOT");
+    assert_eq!(style.arrow_block1, "_CLOSEDFILLED");
+    assert_eq!(style.arrow_block2, "_CLOSEDFILLED");
+
+    click(&mut h, "Modify...");
+    click(&mut h, "Symbols and Arrows");
+    for label in ["Arrow 1", "Arrow 2"] {
+        h.get(by().label(label).role(egui::accesskit::Role::ComboBox).value("Closed filled"));
+    }
 }
 
 #[test]
@@ -161,6 +182,47 @@ fn a_refused_value_keeps_the_editor_and_its_edits() {
     // dimstyle.overrides refuses a negative text height: the page stays, with what was typed.
     assert!(h.state().session.doc().unwrap().dim_overrides().is_empty());
     field(&h, "-1.0000");
+}
+
+#[test]
+fn modify_keeps_the_editor_and_says_so_when_a_value_is_left_out() {
+    let mut h = manager(|_| {});
+    click(&mut h, "Modify...");
+    click(&mut h, "Text");
+    type_into(&mut h, "0.1800", "0");
+    click(&mut h, "OK");
+    // `dimstyle` leaves a text height of 0 out (it must be greater than 0): the style keeps its
+    // value, and the page stays with what was typed and the reason.
+    assert_eq!(text_height(&h, "Standard"), 0.18);
+    field(&h, "0.0000");
+    h.get(by().label_contains("Ignored invalid value for: textHeight"));
+    // Set right, OK takes it and goes back to the list.
+    type_into(&mut h, "0.0000", "0.25");
+    click(&mut h, "OK");
+    assert_eq!(text_height(&h, "Standard"), 0.25);
+    assert!(h.query_by_label_contains("Ignored invalid value").is_none());
+}
+
+/// The editing pages belong to the drawing they were opened on: another drawing becoming active
+/// cancels them, so OK can't write the first drawing's style into the second.
+#[test]
+fn the_editor_is_cancelled_when_another_drawing_becomes_active() {
+    let mut h = manager(|app| {
+        app.run("dimstyle", json!({ "name": "Standard", "textHeight": 7.0 })).unwrap();
+        app.run("new", json!({})).unwrap();
+        app.run("dimstyle", json!({ "name": "Standard", "textHeight": 3.0 })).unwrap();
+        // The manager opens on the first of the two drawings.
+        app.session.active = app.session.docs.len() - 2;
+    });
+    click(&mut h, "Modify...");
+    click(&mut h, "Text");
+    field(&h, "7.0000");
+    let other = h.state().session.docs.len() - 1;
+    h.state_mut().session.active = other;
+    h.run_steps(4);
+    assert!(h.query_by_label_contains("Modify Dimension Style:").is_none(), "the editor is cancelled");
+    assert!(h.query_by_label("OK").is_none(), "no OK left to press");
+    assert_eq!(text_height(&h, "Standard"), 3.0, "the second drawing keeps its own style");
 }
 
 #[test]

@@ -487,18 +487,24 @@ const SWATCH_REPEATS: f64 = 6.0;
 const MAX_SWATCH_RUNS: usize = 4000;
 /// The dash-work allowance of a swatch (a hatch's is [`MAX_HATCH_WORK`]).
 const MAX_SWATCH_WORK: u64 = 2_000_000;
+/// Runs a swatch over [`MAX_SWATCH_RUNS`] zooms in to: about one tile of AR-CONC, its stones a
+/// few points across in a picker's swatch.
+const ZOOMED_SWATCH_RUNS: usize = 125;
+/// Most times a swatch zooms in (twice the scale each time).
+const SWATCH_ZOOMS: usize = 6;
 
 /// A preview of a pattern for a pattern picker: the runs of its line families `lines` inside the
 /// `side` × `side` square with a corner at the origin, at a scale that shows a few repeats of the
-/// pattern (each family's line spacing or dash repeat, whichever is longer). Empty for a pattern
-/// with no lines (SOLID).
+/// pattern (each family's line spacing or dash repeat, whichever is longer). A swatch that would
+/// hold more than [`MAX_SWATCH_RUNS`] runs zooms in to [`ZOOMED_SWATCH_RUNS`] or fewer, so every
+/// family shows at a readable size. Empty for a pattern with no lines (SOLID).
 pub fn pattern_swatch(lines: &[PatternLine], side: f64) -> Vec<Vec<Vec2>> {
     let repeat =
         lines.iter().map(|l| l.delta.1.abs().max(l.dashes.iter().map(|d| d.abs()).sum::<f64>())).filter(|r| r.is_finite()).fold(0.0, f64::max);
     if !side.is_finite() || side <= 0.0 || repeat < 1e-9 {
         return Vec::new();
     }
-    let h = Hatch {
+    let mut h = Hatch {
         pattern: String::new(),
         solid: false,
         loops: Vec::new(),
@@ -515,7 +521,15 @@ pub fn pattern_swatch(lines: &[PatternLine], side: f64) -> Vec<Vec<Vec2>> {
     let square = vec![Vec2::new(0.0, 0.0), Vec2::new(side, 0.0), Vec2::new(side, side), Vec2::new(0.0, side)];
     // The generator stops at the swatch's own limits, so a compact pattern is never made in full
     // (about a million runs) to keep a few thousand.
-    let mut runs = pattern_lines_within(&Drawing::default(), &h, &[square], 0.0, None, None, MAX_SWATCH_RUNS, MAX_SWATCH_WORK);
+    let mut runs = pattern_lines_within(&Drawing::default(), &h, std::slice::from_ref(&square), 0.0, None, None, MAX_SWATCH_RUNS, MAX_SWATCH_WORK);
+    let target = if runs.len() >= MAX_SWATCH_RUNS { ZOOMED_SWATCH_RUNS } else { MAX_SWATCH_RUNS };
+    for _ in 0..SWATCH_ZOOMS {
+        if runs.len() < target {
+            break;
+        }
+        h.scale *= 2.0;
+        runs = pattern_lines_within(&Drawing::default(), &h, std::slice::from_ref(&square), 0.0, None, None, MAX_SWATCH_RUNS, MAX_SWATCH_WORK);
+    }
     runs.truncate(MAX_SWATCH_RUNS);
     runs.shrink_to_fit();
     runs
@@ -577,7 +591,13 @@ impl Family<'_> {
             return;
         }
         let Some((lo, hi, span_cut)) = self.lines_range(&bb, view) else { return };
-        let shift_per_line = self.delta.rotate(-self.ang).x;
+        // Lines are swept at y = k × spacing (spacing = |delta y|). The pattern's n-th line sits at
+        // n × delta, so with a negative delta y (as in the AR-CONC and AR-SAND patterns of many
+        // drawings) the line at y = k × spacing is n = −k and its dashes shift by −k × delta x.
+        // Ignoring the sign moved every other line's dashes and broke the shapes families draw
+        // together (triangles, dots).
+        let local_delta = self.delta.rotate(-self.ang);
+        let shift_per_line = if local_delta.y < 0.0 { -local_delta.x } else { local_delta.x };
         let k0 = (lo.y / self.spacing).floor() as i64;
         let k1 = (hi.y / self.spacing).ceil() as i64;
         let max_lines = if view.is_some() { MAX_VIEW_FAMILY_LINES } else { MAX_FAMILY_LINES };
@@ -673,6 +693,45 @@ mod tests {
     use super::*;
     use cadcraft_doc::{Hatch, HatchLoop};
     use cadcraft_geom::PolyVertex;
+
+    /// A line family with offset (dx, dy) and one with (−dx, −dy) are the same set of lines: the
+    /// n-th line of one is the −n-th of the other. Patterns read from DWG and DXF files often
+    /// have a negative dy (AR-CONC, AR-SAND); drawing them as if dx kept its sign scattered their
+    /// dashes (the triangles of AR-CONC came apart).
+    #[test]
+    fn a_negative_line_offset_draws_the_same_lines() {
+        let square = vec![Vec2::new(0.0, 0.0), Vec2::new(20.0, 0.0), Vec2::new(20.0, 20.0), Vec2::new(0.0, 20.0)];
+        let runs_for = |delta: (f64, f64)| {
+            let h = Hatch {
+                origin: Vec2::ZERO,
+                pattern: "TEST".into(),
+                solid: false,
+                loops: vec![],
+                scale: 1.0,
+                angle: 0.0,
+                associative: false,
+                style: 0,
+                elevation: 0.0,
+                gradient: None,
+                background: None,
+                pattern_lines: vec![PatternLine { angle: 30.0, origin: (0.3, 0.1), delta, dashes: vec![1.0, -2.0] }],
+            };
+            let mut keys: Vec<(i64, i64, i64, i64)> = pattern_lines(&Drawing::default(), &h, std::slice::from_ref(&square), 0.0, None)
+                .iter()
+                .filter_map(|r| {
+                    let (a, b) = (r.first()?, r.last()?);
+                    let (a, b) = if (a.x, a.y) <= (b.x, b.y) { (a, b) } else { (b, a) };
+                    let q = |v: f64| (v * 1e6).round() as i64;
+                    Some((q(a.x), q(a.y), q(b.x), q(b.y)))
+                })
+                .collect();
+            keys.sort_unstable();
+            keys
+        };
+        let positive = runs_for((0.7, 1.3));
+        assert!(positive.len() > 50, "the pattern draws dashes: {}", positive.len());
+        assert_eq!(positive, runs_for((-0.7, -1.3)));
+    }
 
     #[test]
     fn fill_loops_deduplicates_coincident_loops() {

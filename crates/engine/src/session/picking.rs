@@ -32,19 +32,41 @@ impl Session {
         let pickadd = self.settings.pickadd;
         if let Some(pw) = self.pending_window.take() {
             let crossing = self.window_is_crossing(pw.corner, p);
-            let hs = select::select_window(self.doc()?, &space, Bounds2::new(pw.corner, p), crossing);
-            let hs = cmd::groups::expand(self, hs);
-            let mut sel = if pickadd || shift { self.selection() } else { Vec::new() };
-            if shift && pickadd {
+            let bx = Bounds2::new(pw.corner, p);
+            let mut hit = select::select_window_in(self.doc()?, &space, self.viewport_frozen(), bx, crossing);
+            // Only the objects the window hit are stretched by it; the rest of their groups
+            // come into the selection and move whole.
+            let hs = cmd::groups::expand(self, hit.clone());
+            let adding = pickadd || shift;
+            let mut sel = if adding { self.stored_selection() } else { Vec::new() };
+            let sel_before = sel.clone();
+            let removing = shift && pickadd;
+            // Earlier windows drawn over a drawing that has changed since are dropped.
+            if self.selection_windows().is_none() {
+                self.state_mut()?.selection_windows.clear();
+            }
+            if removing {
                 sel.retain(|h| !hs.contains(h));
             } else {
-                sel.extend(hs);
+                sel.extend(hs.iter().copied());
+            }
+            if let Ok(st) = self.state_mut() {
+                if !adding {
+                    st.selection_windows.clear();
+                }
+                // An object already selected by a pick keeps moving whole, as in STRETCH's own
+                // selection; one selected by a window takes this window too.
+                hit.retain(|h| !sel_before.contains(h) || st.selection_windows.iter().any(|(_, hs)| hs.contains(h)));
+                if !removing && !hit.is_empty() {
+                    st.selection_windows.push((bx, hit));
+                    st.selection_windows_doc = std::sync::Arc::downgrade(&st.doc);
+                }
             }
             self.set_selection(sel);
             return Ok(());
         }
         let ap = self.pixel_size() * self.settings.pickbox.max(1.0) * 1.5;
-        match select::pick(self.doc()?, &space, p, ap) {
+        match select::pick_in(self.doc()?, &space, self.viewport_frozen(), p, ap) {
             Some(h) => self.idle_pick(h, shift),
             None => self.pending_window = Some(PendingWindow { corner: p, during_command: false }),
         }
@@ -56,7 +78,12 @@ impl Session {
         let pickadd = self.settings.pickadd;
         // With group selection the object's selectable groups come (or go) with it.
         let hs = cmd::groups::expand(self, vec![h]);
-        let mut sel = if pickadd || shift { self.selection() } else { Vec::new() };
+        let mut sel = if pickadd || shift { self.stored_selection() } else { Vec::new() };
+        if !(pickadd || shift)
+            && let Ok(st) = self.state_mut()
+        {
+            st.selection_windows.clear();
+        }
         let had = sel.contains(&h);
         if shift && (pickadd || had) {
             sel.retain(|x| !hs.contains(x));
@@ -93,7 +120,7 @@ impl Session {
             return Vec::new();
         }
         let ap = self.pixel_size() * self.settings.pickbox.max(1.0) * 1.5;
-        self.doc().map(|d| select::pick_all(d, &self.space(), p, ap)).unwrap_or_default()
+        self.doc().map(|d| select::pick_all_in(d, &self.space(), self.viewport_frozen(), p, ap)).unwrap_or_default()
     }
 
     /// Whether selection cycling marks `p` with its badge (SELECTIONCYCLING 1 or 2): overlapping
@@ -120,7 +147,7 @@ impl Session {
         }
         if self.running.is_some() {
             let hs = cmd::groups::expand(self, vec![h]);
-            return self.input(Input::Pick(hs));
+            return self.input_with_shift(Input::Pick(hs), shift);
         }
         self.idle_pick(h, shift);
         Ok(())
@@ -155,7 +182,8 @@ impl Session {
 
     /// The object a prompt picking one object finds at `p` in `space`: the one named for that
     /// point ([`Session::input_object`]), which is none when it lies in another space, else the
-    /// object under `p` within `aperture`.
+    /// object under `p` within `aperture`. Inside an MSPACE viewport a pick in model space finds
+    /// what that viewport draws: not the objects on the layers frozen in it.
     pub fn pick_object(&self, space: &Space, p: Vec2, aperture: f64) -> Result<Option<Handle>> {
         let d = self.doc()?;
         if let Some((h, q)) = self.pick_hint
@@ -163,7 +191,9 @@ impl Session {
         {
             return Ok((d.space_of(h).as_ref() == Some(space)).then_some(h));
         }
-        Ok(select::pick(d, space, p, aperture))
+        // The viewport shows model space only: its frozen layers hide nothing on the sheet.
+        let frozen = if *space == Space::Model { self.viewport_frozen() } else { &[] };
+        Ok(select::pick_in(d, space, frozen, p, aperture))
     }
 }
 

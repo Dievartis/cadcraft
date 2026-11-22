@@ -119,3 +119,12 @@ integrity check and has SHA-256
 
 PR #1565 remains a separate clipping-module candidate. PR #1093 is excluded from
 this integration at the fork owner's request.
+
+## Preview 0.7 convergence
+
+The owner chose the official DIMSTYLE dialog and common palette close buttons
+for subsequent previews. The earlier docked dimension editor is superseded;
+text styles, plot styles and images remain dockable. Official paper units replace
+the preview's separate override field, with a reader for older `PAPERUNITS` files
+and compatibility for `paperMm` command calls. See [preview 0.7](dievart-preview-0.7.md)
+for its upstream baseline, adapted community sources, migration and checks.

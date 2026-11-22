@@ -48,6 +48,8 @@ pub struct Frame {
     pub cartesian: bool,
     /// DYNPICOORDS = 1: second and next points are absolute instead of relative.
     pub absolute: bool,
+    /// The UCS the boxes read and show values in (the engine reads the sent text in it too).
+    pub ucs: cadcraft_engine::ucs::UcsFrame,
 }
 
 impl Frame {
@@ -55,10 +57,11 @@ impl Frame {
     pub fn default_format(&self) -> Format {
         if self.base.is_some() && !self.cartesian { Format::Polar } else { Format::Cartesian }
     }
-    /// Where the typed values are measured from.
+    /// Where the typed values are measured from, in UCS coordinates: the last point, or the UCS
+    /// origin.
     pub fn origin(&self) -> Vec2 {
         match self.base {
-            Some(b) if !self.absolute => b,
+            Some(b) if !self.absolute => self.ucs.to_ucs(b),
             _ => Vec2::ZERO,
         }
     }
@@ -67,9 +70,9 @@ impl Frame {
         self.base.is_some() && !self.absolute
     }
 
-    /// The live (X, Y) or (distance, angle in radians) of `cursor`.
+    /// The live (X, Y) or (distance, angle in radians) of `cursor` (a world point), in the UCS.
     pub fn live(&self, format: Format, cursor: Vec2) -> (f64, f64) {
-        let d = cursor - self.origin();
+        let d = self.ucs.to_ucs(cursor) - self.origin();
         match format {
             Format::Cartesian => (d.x, d.y),
             Format::Polar => (d.len(), d.y.atan2(d.x)),
@@ -145,32 +148,35 @@ pub fn can_lock_second(text: &str, frame: &Frame) -> bool {
 /// when Tab has locked the second one too (`second_locked`), which pins the cursor to the point.
 pub fn constrain(entry: &Entry<'_>, frame: &Frame, p: Vec2, second_locked: bool) -> Vec2 {
     let Some(v) = entry.first_locked() else { return p };
-    let o = frame.origin();
+    // In UCS coordinates; `p` and the result are world points.
+    let (o, u) = (frame.origin(), frame.ucs.to_ucs(p));
     if second_locked && let Some(w) = entry.second_value() {
         let q = match entry.format {
             Format::Cartesian => o + Vec2::new(v, w),
             Format::Polar => o + Vec2::from_angle(w) * v,
         };
         if q.is_finite() {
-            return q;
+            return frame.ucs.to_wcs(q);
         }
     }
-    match entry.format {
-        Format::Cartesian => Vec2::new(o.x + v, p.y),
+    let q = match entry.format {
+        Format::Cartesian => Vec2::new(o.x + v, u.y),
         Format::Polar => {
-            let d = p - o;
+            let d = u - o;
             let l = d.len();
             let dir = if l > 1e-12 { d * (1.0 / l) } else { Vec2::X };
             o + dir * v
         }
-    }
+    };
+    frame.ucs.to_wcs(q)
 }
 
 /// The command-line text to send for a finished entry, or `None` to send the text as typed
 /// (nothing split yet: a plain number stays direct distance entry). Empty boxes take the cursor's
 /// value. Entries measured from the last point are sent with `@` when the prompt's base is the
 /// session's last point (`last`, what `@` resolves against); otherwise, and for absolute entries,
-/// the finished point is sent as `#x,y`, so what was previewed is exactly what is placed.
+/// the finished point is sent as `#x,y` (UCS coordinates), so what was previewed is exactly what
+/// is placed.
 pub fn complete(entry: &Entry<'_>, frame: &Frame, cursor: Vec2, last: Vec2) -> Option<String> {
     if !entry.split {
         return None;
@@ -181,7 +187,8 @@ pub fn complete(entry: &Entry<'_>, frame: &Frame, cursor: Vec2, last: Vec2) -> O
     if frame.relative() && frame.base == Some(last) {
         return Some(match entry.format {
             Format::Cartesian => format!("@{first},{second}"),
-            // `<<`: degrees from +X counterclockwise, as previewed, whatever ANGBASE/ANGDIR say.
+            // `<<`: degrees from the UCS X axis counterclockwise, as previewed, whatever
+            // ANGBASE/ANGDIR say.
             Format::Polar => format!("@{first}<<{}", second.to_degrees()),
         });
     }
@@ -193,26 +200,55 @@ pub fn complete(entry: &Entry<'_>, frame: &Frame, cursor: Vec2, last: Vec2) -> O
 }
 
 /// The Dynamic Input options menu (DYNPROMPT): Down Arrow at a prompt with keywords lists them
-/// at the cursor; the arrows move the highlight and Enter or a click sends the keyword.
+/// at the cursor; the arrows move the highlight and Enter or a click sends the keyword. A list
+/// taller than the room under the cursor shows a window of `fit` rows from `first`, with a scroll
+/// bar; the arrows keep the highlight in view and the mouse wheel scrolls it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OptionsMenu {
     /// The prompt's keywords, as they were when the menu opened.
     pub keywords: Vec<String>,
     /// The highlighted keyword.
     pub index: usize,
+    /// The first keyword on show.
+    pub first: usize,
+    /// How many rows fit on screen (set when the menu is drawn; all of them until then).
+    pub fit: usize,
 }
 
 impl OptionsMenu {
     /// The menu for a prompt's keywords, or `None` when it has none.
     pub fn open(keywords: &[String]) -> Option<Self> {
-        (!keywords.is_empty()).then(|| OptionsMenu { keywords: keywords.to_vec(), index: 0 })
+        (!keywords.is_empty()).then(|| OptionsMenu { keywords: keywords.to_vec(), index: 0, first: 0, fit: keywords.len() })
     }
-    /// Move the highlight down (`step` = 1) or up (-1), wrapping around.
+    /// Move the highlight down (`step` = 1) or up (-1), wrapping around, and scroll it into view.
     pub fn step(&mut self, step: isize) {
         let n = self.keywords.len();
         if n > 0 {
             self.index = (self.index % n).checked_add_signed(step).unwrap_or(n - 1) % n;
+            self.reveal();
         }
+    }
+    /// Set how many rows fit, keeping the window inside the list.
+    pub fn set_fit(&mut self, fit: usize) {
+        self.fit = fit.clamp(1, self.keywords.len().max(1));
+        self.first = self.first.min(self.keywords.len().saturating_sub(self.fit));
+    }
+    /// Scroll the window so the highlighted row is on show.
+    pub fn reveal(&mut self) {
+        if self.index < self.first {
+            self.first = self.index;
+        } else if self.index >= self.first + self.fit {
+            self.first = self.index + 1 - self.fit;
+        }
+    }
+    /// Scroll the window by `rows` (negative: up), without moving past either end.
+    pub fn scroll(&mut self, rows: isize) {
+        let last = self.keywords.len().saturating_sub(self.fit);
+        self.first = self.first.saturating_add_signed(rows).min(last);
+    }
+    /// Whether the list is longer than the window.
+    pub fn scrolls(&self) -> bool {
+        self.fit < self.keywords.len()
     }
     /// The highlighted keyword.
     pub fn current(&self) -> Option<&str> {
@@ -230,7 +266,7 @@ mod tests {
     use super::*;
 
     fn second_point(base: Vec2) -> Frame {
-        Frame { base: Some(base), cartesian: false, absolute: false }
+        Frame { base: Some(base), cartesian: false, absolute: false, ..Frame::default() }
     }
 
     fn sent(text: &str, frame: &Frame, cursor: Vec2, last: Vec2) -> Option<Vec2> {
@@ -268,6 +304,44 @@ mod tests {
         assert_eq!(tab_separator("rec", &polar), None);
     }
 
+    /// `sent` with the engine reading the text in the frame's UCS, as the command line does.
+    fn sent_in(text: &str, frame: &Frame, cursor: Vec2, last: Vec2) -> Option<Vec2> {
+        let e = parse(text, frame)?;
+        let t = complete(&e, frame, cursor, last)?;
+        let angles = cadcraft_engine::units::AngleSettings { ucs: frame.ucs.rotation(), ..Default::default() };
+        cadcraft_engine::prompt::parse_point_in(&t, last, &angles, &frame.ucs)
+    }
+
+    #[test]
+    fn the_boxes_read_and_show_values_in_the_ucs() {
+        // The UCS at (100, 50) turned 90°: UCS X is world +Y.
+        let ucs =
+            cadcraft_engine::ucs::UcsFrame::WORLD.with_origin(cadcraft_geom::Vec3::new(100.0, 50.0, 0.0)).rotated_z(std::f64::consts::FRAC_PI_2);
+        let first = Frame { ucs, ..Frame::default() };
+        assert!(close(sent_in("10,0", &first, Vec2::ZERO, Vec2::ZERO), Vec2::new(100.0, 60.0)), "absolute: from the UCS origin");
+        let base = Vec2::new(100.0, 60.0);
+        let f = Frame { base: Some(base), ucs, ..Frame::default() };
+        assert!(close(sent_in("5,0", &f, Vec2::ZERO, base), Vec2::new(100.0, 65.0)), "relative along the UCS axes");
+        assert!(close(sent_in("10<0", &f, Vec2::ZERO, base), Vec2::new(100.0, 70.0)), "angles from the UCS X axis");
+        assert!(close(sent_in("10<90", &f, Vec2::ZERO, base), Vec2::new(90.0, 60.0)));
+        // Not relative to the last point: sent as `#x,y` in the UCS, placed where it was previewed.
+        assert!(close(sent_in("5,0", &f, Vec2::ZERO, Vec2::new(-1.0, -1.0)), Vec2::new(100.0, 65.0)));
+        let abs = Frame { absolute: true, cartesian: true, ..f };
+        assert!(close(sent_in("10,5", &abs, Vec2::ZERO, base), Vec2::new(95.0, 60.0)));
+        // The live values are the cursor's, measured in the UCS.
+        let (x, y) = f.live(Format::Cartesian, Vec2::new(97.0, 70.0));
+        assert!((x - 10.0).abs() < 1e-9 && (y - 3.0).abs() < 1e-9, "{x} {y}");
+        let (d, a) = f.live(Format::Polar, Vec2::new(100.0, 70.0));
+        assert!((d - 10.0).abs() < 1e-9 && a.abs() < 1e-9, "{d} {a}");
+        // A locked value holds the cursor along the UCS axes, and Enter sends that point.
+        let e = parse("3,", &f).unwrap();
+        let held = constrain(&e, &f, Vec2::new(80.0, 99.0), false);
+        assert!(close(Some(held), Vec2::new(80.0, 63.0)), "{held:?}");
+        assert!(close(sent_in("3,", &f, Vec2::new(80.0, 99.0), base), Vec2::new(80.0, 63.0)));
+        let e = parse("4<", &f).unwrap();
+        assert!(close(Some(constrain(&e, &f, Vec2::new(100.0, 90.0), false)), Vec2::new(100.0, 64.0)));
+    }
+
     #[test]
     fn first_point_is_absolute() {
         let f = Frame::default();
@@ -276,7 +350,7 @@ mod tests {
 
     #[test]
     fn absolute_setting_measures_from_the_origin() {
-        let f = Frame { base: Some(Vec2::new(5.0, 5.0)), cartesian: true, absolute: true };
+        let f = Frame { base: Some(Vec2::new(5.0, 5.0)), cartesian: true, absolute: true, ..Frame::default() };
         assert!(close(sent("40,100", &f, Vec2::ZERO, Vec2::new(5.0, 5.0)), Vec2::new(40.0, 100.0)));
     }
 
@@ -337,6 +411,33 @@ mod tests {
         assert!(!m.fits(&kws[..2]));
     }
 
+    #[test]
+    fn a_long_menu_scrolls_to_keep_the_highlight_in_view() {
+        let kws: Vec<String> = (0..30).map(|i| format!("K{i}")).collect();
+        let mut m = OptionsMenu::open(&kws).unwrap();
+        m.set_fit(10);
+        assert!(m.scrolls());
+        for _ in 0..12 {
+            m.step(1);
+        }
+        assert_eq!((m.index, m.first), (12, 3), "row 13 is the last on show");
+        m.step(-1);
+        assert_eq!(m.first, 3, "moving inside the window does not scroll");
+        // Up from the top wraps to the end, and the window follows.
+        let mut m = OptionsMenu::open(&kws).unwrap();
+        m.set_fit(10);
+        m.step(-1);
+        assert_eq!((m.index, m.first), (29, 20));
+        // The wheel scrolls the window but stops at both ends.
+        m.scroll(-50);
+        assert_eq!(m.first, 0);
+        m.scroll(50);
+        assert_eq!(m.first, 20);
+        // A short list does not scroll.
+        let mut m = OptionsMenu::open(&kws[..4]).unwrap();
+        m.set_fit(10);
+        assert!(!m.scrolls() && m.fit == 4);
+    }
     #[test]
     fn plain_numbers_and_other_text_go_through_as_typed() {
         let f = second_point(Vec2::ZERO);

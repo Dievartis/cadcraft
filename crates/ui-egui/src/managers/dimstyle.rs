@@ -73,6 +73,10 @@ struct State {
     /// OK was clicked on an editing page: the entry the list chooses once its commands succeed
     /// (a refused value keeps the page open with every edit).
     after_ok: Option<String>,
+    /// Why OK's command refused the edits, or left a value out, shown on the editing page.
+    error: Option<String>,
+    /// The drawing the pages were opened on ([`cadcraft_engine::DocState::uid`]).
+    doc: u64,
 }
 
 /// The tab a variable is edited on.
@@ -132,16 +136,19 @@ fn in_use(d: &Drawing) -> Vec<String> {
     out
 }
 
-/// Render DIMSTYLE inside an existing `egui::Ui` (window, dock or other host).
-/// Owns its state and dispatches exactly the same undoable commands as the floating dialog.
-/// Does not create a window or alter the application's dialog routing.
-pub(super) fn content(app: &mut CadApp, ui: &mut egui::Ui) {
-    let ctx = ui.ctx().clone();
+pub(super) fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> super::Action {
     let Ok(d) = app.session.doc() else {
-        ui.label("Open a drawing first.");
-        return;
+        super::no_drawing(ctx, crate::tl!("Dimension Style Manager"), open);
+        return None;
     };
-    let mut st: State = super::temp(&ctx, STATE).unwrap_or_default();
+    let mut st: State = super::temp(ctx, STATE).unwrap_or_default();
+    // A page left open while another drawing became active (its file tab) is cancelled, back to
+    // the list: its values are the first drawing's, and OK would write them into this one.
+    let uid = app.session.state().map_or(0, |s| s.uid);
+    if st.page != Page::List && st.doc != uid {
+        st = State::default();
+    }
+    st.doc = uid;
     let current = d.header.str("DIMSTYLE", "Standard");
     let overrides = d.dim_overrides();
     let valid = |n: &str| n == OVERRIDES && !overrides.is_empty() || d.dim_style(n).is_some();
@@ -149,18 +156,41 @@ pub(super) fn content(app: &mut CadApp, ui: &mut egui::Ui) {
         st.selected = current.clone();
     }
     let mut actions: Vec<(&'static str, Value)> = Vec::new();
-    match st.page {
-        Page::List => list_page(ui, d, &mut st, &current, &overrides, &mut actions),
-        Page::New => new_page(ui, d, &mut st),
-        Page::Edit => edit_page(ui, d, &mut st, &mut actions),
-        Page::Compare => compare_page(ui, d, &mut st, &current, &overrides),
-    }
-    // Errors are echoed on the command line by `run`; a failed step stops the rest.
+    let title = match (&st.page, &st.target) {
+        (Page::List, _) => crate::tl!("Dimension Style Manager").to_string(),
+        (Page::New, _) => crate::tl!("Create New Dimension Style").to_string(),
+        (Page::Edit, Target::Modify) => crate::tf!("Modify Dimension Style: {style}", style = st.editing),
+        (Page::Edit, Target::Override) => crate::tf!("Override Current Style: {style}", style = st.editing),
+        (Page::Edit, Target::Create) => crate::tf!("New Dimension Style: {style}", style = st.editing),
+        (Page::Compare, _) => crate::tl!("Compare Dimension Styles").to_string(),
+    };
+    egui::Window::new(title).id(egui::Id::unique(STATE)).open(open).default_size(vec2(720.0, 480.0)).resizable(true).collapsible(false).show(
+        ctx,
+        |ui| match st.page {
+            Page::List => list_page(ui, d, &mut st, &current, &overrides, &mut actions),
+            Page::New => new_page(ui, d, &mut st),
+            Page::Edit => edit_page(ui, d, &mut st, &mut actions),
+            Page::Compare => compare_page(ui, d, &mut st, &current, &overrides),
+        },
+    );
+    // Errors are echoed on the command line by `run`; a failed step stops the rest. A value the
+    // command left out (`ignored`, such as a text height of 0) counts as refused too, so the page
+    // stays open with the edits and says which values were not taken.
     let mut ok = true;
     for (cmd, p) in actions {
-        if app.run(cmd, p).is_err() {
-            ok = false;
-            break;
+        match app.run(cmd, p) {
+            Ok(r) => {
+                if let Some(m) = left_out(&r) {
+                    st.error = Some(m);
+                    ok = false;
+                    break;
+                }
+            }
+            Err(e) => {
+                st.error = Some(e);
+                ok = false;
+                break;
+            }
         }
     }
     if let Some(selected) = st.after_ok.take()
@@ -168,8 +198,22 @@ pub(super) fn content(app: &mut CadApp, ui: &mut egui::Ui) {
     {
         st.selected = selected;
         st.page = Page::List;
+        st.error = None;
     }
-    super::set_temp(&ctx, STATE, st);
+    // Closed (the title bar's X), it opens on the list next time, not on a page left open.
+    super::set_temp(ctx, STATE, if *open { st } else { State::default() });
+    None
+}
+
+/// The message of a result that left some values out (`ignored`), as `dimstyle` reports them;
+/// the variables' names when the command gave no message.
+fn left_out(r: &Value) -> Option<String> {
+    let ignored = r.get("ignored").and_then(Value::as_array).filter(|a| !a.is_empty())?;
+    Some(
+        r.get("message")
+            .and_then(Value::as_str)
+            .map_or_else(|| ignored.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "), str::to_string),
+    )
 }
 
 fn list_page(
@@ -416,6 +460,7 @@ fn new_page(ui: &mut egui::Ui, d: &Drawing, st: &mut State) {
         }
         if ui.button(crate::tl!("Cancel")).clicked() {
             st.page = Page::List;
+            st.error = None;
         }
     });
 }
@@ -441,6 +486,9 @@ fn edit_page(ui: &mut egui::Ui, d: &Drawing, st: &mut State, actions: &mut Vec<(
         });
     });
     ui.separator();
+    if let Some(e) = &st.error {
+        ui.label(RichText::new(e.as_str()).color(Tokens::get().warn));
+    }
     ui.horizontal(|ui| {
         if ui.button(crate::tl!("OK")).clicked() {
             let changed: Map<String, Value> = st
@@ -610,6 +658,11 @@ fn fields(ui: &mut egui::Ui, d: &Drawing, st: &mut State) {
                 combo(ui, egui::Id::unique(id), &cur, options)
             }
         });
+        let new = new.map(|v| match (p.field, v.as_str()) {
+            // An empty per-end name inherits DIMBLK.
+            ("arrowBlock1" | "arrowBlock2", Some("")) => json!("_CLOSEDFILLED"),
+            _ => v,
+        });
         if let Some(v) = new.filter(|v| *v != cur) {
             st.values.insert(p.field.into(), v);
         }
@@ -762,25 +815,4 @@ fn sample(d: &Drawing, style: &DimStyle, w: u32, h: u32, bg: egui::Color32) -> O
     )?;
     let img = image::load_from_memory(&png).ok()?.to_rgba8();
     Some(egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw()))
-}
-
-#[cfg(test)]
-mod content_tests {
-    use super::*;
-    use cadcraft_engine::Session;
-
-    #[test]
-    fn manager_content_renders_without_a_floating_window() {
-        let ctx = egui::Context::default();
-        let mut app = CadApp::new(Session::new(), crate::Services::default());
-        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            content(&mut app, ui);
-        });
-        // The headless test does not upload textures to a GPU renderer.
-        output.textures_delta.clear();
-        assert_eq!(app.ui.dialog, None);
-        let state = super::super::temp::<State>(&ctx, STATE).expect("embedded content persisted its state");
-        assert!(state.page == Page::List);
-        assert!(!state.selected.is_empty());
-    }
 }

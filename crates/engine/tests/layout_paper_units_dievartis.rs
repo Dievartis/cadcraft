@@ -16,7 +16,7 @@ fn new_layout(session: &mut Session, name: &str) {
 }
 
 fn paper_mm(session: &Session, name: &str) -> bool {
-    session.doc().unwrap().layout(name).unwrap().page.paper_mm
+    cadcraft_render::paper::page_unit_mm(session.doc().unwrap(), &session.doc().unwrap().layout(name).unwrap().page) == 1.0
 }
 
 #[test]
@@ -24,7 +24,7 @@ fn new_metric_layout_uses_millimetre_paper_space() {
     let mut session = session_with_measurement(1);
     new_layout(&mut session, "Metric");
     let page = &session.doc().unwrap().layout("Metric").unwrap().page;
-    assert!(page.paper_mm, "new metric layouts must use millimetre paper-space units");
+    assert_eq!(page.paper_mm, Some(true), "new metric layouts must use millimetre paper-space units");
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn inch_paper_in_metric_drawing_uses_25_4_mm_per_unit() {
     let mut session = session_with_measurement(1);
     new_layout(&mut session, "InchSheet");
 
-    session.execute("pagesetup", &json!({ "layout": "InchSheet", "paper": "Letter" })).unwrap();
+    session.execute("pagesetup", &json!({ "layout": "InchSheet", "paper": "Letter", "paperUnits": "inches" })).unwrap();
 
     let drawing = session.doc().unwrap();
     let page = &drawing.layout("InchSheet").unwrap().page;

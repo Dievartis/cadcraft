@@ -18,10 +18,12 @@ pub mod blockedit;
 pub mod capped_read;
 pub mod cmd;
 pub mod doc_path;
+pub mod file_access;
 mod finite;
 pub mod grip_dims;
 pub mod grips;
 mod guard;
+pub mod keyboard;
 pub mod lisp;
 pub mod mtext_edit;
 pub mod pointmod;
@@ -35,6 +37,7 @@ pub mod settings_dir;
 pub mod snap;
 pub mod spatial;
 pub mod sysvars;
+pub mod ucs;
 pub mod undoctl;
 pub mod units;
 
@@ -51,7 +54,7 @@ pub use cadcraft_geom as geom;
 pub use cadcraft_render as render;
 pub use cmd::hatch::{HatchPicks, PatternChoice, PickMode, pattern_choices};
 pub use cmd::{CommandInfo, CommandSpec, command_specs, find_command};
-pub use prompt::{Accept, DisplayOnly, Drag, Input, Interactive, Picker, Prompt, Step};
+pub use prompt::{Accept, DisplayOnly, Drag, EditorKind, Input, Interactive, Picker, Prompt, Step, TextEditor};
 
 mod doc_state;
 mod error;
@@ -61,7 +64,7 @@ mod session;
 mod settings;
 mod view;
 
-pub use doc_state::{DocState, Snapshot};
+pub use doc_state::{AT_OPEN, DocState, Snapshot};
 pub use error::{EngineError, Result};
 pub use last_used::{LastUsed, LeaderOrder, LeaderType, MLeaderOptions};
 pub use running::{PendingWindow, Running};
@@ -85,6 +88,11 @@ pub struct Session {
     pub doc_epoch: u64,
     pub settings: Settings,
     pub running: Option<Running>,
+    /// How many commands were started, nested transparent ones left out.
+    pub commands_started: u64,
+    /// The last command that ended by itself, not cancelled: its number in `commands_started`, and
+    /// whether it took new handles (it added to the drawing, and nothing took that back).
+    pub last_finished: Option<(u64, bool)>,
     /// A script is running ([`Session::script`]); a SCRIPT command inside it is refused.
     in_script: bool,
     /// The command suspended while a transparent command (`'ZOOM`, `'PAN`…) prompts inside it;
@@ -119,6 +127,16 @@ pub struct Session {
     /// change behavior on Ctrl — currently only ARC's "hold Ctrl to switch direction" — read
     /// this instead of receiving modifiers through `Input`, which stays free of UI state.
     pub ctrl_down: bool,
+    /// Whether Shift is held right now (from the UI, as `ctrl_down`): MEASUREGEOM Quick's
+    /// Shift+click adds an area to the ones measured.
+    pub shift_down: bool,
+    /// The point under the mouse before snaps and tracking move it (from the UI, overwritten
+    /// every frame; `None` when the mouse is off the drawing): MEASUREGEOM Quick measures there,
+    /// so a snap to an edge doesn't carry a click out of the area it was made in.
+    pub pointer: Option<Vec2>,
+    /// A token typed at the command line (or read from a script) is being taken: its point is
+    /// the one typed, not one near the mouse.
+    pub(crate) typing: bool,
     /// Origin of the point currently being fed by `input_snapped`; never reused by typed points.
     picked_viewport: Option<snap::ViewportPoint>,
     /// The last drawing comparison (COMPARE), drawn over the drawing it was made for.
@@ -150,6 +168,10 @@ pub struct Session {
     lisp_last: Option<std::result::Result<lisp::value::Value, String>>,
     /// What the last HATCHPICK kept (the Hatch and Gradient dialog's picks).
     pub hatch_picks: Option<cmd::hatch::HatchPicks>,
+    /// The window's menu bar and tool bar as the UI shows them (it reports them every frame).
+    pub bars_shown: cmd::interface::InterfaceBars,
+    /// The bars MENUBAR or TOOLBAR asked to change, for the UI to apply.
+    pub bars_request: cmd::interface::BarsRequest,
     /// The object named with a point for the input a prompt picking one object is taking
     /// ([`Session::input_object`]): a pick at exactly that point picks that object
     /// ([`Session::pick_object`]).
@@ -176,6 +198,8 @@ impl Session {
             doc_epoch: 0,
             settings: Settings::default(),
             running: None,
+            commands_started: 0,
+            last_finished: None,
             in_script: false,
             suspended: None,
             log: Vec::new(),
@@ -190,6 +214,9 @@ impl Session {
             cursor: Vec2::ZERO,
             cursor_deferred: None,
             ctrl_down: false,
+            shift_down: false,
+            pointer: None,
+            typing: false,
             picked_viewport: None,
             compare: None,
             tracking: snap::tracking::Tracker::default(),
@@ -207,6 +234,8 @@ impl Session {
             lisp: lisp::LispState::default(),
             lisp_last: None,
             hatch_picks: None,
+            bars_shown: Default::default(),
+            bars_request: Default::default(),
             pick_hint: None,
         }
     }
@@ -231,24 +260,56 @@ impl Session {
             settings.snapunit = d.header.snap_unit();
             settings.gridunit = d.header.grid_unit();
         }
+        let a = self.input_ucs().rotation();
+        settings.ucs_angle = if a.is_finite() { a } else { 0.0 };
         settings
     }
     /// The space commands act on (model space while working inside a layout viewport).
     pub fn space(&self) -> Space {
         self.state().map(DocState::edit_space).unwrap_or_default()
     }
+    /// The layers frozen in the active MSPACE viewport ([`DocState::viewport_frozen`]): what a
+    /// pick or a selection in [`Session::space`] leaves out. Empty with no drawing open.
+    pub fn viewport_frozen(&self) -> &[String] {
+        self.state().map(DocState::viewport_frozen).unwrap_or_default()
+    }
     /// The tab being displayed: Model or a layout, regardless of MSPACE.
     pub fn layout_space(&self) -> Space {
         self.state().map(|s| s.space.clone()).unwrap_or_default()
     }
+    /// The selected objects as the view being edited has them ([`DocState::shown_selection`]):
+    /// inside an MSPACE viewport, without the objects on layers frozen in that viewport. Commands,
+    /// grips and palettes start from this; [`DocState::selection`] holds every selected object.
     pub fn selection(&self) -> Vec<Handle> {
+        self.state().map(DocState::shown_selection).unwrap_or_default()
+    }
+    /// Every selected object ([`DocState::selection`]), also the ones the active MSPACE viewport
+    /// does not draw, which [`Session::selection`] leaves out. Adding to the selection or removing
+    /// from it starts from this, so that it keeps them.
+    pub(crate) fn stored_selection(&self) -> Vec<Handle> {
         self.state().map(|s| s.selection.clone()).unwrap_or_default()
     }
     pub fn set_selection(&mut self, sel: Vec<Handle>) {
         if let Ok(st) = self.state_mut() {
             let mut seen = std::collections::HashSet::new();
             st.selection = sel.into_iter().filter(|h| seen.insert(*h)).collect();
+            // Windows keep only the objects still selected.
+            let kept: std::collections::HashSet<Handle> = st.selection.iter().copied().collect();
+            st.selection_windows.retain_mut(|(_, hs)| {
+                hs.retain(|h| kept.contains(h));
+                !hs.is_empty()
+            });
         }
+    }
+
+    /// The selection windows that picked the current selection's objects (see
+    /// [`DocState::selection_windows`]), or `None` when the drawing changed since they were drawn.
+    pub fn selection_windows(&self) -> Option<Vec<(Bounds2, Vec<Handle>)>> {
+        let Ok(st) = self.state() else { return Some(Vec::new()) };
+        if st.selection_windows.is_empty() {
+            return Some(Vec::new());
+        }
+        std::sync::Weak::ptr_eq(&st.selection_windows_doc, &Arc::downgrade(&st.doc)).then(|| st.selection_windows.clone())
     }
 
     /// Message on the command line history.
