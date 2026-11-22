@@ -11,9 +11,14 @@ pub(crate) fn command(id: &str) -> bool {
     id.starts_with("furniture") || id.starts_with("equipment")
 }
 
+pub(crate) fn visible(app: &CadApp, id: &str) -> bool {
+    (app.ui.catalogue_tools || !command(id)) && (app.ui.architecture_tools || !crate::architecture::command(id))
+}
+
 #[derive(Clone, Default)]
 struct State {
     equipment: bool,
+    architecture: bool,
     group: String,
     filter: String,
     chosen: String,
@@ -30,6 +35,12 @@ enum Editor {
 pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
     let id = egui::Id::unique("parametric-catalogue-state");
     let mut st = ui.data(|d| d.get_temp::<State>(id)).unwrap_or_default();
+    if !app.ui.catalogue_tools {
+        st.architecture = true;
+    }
+    if !app.ui.architecture_tools {
+        st.architecture = false;
+    }
     let panel_height = ui.available_height();
     let footer_id = id.with("footer-height");
     let footer_height = ui.data(|d| d.get_temp::<f32>(footer_id)).unwrap_or(140.0);
@@ -38,13 +49,21 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
             let content_top = ui.cursor().top();
             ui.horizontal_wrapped(|ui| {
                 for (equipment, label) in [(false, "Furniture"), (true, "Equipment")] {
-                    if ui.selectable_label(st.equipment == equipment, label).clicked() {
+                    if app.ui.catalogue_tools && ui.selectable_label(!st.architecture && st.equipment == equipment, label).clicked() {
+                        st.architecture = false;
                         st.equipment = equipment;
                         st.group.clear();
                         st.chosen.clear();
                     }
                 }
+                if app.ui.architecture_tools && ui.selectable_label(st.architecture, crate::tl!("Architecture")).clicked() {
+                    st.architecture = true;
+                }
             });
+            if st.architecture {
+                crate::architecture::panel(app, ui);
+                return;
+            }
             ui.add(egui::TextEdit::singleline(&mut st.filter).hint_text("Search catalogue...").desired_width(f32::INFINITY));
             let equipment = app.session.doc().map(|d| d.available_equipment_models()).unwrap_or_default();
             let groups: Vec<&str> = if st.equipment { EquipmentKind::ALL.iter().map(|k| k.name()).collect() } else { furniture_groups().to_vec() };

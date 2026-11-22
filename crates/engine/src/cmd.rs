@@ -3,10 +3,13 @@
 
 pub(crate) mod annoscale;
 mod annotate;
+pub(crate) mod arch;
 mod array;
 mod audit;
 pub(crate) mod blocks;
 mod catalogue_helpers;
+mod opening;
+pub use opening::OpeningLastUsed;
 pub mod clipboard;
 pub mod constraints;
 mod dimstyle_cli;
@@ -221,6 +224,8 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(vertexedit::specs());
         v.extend(scalexy::specs());
         v.extend(furniture::specs());
+        v.extend(arch::specs());
+        v.extend(opening::specs());
         v.extend(equipment::specs());
         v.extend(props::specs());
         v.extend(inquiry::specs());

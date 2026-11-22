@@ -128,7 +128,7 @@ impl GripEdit {
                 continue;
             }
             let Some(e) = st.doc.entity(h).filter(|e| st.shows(e)) else { continue };
-            let gs = e.kind.grips();
+            let gs = st.doc.entity_grips(e);
             // The nearest grip of this object within the tolerance.
             let best = gs
                 .iter()

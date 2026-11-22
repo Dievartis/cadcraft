@@ -126,10 +126,7 @@ fn suggestions_in(session: &cadcraft_engine::Session, prefix: &str) -> Vec<Sugge
 }
 
 fn catalogue_suggestions(app: &CadApp, prefix: &str) -> Vec<Suggestion> {
-    suggestions_in(&app.session, prefix)
-        .into_iter()
-        .filter(|s| app.ui.catalogue_tools || !crate::catalogue::command(&s.id.to_ascii_lowercase()))
-        .collect()
+    suggestions_in(&app.session, prefix).into_iter().filter(|s| crate::catalogue::visible(app, &s.id.to_ascii_lowercase())).collect()
 }
 
 /// Matching command names/aliases for AutoComplete. `is_own_command` tells whether a Greek-layout

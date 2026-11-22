@@ -92,6 +92,10 @@ fn workflow(app: &mut CadApp, ui: &mut egui::Ui, changes: &mut Map<String, Value
     if ui.checkbox(&mut enabled, "Furniture and equipment catalogues (freemans32)").changed() {
         changes.insert("catalogueTools".into(), json!(enabled));
     }
+    let mut architecture = app.ui.architecture_tools;
+    if ui.checkbox(&mut architecture, crate::tl!("Architectural walls and openings (freemans32)")).changed() {
+        changes.insert("architectureTools".into(), json!(architecture));
+    }
     ui.label("Adds Catalogues to Window > Blocks. Existing objects remain visible when disabled.");
     ui.separator();
     ui.label("Default drawing template");

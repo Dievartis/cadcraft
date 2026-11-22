@@ -837,7 +837,7 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
     let state_id = egui::Id::unique("blocks-state");
     let mut st: State = ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
     let mut act = None;
-    if !app.ui.catalogue_tools && st.tab == Tab::Catalogues {
+    if !(app.ui.catalogue_tools || app.ui.architecture_tools) && st.tab == Tab::Catalogues {
         st.tab = Tab::Current;
     }
     if st.libraries.is_none() {
@@ -852,7 +852,7 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
                 st.tab = tab;
             }
         }
-        if app.ui.catalogue_tools && ui.selectable_label(st.tab == Tab::Catalogues, "Catalogues").clicked() {
+        if (app.ui.catalogue_tools || app.ui.architecture_tools) && ui.selectable_label(st.tab == Tab::Catalogues, "Catalogues").clicked() {
             st.tab = Tab::Catalogues;
         }
     });

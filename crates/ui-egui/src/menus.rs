@@ -163,6 +163,9 @@ fn route_ui_subsystems(app: &mut CadApp, id: &str, params: &Value) -> Option<Res
     if let Some(r) = crate::images::route(app, id, params) {
         return Some(r);
     }
+    if let Some(r) = crate::architecture::route(app, id, params) {
+        return Some(r);
+    }
     if let Some(r) = crate::blocks_palette::route(app, id, params) {
         return Some(r);
     }
@@ -715,7 +718,7 @@ pub fn tree(app: &CadApp) -> Vec<(String, Vec<Entry>)> {
         }
     };
     for c in cadcraft_engine::command_specs() {
-        if !c.menu.is_empty() && (app.ui.catalogue_tools || !crate::catalogue::command(c.id)) {
+        if !c.menu.is_empty() && crate::catalogue::visible(app, c.id) {
             add(c.menu, c.label, c.id, c.shortcut, (c.enabled)(&app.session).is_ok());
         }
     }
