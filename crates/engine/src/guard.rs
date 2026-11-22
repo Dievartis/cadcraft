@@ -78,6 +78,12 @@ impl Interactive for Guarded {
     fn begin(&mut self, s: &mut Session) -> Result<Step> {
         catch_unwind(AssertUnwindSafe(|| self.inner.begin(s))).unwrap_or_else(|p| Err(self.internal(&*p)))
     }
+    fn cycle_alignment(&mut self, s: &mut Session) -> Option<String> {
+        if self.broken.get().is_some() {
+            return None;
+        }
+        catch_unwind(AssertUnwindSafe(|| self.inner.cycle_alignment(s))).ok().flatten()
+    }
     fn cancelled(&mut self, s: &mut Session) {
         if self.broken.get().is_none()
             && let Err(p) = catch_unwind(AssertUnwindSafe(|| self.inner.cancelled(s)))

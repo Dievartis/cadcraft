@@ -81,6 +81,7 @@ enum Tab {
     #[default]
     Current,
     Libraries,
+    Catalogues,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -836,6 +837,9 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
     let state_id = egui::Id::unique("blocks-state");
     let mut st: State = ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
     let mut act = None;
+    if !app.ui.catalogue_tools && st.tab == Tab::Catalogues {
+        st.tab = Tab::Current;
+    }
     if st.libraries.is_none() {
         st.libraries = Some(libraries(app, json!({})));
     }
@@ -848,7 +852,15 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
                 st.tab = tab;
             }
         }
+        if app.ui.catalogue_tools && ui.selectable_label(st.tab == Tab::Catalogues, "Catalogues").clicked() {
+            st.tab = Tab::Catalogues;
+        }
     });
+    if st.tab == Tab::Catalogues {
+        crate::catalogue::panel(app, ui);
+        ui.data_mut(|d| d.insert_temp(state_id, st));
+        return;
+    }
     if st.tab == Tab::Libraries {
         libraries_bar(ui, &mut st, &mut act);
     }
@@ -872,6 +884,7 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
     let pictures: SharedPictures = ui.data_mut(|d| d.get_temp_mut_or_default::<SharedPictures>(egui::Id::unique("blocks-pictures")).clone());
     let mut reading = false;
     let loaded: Loaded = match (st.tab, st.library.clone()) {
+        (Tab::Catalogues, _) => Ok(Listing::default()),
         (Tab::Current, _) => Ok(current_items(app, ui, &pictures)),
         (Tab::Libraries, Some(path)) => match library_items(ui, &path, st.refresh, &pictures) {
             Some(loaded) => loaded,
@@ -1304,6 +1317,34 @@ fn insert(app: &mut CadApp, item: &Item, st: &State, explode: bool) -> bool {
 /// Whether `label` matches the filter `wanted` (already lowercase), whatever the script.
 fn named(label: &str, wanted: &str) -> bool {
     wanted.is_empty() || label.to_lowercase().contains(wanted)
+}
+
+/// Paint generated catalogue geometry using the same bounded preview path as drawing blocks.
+pub(crate) fn catalogue_preview(ui: &egui::Ui, rect: egui::Rect, recipe: &str, pieces: Vec<cadcraft_doc::HvacPiece>) {
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    let id = egui::Id::unique("catalogue-preview-cache");
+    let shape = ui.data_mut(|data| {
+        let cache = data.get_temp_mut_or_default::<HashMap<String, Option<Arc<Shape>>>>(id);
+        // Bound previews across drawings and repeated edits of drawing-owned models.
+        if !cache.contains_key(recipe) && cache.len() >= 512 {
+            cache.clear();
+        }
+        cache
+            .entry(recipe.to_string())
+            .or_insert_with(|| {
+                let drawing = Drawing::new_metric();
+                let mut block = Block::new("catalogue-preview");
+                for (index, mut entity) in cadcraft_doc::preview_entities(pieces, Vec2::ZERO, 0.0).into_iter().enumerate() {
+                    entity.handle = cadcraft_doc::Handle(index as u64 + 1);
+                    block.entities.push(entity);
+                }
+                outline(&drawing, &block, &Arc::new(AtomicBool::new(false)), Some(PREVIEW_DEADLINE)).map(Arc::new)
+            })
+            .clone()
+    });
+    paint_preview(ui, rect, shape.as_deref(), crate::theme::Tokens::get().icon_accent);
 }
 
 #[cfg(test)]

@@ -346,6 +346,9 @@ impl Objects {
         if let Some(tables) = self.xrecord_text(crate::dxf_ext::PLOT_STYLES_KEY).and_then(|t| crate::dxf_ext::parse_plot_styles(&t)) {
             d.plot_style_tables = tables;
         }
+        if let Some(models) = self.xrecord_text(crate::dxf_ext::EQUIPMENT_MODELS_KEY).and_then(|t| crate::dxf_ext::parse_equipment_models(&t)) {
+            d.equipment_models = models;
+        }
         self.apply_mleader_styles(d, rx);
         crate::dxf_mleader::apply(d, &rx.mleader_fix, &self.names);
         for (name, view) in &self.layout_views {

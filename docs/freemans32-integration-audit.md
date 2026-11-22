@@ -3,8 +3,9 @@
 Source: [freemans32/cadcraft, perso](https://github.com/freemans32/cadcraft/tree/perso),
 snapshot `e4964f0ba` inspected on 2026-11-22. A local source reference
 `integration/freemans32-audit` preserves the inspected snapshot. This is a source
-and dependency assessment; these personal building tools are not yet integrated
-into the Dievartis preview, and were not built or manually tested here.
+and dependency assessment of that snapshot. The first furniture/equipment
+extraction is tracked separately in [catalogue integration](freemans32-catalogues.md);
+the remaining building tools have not been integrated or tested here.
 
 ## Finding
 

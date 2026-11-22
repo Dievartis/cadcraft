@@ -7,7 +7,9 @@
 #![forbid(unsafe_code)]
 
 mod array;
+mod catalogue;
 mod constraint;
+pub use catalogue::*;
 mod entity;
 mod extents;
 mod format;
@@ -160,6 +162,8 @@ pub struct Drawing {
     pub portable_fonts: bool,
     /// The pixels of the raster images that are loaded (IMAGE). Never written to a file.
     pub rasters: Rasters,
+    /// Drawing-local parametric equipment models (freemans32 catalogue).
+    pub equipment_models: Vec<EquipmentModel>,
 }
 
 impl Default for Drawing {
@@ -224,6 +228,7 @@ impl Drawing {
             skipped_records: BTreeMap::new(),
             portable_fonts: false,
             rasters: Rasters::default(),
+            equipment_models: Vec::new(),
         }
     }
 

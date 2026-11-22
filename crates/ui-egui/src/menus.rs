@@ -715,7 +715,7 @@ pub fn tree(app: &CadApp) -> Vec<(String, Vec<Entry>)> {
         }
     };
     for c in cadcraft_engine::command_specs() {
-        if !c.menu.is_empty() {
+        if !c.menu.is_empty() && (app.ui.catalogue_tools || !crate::catalogue::command(c.id)) {
             add(c.menu, c.label, c.id, c.shortcut, (c.enabled)(&app.session).is_ok());
         }
     }
