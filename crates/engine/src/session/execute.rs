@@ -24,8 +24,12 @@ impl Session {
         }
     }
 
+    /// Run a command by id, unless the automation roots, its own state or the block editor refuse it.
     fn execute_guarded(&mut self, id: &str, params: &Value) -> Result<Value> {
         let spec = find_command(id).ok_or_else(|| EngineError::UnknownCommand(id.to_string()))?;
+        if let Some(why) = crate::file_access::commands::refusal(spec.id) {
+            return Err(EngineError::Disabled(spec.id.into(), why));
+        }
         (spec.enabled)(self).map_err(|m| EngineError::Disabled(spec.id.into(), m))?;
         if let Some(why) = cmd::blocks::bedit::refused_in_editor(self, spec.id) {
             return Err(EngineError::Disabled(spec.id.into(), why));
@@ -107,6 +111,7 @@ impl Session {
         let Some(snap) = st.undo.pop() else { return Ok(None) };
         let cur = st.swap_in(snap);
         let label = cur.label.clone();
+        st.selection_windows.clear();
         st.redo.push(cur);
         self.lisp_rebase();
         Ok(Some(label))
@@ -121,6 +126,7 @@ impl Session {
         let Some(snap) = st.redo.pop() else { return Ok(None) };
         let cur = st.swap_in(snap);
         let label = cur.label.clone();
+        st.selection_windows.clear();
         st.undo.push(cur);
         self.lisp_rebase();
         Ok(Some(label))

@@ -375,11 +375,81 @@ pub fn right_palettes(app: &mut CadApp, ui: &mut egui::Ui) {
     });
 }
 
+/// The name for "Move Selection to New Layer": asked in place below the tool row, a free
+/// `LayerN` offered and selected, so typing replaces it. Enter moves the selection, Escape or a
+/// click elsewhere drops it; a taken or bad name keeps the field (the reason is on the command line).
+fn new_layer_field(app: &mut CadApp, ui: &mut egui::Ui, clicked: bool) {
+    let id = ui.scope_id().with("laynewsel_name");
+    // (the text, focus given)
+    let mut editing: Option<(String, bool)> = ui.data(|m| m.get_temp(id));
+    if clicked {
+        if app.session.selection().is_empty() {
+            // Nothing to move: the command says so on the command line.
+            let _ = app.run("laynewsel", json!({}));
+            editing = None;
+        } else if let Ok(d) = app.session.doc() {
+            let mut n = 1;
+            while d.layer(&format!("Layer{n}")).is_some() {
+                n += 1;
+            }
+            editing = Some((format!("Layer{n}"), false));
+        }
+    }
+    let mut commit = None;
+    if let Some((text, ready)) = editing.as_mut() {
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            let w = ui.available_width() - 10.0;
+            let resp = ui.add_sized(
+                vec2(w, 24.0),
+                egui::TextEdit::singleline(text).id(egui::Id::unique("laynewsel_field")).hint_text(crate::tl!("New layer name")),
+            );
+            if !*ready {
+                // Focus until the field has it (the command line takes typing from a field without
+                // focus), then the offered name selected once.
+                if !resp.has_focus() {
+                    resp.request_focus();
+                } else {
+                    if let Some(mut state) = egui::text_edit::TextEditState::load(ui.ctx(), resp.id) {
+                        let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
+                        state.cursor.set_char_range(Some(all));
+                        state.store(ui.ctx(), resp.id);
+                    }
+                    *ready = true;
+                }
+            } else if resp.lost_focus() {
+                commit = Some(ui.input(|i| i.key_pressed(egui::Key::Enter)).then(|| text.trim().to_string()));
+            }
+        });
+    }
+    match commit {
+        Some(Some(name)) if !name.is_empty() => {
+            if app.run("laynewsel", json!({ "name": name })).is_ok() {
+                editing = None;
+            } else if let Some(e) = editing.as_mut() {
+                e.1 = false;
+            }
+        }
+        Some(_) => editing = None,
+        None => {}
+    }
+    ui.data_mut(|m| match editing {
+        Some(e) => {
+            m.insert_temp(id, e);
+        }
+        None => {
+            m.remove::<(String, bool)>(id);
+        }
+    });
+}
+
 pub(crate) fn layers_section(app: &mut CadApp, ui: &mut egui::Ui) {
     let t = Tokens::get();
     section_header(ui, "Layers");
     // Layer tools row.
     let mut cmd = None;
+    let mut new_layer = None;
     ui.horizontal(|ui| {
         ui.add_space(8.0);
         ui.spacing_mut().item_spacing = vec2(3.0, 0.0);
@@ -398,7 +468,11 @@ pub(crate) fn layers_section(app: &mut CadApp, ui: &mut egui::Ui) {
                 cmd = Some(c);
             }
         }
+        if icons::button(ui, Icon::LayerNewSel, 26.0, "Move Selection to New Layer", false).clicked() {
+            new_layer = Some(());
+        }
     });
+    new_layer_field(app, ui, new_layer.is_some());
     if let Some(c) = cmd {
         if c.starts_with("ui.") {
             app.start(c);
@@ -410,7 +484,9 @@ pub(crate) fn layers_section(app: &mut CadApp, ui: &mut egui::Ui) {
     // Current layer combo.
     let Ok(d) = app.session.doc() else { return };
     let cur = d.header.str("CLAYER", "0");
-    let layers: Vec<(String, bool, bool, bool, Color)> = d.layers.iter().map(|l| (l.name.clone(), l.on, l.frozen, l.locked, l.color)).collect();
+    // By name, as the Layer Properties Manager lists them, not in the order they were made (#2858).
+    let mut layers: Vec<(String, bool, bool, bool, Color)> = d.layers.iter().map(|l| (l.name.clone(), l.on, l.frozen, l.locked, l.color)).collect();
+    layers.sort_by_key(|l| crate::layers::natural_lower(&l.0));
     let cur_info = layers.iter().find(|l| l.0.eq_ignore_ascii_case(&cur)).cloned();
     let mut set_current = None;
     let mut toggle: Option<(String, &str, bool)> = None;
@@ -456,20 +532,7 @@ pub(crate) fn layers_section(app: &mut CadApp, ui: &mut egui::Ui) {
         });
     });
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.add_space(8.0);
-        let w = ui.available_width() - 10.0;
-        let (rect, _) = ui.allocate_exact_size(vec2(w, 24.0), Sense::hover());
-        ui.painter().rect_filled(rect, 3.0, t.control);
-        ui.painter().text(
-            pos2(rect.left() + 8.0, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            crate::tl!("Unsaved Layer State"),
-            crate::theme::body(),
-            t.text,
-        );
-        icons::paint(ui.painter(), Rect::from_center_size(pos2(rect.right() - 12.0, rect.center().y), vec2(12.0, 12.0)), Icon::ChevronDown, false);
-    });
+    crate::layersets::switcher(app, ui);
     ui.add_space(4.0);
     let label = if app.ui.show_layer_list { "Hide Layer List" } else { "Show Layer List" };
     ui.horizontal(|ui| {
@@ -1152,25 +1215,6 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
                 num(ui, "Start angle", "startAngle", real(a.start.to_degrees()), &mut set, &mut bad, ids);
                 num(ui, "End angle", "endAngle", real(a.end.to_degrees()), &mut set, &mut bad, ids);
             }
-            EntityKind::Text(tx) => {
-                prop_row(ui, "Contents", |ui| {
-                    if let Some(s) = edit_field(ui, ui.scope_id().with(("txt", ids)), tx.value.clone()) {
-                        set = Some(json!({ "handles": ids, "text": s }));
-                    }
-                });
-                num(ui, "Height", "height", len(tx.height), &mut set, &mut bad, ids);
-                num(ui, "Rotation", "rotation", real(angles.shown(tx.rotation).to_degrees()), &mut set, &mut bad, ids);
-                num(ui, "Width factor", "widthFactor", real(tx.width_factor), &mut set, &mut bad, ids);
-            }
-            EntityKind::MText(tx) => {
-                prop_row(ui, "Contents", |ui| {
-                    if let Some(s) = edit_field(ui, ui.scope_id().with(("mtxt", ids)), tx.contents.clone()) {
-                        set = Some(json!({ "handles": ids, "text": s }));
-                    }
-                });
-                num(ui, "Text height", "height", len(tx.height), &mut set, &mut bad, ids);
-                num(ui, "Defined width", "width", len(tx.width), &mut set, &mut bad, ids);
-            }
             // A multileader's text (#1081): it had no field, so it couldn't be changed.
             EntityKind::MLeader(ml) => {
                 if let Some(tx) = &ml.text {
@@ -1208,30 +1252,6 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
                 });
                 num(ui, "Scale", "scale", real(hh.scale), &mut set, &mut bad, ids);
                 num(ui, "Angle", "angle", real(hh.angle.to_degrees()), &mut set, &mut bad, ids);
-            }
-            EntityKind::Dimension(dm) => {
-                prop_row(ui, "Text override", |ui| {
-                    if let Some(s) = edit_field(ui, ui.scope_id().with(("dimtxt", ids)), dm.text.clone()) {
-                        set = Some(json!({ "handles": ids, "textOverride": s }));
-                    }
-                });
-                prop_row(ui, "Dim style", |ui| {
-                    if let Some(n) = pick_menu(ui, &dm.style, d.dim_styles.iter().map(|st| st.name.clone())) {
-                        set = Some(json!({ "handles": ids, "dimStyle": n }));
-                    }
-                });
-                // The style's values with this dimension's own overrides; editing one overrides
-                // it for the selected dimensions, as AutoCAD's Properties palette does.
-                let st = d.dim_style(&dm.style).cloned().unwrap_or_default().with_overrides(&dm.overrides);
-                num(ui, "Text height", "textHeight", len(st.text_height), &mut set, &mut bad, ids);
-                num(ui, "Arrow size", "arrowSize", len(st.arrow_size), &mut set, &mut bad, ids);
-                num(ui, "Dim scale overall", "dimScale", real(st.scale), &mut set, &mut bad, ids);
-                prop_row(ui, "Precision", |ui| {
-                    let cur = st.decimals.to_string();
-                    if let Some(n) = pick_menu(ui, &cur, (0..=8).map(|n: u8| n.to_string())).and_then(|n| n.parse::<u8>().ok()) {
-                        set = Some(json!({ "handles": ids, "precision": n }));
-                    }
-                });
             }
             EntityKind::Insert(i) => {
                 // A dynamic block reference shows its dynamic block's name, not its anonymous
@@ -1621,17 +1641,14 @@ mod tests {
         app.run("select", json!({ "handles": dims.clone() })).unwrap();
         app.run("properties.set", json!({ "handles": [dims[0].clone()], "textHeight": 7.0 })).unwrap();
         app.run("properties.set", json!({ "handles": [dims[1].clone()], "textHeight": 7.0 + 1e-13 })).unwrap();
+        // The row's value is painted after its label (the measurements and text positions of the
+        // two dimensions do differ).
+        let text_height = |texts: &[String]| texts.iter().position(|t| t == "Text height").and_then(|i| texts.get(i + 1)).cloned();
         let texts = painted_texts(&mut app, properties_section);
-        assert!(
-            texts.windows(2).any(|w| w[0] == "Text height" && w[1] == VARIES),
-            "the engine compares dimension text heights exactly; painted: {texts:?}"
-        );
+        assert_ne!(text_height(&texts).as_deref(), Some(VARIES), "noise below 12 digits is not a difference; painted: {texts:?}");
         app.run("properties.set", json!({ "handles": [dims[1].clone()], "textHeight": 7.000001 })).unwrap();
         let texts = painted_texts(&mut app, properties_section);
-        assert!(
-            texts.windows(2).any(|w| w[0] == "Text height" && w[1] == VARIES),
-            "different text heights must vary even when rounded alike; painted: {texts:?}"
-        );
+        assert_eq!(text_height(&texts).as_deref(), Some(VARIES), "7 and 7.000001 differ although both show as 7.0000; painted: {texts:?}");
 
         let mut app = CadApp::new(Session::default(), Services::default());
         let circles = circles(&mut app, &[2, 2], json!({}));
@@ -1806,5 +1823,42 @@ mod tests {
         h.state_mut().run("select", json!({ "handles": [handles[0].clone()] })).unwrap();
         h.run_steps(3);
         assert!(h.query_all_by_value("4.0000").count() > 0, "one circle alone shows its radius");
+    }
+
+    /// The painted texts with their top edge, in paint order.
+    fn painted_texts_at(shape: &Shape, out: &mut Vec<(String, f32)>) {
+        match shape {
+            Shape::Text(t) => out.push((t.galley.text().to_string(), t.pos.y)),
+            Shape::Vec(shapes) => shapes.iter().for_each(|shape| painted_texts_at(shape, out)),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn the_layer_list_is_sorted_by_name_not_by_creation_order() {
+        // #2858: layers made out of order (Z, a, M) show A to Z, ignoring case, as in the Layer
+        // Properties Manager.
+        let mut app = CadApp::new(Session::default(), Services::default());
+        for name in ["Z_Finish", "a_Base", "M_Layout"] {
+            app.run("layer.new", json!({ "name": name })).unwrap();
+        }
+        app.ui.show_layer_list = true;
+        let ctx = egui::Context::default();
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 1200.0))), ..Default::default() };
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            app.logic(&ctx);
+            let mut output = ctx.run_ui(input.clone(), |ui| layers_section(&mut app, ui));
+            texts.clear();
+            output.shapes.iter().for_each(|shape| painted_texts_at(&shape.shape, &mut texts));
+            output.textures_delta.clear();
+        }
+        let names = ["0", "a_Base", "M_Layout", "Z_Finish"];
+        let mut rows: Vec<(String, f32)> = texts.into_iter().filter(|(t, _)| names.contains(&t.as_str())).collect();
+        rows.sort_by(|a, b| a.1.total_cmp(&b.1));
+        // The current layer's name is painted first, in the combo above the list; the list follows.
+        assert_eq!(rows.remove(0).0, "0", "the combo above the list shows the current layer");
+        let order: Vec<&str> = rows.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(order, names, "the list runs from top to bottom by name");
     }
 }

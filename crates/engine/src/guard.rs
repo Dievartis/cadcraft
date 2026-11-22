@@ -67,10 +67,13 @@ impl Interactive for Guarded {
         Prompt::new("Internal error; press Enter to end the command", Accept::TEXT)
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
+        self.input_with_shift(s, i, false)
+    }
+    fn input_with_shift(&mut self, s: &mut Session, i: Input, shift: bool) -> Result<Step> {
         if let Some(m) = self.broken.get() {
             return Err(EngineError::Internal(self.inner.name().to_ascii_lowercase(), m.into()));
         }
-        catch_unwind(AssertUnwindSafe(|| self.inner.input(s, i))).unwrap_or_else(|p| Err(self.internal(&*p)))
+        catch_unwind(AssertUnwindSafe(|| self.inner.input_with_shift(s, i, shift))).unwrap_or_else(|p| Err(self.internal(&*p)))
     }
     fn begin(&mut self, s: &mut Session) -> Result<Step> {
         catch_unwind(AssertUnwindSafe(|| self.inner.begin(s))).unwrap_or_else(|p| Err(self.internal(&*p)))
@@ -115,6 +118,15 @@ impl Interactive for Guarded {
             return None;
         }
         catch_unwind(AssertUnwindSafe(|| self.inner.editing_mtext())).unwrap_or_else(|_| {
+            self.broken.set(Some("panic in prompt"));
+            None
+        })
+    }
+    fn text_editor(&self) -> Option<crate::TextEditor> {
+        if self.broken.get().is_some() {
+            return None;
+        }
+        catch_unwind(AssertUnwindSafe(|| self.inner.text_editor())).unwrap_or_else(|_| {
             self.broken.set(Some("panic in prompt"));
             None
         })

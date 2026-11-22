@@ -420,6 +420,14 @@ fn selection(app: &CadApp, ui: &mut egui::Ui, changes: &mut Map<String, Value>) 
         if left.checkbox(&mut grouping, crate::tl!("Object grouping")).changed() {
             changes.insert("PICKSTYLE".into(), json!((st.pickstyle & !1) | u8::from(grouping)));
         }
+        let mut locked = app.options.locked_unselectable;
+        if left
+            .checkbox(&mut locked, crate::tl!("Objects on locked layers can't be selected"))
+            .on_hover_text(crate::tl!("They are still shown and snapped to, like a blueprint."))
+            .changed()
+        {
+            changes.insert("lockedLayersUnselectable".into(), json!(locked));
+        }
         let mut qp = st.qpmode;
         if left.checkbox(&mut qp, crate::tl!("Show Quick Properties for selected objects")).changed() {
             changes.insert("QPMODE".into(), json!(i32::from(qp)));
@@ -643,23 +651,35 @@ fn right_click_window(o: &super::UiOptions, ctx: &egui::Context, open: &mut bool
                     ui.label(crate::tl!("milliseconds"));
                 });
                 hint(ui, crate::tl!("While a command runs, a quick click is Enter and a longer click opens the shortcut menu."));
+                hint(ui, crate::tl!("With no command running, a quick click repeats the last command or runs what was typed."));
             });
             ui.add_space(6.0);
-            for (title, note, key, current) in [
-                (crate::tl!("Default Mode"), crate::tl!("No objects selected and no command running:"), "rightClickDefault", o.right_click_default),
-                (crate::tl!("Edit Mode"), crate::tl!("Objects selected and no command running:"), "rightClickEdit", o.right_click_edit),
-            ] {
-                heading(ui, title);
-                ui.group(|ui| {
-                    ui.set_width(ui.available_width());
-                    hint(ui, note);
-                    for (choice, label) in [(IdleClick::Repeat, crate::tl!("Repeat last command")), (IdleClick::Menu, crate::tl!("Shortcut Menu"))] {
-                        if ui.radio(current == choice, label).clicked() && current != choice {
-                            changes.insert(key.into(), json!(choice.as_str()));
+            // Like Command mode, Default and Edit modes decide only with the time-sensitive
+            // right-click off: with it on, a quick click is Enter and a longer one the menu.
+            ui.add_enabled_ui(!o.time_sensitive_right_click, |ui| {
+                for (title, note, key, current) in [
+                    (
+                        crate::tl!("Default Mode"),
+                        crate::tl!("No objects selected and no command running:"),
+                        "rightClickDefault",
+                        o.right_click_default,
+                    ),
+                    (crate::tl!("Edit Mode"), crate::tl!("Objects selected and no command running:"), "rightClickEdit", o.right_click_edit),
+                ] {
+                    heading(ui, title);
+                    ui.group(|ui| {
+                        ui.set_width(ui.available_width());
+                        hint(ui, note);
+                        for (choice, label) in
+                            [(IdleClick::Repeat, crate::tl!("Repeat last command")), (IdleClick::Menu, crate::tl!("Shortcut Menu"))]
+                        {
+                            if ui.radio(current == choice, label).clicked() && current != choice {
+                                changes.insert(key.into(), json!(choice.as_str()));
+                            }
                         }
-                    }
-                });
-            }
+                    });
+                }
+            });
             ui.add_enabled_ui(!o.time_sensitive_right_click, |ui| {
                 heading(ui, crate::tl!("Command Mode"));
                 ui.group(|ui| {

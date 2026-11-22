@@ -70,3 +70,17 @@ fn dynamic_prompt_near_right_canvas_edge() {
         h.render().unwrap().save(std::path::PathBuf::from(path).with_extension("cursor.png")).unwrap();
     }
 }
+
+#[test]
+fn legacy_dimension_pane_migrates_without_removing_other_palettes() {
+    let mut h = harness();
+    for panel in ["images", "textStyles", "dimStyles"] {
+        h.state_mut().run("ui.dock", json!({"operation":"open", "panel":panel})).unwrap();
+    }
+    h.run_steps(4);
+    assert_eq!(h.state().ui.dialog.as_deref(), Some("dimstyle"));
+    assert!(!h.state().ui.docking.layout.contains(&Panel::DimStyles));
+    for panel in [Panel::Images, Panel::TextStyles, Panel::Canvas] {
+        assert!(h.state().ui.docking.layout.contains(&panel));
+    }
+}

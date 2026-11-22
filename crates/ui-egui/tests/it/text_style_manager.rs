@@ -9,11 +9,11 @@ use serde_json::json;
 #[test]
 fn text_style_manager_routes_without_replacing_the_other_managers() {
     let mut app = CadApp::new(Session::new(), Services::default());
-    for command in ["STYLE", "ST", "DIMSTYLE", "STYLESMANAGER"] {
+    for command in ["STYLE", "ST", "STYLESMANAGER"] {
         assert!(app.cmdline(command).is_none(), "{command}");
         assert!(app.ui.dialog.is_none());
     }
-    for panel in [Panel::TextStyles, Panel::DimStyles, Panel::PlotStyles] {
+    for panel in [Panel::TextStyles, Panel::PlotStyles] {
         assert!(app.ui.docking.layout.contains(&panel));
     }
     app.run("ui.dock.reset", json!({})).unwrap();
@@ -46,9 +46,8 @@ fn text_style_manager_survives_drawing_and_workspace_reload() {
     let saved = serde_json::to_value(&h.state().ui).unwrap();
     h.state_mut().ui = serde_json::from_value(saved).unwrap();
     h.run_steps(3);
-    for panel in [Panel::TextStyles, Panel::DimStyles] {
-        assert!(h.state().ui.docking.layout.contains(&panel));
-    }
+    assert!(h.state().ui.docking.layout.contains(&Panel::TextStyles));
+    assert_eq!(h.state().ui.dialog.as_deref(), Some("dimstyle"));
 }
 
 fn manager() -> Harness<'static, CadApp> {
