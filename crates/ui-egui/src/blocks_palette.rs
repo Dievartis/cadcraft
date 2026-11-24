@@ -862,6 +862,13 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
             if ui.checkbox(&mut architecture, crate::tl!("Architecture")).changed() {
                 changes.insert("architectureTools".into(), json!(architecture));
             }
+            let mut networks = app.ui.network_libraries;
+            for (tab, enabled) in crate::palettes::NETWORK_TABS.into_iter().zip(&mut networks) {
+                ui.checkbox(enabled, crate::i18n::t(tab));
+            }
+            if networks != app.ui.network_libraries {
+                changes.insert("networkLibraries".into(), json!(networks));
+            }
             if !changes.is_empty() {
                 let _ = app.run("options", serde_json::Value::Object(changes));
             }

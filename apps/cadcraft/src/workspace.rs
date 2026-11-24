@@ -81,6 +81,9 @@ fn read(path: &Path) -> Result<Option<UiState>, String> {
     };
     let current = version.and_then(|version| version.as_u64()).is_some_and(|version| version >= u64::from(cadcraft_ui_egui::docking::LAYOUT_VERSION));
     let mut ui: UiState = serde_json::from_value(fields).map_err(|error| format!("{}: invalid workspace: {error}", path.display()))?;
+    if matches!(ui.toolset_tab.as_str(), "HVAC" | "Plumbing" | "Regulation" | "Electricity") {
+        ui.toolset_tab = UiState::default().toolset_tab;
+    }
     if let Some(docking) = docking.filter(|_| current)
         && let Ok(docking) = serde_json::from_value::<cadcraft_ui_egui::docking::Workspace>(docking)
         && cadcraft_ui_egui::docking::validate(&docking).is_ok()
@@ -295,6 +298,20 @@ mod tests {
         assert!(!ui.show_toolsets && ui.show_palettes && !ui.show_toolbar);
         assert_eq!(ui.docking.layout, default_workspace().layout);
         assert!(ui.docking.hidden.is_empty(), "{:?}", ui.docking.hidden);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn retired_network_tab_keeps_other_workspace_settings() {
+        let directory = temp_dir();
+        let path = directory.join("workspace.json");
+        fs::write(&path, br#"{"version":1,"workspace":{"toolsetTab":"Electricity","showToolbar":false,"historyLines":4}}"#).unwrap();
+        let (_, restored, error) = Workspace::at(Some(path));
+        assert!(error.is_none(), "{error:?}");
+        let ui = restored.unwrap();
+        assert_eq!(ui.toolset_tab, "Drafting");
+        assert!(!ui.show_toolbar);
+        assert_eq!(ui.history_lines, 4);
         fs::remove_dir_all(directory).unwrap();
     }
 

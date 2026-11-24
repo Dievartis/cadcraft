@@ -148,9 +148,9 @@ pub const DRAFTING: &[(&str, &[Tool], &[Tool])] = &[
     ),
 ];
 
-/// Every Tool Sets tab: Drafting, Modeling, then the building tabs.
+/// Tabs in Tool Sets. Network disciplines live in the Blocks palette.
 pub fn toolset_tabs() -> Vec<&'static str> {
-    ["Drafting", "Modeling"].into_iter().chain(building::TABS.iter().copied()).collect()
+    ["Drafting", "Modeling"].into_iter().chain(building::TABS.iter().copied().filter(|tab| !NETWORK_TABS.contains(tab))).collect()
 }
 
 pub(crate) const NETWORK_TABS: [&str; 4] = ["HVAC", "Plumbing", "Regulation", "Electricity"];
@@ -284,7 +284,7 @@ pub fn toolsets(app: &mut CadApp, ui: &mut egui::Ui) {
             app.ui.show_toolsets = false;
         }
         let body = Rect::from_min_max(pos2(column.right(), r.top() + head_h), r.max);
-        if let Some(tab) = building::TABS.iter().find(|t| app.ui.toolset_tab == **t) {
+        if let Some(tab) = ["Architecture", "Furniture"].iter().find(|t| app.ui.toolset_tab == **t) {
             ui.scope_builder(egui::UiBuilder::new().max_rect(body), |ui| building::body(app, ui, tab));
             return;
         }

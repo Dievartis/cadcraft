@@ -233,6 +233,7 @@ struct UiChanges {
     system_cursor: Option<bool>,
     catalogue_tools: Option<bool>,
     architecture_tools: Option<bool>,
+    network_libraries: Option<[bool; 4]>,
     history_lines: Option<usize>,
     model_background: Option<Option<Color32>>,
     paper_background: Option<Option<Color32>>,
@@ -288,6 +289,9 @@ fn parse_ui(key: &str, v: &Value, c: &mut UiChanges) -> Result<bool, String> {
         "saveFormat" => c.save_format = Some(crate::SaveFormat::parse(text()?).ok_or("saveFormat must be dxf or dwg")?),
         "architectureTools" => c.architecture_tools = Some(v.as_bool().ok_or("architectureTools must be true or false")?),
         "catalogueTools" => c.catalogue_tools = Some(v.as_bool().ok_or("catalogueTools must be true or false")?),
+        "networkLibraries" => {
+            c.network_libraries = Some(serde_json::from_value(v.clone()).map_err(|_| "networkLibraries must contain four booleans")?);
+        }
         "systemCursor" => c.system_cursor = Some(v.as_bool().ok_or("systemCursor must be true or false")?),
         "historyLines" => {
             let n = v.as_u64().filter(|n| *n <= crate::cmdline::MAX_LINES as u64).ok_or("historyLines must be a whole number from 0 to 12")?;
@@ -353,6 +357,7 @@ fn ui_json(app: &CadApp) -> Map<String, Value> {
     m.insert("saveFormat".into(), json!(app.ui.save_format.as_str()));
     m.insert("architectureTools".into(), json!(app.ui.architecture_tools));
     m.insert("catalogueTools".into(), json!(app.ui.catalogue_tools));
+    m.insert("networkLibraries".into(), json!(app.ui.network_libraries));
     m.insert("systemCursor".into(), json!(app.ui.system_cursor));
     m.insert("historyLines".into(), json!(app.ui.history_lines));
     m.insert("modelBackground".into(), color_json(o.model_background));
@@ -421,6 +426,9 @@ fn run_json(app: &mut CadApp, params: &Value) -> Result<Value, String> {
     }
     if let Some(b) = ui.catalogue_tools {
         app.ui.catalogue_tools = b;
+    }
+    if let Some(libraries) = ui.network_libraries {
+        app.ui.network_libraries = libraries;
     }
     if let Some(b) = ui.system_cursor {
         app.ui.system_cursor = b;
@@ -524,6 +532,7 @@ fn reset_ui(app: &mut CadApp) {
     app.ui.system_cursor = app.system_cursor_default;
     app.ui.catalogue_tools = false;
     app.ui.architecture_tools = false;
+    app.ui.network_libraries = [false; 4];
     app.options = UiOptions::default();
 }
 

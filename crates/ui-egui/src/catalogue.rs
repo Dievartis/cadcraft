@@ -19,7 +19,9 @@ pub(crate) fn visible(app: &CadApp, id: &str) -> bool {
 struct State {
     equipment: bool,
     architecture: bool,
-    network_tab: Option<&'static str>,
+    network_tab: Option<usize>,
+    network_sections: crate::sections::Sections,
+    last_frame: Option<u64>,
     view: Option<crate::blocks_palette::View>,
     filter: String,
     furniture_group: Categories,
@@ -32,7 +34,7 @@ struct State {
     editor: Option<(Handle, Editor)>,
     saved_model: String,
 }
-/// `None` selects the first category on first use; an empty set stays empty.
+/// Categories start with no selection.
 #[derive(Clone, Debug, Default, Hash)]
 pub(crate) struct Categories(Option<std::collections::BTreeSet<String>>);
 impl Categories {
@@ -52,18 +54,32 @@ enum Editor {
 pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
     let id = egui::Id::unique("parametric-catalogue-state");
     let mut st = ui.data(|d| d.get_temp::<State>(id)).unwrap_or_default();
-    if !app.ui.catalogue_tools {
-        st.architecture = true;
+    let frame = ui.ctx().cumulative_frame_nr();
+    if st.last_frame.is_none_or(|previous| frame > previous.saturating_add(1)) {
+        st.network_sections.set_mode(crate::sections::SectionsMode::Closed);
+        st.furniture_group = Categories::default();
+        st.equipment_group = Categories::default();
+        st.architecture_group = Categories::default();
+    }
+    st.last_frame = Some(frame);
+    if st.network_tab.is_some_and(|index| !app.ui.network_libraries[index]) {
         st.network_tab = None;
+    }
+    if st.network_tab.is_none() && !app.ui.catalogue_tools {
+        st.architecture = true;
     }
     if !app.ui.architecture_tools {
         st.architecture = false;
     }
-    if !(app.ui.catalogue_tools || app.ui.architecture_tools) {
+    if !(app.ui.catalogue_tools || app.ui.architecture_tools || app.ui.network_libraries.contains(&true)) {
         egui::Frame::NONE.inner_margin(8.0).show(ui, |ui| {
             ui.label(crate::tl!("Enable trade libraries from Library settings."));
         });
         return;
+    }
+    if !app.ui.catalogue_tools && !app.ui.architecture_tools && st.network_tab.is_none() {
+        st.network_tab = app.ui.network_libraries.iter().position(|enabled| *enabled);
+        st.network_sections.set_mode(crate::sections::SectionsMode::Closed);
     }
     let panel_height = ui.available_height();
     let footer_id = id.with("footer-height");
@@ -86,18 +102,24 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
                     st.architecture = true;
                     st.network_tab = None;
                 }
-                if app.ui.catalogue_tools {
-                    for tab in crate::palettes::NETWORK_TABS {
-                        if ui.selectable_label(st.network_tab == Some(tab), crate::i18n::t(tab)).clicked() {
-                            st.network_tab = Some(tab);
-                            st.architecture = false;
+                for (index, tab) in crate::palettes::NETWORK_TABS.into_iter().enumerate() {
+                    if app.ui.network_libraries[index]
+                        && ui.selectable_label(st.network_tab == Some(index), crate::i18n::t(tab)).clicked()
+                    {
+                        if st.network_tab != Some(index) {
+                            st.network_sections.set_mode(crate::sections::SectionsMode::Closed);
                         }
+                        st.network_tab = Some(index);
+                        st.architecture = false;
                     }
                 }
                 ui.menu_button("?", |ui| help(ui, st.architecture)).response.on_hover_ui(|ui| help(ui, st.architecture));
             });
-            if let Some(tab) = st.network_tab {
+            if let Some(index) = st.network_tab {
+                let tab = crate::palettes::NETWORK_TABS[index];
+                std::mem::swap(&mut st.network_sections, &mut app.ui.sections);
                 ui.push_id(("trade-network-tools", tab), |ui| crate::palettes::network_tools(app, ui, tab));
+                std::mem::swap(&mut st.network_sections, &mut app.ui.sections);
                 return;
             }
             if st.architecture {
@@ -237,7 +259,7 @@ fn help(ui: &mut egui::Ui, architecture: bool) {
 
 /// Category navigation remains visible while filtering or scrolling the models on the right.
 fn categories(ui: &mut egui::Ui, height: f32, groups: &[&str], selected: &mut Categories, equipment: bool) {
-    let active = selected.0.get_or_insert_with(|| groups.first().map(|group| (*group).to_owned()).into_iter().collect());
+    let active = selected.0.get_or_insert_with(Default::default);
     active.retain(|group| groups.contains(&group.as_str()));
     let width = (ui.available_width() * 0.28).clamp(72.0, 150.0);
     egui::ScrollArea::vertical().id_salt(("trade-categories", equipment, groups.first())).max_height(height).show(ui, |ui| {

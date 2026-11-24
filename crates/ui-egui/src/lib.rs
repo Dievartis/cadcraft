@@ -128,6 +128,7 @@ pub struct UiState {
     /// Show optional freemans32 furniture and equipment catalogues. Geometry is always readable.
     pub catalogue_tools: bool,
     pub architecture_tools: bool,
+    pub network_libraries: [bool; 4],
     /// Keep the system cursor visible over the drawing area (a small crosshair at the centre of the
     /// drawn one) instead of hiding it. Screen magnifiers (Windows Magnifier "follow the mouse
     /// pointer"), screen readers, recorders and remote desktops track the system cursor and lose it
@@ -231,6 +232,7 @@ impl Default for UiState {
             show_layer_list: false,
             catalogue_tools: false,
             architecture_tools: false,
+            network_libraries: [false; 4],
             system_cursor: false,
             toolset_tab: "Drafting".into(),
             collapsed_groups: Vec::new(),
@@ -869,6 +871,7 @@ impl CadApp {
             "quickcalc": self.quickcalc.prefs(),
             "catalogueTools": self.ui.catalogue_tools,
             "architectureTools": self.ui.architecture_tools,
+            "networkLibraries": self.ui.network_libraries,
             "paletteSections": self.ui.sections.prefs(),
             "refrigerantSizes": options::refrigerant_defaults(self),
             "takeoffStore": self.takeoff_store,
@@ -905,6 +908,9 @@ impl CadApp {
         }
         if let Some(enabled) = v.get("catalogueTools").and_then(Value::as_bool) {
             self.ui.catalogue_tools = enabled;
+        }
+        if let Some(value) = v.get("networkLibraries").and_then(|value| serde_json::from_value(value.clone()).ok()) {
+            self.ui.network_libraries = value;
         }
         if let Some(calculator) = v.get("quickcalc") {
             self.quickcalc.load_prefs(calculator);
