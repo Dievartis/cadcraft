@@ -562,6 +562,49 @@ impl crate::Drawing {
     }
 }
 
+impl crate::Drawing {
+    /// The grips of title block `e`, one at each corner of the column: lower left, lower right, upper right, upper left. `None` when `e` is not a title block.
+    pub fn titleblock_grips(&self, e: &crate::Entity) -> Option<Vec<Vec2>> {
+        let (EntityKind::Insert(i), Some(p)) = (&e.kind, titleblock_of(e)) else { return None };
+        let (w, h) = (p.units.to_units(p.width_mm), p.units.to_units(p.height_mm()));
+        let at = Vec2::new(i.insert.x, i.insert.y);
+        Some([(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)].iter().map(|c| at + Vec2::new(c.0 * i.scale.x, c.1 * i.scale.y).rotate(i.rotation)).collect())
+    }
+
+    /// Drags corner `index` of title block `h` to `to`: the column gets the width that puts that corner there, the opposite side staying where it is.
+    /// Its height is its sheet's, so only the horizontal part of the drag counts. `Ok(false)` when `h` is not a title block, the corner does not exist or the
+    /// width would be refused (60 to 400 mm, narrower than the sheet).
+    pub fn stretch_titleblock_grip(&mut self, h: crate::Handle, index: usize, to: Vec2) -> Result<bool> {
+        let Some(e) = self.entity(h) else { return Ok(false) };
+        let (EntityKind::Insert(i), Some(mut p)) = (&e.kind, titleblock_of(e)) else { return Ok(false) };
+        if index > 3 || !to.is_finite() || i.scale.x <= 0.0 {
+            return Ok(false);
+        }
+        let at = Vec2::new(i.insert.x, i.insert.y);
+        let along = Vec2::from_angle(i.rotation);
+        // The corner's distance along the column's bottom edge, in drawing units, and where the left edge is.
+        let x = (to - at).dot(along) / i.scale.x;
+        let w = p.units.to_units(p.width_mm);
+        let (left, right) = if index == 1 || index == 2 { (0.0, x) } else { (x, w) };
+        let width_mm = (right - left) * p.units.mm_per_unit;
+        if !width_mm.is_finite() {
+            return Ok(false);
+        }
+        p.width_mm = width_mm;
+        if p.validate().is_err() {
+            return Ok(false);
+        }
+        self.regenerate_titleblock(h, &p)?;
+        self.modify_entity(h, |e| {
+            if let EntityKind::Insert(ins) = &mut e.kind {
+                let moved = at + along * (left * ins.scale.x);
+                (ins.insert.x, ins.insert.y) = (moved.x, moved.y);
+            }
+        })?;
+        Ok(true)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -685,5 +728,24 @@ mod tests {
                 assert!(t.height * 0.7 * t.value.chars().count() as f64 <= p.width_mm, "and fits the column");
             }
         }
+    }
+
+    #[test]
+    fn dragging_a_corner_widens_the_column_and_keeps_the_opposite_side() {
+        let mut d = Drawing::new_metric();
+        let h = d.add_titleblock(&Space::Model, Common::default(), Vec2::new(100.0, 50.0), sample()).unwrap();
+        let grips = |d: &Drawing| d.titleblock_grips(d.entity(h).unwrap()).unwrap();
+        let before = grips(&d);
+        assert_eq!(before.len(), 4);
+        // The right corners keep the left edge; the left ones keep the right edge.
+        assert!(d.stretch_titleblock_grip(h, 2, before[2] + Vec2::new(30.0, 77.0)).unwrap());
+        let after = grips(&d);
+        assert!(after[1].x > before[1].x && (after[0] - before[0]).len() < 1e-9 && (after[3].y - before[3].y).abs() < 1e-9);
+        assert!(d.stretch_titleblock_grip(h, 3, after[3] + Vec2::new(-20.0, 0.0)).unwrap());
+        let last = grips(&d);
+        assert!(last[0].x < after[0].x && (last[1] - after[1]).len() < 1e-9);
+        // A width the block refuses leaves it as it was.
+        assert!(!d.stretch_titleblock_grip(h, 1, last[0] + Vec2::new(5.0, 0.0)).unwrap());
+        assert_eq!(grips(&d), last);
     }
 }

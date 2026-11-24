@@ -1733,6 +1733,9 @@ impl crate::Drawing {
         if let Some(g) = self.wall_grips(e) {
             return g;
         }
+        if let Some(g) = self.titleblock_grips(e) {
+            return g;
+        }
         e.kind.grips()
     }
 

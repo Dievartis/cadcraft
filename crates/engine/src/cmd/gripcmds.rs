@@ -234,6 +234,7 @@ enum RunKind {
     Pipe,
     Cable,
     Wall,
+    TitleBlock,
 }
 
 fn run_kind(e: &Entity) -> Option<RunKind> {
@@ -245,6 +246,8 @@ fn run_kind(e: &Entity) -> Option<RunKind> {
         Some(RunKind::Cable)
     } else if cadcraft_doc::wall_of(e).is_some() {
         Some(RunKind::Wall)
+    } else if cadcraft_doc::titleblock_of(e).is_some() {
+        Some(RunKind::TitleBlock)
     } else {
         None
     }
@@ -256,6 +259,7 @@ fn stretch_run_grip(d: &mut cadcraft_doc::Drawing, kind: RunKind, h: Handle, ind
         RunKind::Pipe => d.stretch_pipe_grip(h, index, to)?,
         RunKind::Cable => d.stretch_cable_grip(h, index, to)?,
         RunKind::Wall => d.stretch_wall_grip(h, index, to)?,
+        RunKind::TitleBlock => d.stretch_titleblock_grip(h, index, to)?,
     })
 }
 
@@ -263,6 +267,7 @@ fn stretch_run_grip(d: &mut cadcraft_doc::Drawing, kind: RunKind, h: Handle, ind
 fn follower_grips(kind: RunKind, grips: &[Vec2]) -> Vec<usize> {
     match kind {
         RunKind::Wall => (0..grips.len().div_ceil(2)).collect(),
+        RunKind::TitleBlock => Vec::new(),
         _ => vec![0, 2],
     }
 }
@@ -284,6 +289,7 @@ fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], del
             }
             let points = match kind {
                 RunKind::Wall => d.wall_grip_points(h, i),
+                RunKind::TitleBlock => Vec::new(),
                 _ if i == 1 => Vec::new(),
                 _ => vec![from],
             };
