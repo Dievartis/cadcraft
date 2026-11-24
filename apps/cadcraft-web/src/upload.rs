@@ -21,6 +21,8 @@ const INPUT_ID: &str = "cadcraft_open_input";
 const ACCEPT: &str = ".dxf,.dwg,.shx,.pdf";
 /// What PDFATTACH's picker offers: one PDF.
 const ACCEPT_PDF: &str = ".pdf";
+/// What the Title Block dialog's picker offers: the pictures it reads.
+const ACCEPT_IMAGE: &str = ".png,.jpg,.jpeg,.bmp,.tif,.tiff";
 
 /// Most files taken from one pick.
 const MAX_PICKED: u32 = 64;
@@ -80,6 +82,13 @@ impl Inbox {
     pub fn pick(&self) {
         if let Err(e) = self.show_picker(ACCEPT, true) {
             self.push(Upload::picked(String::new(), Err(format!("Open: the browser's file picker is not available ({e})"))));
+        }
+    }
+
+    /// Show the picker of the Title Block dialog's pictures; the file chosen reaches the dialog through [`Self::drain`].
+    pub fn pick_image(&self) {
+        if let Err(e) = self.show_picker(ACCEPT_IMAGE, false) {
+            self.push(Upload::picked(String::new(), Err(format!("Title block: the browser's file picker is not available ({e})"))));
         }
     }
 
@@ -218,6 +227,14 @@ impl Inbox {
             let _ = app.run("regenall", serde_json::json!({}));
         }
         for upload in files {
+            // A picture chosen for the Title Block dialog is not a drawing to open.
+            if let Ok(bytes) = &upload.bytes
+                && !is_pdf(&upload.name)
+                && upload.pdf.is_none()
+                && app.title_picture_arrived(&upload.name, bytes)
+            {
+                continue;
+            }
             let opened = match upload.bytes {
                 Ok(bytes) if upload.pdf.is_some() || is_pdf(&upload.name) => attach_pdf(app, &upload.name, &bytes, upload.pdf),
                 Ok(bytes) => app.open_bytes(&upload.name, &bytes),

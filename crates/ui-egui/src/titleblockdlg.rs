@@ -32,9 +32,29 @@ pub struct TitleBlockDlg {
     pub party: usize,
     /// Pictures chosen from a file and not applied yet, by slot (`image`, or `party:<n>`).
     pub picks: BTreeMap<String, String>,
+    /// For a picture picked in a browser, which has no path: its bytes in base64, by slot (the name is in `picks`).
+    pub data: BTreeMap<String, String>,
+    /// The slot whose picture the browser's file picker is being asked for.
+    pub waiting: Option<String>,
     pub message: Option<String>,
     pub error: bool,
     pub raise: bool,
+}
+
+impl TitleBlockDlg {
+    fn forget_picks(&mut self) {
+        self.picks.clear();
+        self.data.clear();
+    }
+}
+
+/// A picture the browser's file picker read (there is no path on the web): given to the slot the dialog asked it for. `false` when no slot was waiting for one.
+pub fn picture_arrived(app: &mut CadApp, name: &str, bytes: &[u8]) -> bool {
+    let Some(st) = app.title_dlg.as_mut() else { return false };
+    let Some(slot) = st.waiting.take() else { return false };
+    st.picks.insert(slot.clone(), name.to_string());
+    st.data.insert(slot, cadcraft_engine::cmd::file::base64_encode(bytes));
+    true
 }
 
 const IMAGE_SLOT: &str = "image";
@@ -58,7 +78,7 @@ pub fn open(app: &mut CadApp, edit: Option<Handle>) {
         )
     });
     let edit = edit.filter(|_| titleblock_ok(app, edit));
-    app.title_dlg = Some(TitleBlockDlg { edit, tb, tab: Tab::Project, party: 0, picks: BTreeMap::new(), message: None, error: false, raise: true });
+    app.title_dlg = Some(TitleBlockDlg { edit, tb, tab: Tab::Project, party: 0, picks: BTreeMap::new(), data: BTreeMap::new(), waiting: None, message: None, error: false, raise: true });
     app.ui.dialog = Some("titleblock".into());
 }
 
@@ -91,7 +111,10 @@ fn default_at_mm(app: &CadApp, tb: &TitleBlockParams) -> [f64; 2] {
 
 fn pic_json(st: &TitleBlockDlg, slot: &str, pic: Option<&Pic>) -> Value {
     if let Some(path) = st.picks.get(slot) {
-        return json!({ "path": path });
+        return match st.data.get(slot) {
+            Some(data) => json!({ "path": path, "data": data }),
+            None => json!({ "path": path }),
+        };
     }
     pic.map_or(Value::Null, |p| json!({ "key": p.key }))
 }
@@ -140,7 +163,7 @@ fn apply(app: &mut CadApp) {
         match r {
             Ok(_) => {
                 st.edit = handle;
-                st.picks.clear();
+                st.forget_picks();
                 st.message = Some(crate::i18n::t("Title block drawn.").to_string());
                 st.error = false;
             }
@@ -157,6 +180,9 @@ fn apply(app: &mut CadApp) {
 }
 
 fn pick_picture(app: &mut CadApp, slot: String) {
+    if let Some(st) = app.title_dlg.as_mut() {
+        st.waiting = Some(slot.clone());
+    }
     let asked = app.pick_then(crate::Pick::Image, move |app, path| {
         if let Some(st) = app.title_dlg.as_mut() {
             st.picks.insert(slot, path);
@@ -265,16 +291,16 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
                     let n = st.tb.parties.len();
                     if ui.add_enabled(n > 0, egui::Button::new(crate::i18n::t("Remove"))).clicked() {
                         st.tb.parties.remove(st.party);
-                        st.picks.clear();
+                        st.forget_picks();
                     }
                     if ui.add_enabled(st.party > 0, egui::Button::new(crate::i18n::t("Move up"))).clicked() {
                         st.tb.parties.swap(st.party, st.party - 1);
-                        st.picks.clear();
+                        st.forget_picks();
                         st.party -= 1;
                     }
                     if ui.add_enabled(st.party + 1 < n, egui::Button::new(crate::i18n::t("Move down"))).clicked() {
                         st.tb.parties.swap(st.party, st.party + 1);
-                        st.picks.clear();
+                        st.forget_picks();
                         st.party += 1;
                     }
                 });
@@ -379,6 +405,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
         && let Some(st) = app.title_dlg.as_mut()
     {
         st.picks.remove(&slot);
+        st.data.remove(&slot);
         if slot == IMAGE_SLOT {
             st.tb.image = None;
         } else if let Some(i) = slot.strip_prefix("party:").and_then(|n| n.parse::<usize>().ok())

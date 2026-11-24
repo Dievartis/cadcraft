@@ -589,6 +589,11 @@ impl CadApp {
         self.pick_for(pick, false, Box::new(then))
     }
 
+    /// A picture the browser's file picker read for the Title Block dialog; `false` when the dialog was not waiting for one.
+    pub fn title_picture_arrived(&mut self, name: &str, bytes: &[u8]) -> bool {
+        titleblockdlg::picture_arrived(self, name, bytes)
+    }
+
     /// Show the dialog `pick` for `then`, bound to the active drawing when `bound`.
     fn pick_for(&mut self, pick: Pick, bound: bool, then: PickDone) -> Option<Result<Value, String>> {
         let available = match pick {

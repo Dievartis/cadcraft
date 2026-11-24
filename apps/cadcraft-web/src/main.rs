@@ -280,6 +280,12 @@ mod web {
                             pdf_picker.pick_pdf();
                             None
                         }));
+                        // The Title Block dialog's pictures: the same picker, limited to pictures; the file reaches the dialog when it arrives.
+                        let image_picker = inbox.clone();
+                        app.services.pick_image = Some(Box::new(move || {
+                            image_picker.pick_image();
+                            None
+                        }));
                         let host = app_bridge.inspect(|bridge| {
                             bridge.listen(inbox.clone());
                             bridge.post_ready();
