@@ -1659,3 +1659,24 @@ fn a_duct_of_another_air_going_through_a_joint_does_not_stop_its_elbow_and_two_s
     let ext = s.execute("ductadd", &json!({"points": [[0, 5000], [0, 7000]], "air": "extract", "diameter": 400})).unwrap();
     assert!(elbow_of(&s, &sup["handles"][0]).is_none() && elbow_of(&s, &ext["handles"][0]).is_none());
 }
+
+#[test]
+fn ductaccessoryadd_hood_covers_the_end_of_a_duct_and_goes_free_elsewhere() {
+    let mut s = metric();
+    s.execute("ductadd", &json!({"points": [[0, 0], [0, 4000]], "diameter": 315})).unwrap();
+    let r = s.execute("ductaccessoryadd", &json!({"at": [0, 3800], "type": "hood"})).unwrap();
+    assert!(r["duct"].is_string(), "{r}");
+    let at = |s: &Session, r: &serde_json::Value| match &s.doc().unwrap().entity(hd(&r["handle"])).unwrap().kind {
+        cadcraft_doc::EntityKind::Insert(i) => (i.insert.x, i.insert.y, i.rotation),
+        _ => panic!("not a block reference"),
+    };
+    let (x, y, rot) = at(&s, &r);
+    assert!(x.abs() < 1e-9 && (3990.0..=4000.0).contains(&y), "at the end of the duct, not where it was clicked");
+    assert!((rot - std::f64::consts::FRAC_PI_2).abs() < 1e-9, "pointing out of the duct");
+    assert_eq!(accessories(&s)[0].1.diameter_mm, 315.0);
+
+    let r = s.execute("ductaccessoryadd", &json!({"at": [5000, 5000], "type": "hood"})).unwrap();
+    assert!(r["duct"].is_null(), "{r}");
+    let (x, y, _) = at(&s, &r);
+    assert_eq!((x, y), (5000.0, 5000.0), "free, where it was put");
+}

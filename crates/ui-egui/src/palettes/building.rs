@@ -440,6 +440,7 @@ fn hvac(app: &mut CadApp, ui: &mut egui::Ui) {
             (AccessoryKind::FireDamper, "Fire damper"),
             (AccessoryKind::Silencer, "Silencer"),
             (AccessoryKind::FlexConnector, "Flexible connector"),
+            (AccessoryKind::Hood, "Covered outlet"),
         ] {
             if row_button(ui, crate::i18n::t(label), kind == accessory, |p, r| thumbs::paint_accessory(p, r, kind)) {
                 chosen_accessory = Some(kind);

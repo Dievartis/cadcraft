@@ -195,3 +195,44 @@ fn the_duct_under_a_point_is_found_with_its_direction() {
     assert!(d.duct_under(Vec2::new(3000.0, 400.0)).is_none(), "beside it");
     assert!(d.duct_under(Vec2::new(7000.0, 0.0)).is_none(), "past its end");
 }
+
+#[test]
+fn a_hood_is_drawn_outwards_from_its_origin_with_a_mesh_at_the_far_end() {
+    let pieces = accessory(AccessoryKind::Hood).generate().unwrap();
+    assert_eq!(texts(&pieces), ["CAP Ø250"]);
+    let xs: Vec<f64> = pieces
+        .iter()
+        .flat_map(|p| match &p.kind {
+            EntityKind::Line(l) => vec![l.a.x, l.b.x],
+            EntityKind::LwPolyline(w) => w.vertices.iter().map(|v| v.p.x).collect(),
+            _ => Vec::new(),
+        })
+        .collect();
+    assert!(xs.iter().all(|x| *x >= -1e-9), "nothing behind the end of the duct");
+    assert!(xs.iter().any(|x| (x - 600.0).abs() < 1e-9), "the face is at the hood's length");
+    assert!(accessory(AccessoryKind::Hood).half().y > 1.3 * 125.0, "wider than its duct");
+}
+
+#[test]
+fn a_hood_covers_the_nearer_end_of_a_duct_and_its_loss_counts() {
+    let (mut d, _) = ducted(None);
+    let far = d.hood_anchor(Vec2::new(5900.0, 0.0)).unwrap();
+    assert!(far.angle.abs() < 1e-9 && (far.origin.x - 6000.0).abs() < 5.0 && far.duct.is_some());
+    let near = d.hood_anchor(Vec2::new(600.0, 0.0)).unwrap();
+    assert!((near.angle.abs() - std::f64::consts::PI).abs() < 1e-9 && (near.origin.x - 500.0).abs() < 5.0);
+    assert!(d.hood_anchor(Vec2::new(3000.0, 4000.0)).is_none(), "nothing there: the hood goes free");
+
+    let (base, _) = required(&d);
+    d.add_accessory(&Space::Model, Common::default(), &accessory(AccessoryKind::Hood), near.origin, near.angle).unwrap();
+    let net = d.duct_networks().unwrap().remove(0);
+    assert!(net.unplaced.is_empty());
+    assert_eq!(net.accessories.len(), 1);
+    assert!(required(&d).0 > base, "a hood adds a coefficient loss");
+}
+
+#[test]
+fn a_free_hood_is_not_reported_as_on_no_duct() {
+    let (d, h) = ducted(Some((AccessoryKind::Hood, 3000.0, 2000.0)));
+    let net = d.duct_networks().unwrap().remove(0);
+    assert!(h.is_some() && net.unplaced.is_empty() && net.accessories.is_empty());
+}

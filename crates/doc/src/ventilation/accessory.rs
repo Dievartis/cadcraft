@@ -37,10 +37,14 @@ pub enum AccessoryKind {
     Silencer,
     /// A flexible connector (manchette souple).
     FlexConnector,
+    /// A covered outlet or inlet (sortie couverte, capot pare-pluie): a hood with a mesh on its face, at the end of a duct, on a unit's
+    /// collar or free against a wall. Drawn from its origin outwards, the mesh at the far end.
+    Hood,
 }
 
 impl AccessoryKind {
-    pub const ALL: [AccessoryKind; 4] = [AccessoryKind::Damper, AccessoryKind::FireDamper, AccessoryKind::Silencer, AccessoryKind::FlexConnector];
+    pub const ALL: [AccessoryKind; 5] =
+        [AccessoryKind::Damper, AccessoryKind::FireDamper, AccessoryKind::Silencer, AccessoryKind::FlexConnector, AccessoryKind::Hood];
 
     pub fn parse(text: &str) -> Option<AccessoryKind> {
         match text.trim().to_ascii_lowercase().as_str() {
@@ -48,6 +52,7 @@ impl AccessoryKind {
             "firedamper" | "fire" | "f" | "ccf" => Some(AccessoryKind::FireDamper),
             "silencer" | "s" | "silencieux" => Some(AccessoryKind::Silencer),
             "flexconnector" | "flex" | "manchette" => Some(AccessoryKind::FlexConnector),
+            "hood" | "h" | "capot" | "sortie couverte" | "sortiecouverte" => Some(AccessoryKind::Hood),
             _ => None,
         }
     }
@@ -59,6 +64,7 @@ impl AccessoryKind {
             AccessoryKind::FireDamper => "fireDamper",
             AccessoryKind::Silencer => "silencer",
             AccessoryKind::FlexConnector => "flexConnector",
+            AccessoryKind::Hood => "hood",
         }
     }
 
@@ -69,6 +75,7 @@ impl AccessoryKind {
             AccessoryKind::FireDamper => "CCF",
             AccessoryKind::Silencer => "SIL",
             AccessoryKind::FlexConnector => "MS",
+            AccessoryKind::Hood => "CAP",
         }
     }
 
@@ -79,6 +86,7 @@ impl AccessoryKind {
             AccessoryKind::FireDamper => 300.0,
             AccessoryKind::Silencer => 1000.0,
             AccessoryKind::FlexConnector => 200.0,
+            AccessoryKind::Hood => 600.0,
         }
     }
 
@@ -89,6 +97,7 @@ impl AccessoryKind {
             AccessoryKind::FireDamper => Loss::Zeta(0.4),
             AccessoryKind::Silencer => Loss::Pascals(30.0),
             AccessoryKind::FlexConnector => Loss::Zeta(0.05),
+            AccessoryKind::Hood => Loss::Zeta(2.5),
         }
     }
 }
@@ -161,8 +170,8 @@ impl AccessoryParams {
     pub(super) fn half(&self) -> Vec2 {
         let r = self.units.to_units(self.diameter_mm) / 2.0;
         let overhang = (0.2 * r).max(self.units.to_units(20.0));
-        // A silencer is wider than its duct.
-        let width = if self.kind == AccessoryKind::Silencer { 1.3 * r } else { r } + overhang;
+        // A silencer and a hood are wider than their duct.
+        let width = if matches!(self.kind, AccessoryKind::Silencer | AccessoryKind::Hood) { 1.3 * r } else { r } + overhang;
         Vec2::new(self.units.to_units(self.length_mm) / 2.0, width)
     }
 
@@ -190,6 +199,24 @@ impl AccessoryParams {
         let corners = vec![Vec2::new(-half.x, -half.y), Vec2::new(half.x, -half.y), Vec2::new(half.x, half.y), Vec2::new(-half.x, half.y)];
         let mut v = Vec::new();
         match self.kind {
+            AccessoryKind::Hood => {
+                // From the origin (the end of the duct) outwards: the casing, then the mesh band at the far end as crossed diagonals.
+                let len = 2.0 * half.x;
+                let casing = vec![Vec2::new(0.0, -half.y), Vec2::new(len, -half.y), Vec2::new(len, half.y), Vec2::new(0.0, half.y)];
+                v.push(poly(casing, true));
+                let edge = 0.78 * len;
+                v.push(line(Vec2::new(edge, -half.y), Vec2::new(edge, half.y)));
+                // The roof's slope, seen from above: a line from each rear corner to the mesh.
+                v.push(line(Vec2::new(0.0, -half.y), Vec2::new(edge, -0.6 * half.y)));
+                v.push(line(Vec2::new(0.0, half.y), Vec2::new(edge, 0.6 * half.y)));
+                let cells = 4;
+                for k in 0..cells {
+                    let y0 = -half.y + 2.0 * half.y * f64::from(k) / f64::from(cells);
+                    let y1 = y0 + 2.0 * half.y / f64::from(cells);
+                    v.push(line(Vec2::new(edge, y0), Vec2::new(len, y1)));
+                    v.push(line(Vec2::new(edge, y1), Vec2::new(len, y0)));
+                }
+            }
             AccessoryKind::Damper => {
                 v.push(poly(corners, true));
                 // The blade, half open.
@@ -233,7 +260,8 @@ impl AccessoryParams {
             Some(t) => format!("{text} {t}"),
             None => text,
         };
-        v.push(HvacPiece { layer, kind: label(Vec2::new(0.0, -half.y - 1.2 * h), h, text) });
+        let label_x = if self.kind == AccessoryKind::Hood { half.x } else { 0.0 };
+        v.push(HvacPiece { layer, kind: label(Vec2::new(label_x, -half.y - 1.2 * h), h, text) });
         Ok(v)
     }
 
@@ -262,7 +290,55 @@ pub fn accessory_of(e: &crate::Entity) -> Option<AccessoryParams> {
     }
 }
 
+/// Where a hood goes: the point it starts from (the end of a duct, or of a unit's collar), the direction it points
+/// out (radians) and the width of the opening it covers, mm.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HoodAnchor {
+    pub origin: Vec2,
+    pub angle: f64,
+    pub width_mm: f64,
+    /// The duct it covers the end of, when it is on one: its loss is then in that duct's network.
+    pub duct: Option<crate::Handle>,
+}
+
+/// The width of a collar whose size is not given, mm.
+const DEFAULT_COLLAR_MM: f64 = 400.0;
+/// How far inside the end of a duct a hood starts, mm: so that the hood is read as sitting on that duct.
+const HOOD_NUDGE_MM: f64 = 1.0;
+/// How near a unit's collar `at` has to be to pick it, mm.
+const COLLAR_REACH_MM: f64 = 300.0;
+
 impl crate::Drawing {
+    /// The opening a hood put at `at` covers: the collar of a unit within reach, else the nearer end of the duct under `at`.
+    /// `None` when there is neither (the hood then goes free, where the user put it).
+    pub fn hood_anchor(&self, at: Vec2) -> Option<HoodAnchor> {
+        let units = HvacUnits::of(self);
+        let reach = units.to_units(COLLAR_REACH_MM);
+        let mut best: Option<(f64, HoodAnchor)> = None;
+        for e in self.model.iter() {
+            let (EntityKind::Insert(i), Some(p)) = (&e.kind, super::ahu_of(e)) else { continue };
+            let (s, c) = i.rotation.sin_cos();
+            let turn = |v: Vec2| Vec2::new(v.x * c - v.y * s, v.x * s + v.y * c);
+            let base = Vec2::new(i.insert.x, i.insert.y);
+            for (idx, (tip, normal)) in p.port_tips().into_iter().enumerate() {
+                let world = base + turn(tip);
+                let d = world.dist(at);
+                if d <= reach && best.as_ref().is_none_or(|b| d < b.0) {
+                    let width = p.port_sizes.get(idx).copied().flatten().map_or(DEFAULT_COLLAR_MM, |z| z.width_mm());
+                    best = Some((d, HoodAnchor { origin: world, angle: turn(normal).angle(), width_mm: width, duct: None }));
+                }
+            }
+        }
+        if let Some((_, a)) = best {
+            return Some(a);
+        }
+        let (h, ..) = self.duct_under(at)?;
+        let (p, a, b) = self.duct_ends(h)?;
+        let towards_b = at.dist(b) <= at.dist(a);
+        let (end, outward) = if towards_b { (b, (b - a).normalized()) } else { (a, (a - b).normalized()) };
+        Some(HoodAnchor { origin: end - outward * units.to_units(HOOD_NUDGE_MM), angle: outward.angle(), width_mm: p.plan_width_mm(), duct: Some(h) })
+    }
+
     /// The duct that `at` is on, with the foot of `at` on its axis and the duct's direction: the
     /// nearest duct whose axis passes within [`super::AXIS_REACH`] diameters of `at`, along its length.
     pub fn duct_under(&self, at: Vec2) -> Option<(crate::Handle, Vec2, f64)> {

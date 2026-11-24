@@ -63,6 +63,12 @@ Cette section sert à reprendre le travail dans une nouvelle conversation, avec 
 
 ### Fait
 
+- **Sortie couverte (capot pare-pluie avec grillage)** (24 novembre, demandée par Guillaume d'après une photo de CTA en toiture : caisson à toit incliné, grillage sur la face). Sur `perso`, **rien compilé ni testé encore**.
+  - 5e type d'accessoire de gaine, `hood` (« Sortie couverte », code `CAP`), dans `accessory.rs`. Longueur 600 mm, ζ = 2,5 (valeur indicative, pas celle d'un constructeur : à régler par `zeta` / `pressureDrop`). Dessin en plan : caisson plus large que la gaine, pente du toit vue de dessus, bande de grillage en losanges à l'extrémité. Dessiné **vers l'extérieur** à partir de son origine (le bout de la gaine), contrairement aux autres accessoires qui sont centrés.
+  - Pose (`DUCTACCESSORYADD`, type `hood`, aussi dans la palette Accessoires de gaine) : sur le **collier d'une CTA** à moins de 300 mm du clic, sinon sur le **bout le plus proche de la gaine** sous le clic (le capot s'oriente vers l'extérieur ; son origine est 1 mm à l'intérieur pour que le réseau le lise comme posé sur cette gaine, donc sa perte de charge compte), sinon **libre** là où on clique (contre un mur : le tourner ensuite avec ROTATE). Un capot sur un collier ou libre n'est pas signalé comme « sans gaine » (`place_accessories`).
+  - Tests : `a_hood_is_drawn_outwards_…`, `a_hood_covers_the_nearer_end_…`, `a_free_hood_is_not_reported_…` (`accessory_tests.rs`), `ductaccessoryadd_hood_covers_…` (`engine/tests/it/duct.rs`).
+  - **Pas fait** : option de capot dans les propriétés de la CTA ; largeur et angle d'un capot libre réglables (largeur 400 fixe) ; vue en élévation ; plusieurs modèles de capot ; traduction chinoise du libellé (seul le français est ajouté).
+
 - **Lot de priorités (21 novembre, demandé après essai)** :
   - **Unité de mise à l'échelle du contenu inséré enregistrée une fois** : dans « Unités du dessin », case **« L'utiliser pour chaque dessin que j'ouvre »** : l'unité choisie (INSUNITS) est donnée à chaque dessin ouvert ou créé ensuite, et gardée avec les préférences (`Session.default_insunits`, clé `defaultInsunits`) ; elle l'emporte sur celle du fichier ; décocher + OK la libère.
   - **Toit dans les coupes** : une coupe (`SECTIONADD`) dessine maintenant les toits : la ligne de leur surface (égout, débord, faîtage, pente : le plus bas des plans), et une épaisseur dessinée de 200 mm (un toit n'a pas d'épaisseur propre), avec son niveau en marge ; « Coupe : … N toits coupés ».

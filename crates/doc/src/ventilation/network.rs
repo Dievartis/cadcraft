@@ -593,7 +593,10 @@ fn place_accessories(ducts: &[Duct], accessories: &[(Handle, AccessoryParams, Ve
             }
         }
         let Some((_, duct)) = best else {
-            unplaced.push(*h);
+            // A hood on a unit's collar or against a wall sits on no duct, and that is where it belongs.
+            if a.kind != super::AccessoryKind::Hood {
+                unplaced.push(*h);
+            }
             continue;
         };
         for net in nets.iter_mut() {

@@ -2358,8 +2358,9 @@ fn accessory_section(ui: &mut egui::Ui, sel: &[Handle], accs: &[AccessoryParams]
             AccessoryKind::FireDamper => "Fire damper",
             AccessoryKind::Silencer => "Silencer",
             AccessoryKind::FlexConnector => "Flexible connector",
+            AccessoryKind::Hood => "Covered outlet",
         };
-        let items = [("damper", "Damper"), ("fireDamper", "Fire damper"), ("silencer", "Silencer"), ("flexConnector", "Flexible connector")];
+        let items = [("damper", "Damper"), ("fireDamper", "Fire damper"), ("silencer", "Silencer"), ("flexConnector", "Flexible connector"), ("hood", "Covered outlet")];
         if let Some(k) = choice(ui, kind.map_or(VARIES, label), &items) {
             action = Some(("ductaccessoryedit", json!({ "handles": ids, "type": k })));
         }

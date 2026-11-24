@@ -336,6 +336,20 @@ pub(super) fn paint_accessory(p: &Painter, r: Rect, kind: AccessoryKind) {
             t.poly(&[(7.0, 9.0), (9.0, 7.0), (11.0, 11.0), (13.0, 7.0), (15.0, 11.0), (17.0, 9.0)], false, t.acc);
             t.poly(&[(7.0, 15.0), (9.0, 13.0), (11.0, 17.0), (13.0, 13.0), (15.0, 17.0), (17.0, 15.0)], false, t.acc);
         }
+        // A duct ending in a hood: the casing, the roof's slope and the mesh on its face.
+        AccessoryKind::Hood => {
+            t.l((1.0, 9.0), (6.0, 9.0), t.base);
+            t.l((1.0, 15.0), (6.0, 15.0), t.base);
+            t.rect(6.0, 4.0, 16.0, 16.0, t.base);
+            t.l((6.0, 4.0), (17.0, 8.0), t.acc);
+            t.l((6.0, 20.0), (17.0, 16.0), t.acc);
+            t.l((17.0, 4.0), (17.0, 20.0), t.acc);
+            for k in 0..3u8 {
+                let (y0, y1) = (4.0 + 5.33 * f32::from(k), 9.33 + 5.33 * f32::from(k));
+                t.l((17.0, y0), (22.0, y1), t.acc);
+                t.l((17.0, y1), (22.0, y0), t.acc);
+            }
+        }
     }
 }
 
