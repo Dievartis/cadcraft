@@ -59,9 +59,15 @@ fn typed_and_menu_open_the_dialog_json_never_does() {
     a.cmdline(r#"options {"PICKBOX": 4}"#);
     assert!(a.ui.dialog.is_none());
     assert_eq!(a.session.settings.pickbox, 4.0);
-    // Tools ▸ Options… is in the menu.
-    let tools = menus::tree(&a).into_iter().find(|(m, _)| m == "Tools").map(|(_, e)| e).unwrap_or_default();
-    assert!(tools.iter().any(|e| matches!(e, menus::Entry::Item { id, .. } if id == "options")));
+    // Edit groups the full dialog and direct access to its drawing/tool settings pages.
+    let edit = menus::tree(&a).into_iter().find(|(m, _)| m == "Edit").map(|(_, e)| e).unwrap_or_default();
+    for id in ["options", "ui.options.workflow", "ui.options.drafting"] {
+        assert!(edit.iter().any(|e| matches!(e, menus::Entry::Item { id: found, .. } if found == id)), "{id}");
+    }
+    menus::activate(&mut a, "ui.options.workflow");
+    assert_eq!(a.ui.dialog.as_deref(), Some("options:workflow"));
+    menus::activate(&mut a, "ui.options.drafting");
+    assert_eq!(a.ui.dialog.as_deref(), Some("options:drafting"));
 }
 
 #[test]

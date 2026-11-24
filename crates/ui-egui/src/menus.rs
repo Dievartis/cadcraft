@@ -137,6 +137,8 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.cmdline.lines", "Command Line History Lines", &[], None),
     ("ui.cmdline.clear", "Clear Command History", &[], None),
     ("ui.dialog.language", "Interface Language", &["Edit", "Interface Language"], None),
+    ("ui.options.workflow", "Drawing Setup...", &["Edit", "Drawing Setup..."], None),
+    ("ui.options.drafting", "Tool Settings...", &["Edit", "Tool Settings..."], None),
     ("ui.dialog.find", "Find and Replace", &[], Some("Cmd+F")),
     ("ui.shortcuts", "Keyboard Shortcuts...", &["Tools", "Customize", "Keyboard Shortcuts..."], None),
     ("ui.language", "Language", &[], None),
@@ -1198,6 +1200,15 @@ mod reference_order_tests {
         let app = CadApp::new(Session::new(), Services::default());
         let edit = tree(&app).into_iter().find(|(m, _)| m == "Edit").map(|(_, e)| e).unwrap_or_default();
         assert_eq!(edit.iter().take(2).map(label).collect::<Vec<_>>(), ["Undo", "Redo"]);
+    }
+
+    #[test]
+    fn insert_has_the_existing_image_manager() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        let insert = tree(&app).into_iter().find(|(m, _)| m == "Insert").map(|(_, e)| e).unwrap_or_default();
+        assert!(insert.iter().any(|e| matches!(e, Entry::Item { id, .. } if id == "image")));
+        super::activate(&mut app, "image");
+        assert!(app.ui.docking.layout.contains(&crate::docking::Panel::Images));
     }
 }
 

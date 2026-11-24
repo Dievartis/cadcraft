@@ -44,6 +44,7 @@ pub fn specs() -> Vec<CommandSpec> {
              path, pixels: [w, h], size: [w, h]}",
         ),
         CommandSpec::new("image", "Raster Images", run_image)
+            .menu(&["Insert", "Raster Images"])
             .alias(&["im"])
             .params("{} → {images: [{name, path, foundAt, status: Loaded|Not Found|Not loaded, references, pixels?: [w, h]}]}")
             .noundo(),

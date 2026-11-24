@@ -724,6 +724,22 @@ fn page_rows(
         }
     });
     ui.end_row();
+    let margins_label = ui.label("Paper margins (mm)");
+    let mut margins = page.margins_mm;
+    let mut margins_changed = false;
+    ui.horizontal(|ui| {
+        for (index, short) in ["L", "B", "R", "T"].into_iter().enumerate() {
+            ui.label(short);
+            margins_changed |= ui
+                .add(egui::DragValue::new(&mut margins[index]).range(0.0..=1000.0).speed(0.5).max_decimals(2).suffix(" mm"))
+                .labelled_by(margins_label.id)
+                .changed();
+        }
+    });
+    if margins_changed {
+        change = Some(("margins", json!(margins)));
+    }
+    ui.end_row();
     ui.label("Orientation");
     ui.horizontal(|ui| {
         if ui.radio(!page.landscape, "Portrait").clicked() && page.landscape {
@@ -866,6 +882,13 @@ fn apply_page_change(page: &mut cadcraft_doc::PageSetup, key: &str, v: &Value) {
         "plotStyleTable" => page.plot_style_table = v.as_str().unwrap_or_default().chars().take(260).collect(),
         "plotArea" => page.plot_area = v.as_str().unwrap_or("extents").into(),
         "scale" => page.scale = v.as_f64().filter(|s| s.is_finite() && *s > 0.0).unwrap_or(page.scale),
+        "margins" => {
+            if let Ok(margins) = serde_json::from_value::<[f64; 4]>(v.clone())
+                && margins.iter().all(|m| m.is_finite() && (0.0..=1000.0).contains(m))
+            {
+                page.margins_mm = margins;
+            }
+        }
         _ => {
             let b = v.as_bool().unwrap_or_default();
             match key {
@@ -1325,6 +1348,14 @@ mod plot_dialog_tests {
         assert!(page.plot_transparency);
         apply_page_change(&mut st.page, "plotTransparency", &json!(false));
         assert_eq!(plot_params(&st, None)["plotTransparency"], json!(false));
+    }
+
+    #[test]
+    fn editable_margins_reach_the_plot_sheet() {
+        let mut st = state("Model");
+        apply_page_change(&mut st.page, "margins", &json!([3.0, 4.0, 5.0, 6.0]));
+        assert_eq!(st.page.margins_mm, [3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(plot_params(&st, Some(150.0))["margins"], json!([3.0, 4.0, 5.0, 6.0]));
     }
 
     #[test]

@@ -392,6 +392,7 @@ pub const NO_FILES: &[&str] = &[
     "vports.3",
     "vports.4",
     "viewport.set",
+    "viewportscale",
     "vplayer",
     "mspace",
     "pspace",

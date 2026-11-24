@@ -72,6 +72,10 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("viewport.set", "Viewport Properties", run_viewport_set).params(
             "{handle? (default: selected viewports), scale?: paper units per model unit | \"1:50\", viewHeight?, center?: [x,y], locked?, freeze?: [layer], thaw?: [layer], colors?: {layer: color | null}}",
         ),
+        CommandSpec::new("viewportscale", "Viewport Scale", run_viewport_set)
+            .alias(&["vpscale"])
+            .params("{handle? (default: selected or active viewport), scale: paper units per model unit | \"1:50\"}")
+            .interactive(|_| Ok(Box::new(ViewportScaleM))),
         CommandSpec::new("vplayer", "Viewport Layer Freeze", run_viewport_set)
             .params("{handle?, freeze?: [layer], thaw?: [layer], colors?: {layer: color (\"red\" | 1..255 | \"r,g,b\") | null to clear}} (typed: option prompts)")
             .interactive(|_| Ok(Box::new(vplayer::VplayerM::default()))),
@@ -640,6 +644,30 @@ fn run_viewport_set(s: &mut Session, p: &Value) -> Result<Value> {
         s.doc_mut()?.modify_entity(h, |e| e.kind = EntityKind::Viewport(v)).map_err(|e| bad(cmd, e.to_string()))?;
     }
     Ok(Value::Array(out))
+}
+
+/// VIEWPORTSCALE: set a selected or active layout viewport without using ZOOM XP.
+struct ViewportScaleM;
+
+impl Interactive for ViewportScaleM {
+    fn name(&self) -> &'static str {
+        "VIEWPORTSCALE"
+    }
+
+    fn prompt(&self, _s: &Session) -> Prompt {
+        Prompt::new("Enter viewport scale (for example 1:50)", Accept::TEXT)
+    }
+
+    fn input(&mut self, s: &mut Session, input: Input) -> Result<Step> {
+        match input {
+            Input::Text(scale) => {
+                run_viewport_set(s, &json!({ "scale": scale }))?;
+                Ok(Step::Done)
+            }
+            Input::Enter => Ok(Step::Cancel),
+            _ => Ok(Step::Continue),
+        }
+    }
 }
 
 // ---------- page setup ----------

@@ -140,6 +140,10 @@ fn viewport_scale_lock_and_layers() {
     let out = s.execute("viewport.set", &json!({"handle": h, "scale": "1:20", "center": [50, 20]})).unwrap();
     assert!((out[0]["viewHeight"].as_f64().unwrap() - 60.0).abs() < 1e-9);
     assert!((out[0]["scale"].as_f64().unwrap() - 0.05).abs() < 1e-12);
+    s.set_selection(vec![Handle::parse_hex(&h).unwrap()]);
+    s.cmdline("viewportscale 1:40").unwrap();
+    let v = viewports(&s, "Layout1");
+    assert!((v[0].1.height / v[0].1.view_height - 0.025).abs() < 1e-12);
     s.execute("viewport.set", &json!({"handle": h, "locked": true})).unwrap();
     assert!(s.execute("viewport.set", &json!({"handle": h, "scale": 0.1})).is_err(), "locked");
     s.execute("viewport.set", &json!({"handle": h, "scale": 0.1, "locked": false})).unwrap();

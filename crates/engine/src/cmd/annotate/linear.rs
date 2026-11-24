@@ -135,11 +135,22 @@ pub(super) struct LinearM {
     rotating: bool,
     /// A selected circle (centre, radius): measured across its diameter along the dimension line.
     circle: Option<(Vec2, f64)>,
+    /// Multiple: after placing one dimension, ask for the next one's first origin.
+    multiple: bool,
 }
 
 impl LinearM {
     pub(super) fn new(aligned: bool) -> Self {
-        LinearM { aligned, pts: Vec::new(), rotation: None, text: DimText::default(), selecting: false, rotating: false, circle: None }
+        LinearM {
+            aligned,
+            pts: Vec::new(),
+            rotation: None,
+            text: DimText::default(),
+            selecting: false,
+            rotating: false,
+            circle: None,
+            multiple: false,
+        }
     }
 
     /// The extension line origins and the kind of the dimension placed at `at`. A selected circle
@@ -171,7 +182,7 @@ impl Interactive for LinearM {
             return Prompt::new("Select object to dimension", Accept::POINT);
         }
         match self.pts.len() {
-            0 => Prompt::new("Specify first extension line origin", Accept::POINT).default("select object"),
+            0 => Prompt::new("Specify first extension line origin", Accept::POINT).kw(&["Multiple"]).default("select object"),
             1 => Prompt::new("Specify second extension line origin", Accept::POINT).base_opt(self.pts.first().copied()),
             // Once the orientation is forced, only the text options remain.
             _ if self.aligned || self.rotation.is_some() => {
@@ -225,8 +236,13 @@ impl Interactive for LinearM {
             return Ok(Step::Continue);
         }
         match (self.pts.len(), i) {
+            (0, Input::Enter) if self.multiple => Ok(Step::Done),
             (0, Input::Enter) => {
                 self.selecting = true;
+                Ok(Step::Continue)
+            }
+            (0, Input::Keyword(k)) if k == "Multiple" => {
+                self.multiple = true;
                 Ok(Step::Continue)
             }
             (n, Input::Point(p)) if n < 2 => {
@@ -242,7 +258,13 @@ impl Interactive for LinearM {
                     let g = cadcraft_render::dimension_geometry(&d, &st, 1.0);
                     s.echo(format!("Dimension text = {}", g.value));
                 }
-                Ok(Step::Done)
+                if self.multiple {
+                    self.pts.clear();
+                    self.circle = None;
+                    Ok(Step::Continue)
+                } else {
+                    Ok(Step::Done)
+                }
             }
             (_, Input::Keyword(k)) => {
                 match k.as_str() {

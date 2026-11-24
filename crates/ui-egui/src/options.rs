@@ -212,6 +212,13 @@ fn color_json(c: Option<Color32>) -> Value {
 /// Open the dialog for a typed or menu-invoked OPTIONS; run the JSON form for a call with
 /// parameters. `None` if `id` isn't OPTIONS.
 pub fn route(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
+    if let Some(tab) = id.strip_prefix("ui.options.") {
+        if params.is_null() && matches!(tab, "workflow" | "drafting") {
+            app.ui.dialog = Some(format!("options:{tab}"));
+            return Some(Ok(Value::Null));
+        }
+        return Some(Err(format!("unknown options page `{tab}`")));
+    }
     if !matches!(id, "options" | "op" | "preferences") {
         return None;
     }

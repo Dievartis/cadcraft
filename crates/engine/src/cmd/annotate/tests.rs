@@ -112,6 +112,19 @@ fn interactive_dimlinear_select_object_is_associative() {
 }
 
 #[test]
+fn linear_and_aligned_multiple_keep_the_command_active() {
+    for command in ["dimlinear", "dimaligned"] {
+        let mut s = Session::new();
+        s.cmdline(&format!("{command} multiple 0,0 10,0 5,-2 20,0 30,0 25,-2")).unwrap();
+        assert!(s.running.is_some(), "{command} should wait for another dimension");
+        let dimensions = s.doc().unwrap().model.iter().filter(|e| matches!(e.kind, EntityKind::Dimension(_))).count();
+        assert_eq!(dimensions, 2, "{command}");
+        s.cmdline("").unwrap();
+        assert!(s.running.is_none(), "Enter ends {command} Multiple");
+    }
+}
+
+#[test]
 fn radius_and_diameter_follow_circle() {
     let mut s = Session::new();
     s.execute("circle", &json!({ "center": [0, 0], "radius": 2 })).unwrap();

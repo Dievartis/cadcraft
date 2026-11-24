@@ -79,6 +79,15 @@ fn same(a: f64, b: f64) -> bool {
     (a - b).abs() <= b.abs() * 1e-6
 }
 
+/// A custom viewport scale: a positive number, or paper:model such as `1:75`.
+fn parse_scale(text: &str) -> Option<f64> {
+    let value = match text.trim().split_once([':', '/']) {
+        Some((paper, model)) => paper.trim().parse::<f64>().ok()? / model.trim().parse::<f64>().ok()?,
+        None => text.trim().parse::<f64>().ok()?,
+    };
+    (value.is_finite() && value > 0.0).then_some(value)
+}
+
 /// How a scale reads: a standard name, else a ratio such as `1:37.5`.
 pub fn label(scale: f64, metric: bool) -> String {
     if !(scale.is_finite() && scale > 0.0) {
@@ -146,8 +155,32 @@ pub fn status(app: &mut CadApp, ui: &mut egui::Ui, right: f32, cy: f32) -> f32 {
     p.line_segment([pos2(ax, ay + 1.5), pos2(ax + 3.0, ay - 1.5)], egui::Stroke::new(1.2, t.text_dim));
     let sresp = sresp.on_hover_text(if vp.locked { crate::tl!("Viewport is locked") } else { crate::tl!("Viewport scale") });
     let mut pick = None;
+    let mut invalid = false;
     if !vp.locked {
         egui::Popup::from_toggle_button_response(&sresp).width(150.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+            let edit_id = ui.scope_id().with(("custom_viewport_scale", h));
+            let mut custom = ui.ctx().data(|d| d.get_temp::<String>(edit_id)).unwrap_or_else(|| label(scale, metric));
+            ui.horizontal(|ui| {
+                let caption = ui.label(crate::tl!("Custom"));
+                let response = ui.add(egui::TextEdit::singleline(&mut custom).desired_width(70.0).hint_text("1:75")).labelled_by(caption.id);
+                if response.changed() {
+                    ui.ctx().data_mut(|d| d.insert_temp(edit_id, custom.clone()));
+                }
+                let apply = ui.button(crate::tl!("Apply"));
+                if apply.clicked() || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                    match parse_scale(&custom) {
+                        Some(value) => {
+                            pick = Some(value);
+                            ui.close();
+                        }
+                        None => invalid = true,
+                    }
+                }
+            });
+            if invalid {
+                ui.colored_label(Tokens::get().warn, crate::tl!("Enter a positive scale such as 1:50"));
+            }
+            ui.separator();
             egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
                 for (name, v) in scales(metric) {
                     if ui.selectable_label(same(v, scale), name).clicked() {
@@ -181,6 +214,16 @@ mod tests {
         assert_eq!(label(3.0, true), "3:1");
         assert_eq!(label(f64::NAN, true), "?");
         assert_eq!(label(0.0, true), "?");
+    }
+
+    #[test]
+    fn custom_scale_accepts_ratios_and_positive_values() {
+        assert_eq!(parse_scale("1:75"), Some(1.0 / 75.0));
+        assert_eq!(parse_scale("2 / 1"), Some(2.0));
+        assert_eq!(parse_scale("0.02"), Some(0.02));
+        for bad in ["", "1:0", "zero", "-1:50"] {
+            assert_eq!(parse_scale(bad), None, "{bad}");
+        }
     }
 
     #[test]

@@ -61,7 +61,7 @@ const MAX_ENTRIES: usize = 256;
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("options", "Options...", run_options)
-            .menu(&["Tools", "Options..."])
+            .menu(&["Edit", "Options..."])
             .alias(&["op", "preferences"])
             .params("{reset?: bool, OSMODE?, PICKBOX?, APERTURE?, GRIPSIZE?, CURSORSIZE?, PICKFIRST?, PICKADD?, PICKDRAG?: 0 (two clicks) | 2 (clicks or drag), …: any profile variable}")
             .enabled(always)
