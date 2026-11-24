@@ -153,6 +153,12 @@ pub fn toolset_tabs() -> Vec<&'static str> {
     ["Drafting", "Modeling"].into_iter().chain(building::TABS.iter().copied()).collect()
 }
 
+pub(crate) const NETWORK_TABS: [&str; 4] = ["HVAC", "Plumbing", "Regulation", "Electricity"];
+
+pub(crate) fn network_tools(app: &mut CadApp, ui: &mut egui::Ui, tab: &str) {
+    building::body(app, ui, tab);
+}
+
 fn command_known(id: &str) -> bool {
     cadcraft_engine::find_command(id).is_some() || crate::menus::is_ui_command(id)
 }

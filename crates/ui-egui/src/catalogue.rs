@@ -19,6 +19,7 @@ pub(crate) fn visible(app: &CadApp, id: &str) -> bool {
 struct State {
     equipment: bool,
     architecture: bool,
+    network_tab: Option<&'static str>,
     view: Option<crate::blocks_palette::View>,
     filter: String,
     furniture_group: Categories,
@@ -53,6 +54,7 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
     let mut st = ui.data(|d| d.get_temp::<State>(id)).unwrap_or_default();
     if !app.ui.catalogue_tools {
         st.architecture = true;
+        st.network_tab = None;
     }
     if !app.ui.architecture_tools {
         st.architecture = false;
@@ -71,17 +73,33 @@ pub(crate) fn panel(app: &mut CadApp, ui: &mut egui::Ui) {
             let content_top = ui.cursor().top();
             ui.horizontal_wrapped(|ui| {
                 for (equipment, label) in [(false, "Furniture"), (true, "Equipment")] {
-                    if app.ui.catalogue_tools && ui.selectable_label(!st.architecture && st.equipment == equipment, label).clicked() {
+                    if app.ui.catalogue_tools
+                        && ui.selectable_label(!st.architecture && st.network_tab.is_none() && st.equipment == equipment, crate::i18n::t(label)).clicked()
+                    {
                         st.architecture = false;
+                        st.network_tab = None;
                         st.equipment = equipment;
                         st.chosen.clear();
                     }
                 }
                 if app.ui.architecture_tools && ui.selectable_label(st.architecture, crate::tl!("Architecture")).clicked() {
                     st.architecture = true;
+                    st.network_tab = None;
+                }
+                if app.ui.catalogue_tools {
+                    for tab in crate::palettes::NETWORK_TABS {
+                        if ui.selectable_label(st.network_tab == Some(tab), crate::i18n::t(tab)).clicked() {
+                            st.network_tab = Some(tab);
+                            st.architecture = false;
+                        }
+                    }
                 }
                 ui.menu_button("?", |ui| help(ui, st.architecture)).response.on_hover_ui(|ui| help(ui, st.architecture));
             });
+            if let Some(tab) = st.network_tab {
+                ui.push_id(("trade-network-tools", tab), |ui| crate::palettes::network_tools(app, ui, tab));
+                return;
+            }
             if st.architecture {
                 let view = st.architecture_view.get_or_insert(crate::blocks_palette::View::Medium);
                 crate::blocks_palette::filter_view(ui, &mut st.architecture_filter, view, "architecture-library-view");
