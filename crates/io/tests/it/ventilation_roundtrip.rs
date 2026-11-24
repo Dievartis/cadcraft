@@ -114,6 +114,7 @@ fn ducted() -> Drawing {
         flexible: false,
         reducer: None,
         reducer_len_mm: None,
+        label_shift_mm: None,
         elbow: None,
         trim_start_mm: 0.0,
         trim_end_mm: 0.0,

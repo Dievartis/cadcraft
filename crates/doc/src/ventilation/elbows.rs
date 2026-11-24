@@ -532,6 +532,11 @@ impl crate::Drawing {
 
     /// Gives the elbows to the runs of `space` that turn where they meet, and takes them from those that no longer do; returns how many runs were redrawn.
     pub fn draw_duct_elbows(&mut self, space: &Space) -> Result<usize> {
+        let moved = self.draw_duct_elbows_only(space)?;
+        Ok(moved + self.space_duct_labels(space)?)
+    }
+
+    fn draw_duct_elbows_only(&mut self, space: &Space) -> Result<usize> {
         let units = HvacUnits::of(self);
         // The connections of the ducted units come first: the cones from their sizes follow.
         let grown = self.draw_equipment_ports(space)?;

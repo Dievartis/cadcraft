@@ -53,6 +53,7 @@ fn duct(diameter_mm: f64) -> DuctParams {
         flexible: false,
         reducer: None,
         reducer_len_mm: None,
+        label_shift_mm: None,
         elbow: None,
         trim_start_mm: 0.0,
         trim_end_mm: 0.0,
@@ -2543,4 +2544,20 @@ fn the_grip_at_the_end_of_a_reducers_cone_sets_its_length() {
     assert!(grips(&d)[3].x <= 2000.0 + 1e-6);
     let other = add_duct(&mut d, (0.0, 500.0), (2000.0, 500.0));
     assert!(!d.stretch_duct_grip(other, 3, Vec2::new(900.0, 500.0)).unwrap());
+}
+
+#[test]
+fn the_labels_of_two_runs_laid_over_each_other_do_not_cover_each_other() {
+    let mut d = Drawing::new_metric();
+    let a = add_duct(&mut d, (0.0, 0.0), (4000.0, 0.0));
+    let b = add_duct(&mut d, (0.0, 0.0), (4000.0, 0.0));
+    let shift = |d: &Drawing, h: Handle| duct_of(d.entity(h).unwrap()).unwrap().label_shift_mm;
+    assert_eq!((shift(&d, a), shift(&d, b)), (None, None));
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    let (sa, sb) = (shift(&d, a), shift(&d, b));
+    assert!(sa.is_some() != sb.is_some(), "the first keeps its place, the second moves: {sa:?} {sb:?}");
+    // Taking the second away gives the first nothing to avoid, and a run alone is where it always was.
+    d.remove_entity(b);
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    assert_eq!(shift(&d, a), None);
 }

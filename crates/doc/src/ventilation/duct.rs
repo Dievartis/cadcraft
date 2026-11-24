@@ -821,6 +821,9 @@ pub struct DuctParams {
     /// The length of the reducer's cone, mm, when it was set by hand (its grip); the cone follows its 15 degrees otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reducer_len_mm: Option<f64>,
+    /// How far the label is moved along and across the run, mm, so that it does not write over another run's label (set by `space_duct_labels`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_shift_mm: Option<[f64; 2]>,
     /// The elbow where the run joins the one before it, drawn by sizing: curved arcs across the run's
     /// width, the two runs being drawn shorter by the length it takes.
     #[serde(default)]
@@ -1449,6 +1452,22 @@ impl DuctParams {
             let x = if at_end { self.length - trim1 - len } else { trim0 + len };
             pieces.push(HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(Vec2::new(x, -r)), b: v3(Vec2::new(x, r)) }) });
         }
+        let text = self.label_text();
+        let h = self.units.to_units(self.label_height_mm);
+        for j in &self.jogs {
+            let at = Vec2::new(self.units.to_units(j.centre_mm), -(r + 0.9 * h));
+            pieces.push(HvacPiece { layer, kind: label(at, 0.8 * h, format!("{}{:.0}", if j.down { "-" } else { "+" }, j.shift_mm)) });
+        }
+        let mut t = label(self.label_centre(r, flip_label), h, text);
+        if let EntityKind::Text(x) = &mut t {
+            x.rotation = if flip_label { std::f64::consts::PI } else { 0.0 };
+        }
+        pieces.push(HvacPiece { layer, kind: t });
+        Ok(pieces)
+    }
+
+    /// What the label says: the size, the flow, the level and, for a sloping run, where it ends.
+    pub(super) fn label_text(&self) -> String {
         let mut text = self.size_label();
         if let Some(f) = self.flow_m3h {
             text.push_str(&format!(" {f:.0} m³/h"));
@@ -1460,18 +1479,23 @@ impl DuctParams {
         if let (Some(e), true) = (self.end_level_mm, self.rise_mm().abs() > 0.5) {
             text.push_str(&format!("→{:.2} {:+.1}%", e / 1000.0, 100.0 * self.rise_mm() / 1000.0 / self.plan_length_m().max(1e-9)));
         }
-        let h = self.units.to_units(self.label_height_mm);
-        for j in &self.jogs {
-            let at = Vec2::new(self.units.to_units(j.centre_mm), -(r + 0.9 * h));
-            pieces.push(HvacPiece { layer, kind: label(at, 0.8 * h, format!("{}{:.0}", if j.down { "-" } else { "+" }, j.shift_mm)) });
-        }
+        text
+    }
+
+    /// Where the label is centred in the run's block coordinates, shift included (the spot it has before the shift: [`Self::label_base`]).
+    pub(super) fn label_centre(&self, r: f64, flip_label: bool) -> Vec2 {
+        let base = self.label_base(r, flip_label);
+        let [along, across] = self.label_shift_mm.unwrap_or([0.0, 0.0]);
+        base + Vec2::new(self.units.to_units(along), self.units.to_units(across))
+    }
+
+    /// The label's spot before any shift: in the middle of the longest stretch drawn, on the run or beside it.
+    pub(super) fn label_base(&self, r: f64, flip_label: bool) -> Vec2 {
+        let (x0, x1) = self.straight_range();
+        let solid = self.solid_stretches(x0, x1);
+        let (sx, ex) = solid.iter().copied().max_by(|a, b| (a.1 - a.0).total_cmp(&(b.1 - b.0))).unwrap_or((x0, x1));
         let mid = if self.gaps_mm.is_empty() { self.length / 2.0 } else { (sx + ex) / 2.0 };
-        let mut t = label(Vec2::new(mid, self.label_offset(mid, r, flip_label)), h, text);
-        if let EntityKind::Text(x) = &mut t {
-            x.rotation = if flip_label { std::f64::consts::PI } else { 0.0 };
-        }
-        pieces.push(HvacPiece { layer, kind: t });
-        Ok(pieces)
+        Vec2::new(mid, self.label_offset(mid, r, flip_label))
     }
 
     /// How far the label sits across the run (positive: above it as it reads), `mid` along it. On the run, but a

@@ -26,6 +26,7 @@ mod elec_report;
 mod equipment;
 mod furniture;
 mod furniture_catalog;
+mod labels;
 mod library;
 mod network;
 mod network_legend;
