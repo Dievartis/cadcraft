@@ -309,10 +309,18 @@ const HOOD_NUDGE_MM: f64 = 1.0;
 const COLLAR_REACH_MM: f64 = 300.0;
 
 impl crate::Drawing {
-    /// The opening a hood put at `at` covers: the collar of a unit within reach, else the nearer end of the duct under `at`.
-    /// `None` when there is neither (the hood then goes free, where the user put it).
+    /// The opening a hood put at `at` covers: the nearer end of the duct under `at`, else the collar of a unit within reach.
+    /// `None` when there is neither (the hood then goes free, where the user put it). A duct wins: one that starts at a collar
+    /// is covered at its own end, not at the collar it leaves.
     pub fn hood_anchor(&self, at: Vec2) -> Option<HoodAnchor> {
         let units = HvacUnits::of(self);
+        if let Some((h, ..)) = self.duct_under(at)
+            && let Some((p, a, b)) = self.duct_ends(h)
+        {
+            let towards_b = at.dist(b) <= at.dist(a);
+            let (end, outward) = if towards_b { (b, (b - a).normalized()) } else { (a, (a - b).normalized()) };
+            return Some(HoodAnchor { origin: end - outward * units.to_units(HOOD_NUDGE_MM), angle: outward.angle(), width_mm: p.plan_width_mm(), duct: Some(h) });
+        }
         let reach = units.to_units(COLLAR_REACH_MM);
         let mut best: Option<(f64, HoodAnchor)> = None;
         for e in self.model.iter() {
@@ -329,14 +337,7 @@ impl crate::Drawing {
                 }
             }
         }
-        if let Some((_, a)) = best {
-            return Some(a);
-        }
-        let (h, ..) = self.duct_under(at)?;
-        let (p, a, b) = self.duct_ends(h)?;
-        let towards_b = at.dist(b) <= at.dist(a);
-        let (end, outward) = if towards_b { (b, (b - a).normalized()) } else { (a, (a - b).normalized()) };
-        Some(HoodAnchor { origin: end - outward * units.to_units(HOOD_NUDGE_MM), angle: outward.angle(), width_mm: p.plan_width_mm(), duct: Some(h) })
+        best.map(|(_, a)| a)
     }
 
     /// The duct that `at` is on, with the foot of `at` on its axis and the duct's direction: the
