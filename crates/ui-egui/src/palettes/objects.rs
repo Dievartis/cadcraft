@@ -2411,6 +2411,13 @@ fn accessory_section(ui: &mut egui::Ui, sel: &[Handle], accs: &[AccessoryParams]
                 action = Some(("ductaccessoryedit", json!({ "handles": ids, "height": h })));
             }
         });
+        let follows = shared(&accs.iter().map(|a| !a.fixed).collect::<Vec<_>>());
+        prop_row(ui, "Follows its opening", |ui| {
+            let shown = follows.map_or(VARIES, |f| if f { "Yes" } else { "No" });
+            if let Some(k) = choice(ui, shown, &[("yes", "Yes"), ("no", "No")]) {
+                action = Some(("ductaccessoryedit", json!({ "handles": ids, "follow": k == "yes" })));
+            }
+        });
         let air = shared(&accs.iter().map(|a| a.air).collect::<Vec<_>>());
         prop_row(ui, "Air", |ui| {
             let shown = air.map_or(VARIES, |a| match a {

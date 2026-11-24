@@ -149,6 +149,7 @@ fn ducted() -> Drawing {
         units,
         air: None,
         height_mm: None,
+        fixed: false,
     };
     d.add_accessory(&Space::Model, Common::default(), &silencer, Vec2::new(3000.0, 0.0), 0.0).expect("add accessory");
     let model = standard_air_terminal_models().into_iter().next().expect("a model");

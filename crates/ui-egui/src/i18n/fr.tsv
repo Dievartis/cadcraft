@@ -3892,3 +3892,4 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	Each logo and the picture of the project are kept in the drawing; the table of revisions grows with a new line.	Chaque logo et l'image du projet sont conservés dans le dessin ; le tableau des indices s'allonge d'une ligne à chaque nouvel indice.
 	Height (mm), empty if round	Hauteur (mm), vide si rond
 	Not set	Non défini
+	Follows its opening	Suit son ouverture

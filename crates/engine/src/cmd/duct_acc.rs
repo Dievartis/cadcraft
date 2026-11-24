@@ -20,7 +20,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
             .interactive(|s| Ok(Box::new(AccessoryAddM::new(s)))),
         CommandSpec::new("ductaccessoryedit", "Edit Duct Accessory", run_edit)
-            .params("{handle | handles, type?, length? (mm), width? (mm), height? (mm, 0 or null: round), air? (supply|extract|fresh|exhaust, or null; for a hood: its colour and the takeoff), zeta? (number, or null for the default), pressureDrop? (Pa, or null)} → {changed}"),
+            .params("{handle | handles, type?, length? (mm), width? (mm), height? (mm, 0 or null: round), air? (supply|extract|fresh|exhaust, or null; for a hood: its colour and the takeoff), follow? (bool: a hood follows the size and air of the duct or collar it covers until one of those is set by hand), zeta? (number, or null for the default), pressureDrop? (Pa, or null)} → {changed}"),
     ]
 }
 
@@ -89,6 +89,7 @@ fn on_duct(
         units: HvacUnits::of(d),
         air,
         height_mm: height,
+        fixed: false,
     };
     p.validate().map_err(doc_err)?;
     Ok((p, duct, foot, angle))
@@ -148,6 +149,13 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         if let Some(x) = air {
             a.air = x;
         }
+        // Set by hand, a hood stops following its opening; `follow: true` makes it follow again (at the next sizing or duct change).
+        if width.is_some() || p.get("height").is_some() || air.is_some() {
+            a.fixed = true;
+        }
+        if let Some(f) = p.get("follow").and_then(Value::as_bool) {
+            a.fixed = !f;
+        }
         if let Some(z) = zeta {
             a.zeta = Some(z);
         }
@@ -170,6 +178,8 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     for (h, a) in &next {
         d.regenerate_accessory(*h, a).map_err(doc_err)?;
     }
+    // A hood given back to its opening takes its size and air now.
+    d.refresh_hoods().map_err(doc_err)?;
     Ok(json!({ "changed": next.len() }))
 }
 

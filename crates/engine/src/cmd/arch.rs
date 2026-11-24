@@ -114,6 +114,8 @@ pub(crate) fn after_command(s: &mut Session, before: Option<&std::sync::Arc<Draw
         // The height zones first (the ducts under a beam are cut, made flat and given the altitude of the zone), then the bends, cones and steps that follow.
         let _ = std::sync::Arc::make_mut(&mut st.doc).draw_height_zones(&space);
         let _ = std::sync::Arc::make_mut(&mut st.doc).draw_duct_elbows(&space);
+        // The hoods covering the end of a duct follow its size and its air.
+        let _ = std::sync::Arc::make_mut(&mut st.doc).refresh_hoods();
     }
     // The same for the pipes: elbows where two pipes of one service turn, cones where their sizes differ.
     if st.doc.pipes_touched_since(b, &space) {

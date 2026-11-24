@@ -1696,3 +1696,16 @@ fn ductaccessoryedit_sets_a_hoods_size_and_air_and_moves_it_to_the_layer_of_that
     assert_eq!((a.height_mm, a.air), (None, None));
     assert!(s.execute("ductaccessoryedit", &json!({"handle": r["handle"], "air": "steam"})).is_err());
 }
+
+#[test]
+fn a_hood_set_by_hand_stops_following_its_duct_and_follows_again_when_told() {
+    let mut s = metric();
+    s.execute("ductadd", &json!({"points": [[0, 0], [0, 4000]], "diameter": 315})).unwrap();
+    let r = s.execute("ductaccessoryadd", &json!({"at": [0, 3800], "type": "hood"})).unwrap();
+    assert!(!accessories(&s)[0].1.fixed, "it follows from the start");
+    s.execute("ductaccessoryedit", &json!({"handle": r["handle"], "width": 500})).unwrap();
+    assert!(accessories(&s)[0].1.fixed);
+    s.execute("ductaccessoryedit", &json!({"handle": r["handle"], "follow": true})).unwrap();
+    let a = &accessories(&s)[0].1;
+    assert!(!a.fixed && a.diameter_mm == 315.0, "back to the duct's width: {a:?}");
+}

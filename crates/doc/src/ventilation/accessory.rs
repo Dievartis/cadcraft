@@ -141,6 +141,9 @@ pub struct AccessoryParams {
     /// A hood's height, mm, when its opening is a rectangle (`diameter_mm` is then its width); none for a round one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height_mm: Option<f64>,
+    /// A hood's size and air were set by hand: it stops following the duct or collar it covers (see [`crate::Drawing::refresh_hoods`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fixed: bool,
 }
 
 impl AccessoryParams {
@@ -386,6 +389,37 @@ impl crate::Drawing {
             }
         }
         best.map(|(_, a)| a)
+    }
+
+    /// Gives each hood that follows its opening (not `fixed`) the width, height and air of the duct or collar it covers, when
+    /// they changed. A hood is told from other objects by the opening being where it starts. Returns how many changed.
+    pub fn refresh_hoods(&mut self) -> Result<usize> {
+        let hoods: Vec<(crate::Handle, AccessoryParams, Vec2)> = self
+            .model
+            .iter()
+            .filter_map(|e| {
+                let a = accessory_of(e).filter(|a| a.kind == AccessoryKind::Hood && !a.fixed)?;
+                let EntityKind::Insert(i) = &e.kind else { return None };
+                Some((e.handle, a, Vec2::new(i.insert.x, i.insert.y)))
+            })
+            .collect();
+        let mut changed = 0;
+        for (h, mut a, at) in hoods {
+            let Some(found) = self.hood_anchor(at) else { continue };
+            // The opening it covers has to be where the hood starts, not another one near it.
+            if found.origin.dist(at) > a.units.to_units(5.0) {
+                continue;
+            }
+            if (a.diameter_mm, a.height_mm) == (found.width_mm, found.height_mm) && a.air == found.air {
+                continue;
+            }
+            (a.diameter_mm, a.height_mm, a.air) = (found.width_mm, found.height_mm, found.air);
+            if a.validate().is_ok() {
+                self.regenerate_accessory(h, &a)?;
+                changed += 1;
+            }
+        }
+        Ok(changed)
     }
 
     /// The duct that `at` is on, with the foot of `at` on its axis and the duct's direction: the

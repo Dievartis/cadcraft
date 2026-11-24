@@ -16,6 +16,7 @@ fn accessory(kind: AccessoryKind) -> AccessoryParams {
         units: HvacUnits::default(),
         air: None,
         height_mm: None,
+        fixed: false,
     }
 }
 
@@ -262,4 +263,25 @@ fn a_hood_on_a_duct_takes_the_air_of_the_duct_and_the_takeoff_counts_it_by_size_
     d.add_accessory(&Space::Model, Common::default(), &hood, a.origin, a.angle).unwrap();
     let t = d.takeoff("").unwrap();
     assert_eq!(t.accessories.iter().map(|c| (c.name.as_str(), c.size.as_str())).collect::<Vec<_>>(), [("hood", "Ø250 L600 S")]);
+}
+
+#[test]
+fn a_hood_follows_its_duct_until_it_is_set_by_hand() {
+    let (mut d, _) = ducted(None);
+    let a = d.hood_anchor(Vec2::new(5900.0, 0.0)).unwrap();
+    let duct = a.duct.unwrap();
+    let make = |d: &mut Drawing, fixed: bool| {
+        let p = AccessoryParams { diameter_mm: a.width_mm, air: a.air, fixed, ..accessory(AccessoryKind::Hood) };
+        d.add_accessory(&Space::Model, Common::default(), &p, a.origin, a.angle).unwrap()
+    };
+    let (follows, fixed) = (make(&mut d, false), make(&mut d, true));
+    let (mut p, ..) = d.duct_ends(duct).unwrap();
+    (p.diameter_mm, p.air) = (400.0, AirDirection::Exhaust);
+    d.regenerate_duct(duct, &p).unwrap();
+    assert_eq!(d.refresh_hoods().unwrap(), 1);
+    let of = |d: &Drawing, h| accessory_of(d.entity(h).unwrap()).unwrap();
+    assert_eq!((of(&d, follows).diameter_mm, of(&d, follows).air), (400.0, Some(AirDirection::Exhaust)));
+    assert_eq!(of(&d, follows).layer(), super::DUCT_EXHAUST_LAYER);
+    assert_eq!(of(&d, fixed).diameter_mm, 250.0, "one set by hand stays as it is");
+    assert_eq!(d.refresh_hoods().unwrap(), 0, "nothing more to follow");
 }
