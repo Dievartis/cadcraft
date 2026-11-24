@@ -54,6 +54,7 @@ fn duct(diameter_mm: f64) -> DuctParams {
         reducer: None,
         reducer_len_mm: None,
         label_shift_mm: None,
+        cut_deg: [0.0, 0.0],
         elbow: None,
         trim_start_mm: 0.0,
         trim_end_mm: 0.0,
@@ -2560,4 +2561,24 @@ fn the_labels_of_two_runs_laid_over_each_other_do_not_cover_each_other() {
     d.remove_entity(b);
     d.draw_duct_elbows(&Space::Model).unwrap();
     assert_eq!(shift(&d, a), None);
+}
+
+#[test]
+fn a_whistle_cuts_the_end_on_the_slant_and_only_where_the_end_is_free() {
+    let sides = |p: &DuctParams| polylines(&p.generate(false).unwrap());
+    let square = DuctParams { length: 1000.0, ..duct(200.0) };
+    let cut = DuctParams { cut_deg: [0.0, 45.0], ..square.clone() };
+    let (a, b) = (sides(&square), sides(&cut));
+    // At 45° on a 200 mm duct one side stops 200 mm short of the other, which still reaches the end.
+    let reach = |s: &[Vec<Vec2>]| s.iter().map(|l| l.last().unwrap().x).fold(f64::MIN, f64::max);
+    let least = |s: &[Vec<Vec2>]| s.iter().map(|l| l.last().unwrap().x).fold(f64::MAX, f64::min);
+    assert_eq!((reach(&a), least(&a)), (1000.0, 1000.0));
+    assert_eq!(reach(&b), 1000.0);
+    assert!((least(&b) - 800.0).abs() < 1e-6, "{}", least(&b));
+    let line = cut.generate(false).unwrap().into_iter().any(|x| matches!(x.kind, EntityKind::Line(l) if (l.a.x - l.b.x).abs() > 100.0));
+    assert!(line, "the end line is drawn across the slant");
+    // A cone at that end keeps the end square, and a cut too steep is refused.
+    let coned = DuctParams { reducer: Some(DuctReducer { from_mm: 300.0, at_end: true }), ..cut.clone() };
+    assert!((least(&sides(&coned)) - reach(&sides(&coned))).abs() < 1e-6);
+    assert!(DuctParams { cut_deg: [0.0, 80.0], ..square }.validate().is_err());
 }

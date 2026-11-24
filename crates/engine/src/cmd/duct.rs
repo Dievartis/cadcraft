@@ -38,7 +38,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
             .interactive(|s| Ok(Box::new(DuctAddM::new(s)))),
         CommandSpec::new("ductedit", "Edit Duct", run_ductedit)
-            .params("{handle | handles, diameter? (mm, or auto: sizing chooses the size) | width? and/or height? (mm; a rectangular section: a side alone changes that side), kind?, air?, flexible? (true or false), shape? (round or rectangular: each duct keeps its size and takes the other shape), insulation? (outside, inside or none), insulationThickness? (mm, default 30), flow? (m³/h: sizing keeps it and sizes the run for it; auto gives it back), altitude? (m: the underside, or null), endAltitude? (m, or null for a level run: the altitude of the underside at the far end, so that the run slopes from its altitude to this one; its true length, longer than its length in plan, is the one that loses pressure and is counted)} → {changed}"),
+            .params("{handle | handles, diameter? (mm, or auto: sizing chooses the size) | width? and/or height? (mm; a rectangular section: a side alone changes that side), kind?, air?, flexible? (true or false), shape? (round or rectangular: each duct keeps its size and takes the other shape), insulation? (outside, inside or none), insulationThickness? (mm, default 30), cutStart? / cutEnd? (degrees, -75 to 75, or 0 or null: the end of the run cut on the slant, a whistle; not drawn at an end with an elbow or a cone), flow? (m³/h: sizing keeps it and sizes the run for it; auto gives it back), altitude? (m: the underside, or null), endAltitude? (m, or null for a level run: the altitude of the underside at the far end, so that the run slopes from its altitude to this one; its true length, longer than its length in plan, is the one that loses pressure and is counted)} → {changed}"),
         CommandSpec::new("ductconnect", "Connect Terminals", run_ductconnect).menu(&["Draw", "HVAC", "Connect Terminals"]).params(
             "{terminals? (handles; default every terminal no duct reaches), maxDistance? (mm, default 3000)} → {created (flexible ducts), skipped}",
         ),
@@ -612,6 +612,7 @@ fn duct_params(s: &Session, last: &DuctLastUsed, label_mm: f64) -> Result<DuctPa
         reducer: None,
         reducer_len_mm: None,
         label_shift_mm: None,
+        cut_deg: [0.0, 0.0],
         elbow: None,
         trim_start_mm: 0.0,
         trim_end_mm: 0.0,
@@ -925,6 +926,15 @@ fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
             Some(Some(v.as_f64().filter(|f| f.is_finite() && *f > 0.0).ok_or_else(|| bad(CMD, "`openFlow` must be a flow above 0 (m³/h) or null"))?))
         }
     };
+    // The cut on the slant at each end (a whistle), degrees: 0 or null makes it square again.
+    let cut = |key: &str| -> Result<Option<f64>> {
+        match p.get(key) {
+            None => Ok(None),
+            Some(Value::Null) => Ok(Some(0.0)),
+            Some(v) => Ok(Some(v.as_f64().filter(|x| x.is_finite()).ok_or_else(|| bad(CMD, format!("`{key}` must be a number of degrees or null")))?)),
+        }
+    };
+    let (cut_start, cut_end) = (cut("cutStart")?, cut("cutEnd")?);
     let d = s.doc()?;
     let mut next = Vec::with_capacity(hs.len());
     for h in &hs {
@@ -968,6 +978,7 @@ fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
             Some(None) => dp.flow_set = false,
             None => {}
         }
+        dp.cut_deg = [cut_start.unwrap_or(dp.cut_deg[0]), cut_end.unwrap_or(dp.cut_deg[1])];
         if let Some(e) = end_altitude {
             dp.end_level_mm = e;
         }
@@ -1085,6 +1096,7 @@ fn run_ductconnect(s: &mut Session, p: &Value) -> Result<Value> {
             reducer: None,
             reducer_len_mm: None,
             label_shift_mm: None,
+            cut_deg: [0.0, 0.0],
             elbow: None,
             trim_start_mm: 0.0,
             trim_end_mm: 0.0,

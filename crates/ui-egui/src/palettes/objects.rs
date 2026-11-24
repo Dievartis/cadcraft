@@ -2270,6 +2270,19 @@ fn duct_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[DuctParams], len: &dyn 
             }
         });
     }
+    // The ends cut on the slant (whistles), degrees: 0 or empty is square.
+    for (label, key, id, at_end) in [("Start cut (degrees)", "cutStart", "duct_cut_start", false), ("End cut (degrees)", "cutEnd", "duct_cut_end", true)] {
+        let cut = shared(&ds.iter().map(|p| format!("{}", p.cut_deg[usize::from(at_end)])).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+        prop_row(ui, label, |ui| {
+            if let Some(t) = edit_field(ui, ui.scope_id().with((id, &ids)), cut).filter(|t| t != VARIES) {
+                if t.trim().is_empty() {
+                    action = edit(key, Value::Null);
+                } else if let Some(deg) = number(Some(t), bad) {
+                    action = edit(key, json!(deg));
+                }
+            }
+        });
+    }
     // The altitude of the underside, metres: empty gives it back to the height zone. Where two joined runs
     // differ, sizing makes the step between them and, where two cross, the lower passes under.
     let altitude = shared(&ds.iter().map(|p| p.level_mm.map(|b| format!("{}", b / 1000.0)).unwrap_or_default()).collect::<Vec<_>>())

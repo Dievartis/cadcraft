@@ -824,6 +824,9 @@ pub struct DuctParams {
     /// How far the label is moved along and across the run, mm, so that it does not write over another run's label (set by `space_duct_labels`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_shift_mm: Option<[f64; 2]>,
+    /// The end cut on the slant (a whistle), degrees, at the start and at the far end: 0 is square. Drawn only at an end with no elbow or cone.
+    #[serde(default, skip_serializing_if = "is_square")]
+    pub cut_deg: [f64; 2],
     /// The elbow where the run joins the one before it, drawn by sizing: curved arcs across the run's
     /// width, the two runs being drawn shorter by the length it takes.
     #[serde(default)]
@@ -917,6 +920,13 @@ impl DuctShape {
     }
 }
 
+fn is_square(c: &[f64; 2]) -> bool {
+    *c == [0.0, 0.0]
+}
+
+/// The most a run's end can be cut on the slant, degrees.
+pub const MAX_CUT_DEG: f64 = 75.0;
+
 /// The cone where a duct run joins a larger or smaller one.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -955,6 +965,11 @@ impl DuctParams {
     pub fn validate(&self) -> Result<()> {
         check_label_height(self.label_height_mm)?;
         self.units.validate()?;
+        if !self.cut_deg.iter().all(|c| c.is_finite() && c.abs() <= MAX_CUT_DEG)
+            || self.cut_deg.iter().any(|c| 2.0 * (self.plan_width_mm() / 2.0) * c.abs().to_radians().tan() > self.length / self.units.to_units(1.0) / 2.0 && *c != 0.0)
+        {
+            return Err(invalid(format!("An end cut is at most {MAX_CUT_DEG} degrees, and the slant must be shorter than half the run.")));
+        }
         if let Some(e) = self.elbow
             && !(e.angle_deg.is_finite() && e.angle_deg.abs() > 0.0 && e.angle_deg.abs() < 180.0 && e.radius_mm.is_finite() && e.radius_mm > 0.0)
         {
@@ -1292,11 +1307,23 @@ impl DuctParams {
     }
 
     /// The lines that close the free ends of the run (across it, as wide as it is at that end).
+    /// The cut on the slant at an end, degrees: what was asked, but 0 where an elbow or a cone is.
+    fn cut_at(&self, at_end: bool, cone: Option<(f64, f64, bool)>) -> f64 {
+        let trim = if at_end { self.trim_end_mm } else { self.trim_start_mm };
+        let cut = self.cut_deg[usize::from(at_end)];
+        if trim > 0.0 || cone.is_some_and(|c| c.2 == at_end) { 0.0 } else { cut }
+    }
+
+    /// How much shorter the side at `sign` (+1 or -1 across) is than the square end, drawing units, for a cut of `cut` degrees on a run of half-width `r`.
+    fn cut_back(cut: f64, sign: f64, r: f64) -> f64 {
+        r * cut.abs().to_radians().tan() * (1.0 + sign * cut.signum())
+    }
+
     fn cap_pieces(&self, r: f64) -> Vec<HvacPiece> {
         let cone = self.cone(r);
         let mut pieces = Vec::new();
         for (on, x, at_end) in [(self.cap_start, 0.0, false), (self.cap_end, self.length, true)] {
-            if !on {
+            if !on || self.cut_at(at_end, cone) != 0.0 {
                 continue;
             }
             let half = match cone {
@@ -1369,7 +1396,14 @@ impl DuctParams {
                 if let (Some((r0, _, false)), 0) = (cone, k) {
                     pts.push(Vec2::new(trim0, sign * r0));
                 }
-                pts.extend(self.side_points(s, e, sign * r));
+                let (mut s, mut e) = (s, e);
+                if k == 0 {
+                    s += Self::cut_back(self.cut_at(false, cone), sign, r);
+                }
+                if k + 1 == solid.len() {
+                    e -= Self::cut_back(self.cut_at(true, cone), sign, r);
+                }
+                pts.extend(self.side_points(s, e.max(s), sign * r));
                 if let (Some((r0, _, true)), true) = (cone, k + 1 == solid.len()) {
                     pts.push(Vec2::new(self.length - trim1, sign * r0));
                 }
@@ -1387,6 +1421,14 @@ impl DuctParams {
         }
         pieces.extend(self.insulation_pieces(r, (x0, x1)));
         pieces.extend(self.cap_pieces(r));
+        // The end line of a cut on the slant, from the one side's end to the other's.
+        for at_end in [false, true] {
+            let cut = self.cut_at(at_end, cone);
+            if cut != 0.0 {
+                let x = |sign: f64| if at_end { self.length - Self::cut_back(cut, sign, r) } else { Self::cut_back(cut, sign, r) };
+                pieces.push(HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(Vec2::new(x(1.0), r)), b: v3(Vec2::new(x(-1.0), -r)) }) });
+            }
+        }
         // Each jog: four elbows across the run, each a shallow arc bulging toward the middle of the jog (as plans draw an elbow's
         // gores), the same for every size: a semicircle would read as rings on a wide duct.
         for j in &self.jogs {
