@@ -208,6 +208,7 @@
 	Cut with Base Point	قص من نقطة أساس
 	Cyan	سماوي
 	Cylinder	أسطوانة
+	Drawing Properties...	خصائص الرسم...
 	DWG	DWG
 	DWG Reference...	مرجع DWG...
 	DXF	DXF
@@ -299,6 +300,14 @@
 	End angle	زاوية النهاية
 	Endpoint	نقطة نهاية
 	Enter	إدخال
+	Enter author	أدخل المؤلف
+	Enter comments	أدخل التعليقات
+	Enter field name or system variable	أدخل اسم الحقل أو متغير النظام
+	Enter keywords	أدخل الكلمات الرئيسية
+	Enter property	أدخل الخاصية
+	Enter property to change	أدخل الخاصية المراد تغييرها
+	Enter subject	أدخل الموضوع
+	Enter title	أدخل العنوان
 	Enter Top, Zero or Bottom.	أدخل أعلى أو صفر أو أسفل.
 	Enter a fit data option	أدخل خيار بيانات الملاءمة
 	Enter a pattern name	أدخل اسم نمط
@@ -359,6 +368,7 @@
 	External Reference	مرجع خارجي
 	External References	مراجع خارجية
 	Extrude	بثق
+	Field...	حقل...
 	File	ملف
 	File Tab	علامة تبويب الملف
 	Fillet	تدوير زاوية
@@ -557,6 +567,7 @@
 	Match Layer	مطابقة الطبقة
 	Match Properties	مطابقة الخصائص
 	Measure	قياس
+	Quick Measure	قياس سريع
 	Measure Distance	قياس مسافة
 	Measure Geometry	قياس هندسة
 	Merge Cells	دمج الخلايا
@@ -689,6 +700,7 @@
 	Perpendicular	عمودي
 	Pickbox size	حجم صندوق الاختيار
 	Plot	طباعة
+	Plot...	طباعة...
 	Plot (click: do not plot)	طباعة (انقر: بدون طباعة)
 	Plot Preview	معاينة الطباعة
 	Plot Style Manager	مدير أنماط الطباعة
@@ -808,6 +820,7 @@
 	Rotate	تدوير
 	Rotation	التدوير
 	Run Script...	تشغيل برمجية...
+	Spelling	التدقيق الإملائي
 	SVG drawings (SVG, SVGZ)	رسومات SVG (SVG, SVGZ)
 	Save	حفظ
 	Save (⌘S)	حفظ (⌘S)
@@ -1163,6 +1176,7 @@
 	Up	أعلى
 	Update	تحديث
 	Update Data Links	تحديث ارتباطات البيانات
+	Update Fields	تحديث الحقول
 	Use System Setting	استخدام إعداد النظام
 	Use for this layout	استخدام لهذا التخطيط
 	Use object linetype	استخدام نوع خط الكائن
@@ -1240,6 +1254,8 @@ menu	View	عرض
 	Check for Updates…	التحقق من وجود تحديثات…
 	CADCraft is up to date.	CADCraft محدّث.
 	Could not check for updates.	تعذّر التحقق من وجود تحديثات.
+	Check for Updates	التحقق من وجود تحديثات
+	Release updates are disabled for this development build.	تحديثات الإصدارات معطّلة في نسخة التطوير هذه.
 	Add to Working Set	إضافة إلى مجموعة العمل
 	Add: Pick points	إضافة: انتقاء نقاط
 	Add: Select objects	إضافة: تحديد كائنات
@@ -1411,6 +1427,17 @@ menu	View	عرض
 	Ctrl+Enter to apply	Ctrl+Enter to apply
 	Edit Text	Edit Text
 	The drawing changed. Close the window and open it again.	تغيّر الرسم. أغلق النافذة وافتحها مرة أخرى.
+	Layer state name	اسم حالة الطبقات
+	Switches layers on and off, frozen and locked	يشغّل الطبقات ويطفئها ويجمّدها ويقفلها
+	Rename	إعادة التسمية
+	Objects on locked layers can't be selected	لا يمكن تحديد الكائنات الموجودة على طبقات مقفلة
+	They are still shown and snapped to, like a blueprint.	لا تزال معروضة ويمكن الالتقاط إليها، مثل المخطط الخلفي.
+# Layers palette: move the selection to a new layer, delete empty layers.
+	Move to New Layer	نقل إلى طبقة جديدة
+	Move Selection to New Layer	نقل التحديد إلى طبقة جديدة
+	New layer name	اسم الطبقة الجديدة
+	Delete Empty Layers	حذف الطبقات الفارغة
+	Deletes every layer that has no objects on it	يحذف كل طبقة لا تحتوي على كائنات
 
 # ArtCraft feature naming
 	Additional Tools	أدوات إضافية

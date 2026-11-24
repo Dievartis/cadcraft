@@ -16,6 +16,9 @@ pub struct Settings {
     pub snapunit: Vec2,
     /// OSNAPHATCH: object snaps find hatch objects (off by default, as in AutoCAD).
     pub osnaphatch: bool,
+    /// PDFOSNAP: object snaps find the lines of PDF underlays' pages (on by default). A session
+    /// setting: every drawing follows it and none saves it.
+    pub pdfosnap: bool,
     /// GRIDUNIT in a drafting settings snapshot; zero components follow SNAPUNIT.
     pub gridunit: Vec2,
     /// Major grid line every N minor lines (GRIDMAJOR).
@@ -78,6 +81,9 @@ pub struct Settings {
     /// PICKDRAG: false = two-click windows (0), true = clicks or dragging (2).
     /// Drag-only mode (1) is not supported yet.
     pub pickdrag: bool,
+    /// MBUTTONPAN: the middle button pans the view and a double middle click zooms to the
+    /// extents (1); off (0), a middle click opens the object snap menu at the cursor instead.
+    pub mbuttonpan: bool,
     /// PICKSTYLE: bit 1 picks whole selectable groups ([`cmd::groups`]), bit 2 associative hatches
     /// with their boundaries (stored, not used yet).
     pub pickstyle: u8,
@@ -85,6 +91,9 @@ pub struct Settings {
     pub cursorsize: f64,
     /// MAXARRAY: the most objects one array command creates (items × selected objects).
     pub maxarray: u64,
+    /// SPELLDICTIONARY: the user dictionary file SPELL reads and adds words to. A user
+    /// setting, never taken from a drawing (empty: `user.dic` in the settings folder).
+    pub spelldictionary: String,
     /// SNAPSTYL 1: isometric snap and grid, ortho and crosshair along the isometric plane's axes.
     pub isodraft: bool,
     /// SNAPISOPAIR: the current isometric plane (ISOPLANE, F5).
@@ -140,6 +149,14 @@ pub struct Settings {
     pub attreq: bool,
 }
 
+impl Settings {
+    /// The snap bits the settings add to OSMODE's: hatches found (OSNAPHATCH), PDF pages not
+    /// (PDFOSNAP 0).
+    pub fn snap_extras(&self) -> u32 {
+        (if self.osnaphatch { snap::mode::HATCH } else { 0 }) | if self.pdfosnap { 0 } else { snap::mode::NOPDF }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Settings {
@@ -151,6 +168,7 @@ impl Default for Settings {
             snapmode: false,
             snapunit: Vec2::new(0.5, 0.5),
             osnaphatch: false,
+            pdfosnap: true,
             gridunit: Vec2::new(0.5, 0.5),
             gridmajor: 5,
             zoomfactor: 60,
@@ -178,10 +196,12 @@ impl Default for Settings {
             filedia: true,
             pickadd: true,
             pickdrag: true,
+            mbuttonpan: true,
             pickstyle: 1,
             gripsize: 5.0,
             cursorsize: 5.0,
             maxarray: 100_000,
+            spelldictionary: String::new(),
             isodraft: false,
             isoplane: snap::iso::IsoPlane::Left,
             annoallvisible: true,

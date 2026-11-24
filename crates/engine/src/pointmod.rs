@@ -130,7 +130,7 @@ pub fn snap_name(m: u32) -> &'static str {
 /// one [`crate::snap::osnap`] picks first and the rest in its order (specific snaps nearest
 /// first, then deferred snaps, then Nearest), without repeats.
 pub fn snap_candidates(d: &Drawing, space: &Space, cursor: Vec2, aperture: f64, osmode: u32, base: Option<Vec2>, deferred: bool) -> Vec<SnapHit> {
-    if osmode & !mode::HATCH == 0 || osmode & mode::OFF != 0 {
+    if osmode & !(mode::HATCH | mode::NOPDF) == 0 || osmode & mode::OFF != 0 {
         return Vec::new();
     }
     crate::snap::osnap_all(d, space, cursor, aperture, osmode, base, deferred)
@@ -155,14 +155,16 @@ impl Session {
             Frame::From { base: Some(b) } => Prompt::new("<Offset>", point).base(b),
             Frame::Mid { first: None } => Prompt::new("First point of mid", point),
             Frame::Mid { first: Some(f) } => Prompt::new("Second point of mid", point).base(f),
-            Frame::Filter { keep, first: None } => Prompt::new(format!("{} of", keep.name()), point).base_opt(p.base),
-            Frame::Filter { keep, first: Some(_) } => Prompt::new(format!("(need {})", keep.need()), point).base_opt(p.base),
+            Frame::Filter { keep, first: None } => Prompt::with_values("{filter} of", [("filter", keep.name().to_string())], point).base_opt(p.base),
+            Frame::Filter { keep, first: Some(_) } => {
+                Prompt::with_values("(need {coordinates})", [("coordinates", keep.need().to_string())], point).base_opt(p.base)
+            }
             Frame::TempTrack => Prompt::new("Specify temporary OTRACK point", point),
             Frame::Track { last: None } => Prompt::new("First tracking point", point),
             Frame::Track { last: Some(l) } => Prompt::new("Next point (Press ENTER to end tracking)", point).base(l),
             Frame::Angle { .. } | Frame::Snap { mode: 0 } => p,
             // "Endpoint of:", keeping the base and deferral PER/TAN need.
-            Frame::Snap { mode } => Prompt { message: format!("{} of", snap_name(mode)), keywords: Vec::new(), default: None, ..p },
+            Frame::Snap { mode } => Prompt { keywords: Vec::new(), default: None, ..p }.reworded(format!("{} of", snap_name(mode))),
         })
     }
 
@@ -345,7 +347,7 @@ impl Session {
                     let prompt = self.current_prompt();
                     let space = self.space();
                     let aperture = self.pixel_size() * self.settings.aperture.max(1.0);
-                    let hatch = if self.settings.osnaphatch { mode::HATCH } else { 0 };
+                    let hatch = self.settings.snap_extras();
                     let base = prompt.as_ref().and_then(|q| q.base);
                     let deferred = prompt.as_ref().is_some_and(|q| q.deferred);
                     let hit = crate::snap::osnap(self.doc()?, &space, p, aperture, mode | hatch, base, deferred);

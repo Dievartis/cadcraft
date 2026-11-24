@@ -7,6 +7,16 @@
 	Attach DWG...	Připojit DWG...
 	Bind	Svázat
 	Detach	Odpojit
+	Drawing Properties...	Vlastnosti výkresu...
+	Enter author	Zadejte autora
+	Enter comments	Zadejte komentáře
+	Enter field name or system variable	Zadejte název pole nebo systémovou proměnnou
+	Enter keywords	Zadejte klíčová slova
+	Enter property	Zadejte vlastnost
+	Enter property to change	Zadejte vlastnost ke změně
+	Enter subject	Zadejte předmět
+	Enter title	Zadejte název
+	Field...	Pole...
 	Loaded	Načteno
 	Make it a block of this drawing, keeping its layer names	Převést na blok tohoto výkresu a zachovat názvy hladin
 	Make it a block of this drawing; its layers become NAME$0$LAYER	Převést na blok tohoto výkresu; názvy hladin budou NAME$0$LAYER
@@ -21,6 +31,7 @@
 	Reload	Znovu načíst
 	Reload All	Znovu načíst vše
 	Saved Path	Uložená cesta
+	Spelling	Pravopis
 	Unload	Uvolnit
 	Unloaded	Uvolněno
 	Unreferenced	Bez odkazu
@@ -512,6 +523,7 @@
 	Match Layer	Převzít hladinu
 	Match Properties	Převzít vlastnosti
 	Measure	Rozdělit podle délky
+	Quick Measure	Rychlé měření
 	Measure Distance	Změřit vzdálenost
 	Measure Geometry	Změřit geometrii
 	Merge Cells	Sloučit buňky
@@ -622,6 +634,7 @@
 	Pattern	Vzor
 	Perpendicular	Kolmá
 	Plot	Tisk
+	Plot...	Tisk...
 	Plot (click: do not plot)	Tisknout (kliknutím: netisknout)
 	Plot Preview	Náhled tisku
 	Plot Window	Okno tisku
@@ -641,6 +654,7 @@
 	Send Hatches to Back	Přenést šrafy dozadu
 	Send Under Objects	Přenést pod objekty
 	Text Objects Only	Pouze textové objekty
+	Update Fields	Aktualizovat pole
 	Use for this layout	Použít pro toto rozvržení
 	Display plot styles	Zobrazit tiskové styly
 	No plot style tables.	Žádné tabulky tiskových stylů.
@@ -1225,6 +1239,8 @@ menu	Modify	Modifikace
 	Check for Updates…	Zkontrolovat aktualizace…
 	CADCraft is up to date.	CADCraft je aktuální.
 	Could not check for updates.	Aktualizace se nepodařilo zkontrolovat.
+	Check for Updates	Zkontrolovat aktualizace
+	Release updates are disabled for this development build.	Aktualizace vydání jsou pro toto vývojové sestavení vypnuté.
 	Add a drawing file as a block library	Přidat výkresový soubor jako knihovnu bloků
 	Add a folder of drawings or a drawing file to use its blocks.	Přidejte složku s výkresy nebo výkresový soubor, abyste mohli používat jeho bloky.
 	Block Libraries	Knihovny bloků
@@ -1267,6 +1283,17 @@ menu	Modify	Modifikace
 	Ctrl+Enter to apply	Ctrl+Enter to apply
 	Edit Text	Edit Text
 	The drawing changed. Close the window and open it again.	Výkres se změnil. Zavřete okno a otevřete jej znovu.
+	Layer state name	Název stavu hladin
+	Switches layers on and off, frozen and locked	Zapíná a vypíná hladiny, zmrazuje a zamyká
+	Rename	Přejmenovat
+	Objects on locked layers can't be selected	Objekty na zamčených hladinách nelze vybrat
+	They are still shown and snapped to, like a blueprint.	Stále se zobrazují a lze k nim přichytávat, jako k podkladu.
+# Layers palette: move the selection to a new layer, delete empty layers.
+	Move to New Layer	Přesunout do nové hladiny
+	Move Selection to New Layer	Přesunout výběr do nové hladiny
+	New layer name	Název nové hladiny
+	Delete Empty Layers	Odstranit prázdné hladiny
+	Deletes every layer that has no objects on it	Odstraní každou hladinu, ve které nejsou žádné objekty
 
 # ArtCraft feature naming
 	Additional Tools	Další nástroje

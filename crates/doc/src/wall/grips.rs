@@ -118,10 +118,3 @@ impl Drawing {
         Ok(true)
     }
 }
-
-impl Drawing {
-    /// Application-aware grips, falling back to ordinary entity grips for general drafting.
-    pub fn entity_grips(&self, e: &Entity) -> Vec<Vec2> {
-        self.wall_grips(e).unwrap_or_else(|| e.kind.grips())
-    }
-}

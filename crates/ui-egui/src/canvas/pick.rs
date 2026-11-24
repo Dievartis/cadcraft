@@ -48,6 +48,19 @@ pub(super) fn edit_text_at(app: &mut CadApp, p: Vec2) -> bool {
     true
 }
 
+/// Start TABLEDIT on the cell at `p`, whose in-place editor the UI then opens (#3136); false when
+/// no table cell is there.
+pub(super) fn edit_table_cell_at(app: &mut CadApp, p: Vec2) -> bool {
+    if cadcraft_engine::cmd::table::cell_under(&app.session, p).is_none() {
+        return false;
+    }
+    app.start("tabledit");
+    if let Err(e) = app.session.input(Input::Point(p)) {
+        app.session.echo(e.to_string());
+    }
+    true
+}
+
 /// The hatch under world point `w` within the pick aperture (PICKBOX × 1.5 pixels at `scale`
 /// pixels per unit), if any.
 pub(super) fn hatch_at(app: &CadApp, w: Vec2, scale: f64) -> Option<Handle> {
@@ -55,6 +68,60 @@ pub(super) fn hatch_at(app: &CadApp, w: Vec2, scale: f64) -> Option<Handle> {
     let aperture = app.session.settings.pickbox.max(1.0) * 1.5 / scale.max(1e-12);
     let h = cadcraft_engine::select::pick_in(&st.doc, &st.edit_space(), st.viewport_frozen(), w, aperture)?;
     matches!(st.doc.entity(h)?.kind, cadcraft_doc::EntityKind::Hatch(_)).then_some(h)
+}
+
+/// The wall (or other parametric object drawn as a block reference) under world point `w`
+/// within the pick aperture, if any.
+pub(super) fn parametric_at(app: &CadApp, w: Vec2, scale: f64) -> Option<Handle> {
+    let st = app.session.state().ok()?;
+    let aperture = app.session.settings.pickbox.max(1.0) * 1.5 / scale.max(1e-12);
+    let h = cadcraft_engine::select::pick(&st.doc, &st.edit_space(), w, aperture)?;
+    crate::palettes::is_parametric(&st.doc, h).then_some(h)
+}
+
+/// The title block under world point `w` within the pick aperture, if any (double-clicked to edit it).
+pub(super) fn titleblock_at(app: &CadApp, w: Vec2, scale: f64) -> Option<Handle> {
+    let st = app.session.state().ok()?;
+    let aperture = app.session.settings.pickbox.max(1.0) * 1.5 / scale.max(1e-12);
+    let h = cadcraft_engine::select::pick(&st.doc, &st.edit_space(), w, aperture)?;
+    st.doc.entity(h).and_then(|e| cadcraft_doc::titleblock_of(e)).map(|_| h)
+}
+
+#[cfg(test)]
+mod parametric_pick_tests {
+    use cadcraft_engine::Session;
+    use cadcraft_geom::Vec2;
+    use serde_json::json;
+
+    use crate::{CadApp, Services};
+
+    #[test]
+    fn double_clicking_a_wall_selects_it_and_opens_its_properties() {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        *app.session.doc_mut().unwrap() = cadcraft_doc::Drawing::new_metric();
+        let hx = app.session.execute("walladd", &json!({ "points": [[0, 0], [4000, 0]] })).unwrap()["handle"].as_str().unwrap().to_string();
+        let _ = app.session.zoom_extents();
+        app.ui.show_palettes = false;
+        let ctx = egui::Context::default();
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0)));
+        let frame = |app: &mut CadApp, events: Vec<egui::Event>, time: f64| {
+            app.logic(&ctx);
+            let input = egui::RawInput { screen_rect: screen, events, time: Some(time), ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| app.ui(ui));
+            out.textures_delta.clear();
+        };
+        frame(&mut app, Vec::new(), 0.0);
+        let at = app.canvas.xf.unwrap().to_screen(Vec2::new(1000.0, 0.0));
+        let button =
+            |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::default() };
+        frame(&mut app, vec![egui::Event::PointerMoved(at)], 0.1);
+        frame(&mut app, vec![button(true), button(false)], 0.2);
+        frame(&mut app, vec![button(true), button(false)], 0.3);
+        frame(&mut app, Vec::new(), 0.4);
+        assert_eq!(app.session.selection().iter().map(|h| h.hex()).collect::<Vec<_>>(), vec![hx]);
+        assert!(app.ui.show_palettes, "the Properties palette opens");
+        assert!(app.session.running.is_none(), "no command, no block editing");
+    }
 }
 
 #[cfg(test)]
@@ -103,4 +170,12 @@ mod hatch_pick_tests {
         // The double-click (at the hatch's centre grip) only opens the dialog: no grip edit.
         assert!(app.session.running.is_none(), "{:?}", app.session.running.as_ref().map(|r| r.machine.name()));
     }
+}
+
+/// The block reference under world point `w` in the current space, when the top object the pick
+/// aperture finds is one.
+pub(super) fn insert_at(app: &CadApp, w: Vec2) -> Option<Handle> {
+    let h = cadcraft_engine::cmd::curves::pick_at(&app.session, w)?;
+    let d = app.session.doc().ok()?;
+    matches!(d.entity(h)?.kind, cadcraft_doc::EntityKind::Insert(_)).then_some(h)
 }

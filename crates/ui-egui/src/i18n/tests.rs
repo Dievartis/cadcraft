@@ -20,7 +20,7 @@ fn catalog_is_valid_and_preserves_placeholders_and_ellipses() {
         let (catalog, errors) = parse(language.source);
         assert!(errors.is_empty(), "{}: {errors:?}", language.code);
         for ((context, key), value) in catalog {
-            assert!(["", "menu", "@plural"].contains(&context), "unknown context: {context}");
+            assert!(["", "menu", "echo", "@plural"].contains(&context), "unknown context: {context}");
             let forms: Vec<_> = if context == "@plural" { value.split('|').collect() } else { vec![value] };
             if context == "@plural" {
                 assert_eq!(forms.len(), language.plural_forms, "{}: {key}", language.code);
@@ -153,6 +153,7 @@ fn missing_marked_ui_literals(language: &str) -> BTreeSet<String> {
         "keys",
         "mtext_editor",
         "layers",
+        "layersets",
         "bedit",
         "palettes",
         "managers/dimstyle",
@@ -388,6 +389,27 @@ fn counts_and_templates_follow_each_catalog_and_keep_inserted_text() {
     });
     assert_eq!(t("Layers"), "Layers", "language must not leak out of a render scope");
     assert_eq!(count(2, "{n} contributor", "{n} contributors"), "2 contributors");
+}
+
+/// A prompt with a value in it (ATTEDIT's "Enter value for NUMBER") is translated from its
+/// source, and the value goes back in as it is (#2611).
+#[test]
+fn a_prompt_with_values_is_translated_from_its_source() {
+    use cadcraft_engine::{Accept, Prompt};
+    let p = Prompt::with_values("Enter value for {tag}", [("tag", "NUMBER".to_string())], Accept::TEXT);
+    assert_eq!(p.message, "Enter value for NUMBER", "everything else reads the English text");
+    with_language("en", || assert_eq!(prompt(&p), "Enter value for NUMBER"));
+    with_language("fr", || {
+        let shown = tr("fr", "Enter value for {tag}").replace("{tag}", "NUMBER");
+        assert_ne!(shown, p.message, "the French catalog has the source");
+        assert_eq!(prompt(&p), shown);
+        // A value that looks like a placeholder stays as typed.
+        let q = Prompt::with_values("Enter value for {tag}", [("tag", "{tag}".to_string())], Accept::TEXT);
+        assert_eq!(prompt(&q), tr("fr", "Enter value for {tag}"));
+        // A prompt without values is looked up by its message, as before.
+        let r = Prompt::new("Enter block name", Accept::TEXT);
+        assert_eq!(prompt(&r), tr("fr", "Enter block name"));
+    });
 }
 
 #[test]
@@ -731,4 +753,20 @@ fn polish_plural_forms() {
     {
         assert_eq!(plural_pl(n), expected, "n={n}");
     }
+}
+
+#[test]
+fn a_history_line_is_translated_by_its_pattern_and_its_values_by_the_catalog() {
+    with_language("fr", || {
+        assert_eq!(echo("Nothing to undo."), "Rien à annuler.");
+        assert_eq!(echo("Block \"MUR\" defined with 3 object(s)."), "Bloc « MUR » défini avec 3 objet(s).");
+        assert_eq!(echo("Command: LINE"), "Commande : LINE");
+        assert_eq!(
+            echo("Section: 3 walls, 2 openings, 1 slabs, 0 columns, 4 beams, 5 ceilings, 6 roofs cut"),
+            "Coupe : 3 murs, 2 ouvertures, 1 dalles, 0 poteaux, 4 poutres, 5 faux plafonds, 6 toits coupés"
+        );
+        // What fits nothing stays as it is.
+        assert_eq!(echo("Something unknown 12"), "Something unknown 12");
+    });
+    assert_eq!(echo("Nothing to undo."), "Nothing to undo.");
 }

@@ -97,6 +97,25 @@ fn noun(kind: Kind) -> &'static str {
     }
 }
 
+/// The question asked before purging one `{name}` of `kind`, written whole so it can be
+/// translated (#2611).
+fn confirm_source(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Blocks => "Purge block \"{name}\"?",
+        Kind::Dimstyles => "Purge dimension style \"{name}\"?",
+        Kind::Groups => "Purge group \"{name}\"?",
+        Kind::Layers => "Purge layer \"{name}\"?",
+        Kind::Linetypes => "Purge linetype \"{name}\"?",
+        Kind::MleaderStyles => "Purge multileader style \"{name}\"?",
+        Kind::MlineStyles => "Purge multiline style \"{name}\"?",
+        Kind::TableStyles => "Purge table style \"{name}\"?",
+        Kind::TextStyles => "Purge text style \"{name}\"?",
+        Kind::ZeroLength => "Purge zero-length object \"{name}\"?",
+        Kind::EmptyText => "Purge empty text object \"{name}\"?",
+        Kind::Absent | Kind::All => "Purge object \"{name}\"?",
+    }
+}
+
 fn json_key(kind: Kind) -> &'static str {
     match kind {
         Kind::Blocks => "blocks",
@@ -150,8 +169,9 @@ pub(in crate::cmd) fn override_arrows(dm: &cadcraft_doc::Dimension) -> impl Iter
     dm.overrides.iter().filter(|(k, _)| is_arrow_override(k)).filter_map(|(_, v)| override_name(v)).filter(|n| !n.is_empty())
 }
 
-/// Upper-case names of blocks reachable from model space, the layouts and dimensions, and the
-/// arrowhead blocks dimension styles and dimension overrides name.
+/// Upper-case names of blocks reachable from model space, the layouts and dimensions, the
+/// arrowhead blocks dimension styles and dimension overrides name, and the source and replacement
+/// blocks an associative array's parameters name.
 pub(in crate::cmd) fn used_blocks(d: &Drawing) -> HashSet<String> {
     let mut used = HashSet::new();
     let mut frontier: Vec<String> = Vec::new();
@@ -190,6 +210,11 @@ pub(in crate::cmd) fn used_blocks(d: &Drawing) -> HashSet<String> {
                     EntityKind::MLeader(m) => frontier.extend(m.block.as_ref().map(|b| b.block.clone())),
                     _ => {}
                 }
+            }
+            // A replacement outside a shrunk array's item grid comes back when the array grows.
+            if let Some(a) = &b.array {
+                frontier.push(a.source.clone());
+                frontier.extend(a.replaced.iter().map(|r| r.block.clone()));
             }
         }
     }
@@ -556,7 +581,7 @@ impl Interactive for PurgeM {
             Stage::Verify(..) => Prompt::new("Verify each name to be purged?", KW).kw(&["Yes", "No"]).default("Y"),
             Stage::Confirm { kind, queue, .. } => {
                 let n = queue.front().map(String::as_str).unwrap_or("");
-                Prompt::new(format!("Purge {} \"{n}\"?", noun(*kind)), KW).kw(&["Yes", "No"]).default("N")
+                Prompt::with_values(confirm_source(*kind), [("name", n.to_string())], KW).kw(&["Yes", "No"]).default("N")
             }
         }
     }

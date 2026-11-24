@@ -18,6 +18,7 @@ pub mod blockedit;
 pub mod capped_read;
 pub mod cmd;
 pub mod doc_path;
+pub mod drawlock;
 pub mod file_access;
 mod finite;
 pub mod grip_dims;
@@ -52,9 +53,10 @@ pub use cadcraft_doc as doc;
 pub use cadcraft_fonts as fonts;
 pub use cadcraft_geom as geom;
 pub use cadcraft_render as render;
+pub use cmd::blocks::attedit::{AttributeRow, attributes};
 pub use cmd::hatch::{HatchPicks, PatternChoice, PickMode, pattern_choices};
 pub use cmd::{CommandInfo, CommandSpec, command_specs, find_command};
-pub use prompt::{Accept, DisplayOnly, Drag, EditorKind, Input, Interactive, Picker, Prompt, Step, TextEditor};
+pub use prompt::{Accept, DisplayOnly, Drag, EditorKind, Input, Interactive, Picker, Prompt, Step, Template, TextEditor};
 
 mod doc_state;
 mod error;
@@ -81,6 +83,8 @@ pub fn build_version() -> &'static str {
 
 /// The editor session: open drawings, settings, the running command and the command log.
 pub struct Session {
+    /// What the PDF Underlay dialog chose, for the PDFATTACH it starts.
+    pub(crate) attach_preset: Option<cmd::underlay::AttachPreset>,
     pub docs: Vec<DocState>,
     pub active: usize,
     /// Monotonic count of changes to the open drawings and the active one. A screenshot queued
@@ -154,6 +158,8 @@ pub struct Session {
     /// SIngle typed at "Select objects": the next selection ends the prompt.
     pub select_single: bool,
     pub untitled_counter: u32,
+    /// The unit (INSUNITS) every drawing opened or made takes, when the user chose one to be used each time; `None`: each drawing keeps its own.
+    pub default_insunits: Option<i64>,
     /// The last dimension created (DIMCONTINUE / DIMBASELINE).
     pub last_dim: Option<Handle>,
     /// Options remembered between invocations of interactive commands.
@@ -176,6 +182,10 @@ pub struct Session {
     /// ([`Session::input_object`]): a pick at exactly that point picks that object
     /// ([`Session::pick_object`]).
     pick_hint: Option<(Handle, Vec2)>,
+    /// Whether an undoable command records an undo step. A long-lived server session turns this
+    /// off: history belongs to the collaboration service (ADR 0010), and per-operation snapshots
+    /// would only grow its memory.
+    pub(crate) record_undo: bool,
 }
 
 impl Default for Session {
@@ -203,6 +213,7 @@ impl Session {
             in_script: false,
             suspended: None,
             log: Vec::new(),
+            attach_preset: None,
             last_command: None,
             last_point: Vec2::ZERO,
             area: 0.0,
@@ -227,6 +238,7 @@ impl Session {
             select_mode: None,
             select_single: false,
             untitled_counter: 0,
+            default_insunits: None,
             last_dim: None,
             last_used: LastUsed::default(),
             clipboard_source: None,
@@ -237,6 +249,7 @@ impl Session {
             bars_shown: Default::default(),
             bars_request: Default::default(),
             pick_hint: None,
+            record_undo: true,
         }
     }
 
@@ -249,9 +262,12 @@ impl Session {
     pub fn doc(&self) -> Result<&Drawing> {
         Ok(&self.state()?.doc)
     }
-    /// Copy-on-write access to the drawing.
+    /// Copy-on-write access to the drawing. The revision changes too: a drawing nothing else holds
+    /// is edited in place, so a cache keyed by the drawing's pointer alone would miss the edit.
     pub fn doc_mut(&mut self) -> Result<&mut Drawing> {
-        Ok(Arc::make_mut(&mut self.state_mut()?.doc))
+        let st = self.state_mut()?;
+        st.revision += 1;
+        Ok(Arc::make_mut(&mut st.doc))
     }
     /// Settings for the active drawing, without caching drawing variables in the profile.
     pub fn drafting_settings(&self) -> Settings {
@@ -373,6 +389,11 @@ impl Session {
     pub fn pixel_size(&self) -> f64 {
         let v = self.state().map(DocState::view).unwrap_or_default();
         v.height / self.viewport_px.1.max(1.0)
+    }
+
+    /// The running interactive command id, or `None` if the command line is idle.
+    pub fn active_command_id(&self) -> Option<&str> {
+        self.running.as_ref().map(|r| r.id.as_str())
     }
 
     /// Serializable summary for inspect/automation.

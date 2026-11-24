@@ -149,9 +149,12 @@
 	Cut with Base Point	带基点剪切
 	Cyan	青色
 	Cylinder	圆柱体
+	Drawing Properties...	图形特性...
 	DView	动态视图
 	DWG	DWG
 	DXF	DXF
+	DXF In	DXF 输入
+	DXF Out	DXF 输出
 	Dark	深色
 	Default	默认
 	Default Save Format	默认保存格式
@@ -219,6 +222,14 @@
 	End Y	终点 Y
 	End angle	端点角度
 	Endpoint	端点
+	Enter author	输入作者
+	Enter comments	输入注释
+	Enter field name or system variable	输入字段名称或系统变量
+	Enter keywords	输入关键字
+	Enter property	输入特性
+	Enter property to change	输入要更改的特性
+	Enter subject	输入主题
+	Enter title	输入标题
 	Enter Top, Zero or Bottom.	输入 Top、Zero 或 Bottom。
 	Enter a fit data option	输入拟合数据选项
 	Enter a pattern name	输入图案名称
@@ -274,6 +285,7 @@
 	Extension	延伸线
 	Extents	范围
 	Extrude	拉伸
+	Field...	字段...
 	File	文件
 	File Tab	文件选项卡
 	Fillet	圆角
@@ -433,6 +445,7 @@
 	Match Layer	匹配图层
 	Match Properties	特性匹配
 	Measure	度量
+	Quick Measure	快速测量
 	Measure Distance	测量距离
 	Measure Geometry	测量几何图形
 	Merge Cells	合并单元格
@@ -522,6 +535,7 @@
 	Pan Up	向上平移
 	Paper Space	图纸空间
 	Parallel	平行
+	Parameters	参数
 	Parameters Manager	参数管理器
 	Parametric	参数化
 	Paste	粘贴
@@ -531,6 +545,7 @@
 	Pattern	图案
 	Perpendicular	垂直
 	Plot	打印
+	Plot...	打印...
 	Plot (click: do not plot)	打印（点击：不打印）
 	Plot Preview	打印预览
 	Plot style	打印样式
@@ -544,6 +559,8 @@
 	New STB	新 STB
 	New style	新样式
 	Reset Panel Layout	重置面板布局
+	Spelling	拼写检查
+	Update Fields	更新字段
 	Use for this layout	用于此布局
 	Display plot styles	显示打印样式
 	No plot style tables.	没有打印样式表。
@@ -590,6 +607,7 @@
 	Query Entities	查询实体
 	Quick	快速
 	Quick Dimension	快速标注
+	Quick Leader	快速引线
 	Quick Properties	快速特性
 	Quick Select	快速选择
 	Quick Select Properties	快速选择特性
@@ -598,8 +616,13 @@
 	Quit CADCraft	退出 CADCraft
 	Radius	半径
 	Raster Image	光栅图像
+	PDF Underlay	PDF 参考底图
+	PDF Underlay...	PDF 参考底图...
+	Adjust	调整
+	Adjust PDF Underlay	调整 PDF 参考底图
 	Raster Image Reference...	光栅图像参照...
 	Raster Images	光栅图像
+	Clip PDF Underlay	剪裁 PDF 参考底图
 	Ray	射线
 	Read-only	只读
 	Real name	真实姓名
@@ -650,6 +673,7 @@
 	Save Layer State	保存图层状态
 	Save State	保存状态
 	Scale	缩放
+	Calibrate Scale	校准比例
 	Search for layer	搜索图层
 	Search for parameter	搜索参数
 	Second and next points:	第二点和后续点:
@@ -975,12 +999,15 @@
 	Viewport {id}	视口 {id}
 	Viewports	视口
 	W	W
+	Wall	墙体
+	Wall Styles	墙体样式
 	WCS	WCS
 	White	白色
 	Width factor	宽度因子
 	Window	窗口
 	Wipeout	区域覆盖
 	Workspace Switching	工作空间切换
+	Who Has	谁打开了图纸
 	Write Block	写块
 	Xline	构造线
 	Yellow	黄色
@@ -1361,6 +1388,8 @@
 	Check for Updates…	检查更新…
 	CADCraft is up to date.	CADCraft 已是最新版本。
 	Could not check for updates.	无法检查更新。
+	Check for Updates	检查更新
+	Release updates are disabled for this development build.	此开发版本已禁用正式版更新。
 	Add a drawing file as a block library	将图形文件添加为块库
 	Add a folder of drawings or a drawing file to use its blocks.	添加包含图形的文件夹或图形文件，以使用其中的块。
 	Block Libraries	块库
@@ -1521,18 +1550,28 @@ menu	View	视图
 	Ctrl+Enter to apply	Ctrl+Enter 应用
 	Edit Text	编辑文字
 	The drawing changed. Close the window and open it again.	图纸已切换。请关闭窗口后重新打开。
+	Layer state name	图层状态名称
+	Switches layers on and off, frozen and locked	打开和关闭图层，冻结和锁定
+	Rename	重命名
+	Objects on locked layers can't be selected	无法选择已锁定图层上的对象
+	They are still shown and snapped to, like a blueprint.	它们仍会显示并可捕捉，就像底图一样。
+# Layers palette: move the selection to a new layer, delete empty layers.
+	Move to New Layer	移动到新图层
+	Move Selection to New Layer	将选择移动到新图层
+	New layer name	新图层名称
+	Delete Empty Layers	删除空图层
+	Deletes every layer that has no objects on it	删除所有没有对象的图层
+	LISP Commands	LISP 命令
+	LISP command	LISP 命令
 
 # ArtCraft feature naming
 	Additional Tools	其他工具
-	Calibrate Scale	比例校准
 	Choose Default Template...	选择默认模板...
 	Clear Default Template	清除默认模板
 	Edit Raster Image	编辑光栅图像
 	Edit Selected Vertices	编辑选定顶点
 	Edit Selected Vertices...	编辑选定顶点...
 	Invert Other Layer States	反转其他图层状态
-	Move to New Layer	移至新图层
-	Quick Measure	快速测量
 	Reload Raster Image	重新加载光栅图像
 	Save as Template...	另存为模板...
 	Scale X/Y	X/Y 方向缩放
@@ -1547,8 +1586,6 @@ menu	View	视图
 	Show Equipment Sizes	显示设备尺寸
 	Edit Equipment	编辑设备
 	HVAC	暖通空调
-	Wall	墙
-	Wall Styles	墙体样式
 	Wall Elevation	墙体立面
 	Wall Junctions	墙体连接
 	Edit Wall	编辑墙体
@@ -1557,3 +1594,673 @@ menu	View	视图
 	Corner Window	转角窗
 	Convert to Openings	转换为墙体洞口
 	Edit Opening	编辑墙体洞口
+	Space	空间
+	Air Terminal	风口
+	Air Terminal Models	风口型号
+	Walls	墙
+	Edit Space	编辑空间
+	Edit Air Terminal	编辑风口
+	Air Handling Unit	空气处理机组
+	Duct	风管
+	Edit Duct	编辑风管
+	Connect Terminals	连接风口
+	Edit Air Handling Unit	编辑空气处理机组
+	Height Zone	高度区域
+	Edit Height Zone	编辑高度区域
+	Riser	立管
+	Quantities	工程量
+	HVAC Quantities	暖通工程量
+	Duct Crossing	风管交叉
+	Edit Riser	编辑立管
+	Duct Accessory	风管附件
+	Edit Duct Accessory	编辑风管附件
+	Size Ducts	风管选型
+	size W×H	尺寸 宽×高
+	Draw the outline of the shaft where the air goes up or down. Type the flow that comes from the other floors on it; sizing gives it its section.	绘制风井轮廓，空气在此上升或下降。在其上输入来自其他楼层的风量，风管计算会给出其截面。
+	Click the points of a run (one duct per segment), seen from above. Leave the direction on auto: sizing finds supply or extract from the terminals the run reaches.	俯视图中依次点击风管段的点（每段一根风管）。方向保持自动：计算会根据所连风口判断送风或回风。
+	Draw an outline where ducts have less height (a beam, a low ceiling), seen from above, then type the height available in mm. Ducts crossing it are cut at its edges and sized flat inside. An altitude is optional.	俯视图中绘制风管可用高度较小的区域（梁、低吊顶），然后输入可用高度（毫米）。穿过的风管在区域边缘处断开，区域内按扁形计算。标高为可选项。
+	Draws a flexible duct from each terminal that no duct reaches to the nearest duct (3 m at most).	从每个没有风管到达的风口向最近的风管绘制软风管（最多3米）。
+	Sizes every network from its terminals (flows, section, velocity) and writes the result on the ducts. Run it again after any change.	根据风口计算每个管网（风量、截面、风速），并把结果写在风管上。修改后请重新运行。
+	Click two ducts that cross: one passes under or over the other, drawn broken or with four 45° elbows.	点击两根交叉的风管：其中一根从下方或上方通过，以断开或四个45°弯头绘制。
+	Counts the ducts, fittings, terminals, units, risers and equipment of this drawing (one drawing per level), and saves a spreadsheet.	统计本图（每层一张图）的风管、管件、风口、机组、风井和设备，并保存为电子表格。
+	Start the tool and click the corners of the shaft, then press Enter.	启动工具，点击风井的各个角点，然后按回车。
+	Type the flow that comes from the other floors in Properties.	在属性中输入来自其他楼层的风量。
+	Size Ducts gives the riser its section; the arrow shows if the air goes up or down.	风管计算会给出风井截面；箭头表示空气向上还是向下。
+	Click the points of the run: one duct is drawn per segment.	点击风管段的各点：每段绘制一根风管。
+	Start on a unit's collar, end on a terminal; start on another duct to make a tee.	从机组接口开始，到风口结束；从另一根风管上开始可做三通。
+	Leave the direction on auto: Size Ducts finds supply or extract from the terminals the run reaches.	方向保持自动：计算根据所连风口判断送风或回风。
+	Click the corners of the outline where ducts have less height (a beam, a low ceiling), seen from above.	俯视图中点击风管可用高度较小区域（梁、低吊顶）的各角点。
+	Type the height available for the ducts, in mm. An altitude is optional.	输入风管可用高度（毫米）。标高为可选项。
+	Size Ducts cuts the ducts at the edges and sizes them flat inside the zone.	计算会在区域边缘处断开风管，并在区域内按扁形计算。
+	No selection needed: every terminal that no duct reaches is taken.	无需选择：所有没有风管到达的风口都会被处理。
+	A flexible duct is drawn from each one to the nearest duct, 3 m at most.	从每个风口到最近的风管绘制软风管，最多3米。
+	Terminals too far from any duct are listed and left alone.	离任何风管太远的风口会被列出并跳过。
+	Run it when the ducts and terminals are drawn; it reads each network from its unit or riser.	风管和风口画好后运行；它从机组或风井读取每个管网。
+	Each duct gets its section, and its flow and velocity are written on it.	每根风管得到截面，风量和风速写在其上。
+	Run it again after any change: sections and flows are recalculated.	任何修改后重新运行：截面和风量会重新计算。
+	Click the two ducts that cross.	点击两根交叉的风管。
+	Choose which one passes under or over the other.	选择哪一根从下方或上方通过。
+	It is drawn broken, or with four 45° elbows when the duct has to go round the other.	以断开方式绘制，或在风管需要绕过另一根时用四个45°弯头绘制。
+	Draw one drawing per level, then open this tool on the level.	每层一张图，然后在该层上打开此工具。
+	The tables count ducts by section, fittings, terminals, units, risers and equipment.	表格统计按截面的风管、管件、风口、机组、风井和设备。
+	The spreadsheet button saves them for Excel; each level makes its own file.	电子表格按钮保存供Excel使用；每层一个文件。
+	Export Excel	导出到Excel
+	Export CSV	导出为CSV
+
+	Pipe	管道
+	Edit Pipe	编辑管道
+	Piping	管路
+	Size Pipes	管道选型
+	Slabs	楼板
+	Floor slab	楼层板
+	Roof slab	屋面板
+	Foundation slab	基础板
+	Edit Slab	编辑楼板
+	Structure	结构
+	Column	柱
+	Beam	梁
+	Edit Structure	编辑结构
+	Single-Line Diagram	单线图
+	Isc max (kA)	最大短路电流 (kA)
+	Isc min (A)	最小短路电流 (A)
+	Board / breaker	配电箱 / 断路器
+	Design	设计
+	Ceiling Grid	吊顶网格
+	Stair	楼梯
+	Railing	栏杆
+	Roof	屋顶
+	Edit Roof	编辑屋顶
+	Curtain Wall	幕墙
+	Edit Curtain Wall	编辑幕墙
+	Mullion spacing (mm)	竖框间距 (mm)
+	Transom spacing (mm)	横框间距 (mm)
+	Frame depth (mm)	框架厚度 (mm)
+	Panels	面板
+	Edit Design Object	编辑设计对象
+	Tile (mm)	板块 (mm)
+	Grid angle (degrees)	网格角度 (度)
+	Tiles	板块数
+	Rise (mm)	提升高度 (mm)
+	Highest riser (mm)	最大踢面 (mm)
+	Tread (mm)	踏面 (mm)
+	Width (mm)	宽度 (mm)
+	Risers	踢面
+	Run (mm)	水平长度 (mm)
+	Comfort (2 riser + tread)	舒适度 (2 踢面 + 踏面)
+	Post spacing (mm)	立柱间距 (mm)
+	Posts	立柱
+	Structure Takeoff	结构工程量
+	Slab Opening	楼板洞口
+	Slope (%)	坡度 (%)
+	Slope direction (degrees)	坡向 (度)
+	Openings	洞口
+	Structure: {c} columns, {b} beams, {kg} kg of steel; {s} slabs, {a} m², {v} m³	结构：{c} 根柱，{b} 根梁，钢材 {kg} kg；{s} 块楼板，{a} m²，{v} m³
+	Structure Joints	结构节点
+	Section	截面
+	Elevation of the foot (m)	柱脚标高 (m)
+	Elevation of the underside (m)	梁底标高 (m)
+	Elevation (m)	标高 (m)
+	Top (m)	顶标高 (m)
+	Length (m)	长度 (m)
+	Mass (kg)	质量 (kg)
+	Beams cut: {n} redrawn	已切断梁：重绘 {n} 根
+	Height (mm)	高度 (mm)
+	Slab	楼板
+	Chilled water coil (kW)	冷冻水盘管 (kW)
+	Hot water coil (kW)	热水盘管 (kW)
+	Change-over coil (kW)	冷热切换盘管 (kW)
+	Direct expansion coil (kW)	直接膨胀盘管 (kW)
+	Refrigerant link (liquid + gas)	制冷剂连接管（液管 + 气管）
+	Liquid tube (inches)	液管（英寸）
+	Gas tube (inches)	气管（英寸）
+	Tube diameter (inches)	管径（英寸）
+	Refrigerant link, heat recovery (3 tubes)	制冷剂连接管，热回收（3 管）
+	Suction gas tube (inches)	吸气管（英寸）
+	High/low-pressure gas tube (inches)	高/低压气管（英寸）
+	Valves	阀门
+	Fittings	管件
+	Air and dirt	空气与污物
+	Instruments	仪表
+	Pumps	水泵
+	Vessels and tanks	容器与水箱
+	Heat sources	热源
+	Refrigerant branches (Refnet)	制冷剂分支（Refnet）
+	Branch selector boxes	分支选择箱
+	Pipework Parts	管道附件
+	Pipework Part	管道附件
+	Edit Pipework Part	编辑管道附件
+	Pipework Part Library	管道附件库
+	Library…	库…
+	Search	搜索
+	No part matches.	没有匹配的附件。
+	All the valves, pumps, vessels, boilers, instruments and refrigerant branches and boxes: click one, then click where it goes, or drag it onto the drawing.	所有阀门、水泵、容器、锅炉、仪表以及制冷剂分支和箱体：点击其一，再点击放置位置，或将其拖到图纸上。
+	Click a part, then click where it goes (on a pipe it turns along it), or drag it onto the drawing.	点击一个附件，再点击放置位置（在管道上会沿管道旋转），或将其拖到图纸上。
+	Tag	标记
+	Volume (l)	容积 (l)
+	Power (kW)	功率 (kW)
+	Flow (m³/h)	流量 (m³/h)
+	Head (kPa)	扬程 (kPa)
+	Weight (kg)	重量 (kg)
+	Outlets	出口数
+	Connections	连接
+	Make	品牌
+	Size in plan (mm)	平面尺寸 (mm)
+	Dimensions (H × W × D)	尺寸（高 × 宽 × 深）
+	Height H (mm)	高度 H (mm)
+	Width W (mm)	宽度 W (mm)
+	Depth D (mm)	深度 D (mm)
+	Pressure loss (kPa)	压力损失 (kPa)
+	Kvs (m³/h)	Kvs (m³/h)
+	Equivalent length (m)	当量长度 (m)
+	Loss coefficient ζ	阻力系数 ζ
+	My models	我的模型
+	No model of your own yet: select a part of the drawing and keep it as a model.	还没有自己的模型：选择图纸中的附件并保存为模型。
+	Name of the model	模型名称
+	Keep the selected part as a model	将所选附件保存为模型
+	Delete this model	删除此模型
+	Model kept: {name}	已保存模型：{name}
+	Check Refrigerant	检查制冷剂系统
+	Follows the refrigerant pipes from each outdoor unit through the joints, headers and branch boxes to the indoor units, counts the units and the capacity index at each outlet, and tells what is over the limits.	从每台室外机沿制冷剂管路经分支、集管和分支箱追踪到室内机，统计每个出口的机组数和能力指数，并指出超限之处。
+	No refrigerant network: draw an outdoor unit, its pipes and its indoor units.	没有制冷剂系统：请绘制室外机、管路和室内机。
+	Refrigerant network: {units} indoor unit(s), capacity index {index}	制冷剂系统：{units} 台室内机，能力指数 {index}
+	Pipe Riser	管道立管
+	Edit Pipe Riser	编辑管道立管
+	The shaft where the pipes of a floor go up or down, with the pipes it holds (chilled water, hot water, change-over, condensate, refrigerant links). The pipes of the floor that end in the shaft, or start in it, are read through it.	楼层管道上下穿越的管井及其所含管道（冷冻水、热水、冷热切换、冷凝水、制冷剂连接管）。该层终止或起始于管井的管道将穿过它被读取。
+	Direction	方向
+	Add a line	添加管线
+	Remove a line	移除管线
+	Lines	管线
+	Line {n} {tag}: {what}	管线 {n} {tag}：{what}
+	Line {n} {tag}: carried to the other floors ({unit})	管线 {n} {tag}：输送至其他楼层 ({unit})
+	Line {n} {tag}: carried here	管线 {n} {tag}：本层承载
+	size	管径
+	liquid	液管
+	gas	气管
+	suction gas	吸气管
+	HP/LP gas	高/低压气管
+	Pipe Networks	管道系统
+	Name Networks	命名管网
+	Network Legend	管网图例
+	Names every pipe network that has no name (CHW1, HW1, COND1…) and gives each its own colour, so that two networks of the same service can be told apart on the plan. A name typed on a pipe in Properties is the name of its whole network.	为每个未命名的管网命名（CHW1、HW1、COND1…）并赋予各自的颜色，使同一系统的两个管网在图上可区分。在特性中为某根管道输入的名称即其整个管网的名称。
+	Puts a legend on the plan: a row for each network, in its colour and line type, with its name, its pipes and their length. It is redrawn when a network is named, renamed or restyled.	在图上放置图例：每个管网一行，以其颜色和线型显示名称、管道及长度。管网命名、重命名或改变样式时图例会重绘。
+	Network	管网
+	Network colour	管网颜色
+	Network line type	管网线型
+	No pipe network: draw pipes first.	没有管网：请先绘制管道。
+	Network {name}: {tags}, {pipes} pipe(s), {length} m, colour {color}	管网 {name}：{tags}，{pipes} 根管道，{length} m，颜色 {color}
+	Orange	橙色
+	Vermillion	朱红
+	Pink	粉色
+	Sky blue	天蓝
+	Purple	紫色
+	Brown	棕色
+	Teal	青绿
+	Maroon	栗色
+	Olive	橄榄绿
+	Gold	金色
+	Continuous	连续线
+	Dashed	虚线
+	Dash-dot	点划线
+	Dotted	点线
+	Long dash	长划线
+	Networks	管网
+	Menu sections in the tabs	选项卡中的菜单分组
+	All open	全部展开
+	All closed	全部折叠
+	Remember the last use	记住上次使用的状态
+	Choose a service (chilled water, hot water, change-over, condensate, refrigerant), then click the points of the run: one pipe is drawn per segment, seen from above.	选择一种系统（冷冻水、热水、冷热切换、冷凝水、制冷剂），然后依次点击管路各点：每段画一根管，俯视图。
+	At the command line: Service, Leg (supply or return), Diameter (inches for refrigerant: 3/8, 1 1/8) and Insulation. A refrigerant link draws its liquid and gas tubes as one line.	命令行选项：Service、Leg（供水或回水）、Diameter（制冷剂用英寸：3/8、1 1/8）和 Insulation。制冷剂连接管的液管与气管画成一条线。
+	Each service has its own colour. To size a network, mark the run that starts at the source, type the loads at the free ends, then use Size Pipes.	每种系统有自己的颜色。要计算管网，标出从热源出发的管段，在自由端输入负荷，然后使用“计算管径”。
+	A pipe is joined to another only where their ends meet: start a branch at the end of a run.	只有端点相接的管道才相连：请从管段的端点开始分支。
+	It sizes chilled water, hot water, change-over and condensate. Refrigerant links are not sized: type their diameters in inches.	可计算冷冻水、热水、冷热切换和冷凝水。制冷剂连接管不计算：请以英寸输入管径。
+	Each network needs a source: tick "Starts at the source" on its first run, or start the run on a chiller or in the shaft of a pipe riser.	每个管网需要一个起点：在其第一段勾选“起点为热源”，或让该段从冷水机组或管道立管的管井出发。
+	Type the load at each free end (kW, l/h for a drain), or end the run in a unit or an air handling unit that has a power: its coil counts.	在每个自由端输入负荷（kW；排水管为 l/h），或让管段终止于有功率的机组或空调箱：其盘管将被计入。
+	Run it: each pipe gets its size, flow and velocity, and the pressure lost on the most unfavourable circuit is told. A size you typed is checked, not changed. Run it again after any change.	运行：每根管得到管径、流量和流速，并给出最不利环路的压力损失。你输入的管径只检查不更改。任何修改后请重新运行。
+	Click the corners of the shaft, then press Enter. Options: Name (the same on every floor), Lines, Height and Up or Down.	点击管井各角，然后按 Enter。选项：Name（各层相同）、Lines、Height 以及 Up 或 Down。
+	In Lines, type what goes through the shaft, separated by commas: CHW-S, CHW-R, HW-S, HW-R, CO-S, CO-R, COND, REF (liquid and gas), REF-HR (three tubes), REF-L, REF-G.	在 Lines 中输入穿过管井的管线，用逗号分隔：CHW-S、CHW-R、HW-S、HW-R、CO-S、CO-R、COND、REF（液管和气管）、REF-HR（三根管）、REF-L、REF-G。
+	In Properties: the size of each line (inches for refrigerant) and what it carries to the other floors (kW, l/h for a drain, capacity index for refrigerant). Add or remove lines there, and type the height from floor to floor.	在特性中：每条管线的管径（制冷剂用英寸）和输送至其他楼层的量（kW；排水管为 l/h；制冷剂为能力指数）。在此添加或移除管线，并输入层高。
+	End the pipes of the floor in the shaft, or start them there: they are read through it. Size Pipes sizes the lines, and the takeoff counts them by the height.	让本层的管道终止于管井或从管井出发：它们会穿过管井被读取。“计算管径”计算管线，统计则按层高计数。
+	A network is the pipes of one service that are joined end to end, through the parts on them, the units they end in and the shaft of a riser.	管网是同一系统中首尾相连的管道，可经过其上的附件、终止的机组和立管的管井。
+	This tool names every network that has no name (CHW1, HW1…) and gives each its own colour, so that two networks of the same service can be told apart.	此工具为每个未命名的管网命名（CHW1、HW1…）并赋予各自的颜色，使同一系统的两个管网可以区分。
+	Type a name on one pipe in Properties to name its whole network; there you also choose its colour and, for a print without colour, its line type.	在特性中为一根管道输入名称即可命名其整个管网；在那里还可选择颜色，以及用于无彩色打印的线型。
+	A pipe or a part drawn on a named network takes its name. The legend and the takeoff follow the names.	画在已命名管网上的管道或附件会采用其名称。图例和统计跟随名称。
+	Click where the upper left corner of the legend goes.	点击图例左上角的位置。
+	It has a row for each network: a sample in its colour and line type, its name, its pipes and their length.	每个管网一行：以其颜色和线型显示样例、名称、管道及长度。
+	It is redrawn by itself when a network is named, renamed or restyled.	管网命名、重命名或改变样式时会自动重绘。
+	Click a part, then click where it goes; or drag it onto the drawing to drop it there.	点击一个附件，再点击放置位置；或将其拖到图纸上放下。
+	A valve, a filter or a pump clicked on a pipe turns along it and cuts it. For the others you are asked the orientation: a second click, an angle, or Enter.	点在管道上的阀门、过滤器或水泵会沿管道旋转并切断管道。其他附件会询问方向：再点一次、输入角度或按 Enter。
+	In Properties: its tag, its size (height, width, depth), volume, power, pressure loss, the outlets of a box or a header, and another model of the same kind.	在特性中：标记、尺寸（高、宽、深）、容积、功率、压力损失、箱体或集管的出口数，以及同类的其他型号。
+	Keep a part of the drawing as a model of your own (My models): it is saved with the drawing.	可将图中的附件保存为自己的模型（我的模型）：随图纸一起保存。
+	Draw the outdoor unit, the links (one line for the liquid and the gas), the Y joints, the headers and the branch boxes, and the indoor units. The pipes must end on them.	绘制室外机、连接管（液管和气管一条线）、Y 型分支、集管、分支箱和室内机。管道必须终止于它们。
+	It follows the network from each outdoor unit and counts the units and the capacity index (cooling kW × 10) at each outlet.	从每台室外机追踪管网，统计每个出口的机组数和能力指数（制冷 kW × 10）。
+	It tells what is over the limits: 5 units and index 140 per outlet of a box, and the joint or header that suits the index below it.	指出超限之处：分支箱每个出口 5 台机组、指数 140，以及适合下游指数的分支或集管。
+	A network can start or end at a pipe riser: what the other floors serve is typed on its line.	管网可以从管道立管出发或终止于立管：其他楼层所服务的量输入在其管线上。
+	It looks at the door and window blocks of a plan that lie on walls (by the words in their block or layer names).	检查图中位于墙上的门窗块（根据块名或图层名中的词）。
+	It lists what it found; accept, and each becomes an opening you can change in Properties.	列出找到的内容；接受后每个都成为可在特性中修改的洞口。
+	The old blocks are kept on a frozen layer, A-OPENING-OLD: thaw it to see them.	旧块保留在冻结图层 A-OPENING-OLD 上：解冻即可查看。
+	Click the wall, then the point where the elevation is drawn, next to the plan.	点击墙体，再点击立面绘制位置（在平面旁）。
+	It shows the wall seen from the side, with its openings, sills and heights.	显示侧视的墙体，包括洞口、窗台和高度。
+	Run it again after changing the wall or its openings.	修改墙体或洞口后请重新运行。
+	Walls are joined where they meet (corner, tee or cross) as they are drawn, by the priority of their layers.	墙体在相交处（转角、T 形或十字）绘制时按各层优先级连接。
+	After moving, copying or erasing walls, run this tool: it joins them again.	移动、复制或删除墙体后运行此工具：会重新连接。
+	A wall drawn first gives way to a wall of higher priority; layers of equal priority are joined without a line.	墙体让位于优先级更高的墙；优先级相同的层无线相连。
+	Click near the corner of two walls that meet.	点击两面相交墙体的转角附近。
+	A window is put on each wall, from the corner, of the length given by the Width option (1200 mm by default).	从转角起在每面墙上放一扇窗，长度由 Width 选项决定（默认 1200 mm）。
+	They are two ordinary openings: change each of them in Properties.	它们是两个普通洞口：可在特性中分别修改。
+	Design Charts	设计图表
+	The tables and rules the sizing tools apply: refrigerant links, water pipes, drains, ducts.	选型工具所用的表格和规则：冷媒管、水管、冷凝水管、风管。
+	Refrigerant liquid tube	默认冷媒液管
+	Refrigerant gas tube	默认冷媒气管
+	Refrigerant high/low-pressure gas tube	默认冷媒高/低压气管
+	Built-in	内置
+	Building	建筑
+	Show the building total	显示建筑合计
+	Keep this level for the building	保存此楼层到建筑
+	Levels kept: {names}	已保存楼层：{names}
+	Forget the levels	清除楼层
+	Prices and cost	价格和成本
+	Insulated ducts:	保温风管：
+	Total: {total} € ({n} lines without a price)	合计：{total} €（{n} 行无价格）
+	Insulation (m²)	保温 (m²)
+	Label	名称
+	Quantity	数量
+	Unit price	单价
+	Pipe Fittings	管件
+	Pipe elbow 90°	管道弯头 90°
+	Pipe elbow 45°	管道弯头 45°
+	Pipe elbow, other angle	管道弯头（其他角度）
+	Pipe tee	管道三通
+	Pipe cross	管道四通
+	Pipe junction, 5 or more	五通及以上
+	Pipe reducer	管道异径接头
+	Pipe crossover	管道交叉
+	Electricity	电气
+	Electrical Device	电气设备
+	Device	设备
+	Cable	电缆
+	Check Circuits	检查回路
+	Size Circuits	回路选型
+	Check Lighting	检查照度
+	Assign to Circuit	分配到回路
+	Edit Circuit	编辑回路
+	Edit Electrical Object	编辑电气对象
+	Electrical Quantities	电气工程量
+	Distribute Units in a Space	在房间内均布室内机
+	Start the tool (air terminals) or Distribute Units in a Space (indoor units), then select the space.	启动工具（风口）或“在房间内均布室内机”（室内机），然后选择房间。
+	Type how many: 6 spreads six in the most even grid the room's shape allows; 2x3 makes 2 rows by 3 columns.	输入数量：6 会按房间形状尽量均匀地布置六个；2x3 为 2 行 3 列。
+	A grid cell whose centre is outside the space gets nothing, so an L-shaped room is filled by its two arms.	中心在房间外的网格单元不放置设备，所以 L 形房间由两翼填充。
+	Terminals share the space's flow; units get their model's power. Edit one afterwards, or move it by its grip.	风口分摊房间的风量；机组取其型号的功率。之后可逐个编辑，或用夹点移动。
+	Check Emergency Lighting	检查应急照明
+	Circuit Legend	回路图例
+	Regulation	调控
+	Bus cable	总线电缆
+	Check Controls	检查控制
+	Points List	点位表
+	Bus protocol	总线协议
+	Principle Diagram	原理图
+	Controls Principle Diagram	控制原理图
+	The buses with their controllers, and under each controller the points wired to it with their address and type; it follows the control devices.	总线及其控制器，每个控制器下为接线点位的地址和类型；随控制设备更新。
+	Control Device	控制设备
+	Edit Control Device	编辑控制设备
+	Control Points	控制点位
+	Controls	控制
+	Place the controllers and the modules and give each a name: the devices are wired to them by that name.	放置控制器和模块并为每个命名：设备按该名称接线到它们。
+	Place the sensors, the thermostats and the actuators; in Properties type the controller each is wired to and the equipment it serves.	放置传感器、温控器和执行器；在属性中输入各自接线的控制器和所服务的设备。
+	Check Controls tells what is wrong: a device wired to nothing, a controller with more points than it offers, no circuit that feeds it, a bus with no cable.	“检查控制”会指出问题：设备未接线、控制器点位超出容量、没有回路供电、总线无电缆。
+	The Points List shows the load and the reserve of each controller and writes the workbook: one line for each point, with the room it is in.	点位表显示每个控制器的负载和余量，并写出工作簿：每个点位一行，注明所在房间。
+	Show Addresses	显示地址
+
+# ArtCraft feature naming
+	Click the corners of the room, then press Enter. Or choose Walls and click inside a room closed by walls, or Room or Object.	点击房间的角点，然后按 Enter。或选择“墙体”并点击墙体围合的房间内部，或选择“房间”或“对象”。
+	In Properties type the tile (600x600, 600x1200…) and the height of the false ceiling.	在特性中输入面板规格（600x600、600x1200…）和吊顶高度。
+	The whole and cut tiles are counted in the Structure Takeoff; the tile centres are where a diffuser or a luminaire snaps.	整块和切割的面板计入结构统计；面板中心是风口或灯具的捕捉位置。
+	Click the middle of the first riser, then a point in the direction of the way up.	点击第一级踏步的中点，然后点击上行方向上的一点。
+	In Properties type the rise from floor to floor, the largest riser, the tread and the width: the number of risers follows.	在特性中输入层高、最大踢面高、踏面宽和梯段宽度：踏步数随之得出。
+	The label says whether the stair is comfortable: twice the riser plus the tread within 600 to 650 mm (Blondel).	标签会说明楼梯是否舒适：两倍踢面高加踏面宽在 600 至 650 mm 之间（Blondel 公式）。
+	Click the points of the path of the railing, then press Enter.	点击栏杆路径上的点，然后按 Enter。
+	In Properties type the height and the spacing of the posts.	在特性中输入高度和立柱间距。
+	The railings and their length are counted in the Structure Takeoff.	栏杆及其长度计入结构统计。
+	Click the points of the façade, then press Enter. The Height option sets its height.	点击立面上的点，然后按 Enter。“高度”选项设置其高度。
+	In Properties type the spacing of the mullions and of the transoms, and the depth of the frame.	在特性中输入竖框和横框的间距以及框架厚度。
+	The panels, the mullions, the transoms and the area are counted in the Structure Takeoff.	面板、竖框、横框和面积计入结构统计。
+	Click the corners of the roof, then press Enter. Or choose Walls and click inside a room closed by walls.	点击屋顶的角点，然后按 Enter。或选择“墙体”并点击墙体围合的房间内部。
+	Choose Shed, Gable or Hip and the pitch in degrees with the options; the ridge runs along the first side.	用选项选择单坡、双坡或四坡以及坡度（度）；屋脊沿第一条边。
+	The label gives the top of the roof. In Properties change the kind, the pitch, the direction of the ridge and the height of the eaves.	标签给出屋顶顶部标高。在特性中可更改类型、坡度、屋脊方向和檐口高度。
+	The area in plan, the area of the slopes, the rise and the ridge are counted in the Structure Takeoff.	平面面积、坡面面积、屋顶高度和屋脊长度计入结构统计。
+	Choose the section (family and size) in the list above the tools.	在工具上方的列表中选择截面（系列和尺寸）。
+	Click where the columns stand: near the corner of two walls, the end of a beam or another column, the click lands on it.	点击柱子的位置：靠近两面墙的转角、梁端或另一根柱时，点击会落在其上。
+	In Properties type the height of the column and the elevation of its foot.	在特性中输入柱高和柱脚标高。
+	Click the points of the beams: one beam is drawn for each segment.	点击梁的各点：每一段绘制一根梁。
+	A beam is cut where it meets a column or another beam. In Properties type the elevation of its underside.	梁在遇到柱或另一根梁处被截断。在特性中输入梁底标高。
+	Select the columns or the beams, then start the tool.	选择柱或梁，然后启动工具。
+	Choose what to change: the section, the height, the elevation or the rotation, and type the new value.	选择要更改的内容：截面、高度、标高或旋转，然后输入新值。
+	The same values are changed in Properties, with the section list above the tools.	同样的值也可在特性中更改，截面列表位于工具上方。
+	Beams are cut where they meet a column or another beam as they are drawn.	绘制时，梁在遇到柱或另一根梁处被截断。
+	After moving, copying or erasing columns or beams, run this tool: it cuts them again.	移动、复制或删除柱或梁之后，运行此工具：它会重新截断。
+	Nothing is asked: every column and beam of the drawing is redrawn.	无需输入：图中所有柱和梁都会重绘。
+	No selection needed: the whole drawing is counted.	无需选择：统计整张图。
+	The steel columns and beams are listed by section with their count, length and mass.	钢柱和钢梁按截面列出数量、长度和质量。
+	The slabs, the false ceilings, the stairs, the railings, the curtain walls and the roofs are counted too.	楼板、吊顶、楼梯、栏杆、幕墙和屋顶也一并统计。
+	It saves a workbook (.xlsx) or a text file.	可保存为工作簿 (.xlsx) 或文本文件。
+	Select the slab, then click the corners of the opening and press Enter.	选择楼板，然后点击洞口的角点并按 Enter。
+	The area of the opening is taken out of the area and the volume of the slab.	洞口面积从楼板面积和体积中扣除。
+	Edit Slab changes its kind, its thickness and its elevation afterwards.	之后可用“编辑楼板”更改其类型、厚度和标高。
+	Shed	单坡
+	Gable	双坡
+	Hip	四坡
+	Pitch (°)	坡度 (°)
+	Ridge direction (°)	屋脊方向 (°)
+	Eaves height (m)	檐口高度 (m)
+	Plan area (m²)	平面面积 (m²)
+	Slope area (m²)	坡面面积 (m²)
+	Rise (m)	屋顶高度 (m)
+	Ridge length (m)	屋脊长度 (m)
+	Click the two ends of the cut line across the plan, so that it goes through the walls, slabs, columns and beams to show.	点击穿过平面的剖切线的两个端点，使其经过要显示的墙、楼板、柱和梁。
+	Click where the section goes, or press Enter to put it to the right of the drawing.	点击剖面图的放置位置，或按 Enter 将其放在图形右侧。
+	The cut walls are drawn with their openings, with the slabs, steel columns and beams and false ceilings at their elevations, and the levels in the margin.	被剖切的墙连同洞口一起绘出，楼板、钢柱、钢梁和吊顶按其标高绘出，标高标注在边缘。
+	It is a picture made now: draw a new section after changing the plan. Slopes are not drawn.	这是当前生成的图像：修改平面后请重新绘制剖面。坡度不绘制。
+	Building Section	剖面图
+	Concrete (mm)	混凝土 (mm)
+	Outside	外侧
+	Inside	内侧
+	Insulation thickness (mm)	保温厚度 (mm)
+	Side	位置
+	Volume (m³)	体积 (m³)
+	Supply flow (m³/h)	送风量 (m³/h)
+	Extract flow (m³/h)	排风量 (m³/h)
+	Fresh air flow (m³/h)	新风量 (m³/h)
+	Exhaust air flow (m³/h)	排出风量 (m³/h)
+	Flow set by	风量设定方式
+	Pressure (Pa)	压力 (Pa)
+	Electrical Riser	电气立管
+	Bus Riser	总线立管
+	Choose a kind of device (socket, switch, luminaire, distribution board…), then click where it goes; each click places one. At the command line you can type Name, Circuit, Power and Height first.	选择设备类型（插座、开关、灯具、配电箱……），然后点击放置位置；每次点击放置一个。在命令行中可先输入名称、回路、功率和高度。
+	Give each device its circuit, written board-circuit (TD1-C3): the board's name, a hyphen, the circuit's number. Devices with the same circuit name are on the same circuit.	为每个设备指定回路，写作 配电箱-回路（TD1-C3）：配电箱名称、连字符、回路编号。回路名称相同的设备属于同一回路。
+	The power (W) is what the circuit carries; a luminaire's flux (lm) is what Check Lighting uses. A distribution board has a main breaker (A) and a size, and is the source of its circuits.	功率（W）是回路承载的负荷；灯具的光通量（lm）用于照明检查。配电箱有总断路器（A）和尺寸，是其回路的电源。
+	A ceiling light can snap to the centre of the ceiling tile it is on (Ceiling Snap, see Ceiling Grid). The address of a KNX or DALI device is written beside it.	吊顶灯可吸附到所在吊顶板的中心（见吊顶网格）。KNX 或 DALI 设备的地址写在设备旁边。
+	Everything can be changed later in Properties: name, circuit, power, height, address. Several selected devices change together.	之后都可在“特性”中修改：名称、回路、功率、高度、地址。选中多个设备时一起修改。
+	Choose the use (power, lighting, data, safety), then click the points of the run: one cable is drawn per segment, seen from above, in the colour of its use.	选择用途（动力、照明、弱电、安全），然后点击线路的各点：每段绘制一根电缆，俯视显示，颜色由用途决定。
+	Name its circuit (TD1-C3): the cables of one circuit share a colour, and the check, the sizing and the quantities group them by circuit.	命名其回路（TD1-C3）：同一回路的电缆颜色相同，检查、选型和统计都按回路分组。
+	In Properties or at the command line: single or three phases, copper or aluminium, PVC or PR insulation, the laying letter (B, C, E, F), the section (empty: to be sized), the breaker (A), the power factor and the ambient temperature.	在“特性”或命令行中设置：单相或三相、铜或铝、PVC 或 PR 绝缘、敷设代号（B、C、E、F）、截面（留空：待选型）、断路器（A）、功率因数和环境温度。
+	The length counted for a cable is its drawing plus Extra (metres of rises and slack for the run). Use an Electrical Riser for the height between floors.	电缆的计算长度为图上长度加“附加长度”（该段的上翻和余量，单位米）。楼层之间的高度请用电气立管。
+	Cables that carry several circuits in one bundle are marked Grouped: the current capacity is reduced as the standard says.	多个回路捆扎敷设的电缆应标记为“成组”：载流量按标准降低。
+	Select the devices, cables, HVAC equipment and air handling units that belong together, then start the tool.	选中属于同一回路的设备、电缆、暖通设备和空调机组，然后启动此工具。
+	Type the circuit name (TD1-C3). They all take it; typing nothing puts them on no circuit.	输入回路名称（TD1-C3），它们都会采用该名称；留空则不属于任何回路。
+	The power of an HVAC unit or equipment (its electrical kW in Properties) then counts on that circuit, and its cables are sized for it.	暖通机组或设备的电功率（“特性”中的电气 kW）随即计入该回路，其电缆按此选型。
+	Run Check Circuits afterwards: it says what the circuit carries and what is wrong with it.	随后运行“检查回路”：它会给出回路的负荷和存在的问题。
+	Run it when the devices, equipment and cables are drawn and each is on its circuit. No selection is needed: every circuit of the drawing is checked.	在设备、器材和电缆都已绘制并各有回路后运行。无需选择：检查图中所有回路。
+	For each circuit: its power (with the share on at once), the design current, the section the heating needs, the one the voltage drop needs (3 % for lighting, 5 % for the rest from the board), the section drawn and the breaker.	对每个回路：功率（含同时系数）、设计电流、发热要求的截面、压降要求的截面（照明 3%，其他 5%，自配电箱起算）、图中截面和断路器。
+	It also gives the short-circuit current at the end of the cable (maximum and minimum), the longest cable the magnetic trip still sees, the breaking capacity against the source's current and the ratio to the board's main breaker (selectivity).	还给出电缆末端的短路电流（最大和最小）、磁脱扣仍能识别的最大长度、断路器分断能力与电源短路电流的比较，以及与配电箱总断路器的比值（选择性）。
+	Boards fed by a circuit of another board are followed: the load, the short-circuit current and the voltage drop add up down the chain.	由其他配电箱的回路供电的配电箱也会被追踪：负荷、短路电流和压降沿链路累加。
+	Options: the short-circuit current at the origin (kA, given by the network operator: 10 by default), the breakers' breaking capacity, the curve B, C or D and the share of power on at once. The values are design values: check them with the manufacturer.	选项：电源处短路电流（kA，由电网运营商提供，默认 10）、断路器分断能力、B/C/D 曲线和同时系数。这些是设计值，请与制造商核实。
+	Run it after Check Circuits shows what each circuit needs. Without a selection it sizes every circuit.	在“检查回路”显示各回路需求后运行。未选择时对所有回路选型。
+	It writes on the cables of each circuit the section it needs and, where there is none, the breaker rating.	它把各回路所需截面写入其电缆，并在没有断路器时写入断路器额定值。
+	A section you typed is kept, unless you ask to overwrite the sections already given.	您输入的截面会保留，除非要求覆盖已有截面。
+	Run Check Circuits again: it confirms the voltage drop and the short-circuit current with the new sections.	再次运行“检查回路”：用新截面确认压降和短路电流。
+	Draw the spaces (rooms) of the floor and give each its use; place the luminaires inside them and type the flux of each (lm) in Properties.	绘制本层的空间（房间）并为每个指定用途；在其中放置灯具，并在“特性”中输入各自的光通量（lm）。
+	The tool computes the illuminance each space gets: flux × utilisation × maintenance ÷ area (utilisation 0.5 and maintenance 0.8 by default).	工具计算各空间的照度：光通量 × 利用系数 × 维护系数 ÷ 面积（默认利用系数 0.5、维护系数 0.8）。
+	It compares the result with the minimum of the Code du travail (article R4223-4: 40 lux for a circulation, 120 for a room…) and lists the spaces that are too dark.	将结果与法国劳动法典的最低值比较（R4223-4：通道 40 勒克斯、房间 120 勒克斯……），并列出过暗的空间。
+	It is a quick estimate, not a lighting study: the minimum values are the ones of the regulation, to be confirmed for your building.	这只是快速估算，不是照明设计：最低值取自法规，请针对您的建筑核实。
+	Place the emergency lights and the exit signs (Safety group) and draw the spaces, naming the escape routes (circulation, couloir, hall, escalier…) and giving each room its occupants.	放置应急灯和出口标志（“安全”组），绘制空间，给疏散通道命名（circulation、couloir、hall、escalier……）并为每个房间指定人数。
+	The check says where nothing is drawn: an escape route with no emergency light or exit sign, and a room of 100 people or more, or with more than one person for 10 m², with no emergency light.	检查会指出缺失之处：没有应急灯或出口标志的疏散通道，以及 100 人及以上或每 10 m² 超过一人但没有应急灯的房间。
+	It checks the presence only. The levels and the autonomy are those of the arrêté of 14 December 2011 and of the standard NF EN 1838, to be confirmed.	仅检查是否存在。照度和续航时间以 2011 年 12 月 14 日的法令和标准 NF EN 1838 为准，需核实。
+	Start the tool and click where the upper left corner of the legend goes.	启动工具并点击图例左上角的位置。
+	It draws one row for each circuit: a sample of its cable in its colour and line type, its name, its use, its cable, its length, its power and its breaker.	为每个回路绘制一行：其电缆的颜色和线型样例、名称、用途、电缆、长度、功率和断路器。
+	It is redrawn by itself when a circuit is named, renamed, sized or changed: there is nothing to run again.	回路被命名、重命名、选型或修改时，图例会自动重绘，无需再次运行。
+	Start the tool and click where the upper left corner of the diagram goes; with a board selected in the options, only that board is drawn.	启动工具并点击图纸左上角的位置；在选项中指定配电箱时，只绘制该配电箱。
+	Each board is a busbar fed by its main breaker; each circuit is a branch with its breaker and curve, its cable (3G2.5, 5G10…) and length, the minimum short-circuit current and a box with its load: devices, kW and A.	每个配电箱是一条由总断路器供电的母线；每个回路是一条支路，含断路器和曲线、电缆（3G2.5、5G10……）及长度、最小短路电流，以及显示负荷（设备、kW、A）的方框。
+	A “!” beside a circuit means the check has a warning for it. Circuits with no board drawn are listed under a dash.	回路旁的“!”表示检查对其有警告。没有绘制配电箱的回路列在短横线之下。
+	A board fed by a circuit of another board shows “-> TD1” in the box of that circuit, and the load, the short-circuit current and the voltage drop follow the chain.	由其他配电箱回路供电的配电箱，会在该回路的方框中显示“-> TD1”，负荷、短路电流和压降沿链路传递。
+	It is redrawn by itself when a circuit is named, sized or changed. The options (source current, breaking capacity, curve) are those of Check Circuits.	回路被命名、选型或修改时会自动重绘。选项（电源电流、分断能力、曲线）与“检查回路”相同。
+	Start the tool and click the corners of the shaft, then press Enter. The options are Name (the same on every floor), Circuit, Up or Down.	启动工具并点击竖井的各角，然后按回车。选项有：名称（各层相同）、回路、向上或向下。
+	A riser holds several lines, as the pipe risers do: in Properties, Add a line for each cable that goes through the shaft, and give each its use (power, lighting, data, safety, bus), its circuit, its section and its loads.	立管可容纳多条线路，与管道立管一样：在“特性”中为穿过竖井的每根电缆添加一行，并指定用途（动力、照明、弱电、安全、总线）、回路、截面和负荷。
+	Type the height from floor to floor: it is added to the cable length of the circuit of each line (voltage drop, short circuit, quantities). The load that comes from the other floors is added to the circuit's load.	输入层高：它会加入每条线路所属回路的电缆长度（压降、短路、统计）。来自其他楼层的负荷加入该回路的负荷。
+	The arrows show the way the current goes (up or down); the end on the side of the source has the whole load of this level, the other the part that goes on to the other floors. The arrows never overlap, whatever the number of lines.	箭头表示电流方向（向上或向下）；靠近电源一端显示本层全部负荷，另一端显示继续流向其他楼层的部分。无论线路多少，箭头都不会重叠。
+	Each floor is its own drawing: the risers of two floors meet by their name.	每层是独立的图纸：不同楼层的立管通过名称对应。
+	Draw one drawing per level, then open this tool on the level and type its name.	每个楼层一张图，然后在该楼层打开此工具并输入楼层名称。
+	The tables count the cables by section and use (the vertical runs of the electrical risers included), the devices by kind with their power and flux, the boards and the loads of the HVAC equipment.	表格按截面和用途统计电缆（含电气立管的垂直段）、按类型统计设备及其功率和光通量，以及配电箱和暖通设备的负荷。
+	The circuits are listed as they are checked: power, current, sections, voltage drop, short circuit, breakers.	回路按检查结果列出：功率、电流、截面、压降、短路、断路器。
+	The spreadsheet button saves them for Excel, with the prices you type; each level makes its own file.	表格按钮将其保存为 Excel 文件，并带上您输入的价格；每个楼层生成各自的文件。
+	Place the controllers, the modules and the gateways first and give each a name (AU1, MX1…): the other devices are wired to them by that name.	先放置控制器、模块和网关并各取名称（AU1、MX1……）：其他设备通过该名称与之连接。
+	Then the sensors, the room controls and the actuators. In Properties type the controller each is wired to and the equipment it serves (CTA1, UI3…).	再放置传感器、房间控制器和执行器。在“特性”中输入每个设备所连接的控制器及其服务的设备（CTA1、UI3……）。
+	A controller or a module offers inputs and outputs (AI, AO, DI, DO); each device asks for points, a thermostat for two, a sensor for one.	控制器或模块提供输入输出（AI、AO、DI、DO）；每个设备占用若干点位，温控器两个，传感器一个。
+	Give an automation device the circuit that feeds it and, if it is on a bus, the bus and its address.	为自动化设备指定供电回路；若接在总线上，还要指定总线及其地址。
+	A bus is a name, not an object: give every device and controller on it the same Bus in Properties (BUS1).	总线是一个名称而不是对象：在“特性”中给总线上的每个设备和控制器填入相同的“总线”（BUS1）。
+	Draw its cable with this tool: the circuit of that cable has the name of the bus. Without one, Check Controls says “no bus cable is drawn”.	用此工具绘制其电缆：电缆的回路名称即总线名称。没有它，“检查控制”会提示“no bus cable is drawn”。
+	Say the protocol on a controller or a gateway (Modbus RTU, BACnet MS/TP, KNX TP, M-Bus): the check then tests the addresses, the number of devices on a segment and the length of cable.	在控制器或网关上指定协议（Modbus RTU、BACnet MS/TP、KNX TP、M-Bus）：检查会据此测试地址、每段设备数量和电缆长度。
+	The length counted is the cable drawn plus the height of the bus risers that carry the bus between floors.	计入的长度为已绘制的电缆加上跨楼层承载该总线的总线立管高度。
+	Run it when the devices and controllers are drawn. It needs no selection.	在设备和控制器绘制完成后运行。无需选择。
+	It says what each device asks of its controller and the load of each controller and module against what it offers, with the reserve left.	它显示每个设备对其控制器的需求，以及每个控制器和模块的负荷与其容量的对比和剩余余量。
+	It tells what is wrong: a device wired to nothing or to a controller that is not drawn, a controller over its capacity, an automation device that no circuit feeds, a bus with no cable, a device that serves an object that is not drawn.	它指出问题：设备未连接或连接到未绘制的控制器、控制器超出容量、没有回路供电的自动化设备、没有电缆的总线、服务于未绘制对象的设备。
+	With a protocol on the bus it also checks the addresses (Modbus 1–247, BACnet MS/TP 0–127, KNX 1.1.5, M-Bus 1–250), the devices per segment and the cable length. These are usual design values: confirm them with the manufacturer.	总线指定协议后还会检查地址（Modbus 1–247、BACnet MS/TP 0–127、KNX 1.1.5、M-Bus 1–250）、每段设备数和电缆长度。这些是常用设计值，请与制造商核实。
+	Show Addresses writes the address beside every object that has one: control devices, equipment, air handling units and electrical devices. Hide Addresses takes them off the plan.	“显示地址”会把地址写在每个有地址的对象旁：控制设备、设备、空调机组和电气设备。“隐藏地址”将其从图上移除。
+	The address is a Modbus number, a BACnet MAC or a KNX address (1.1.5), typed in the Address line of the object's Properties.	地址可以是 Modbus 编号、BACnet MAC 或 KNX 地址（1.1.5），在对象“特性”的“地址”一行输入。
+	The list tells the addresses used twice on one bus or on one controller: those are the clashes to fix.	列表会指出同一总线或同一控制器上被重复使用的地址：这些是需要修正的冲突。
+	Start the tool and click where the upper left corner of the diagram goes. With a bus named in the options only that bus is drawn; else all of them.	启动工具并点击图纸左上角的位置。在选项中指定总线时只绘制该总线，否则绘制全部。
+	It draws the buses, the controllers on each, and each controller with its modules as boxes: name, kind, and the points used and offered (AI, AO, DI, DO).	绘制各总线、挂在其上的控制器，以及每个控制器和模块的方框：名称、类型、已用和可用点位（AI、AO、DI、DO）。
+	Under each controller are the points wired to it, with their address and type (“@3  TA1  AI”). Controllers with no bus are drawn together.	每个控制器下方列出连接其上的点位及其地址和类型（“@3  TA1  AI”）。没有总线的控制器画在一起。
+	It is redrawn by itself when a control device is added, changed or erased: there is nothing to run again.	添加、修改或删除控制设备时会自动重绘，无需再次运行。
+	Start the tool and click the corners of the shaft, then press Enter. Name it the same on every floor and give the bus it carries (BUS1).	启动工具并点击竖井各角，然后按回车。各层使用相同名称，并指定其承载的总线（BUS1）。
+	A riser can carry several lines, a bus and the data cables for example: in Properties, Add a line for each and give its use and its circuit or bus.	一个立管可承载多条线路，例如总线和弱电电缆：在“特性”中为每条添加一行，并指定用途及回路或总线。
+	Type the height from floor to floor: it is added to the length of the bus, which Check Controls compares with what the protocol allows (1200 m in RS-485, 1000 m in KNX, 350 m in M-Bus).	输入层高：它会加入总线长度，“检查控制”会将其与协议允许值比较（RS-485 为 1200 m，KNX 为 1000 m，M-Bus 为 350 m）。
+	A bus riser counts as a bus cable drawn: Check Controls no longer says there is none.	总线立管视为已绘制总线电缆：“检查控制”不再提示没有总线电缆。
+	Click the corners of the outline where ducts have less height (under a beam, a low ceiling), seen from above, then press Enter.	俯视点击轮廓的各角，这些位置风管可用高度较小（梁下、低吊顶），然后按回车。
+	Type the height available for the ducts, in mm: the void under the beam. Sizing keeps a margin back for the hangers (100 mm by default), so 250 mm available gives a duct 150 mm high.	输入风管可用高度（mm）：梁下的净空。选型会预留吊架余量（默认 100 mm），所以可用 250 mm 对应风管高 150 mm。
+	The altitude of the underside is optional: ducts under the zone sit at that altitude, and a step (two 45° elbows) is drawn between two runs at other altitudes as soon as they are laid.	底部标高是可选的：区域下的风管位于该标高，两段标高不同的风管一铺设就会在其间绘制过渡段（两个 45° 弯头）。
+	Size Ducts cuts the ducts at the edges of the zone and sizes the part inside flat: a round duct that is too tall becomes rectangular, as wide as the flow needs.	“风管选型”会在区域边缘切断风管，并把区域内的部分按扁平截面选型：过高的圆管变为矩形，宽度按风量需要确定。
+	The duct must be part of a network: start it on a unit's collar and end it on a terminal or a riser. A duct that leads to none is left out of the sizing, and the message says so.	风管必须属于某个管网：从机组接口出发，终止于风口或立管。不通向任何终端的风管不参与选型，并会给出提示。
+	A section you typed on a duct is kept: a duct you gave Ø355 stays Ø355 under the beam, and the sizing warns that it is too tall. Set its section to Auto in Properties to let the zone change it.	您为风管输入的截面会被保留：设为 Ø355 的风管在梁下仍是 Ø355，选型会警告其过高。请在“特性”中把截面设为“自动”，让区域来改变它。
+	To change the zone afterwards, select it and edit its height or its altitude in Properties, then run Size Ducts again.	之后要修改区域，请选中它并在“特性”中修改高度或标高，然后重新运行“风管选型”。
+	Addresses	地址
+	1. Draw the outline, like a room	1. 像房间一样绘制轮廓
+	2. Why 300 mm: the round duct does not fit	2. 为什么是 300 mm：圆管放不下
+	3. What Size Ducts does	3. “风管选型”做什么
+	4. Option: an altitude, and the steps make themselves	4. 可选：设置标高，台阶自动生成
+	As soon as a duct is laid across the zone it is cut at its edges and the part inside is made flat: a duct too tall for the height available becomes rectangular, as high as allowed and as wide as it takes to keep the same air section. A section you typed is changed the same way.	风管一铺设到区域上方，就会在区域边缘被切断，区域内的部分被压扁：对可用高度过高的风管变为矩形，高度取允许值，宽度按保持相同风道截面所需确定。您输入的截面也会同样被修改。
+	Size Ducts, later, sizes each piece for its flow in the height available (a network: start on a unit's collar, end on a terminal or a riser); a duct that leads to none keeps the flat section it was given.	之后“风管选型”会按风量在可用高度内为每一段选型（管网：从机组接口出发，终止于风口或立管）；不通向任何终端的风管保留已给定的扁平截面。
+	The altitude of the zone's underside is given to the pieces inside, unless they have their own, and where two runs are at other altitudes the step (two 45° elbows) is drawn at once, with no sizing.	区域底部标高会赋予区域内的各段（除非它们有自己的标高），两段标高不同的风管之间会立即绘制过渡段（两个 45° 弯头），无需选型。
+	Double-flow unit, horizontal	双流机组，水平
+	Double-flow unit, vertical	双流机组，垂直
+	Text Style	文字样式
+	Plumbing	给排水
+	Sanitary Fixture	卫生器具
+	Edit Sanitary Fixture	编辑卫生器具
+	Connect Fixtures	连接卫生器具
+	Sanitary fixtures	卫生器具
+	Wall-hung WC	壁挂式坐便器
+	Floor-standing WC	落地式坐便器
+	Accessible WC	无障碍坐便器
+	Urinal	小便器
+	Washbasin	洗脸盆
+	Hand basin	洗手盆
+	Double vanity basin	双台盆
+	Sink, one bowl	单槽洗涤盆
+	Sink, two bowls	双槽洗涤盆
+	Shower	淋浴
+	Bath	浴缸
+	Bidet	净身盆
+	Slop sink	污水池
+	Floor drain	地漏
+	Washing machine	洗衣机
+	Dishwasher	洗碗机
+	Water heater	热水器
+	Draw-off tap	取水龙头
+	Waste water (EU)	废水 (EU)
+	Soil water (EV)	污水 (EV)
+	Rain water (EP)	雨水 (EP)
+	Cold water (EF)	冷水 (EF)
+	Domestic hot water (ECS)	生活热水 (ECS)
+	Hot water return loop	热水回水
+	Choose the fixture in the list, then click where the middle of its back goes, against the wall. Rotate (R) turns the next ones; Type (T) changes the kind.	在列表中选择器具，然后在墙边点击其背面中点的位置。旋转 (R) 转动后续器具；类型 (T) 更换种类。
+	It is drawn seen from above at its usual size, with its drain written beside it: WC EV Ø100, LAV EU Ø40.	它以常用尺寸按俯视图绘制，旁边标注其排水：WC EV Ø100，LAV EU Ø40。
+	Water closets, urinals and slop sinks drain to soil water (EV), the others to waste water (EU). In Properties change its size, its drain, the drain's diameter, its cold and hot water flows (l/s) and its altitude.	坐便器、小便器和污水池排入污水 (EV)，其他器具排入废水 (EU)。在特性中可修改其尺寸、排水、排水管径、冷热水流量 (l/s) 和标高。
+	The values are the usual ones in France (DTU 60.11), to be checked against the fixture chosen.	这些数值是法国的常用值 (DTU 60.11)，需按所选器具核对。
+	Choose the network, then click the points of the pipe, as for any pipe: the elbows and the reducers are drawn as soon as the pipes are laid.	选择管网，然后像任何管道一样点击管道的各点：铺设管道时即绘制弯头和变径。
+	Waste water (EU), soil water (EV) and rain water (EP) flow by gravity: give the slope in Properties (i = 1 %, 2 %…); it is written on the pipe with its outer diameter (Ø100 EV i=2 %).	废水 (EU)、污水 (EV) 和雨水 (EP) 靠重力流动：在特性中给出坡度 (i = 1 %、2 %…)；坡度与外径一起标注在管道上 (Ø100 EV i=2 %)。
+	Cold water (EF), domestic hot water (ECS) and its return loop are written with the outer diameter of their tube (Ø20 EF).	冷水 (EF)、生活热水 (ECS) 及其回水以管材外径标注 (Ø20 EF)。
+	A stack between the floors is a pipe riser: draw the shaft, then add a line for each network that goes up or down in it.	楼层之间的立管是管道竖井：绘制竖井，然后为其中上行或下行的每个管网添加一条管线。
+	Draw the collectors first: a waste-water pipe and a soil-water pipe along the rooms, toward the stack.	先绘制横干管：沿房间朝立管方向的一根废水管和一根污水管。
+	Put the fixtures, then start this tool: from each fixture's drain it draws the branch to the nearest collector of its kind, within 6 m.	放置器具后启动此工具：它从每个器具的排水口绘制支管，接到 6 m 内最近的同类横干管。
+	Each branch is as wide as the fixture's drain (Ø100 for a WC, Ø40 for a basin) with a slope of 2 % for soil water and 1 % for waste water.	每根支管与器具排水管径相同 (坐便器 Ø100，洗脸盆 Ø40)，污水坡度 2 %，废水坡度 1 %。
+	A fixture with no collector of its kind in reach is named on the command line; run the tool again once the collector is drawn: the fixtures already connected are left.	附近没有同类横干管的器具会在命令行中列出；绘制横干管后再次运行此工具：已连接的器具保持不变。
+	Living room	客厅
+	Dining	餐厅
+	Bedroom	卧室
+	Kitchen	厨房
+	Appliances	家用电器
+	TV and computers	电视与电脑
+	Desks and chairs	办公桌椅
+	Meeting and reception	会议与接待
+	Storage	储物
+	Other	其他
+	Sofa, two seats	双人沙发
+	Sofa, three seats	三人沙发
+	Corner sofa	转角沙发
+	Armchair	扶手椅
+	Pouf	脚凳
+	Coffee table	茶几
+	TV unit	电视柜
+	Bookcase	书柜
+	Sideboard	餐边柜
+	Fireplace	壁炉
+	Wood stove	木柴炉
+	Piano	钢琴
+	Rug	地毯
+	Floor lamp	落地灯
+	Plant	绿植
+	Table, 4 seats	四人餐桌
+	Table, 6 seats	六人餐桌
+	Table, 8 seats	八人餐桌
+	Round table, 4 seats	四人圆桌
+	Round table, 6 seats	六人圆桌
+	Chair	椅子
+	Bar stool	吧凳
+	Bench	长凳
+	Café table	咖啡桌
+	Bed 90 x 190	单人床 90×190
+	Bed 140 x 190	双人床 140×190
+	Bed 160 x 200	双人床 160×200
+	Bed 180 x 200	大床 180×200
+	Baby cot	婴儿床
+	Bedside table	床头柜
+	Chest of drawers	五斗柜
+	Wardrobe	衣柜
+	Dressing table	梳妆台
+	Base unit	地柜
+	Worktop with base units	操作台与地柜
+	Kitchen island	厨房岛台
+	Wall unit	吊柜
+	Tall unit	高柜
+	Refrigerator	冰箱
+	Fridge-freezer	冰箱冷冻一体机
+	American fridge	对开门冰箱
+	Chest freezer	卧式冷柜
+	Wine cooler	红酒柜
+	Oven	烤箱
+	Hob	灶台
+	Cooker hood	抽油烟机
+	Microwave	微波炉
+	Tumble dryer	烘干机
+	Coffee machine	咖啡机
+	Water cooler	饮水机
+	Vending machine	自动售货机
+	Television 32"	电视机 32"
+	Television 43"	电视机 43"
+	Television 55"	电视机 55"
+	Television 65"	电视机 65"
+	Television 75"	电视机 75"
+	Desktop computer	台式电脑
+	Laptop	笔记本电脑
+	Printer	打印机
+	Photocopier	复印机
+	Desk 140 x 70	办公桌 140×70
+	Desk 160 x 80	办公桌 160×80
+	Desk with drawer unit	带抽屉柜办公桌
+	L-shaped desk	L形办公桌
+	Executive desk	经理桌
+	Drawer unit	抽屉柜
+	Office chair	办公椅
+	Visitor chair	访客椅
+	Classroom desk	课桌
+	Teacher desk	讲桌
+	Meeting table, 6 seats	六人会议桌
+	Meeting table, 10 seats	十人会议桌
+	Meeting table, 14 seats	十四人会议桌
+	Oval meeting table	椭圆会议桌
+	Reception desk	接待台
+	Waiting bench	候客长椅
+	High cabinet	高柜
+	Low cabinet	矮柜
+	Locker	更衣柜
+	Locker bank, 4	四门更衣柜
+	Shelving unit	货架
+	Archive shelving	档案架
+	Coat rack	衣架
+	Whiteboard	白板
+	Projection screen	投影幕
+	Acoustic screen	隔音屏风
+	Bar counter	吧台
+	Display case	展示柜
+	Choose a piece in the list (living room, dining, bedroom, kitchen, appliances, TV and computers, desks, meeting and reception, storage), then click where the middle of its back goes, against the wall. Rotate (R) turns the next ones; Type (T) changes the model.	在列表中选择一件家具（客厅、餐厅、卧室、厨房、家用电器、电视与电脑、办公桌、会议与接待、储物），然后在墙边点击其背面中点的位置。旋转 (R) 转动后续家具；类型 (T) 更换型号。
+	It is drawn seen from above at its usual size. In Properties change its model, its width, its depth and its height, its altitude and, for an appliance, the power it draws; a name written beside it is optional.	它以常用尺寸按俯视图绘制。在特性中可修改其型号、宽度、深度、高度、标高，电器还可修改功率；旁边的名称可选。
+	A piece keeps its look when it is made wider or deeper: a sofa 2.40 m long, a desk 1.80 m wide.	加宽或加深后家具外观保持不变：例如 2.40 m 长的沙发、1.80 m 宽的办公桌。
+	The refrigerators, ovens, televisions, computers and the other appliances have their usual power: it is the value to put on a circuit.	冰箱、烤箱、电视、电脑等电器都有常用功率：这就是接入回路时使用的数值。
+	Remote control cable	遥控电缆
+	Remote control	遥控
+	The cable from a wired remote control or a thermostat to its unit: pink, not the bus's violet nor the power cables' colours.	从有线遥控器或温控器到机组的电缆：粉红色，不同于总线的紫色，也不同于电力电缆的颜色。
+	Hide Equipment Sizes	隐藏设备尺寸
+	Save Cable Type	保存电缆类型
+	Delete Cable Type	删除电缆类型
+	Cable Types	电缆类型
+	Server room cooler	机房空调柜
+	Pool dehumidifier (ducted)	泳池除湿机（风管式）
+	Pool dehumidifier (wall)	泳池除湿机（壁挂式）
+	Wall rack	壁挂式机架
+	Floor rack	落地式机架
+	Computer racks	机架
+	Flip wall	翻转墙体
+	Edited by hand	手动编辑
+	Regenerate	重新生成
+	Pipe and Duct Colours	管道和风管颜色
+	Check Refrigerant Charge	检查制冷剂充注量
+	Save these settings in the layout's page setup	将这些设置保存到布局的页面设置
+	Set Size Relative to Screen	设置相对于屏幕的大小
+	Set Size in Absolute Units	以绝对单位设置大小
+	Unnamed	未命名
+	World (WCS)	世界 (WCS)
+	Page setup of {name}	{name} 的页面设置
+	Add a revision	添加修订
+	Checked by	校核
+	Choose a picture...	选择图片...
+	Choosing a picture is not available here.	此处无法选择图片。
+	Codes	编码
+	Date	日期
+	Drawn by	绘制
+	Edit Title Block	编辑图框标题栏
+	Fill in the project, the parties with their logos, the picture, the revisions and the code of the sheet, then press Insert.	填写项目、带标志的参与方、图片、修订和图纸编码，然后按“插入”。
+	In a layout the column goes to the right edge of the sheet; double-click it to change it.	在布局中，该栏位于图纸右边缘；双击可修改。
+	Index	版本
+	Lines shown	显示行数
+	Logo	标志
+	Nature of the change	修改内容
+	No party.	没有参与方。
+	No picture	无图片
+	Paper	图纸
+	Parties	参与方
+	Picture	图片
+	Pictures (PNG, JPEG, BMP, TIFF)	图片 (PNG, JPEG, BMP, TIFF)
+	Project	项目
+	Revisions	修订
+	The code of the sheet: each cell has a name and a value.	图纸编码：每个单元格有名称和值。
+	The picture of the project: a view or a photo.	项目图片：效果图或照片。
+	Title Block	图框标题栏
+	Title block	图框标题栏
+	Title block drawn.	图框标题栏已绘制。
+	Under the picture of the project	在项目图片下方
+	{w} x {h} pixels	{w} x {h} 像素
+	Email	电子邮件
+	Phone	电话
+	Role	角色
+	Title of the sheet	图纸标题
+	Insert the title block	插入图框标题栏
+	Each logo and the picture of the project are kept in the drawing; the table of revisions grows with a new line.	每个标志和项目图片都保存在图纸中；每增加一个修订，修订表就多一行。

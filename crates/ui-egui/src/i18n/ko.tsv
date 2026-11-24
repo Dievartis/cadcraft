@@ -7,6 +7,16 @@
 	Attach DWG...	DWG 부착...
 	Bind	결합
 	Detach	분리
+	Drawing Properties...	도면 특성...
+	Enter author	작성자 입력
+	Enter comments	설명 입력
+	Enter field name or system variable	필드 이름 또는 시스템 변수 입력
+	Enter keywords	키워드 입력
+	Enter property	특성 입력
+	Enter property to change	변경할 특성 입력
+	Enter subject	주제 입력
+	Enter title	제목 입력
+	Field...	필드...
 	Loaded	로드됨
 	Make it a block of this drawing, keeping its layer names	도면층 이름을 유지하여 이 도면의 블록으로 만들기
 	Make it a block of this drawing; its layers become NAME$0$LAYER	이 도면의 블록으로 만들기; 도면층 이름은 NAME$0$LAYER로 변경됨
@@ -21,6 +31,7 @@
 	Reload	다시 로드
 	Reload All	모두 다시 로드
 	Saved Path	저장된 경로
+	Spelling	맞춤법 검사
 	Unload	언로드
 	Unloaded	언로드됨
 	Unreferenced	참조되지 않음
@@ -514,6 +525,7 @@
 	Match Layer	도면층 일치
 	Match Properties	특성 일치
 	Measure	길이 분할
+	Quick Measure	빠른 측정
 	Measure Distance	거리 측정
 	Measure Geometry	형상 측정
 	Merge Cells	셀 병합
@@ -624,6 +636,7 @@
 	Pattern	패턴
 	Perpendicular	수직
 	Plot	플롯
+	Plot...	플롯...
 	Plot (click: do not plot)	플롯(클릭: 플롯 안 함)
 	Plot Preview	플롯 미리보기
 	Plot Window	플롯 창
@@ -643,6 +656,7 @@
 	Send Hatches to Back	해치를 맨 뒤로 보내기
 	Send Under Objects	객체 아래로 보내기
 	Text Objects Only	문자 객체만
+	Update Fields	필드 업데이트
 	Use for this layout	이 배치에 사용
 	Display plot styles	플롯 스타일 표시
 	No plot style tables.	플롯 스타일 테이블이 없습니다.
@@ -1245,6 +1259,8 @@ menu	Modify	수정
 	Check for Updates…	업데이트 확인…
 	CADCraft is up to date.	CADCraft가 최신 버전입니다.
 	Could not check for updates.	업데이트를 확인하지 못했습니다.
+	Check for Updates	업데이트 확인
+	Release updates are disabled for this development build.	이 개발 빌드에서는 릴리스 업데이트가 비활성화되어 있습니다.
 	Add a drawing file as a block library	도면 파일을 블록 라이브러리로 추가
 	Add a folder of drawings or a drawing file to use its blocks.	블록을 사용하려면 도면이 들어 있는 폴더나 도면 파일을 추가하세요.
 	Block Libraries	블록 라이브러리
@@ -1287,6 +1303,17 @@ menu	Modify	수정
 	Ctrl+Enter to apply	Ctrl+Enter to apply
 	Edit Text	Edit Text
 	The drawing changed. Close the window and open it again.	도면이 변경되었습니다. 창을 닫고 다시 여십시오.
+	Layer state name	레이어 상태 이름
+	Switches layers on and off, frozen and locked	레이어를 켜고 끄며 동결하고 잠급니다
+	Rename	이름 바꾸기
+	Objects on locked layers can't be selected	잠긴 도면층의 객체는 선택할 수 없습니다
+	They are still shown and snapped to, like a blueprint.	밑그림처럼 계속 표시되며 스냅도 적용됩니다.
+# Layers palette: move the selection to a new layer, delete empty layers.
+	Move to New Layer	새 도면층으로 이동
+	Move Selection to New Layer	선택 항목을 새 도면층으로 이동
+	New layer name	새 도면층 이름
+	Delete Empty Layers	빈 도면층 삭제
+	Deletes every layer that has no objects on it	객체가 없는 모든 도면층을 삭제합니다
 
 # ArtCraft feature naming
 	Additional Tools	추가 도구

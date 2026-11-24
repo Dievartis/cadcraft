@@ -1,6 +1,6 @@
 use cadcraft_geom::Mat3;
 
-use super::common::Handle;
+use super::common::{Handle, RawTag};
 use super::{Color, Deserialize, Serialize, Vec2, Vec3, standard, yes};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -27,6 +27,19 @@ pub struct Viewport {
     /// Display on (MVIEW ON/OFF). An off viewport shows its border but no model space.
     #[serde(default = "yes")]
     pub on: bool,
+    /// The viewport's own UCS (DXF groups 110–112, 79, 146, 345, 346), the one it keeps while
+    /// `ucs_per_viewport` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ucs: Option<ViewportUcs>,
+    /// UCS per viewport (UCSVP, DXF group 71): the viewport keeps its own UCS instead of
+    /// following the current one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ucs_per_viewport: bool,
+    /// The viewport's groups CADCraft doesn't model (snap, grid, lens and clipping, render mode,
+    /// plot style sheet, shade plot, visual style, background, lighting…), as read: written back
+    /// on save and carried by copies, their references pointed at what they named.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra: Vec<RawTag>,
     /// The view twist (DVIEW TWist inside the viewport; DXF group 51): radians counterclockwise,
     /// the model view seen through the viewport is turned on the sheet by it. 0 is untwisted.
     #[serde(default, skip_serializing_if = "is_zero_twist")]
@@ -62,6 +75,27 @@ impl Viewport {
     }
 }
 
+/// A layout viewport's own UCS.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewportUcs {
+    pub origin: Vec3,
+    pub x_axis: Vec3,
+    pub y_axis: Vec3,
+    /// Elevation (DXF group 146).
+    #[serde(default)]
+    pub elevation: f64,
+    /// Orthographic type (DXF group 79): 0 none, 1 top, 2 bottom, 3 front, 4 back, 5 left, 6 right.
+    #[serde(default)]
+    pub ortho: u8,
+    /// The named UCS it is, by UCS table name (DXF group 345).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub named: Option<String>,
+    /// The UCS an orthographic one is based on, by UCS table name (DXF group 346); none: the WCS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+}
+
 impl Default for Viewport {
     fn default() -> Self {
         Viewport {
@@ -76,11 +110,216 @@ impl Default for Viewport {
             layer_colors: Vec::new(),
             clip: None,
             on: true,
+            ucs: None,
+            ucs_per_viewport: false,
+            extra: Vec::new(),
             twist: 0.0,
         }
     }
 }
 
+/// A PDF underlay (PDFUNDERLAY): one page of a PDF file shown under the drawing. Its lines are
+/// not objects of the drawing; the file is read again each time the drawing is shown.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfUnderlay {
+    /// The lower-left corner of the page.
+    pub insert: Vec3,
+    /// The page's width and height at scale 1: its size in inches, as drawing units whatever
+    /// the drawing's units (the convention DXF and DWG files store underlays in; a millimetre
+    /// drawing shows the page at its size on paper at scale 25.4).
+    pub size: Vec2,
+    /// Scale factor applied to `size` (the DXF/DWG underlay scale).
+    #[serde(default = "underlay_scale")]
+    pub scale: f64,
+    /// Rotation about `insert`, in radians.
+    #[serde(default)]
+    pub rotation: f64,
+    /// The PDF file.
+    pub path: String,
+    /// The page number, from 1.
+    #[serde(default = "underlay_page")]
+    pub page: u32,
+    /// How much the page fades into the background, 0..=80 (percent).
+    #[serde(default = "underlay_fade")]
+    pub fade: u8,
+    /// On a dark background the page is shown with its lightness turned over (white paper
+    /// becomes dark, dark lines light); its hues are kept.
+    #[serde(default = "underlay_adjust")]
+    pub adjust_colors: bool,
+    /// Contrast, 0..=100: below 100 the page's colours are drawn toward middle grey.
+    #[serde(default = "underlay_contrast")]
+    pub contrast: u8,
+    /// The page is shown in shades of grey.
+    #[serde(default)]
+    pub monochrome: bool,
+    /// Clip boundary (PDFCLIP): a polygon's vertices in the page's own units (those of `size`,
+    /// from `insert`, before scale and rotation), so it follows the underlay when it is moved,
+    /// turned or scaled. Empty: the whole page.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clip: Vec<Vec2>,
+    /// The clip boundary is applied (PDFCLIP ON/OFF keeps it either way): the Properties
+    /// palette's "Show clip", on for a new underlay (group 280 bit 1) even before
+    /// it has a boundary.
+    #[serde(default)]
+    pub clipping: bool,
+    /// Inverted clip: the page is shown outside the boundary, hidden inside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clip_inverted: bool,
+    /// The PDF's layers this underlay shows or hides, by name; layers not listed are shown as
+    /// the PDF shows them by default.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<UnderlayLayer>,
+    /// Unloaded (External References palette, or PDFIMPORT): not shown, not plotted, not in the
+    /// drawing's extents. It is the PDF file's state: every underlay of the same file and page
+    /// shares it, as files keep it on the file's definition.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unloaded: bool,
+    /// The page not shown (the Properties palette's "Show underlay" No): the page is neither
+    /// drawn, plotted nor snapped to; its frame stays as PDFFRAME says, as for a shown one, so
+    /// the underlay can still be picked.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
+}
+
+/// A PDF layer an underlay shows (`on`) or hides.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UnderlayLayer {
+    pub name: String,
+    pub on: bool,
+}
+
+impl PdfUnderlay {
+    /// Apply the underlay's monochrome and contrast to straight RGBA pixels of its page
+    /// (transparency kept), before any lightness turned over for the background or fade.
+    pub fn tone(&self, rgba: &mut [u8]) {
+        let k = i32::from(self.contrast.min(100));
+        if !self.monochrome && k == 100 {
+            return;
+        }
+        for [r, g, b, _] in rgba.as_chunks_mut::<4>().0 {
+            if self.monochrome {
+                // Rec. 601 luma.
+                let y = ((u32::from(*r) * 299 + u32::from(*g) * 587 + u32::from(*b) * 114 + 500) / 1000).min(255) as u8;
+                (*r, *g, *b) = (y, y, y);
+            }
+            for c in [r, g, b] {
+                *c = (128 + (i32::from(*c) - 128) * k / 100).clamp(0, 255) as u8;
+            }
+        }
+    }
+}
+/// Turn over the lightness of straight RGBA pixels, keeping their hues: white paper becomes
+/// black and black lines white, a red line stays red (an underlay's "adjust colors" on a dark
+/// background).
+pub fn turn_lightness(rgba: &mut [u8]) {
+    for [r, g, b, _] in rgba.as_chunks_mut::<4>().0 {
+        let (lo, hi) = ((*r).min(*g).min(*b), (*r).max(*g).max(*b));
+        // HSL lightness L = (max + min) / 2 becomes 1 - L: shift every channel by 255 - max - min.
+        let shift = 255 - i32::from(hi) - i32::from(lo);
+        for c in [r, g, b] {
+            *c = (i32::from(*c) + shift).clamp(0, 255) as u8;
+        }
+    }
+}
+/// The largest fade an underlay takes.
+pub const UNDERLAY_MAX_FADE: u8 = 80;
+/// The largest PDF file read for an underlay, to show or plot it.
+pub const UNDERLAY_MAX_PDF_BYTES: u64 = 512 * 1024 * 1024;
+fn underlay_fade() -> u8 {
+    0
+}
+fn underlay_adjust() -> bool {
+    true
+}
+fn underlay_contrast() -> u8 {
+    100
+}
+impl Default for PdfUnderlay {
+    fn default() -> Self {
+        PdfUnderlay {
+            insert: Vec3::ZERO,
+            size: Vec2::new(1.0, 1.0),
+            scale: underlay_scale(),
+            rotation: 0.0,
+            path: String::new(),
+            page: underlay_page(),
+            fade: underlay_fade(),
+            adjust_colors: underlay_adjust(),
+            contrast: underlay_contrast(),
+            monochrome: false,
+            clip: Vec::new(),
+            clipping: true,
+            clip_inverted: false,
+            layers: Vec::new(),
+            unloaded: false,
+            hidden: false,
+        }
+    }
+}
+fn underlay_scale() -> f64 {
+    1.0
+}
+fn underlay_page() -> u32 {
+    1
+}
+impl PdfUnderlay {
+    /// The page's width (along its bottom edge) and height vectors in drawing units.
+    pub fn axes(&self) -> (Vec2, Vec2) {
+        let (s, c) = self.rotation.sin_cos();
+        let (w, h) = (self.size.x * self.scale, self.size.y * self.scale);
+        (Vec2::new(c * w, s * w), Vec2::new(-s * h, c * h))
+    }
+    /// The four corners, counter-clockwise from the lower-left one.
+    pub fn corners(&self) -> [Vec2; 4] {
+        let o = self.insert.xy();
+        let (u, v) = self.axes();
+        [o, o + u, o + u + v, o + v]
+    }
+    /// The PDF layers set on this underlay, as (name, shown).
+    pub fn layer_visibility(&self) -> Vec<(String, bool)> {
+        self.layers.iter().map(|l| (l.name.clone(), l.on)).collect()
+    }
+    /// A key telling apart the looks of the same page with different layers hidden (empty when
+    /// none is set).
+    pub fn layers_key(&self) -> String {
+        Self::key_of_layers(&self.layer_visibility())
+    }
+    /// [`PdfUnderlay::layers_key`] of the layers (name, shown) a page is read with.
+    pub fn key_of_layers(layers: &[(String, bool)]) -> String {
+        layers.iter().map(|(name, on)| format!("{}{name}\u{1f}", if *on { '+' } else { '-' })).collect()
+    }
+    /// Drawing point of page point `p` (in the page's own units, see [`PdfUnderlay::clip`]).
+    pub fn to_drawing(&self, p: Vec2) -> Vec2 {
+        let (s, c) = self.rotation.sin_cos();
+        let q = p * self.scale;
+        self.insert.xy() + Vec2::new(c * q.x - s * q.y, s * q.x + c * q.y)
+    }
+    /// Page point (in the page's own units) of drawing point `p`; `None` at scale 0.
+    pub fn to_page(&self, p: Vec2) -> Option<Vec2> {
+        let (s, c) = self.rotation.sin_cos();
+        let d = p - self.insert.xy();
+        let q = Vec2::new(c * d.x + s * d.y, -s * d.x + c * d.y) * (1.0 / self.scale);
+        q.is_finite().then_some(q)
+    }
+    /// The clip boundary in drawing units when it is applied (at least three vertices).
+    pub fn clip_outline(&self) -> Option<Vec<Vec2>> {
+        (self.clipping && self.clip.len() >= 3).then(|| self.clip.iter().map(|p| self.to_drawing(*p)).collect())
+    }
+    /// The outline the underlay covers: its clip boundary, else (not clipped, or clipped
+    /// inverted) the page's edges.
+    pub fn outline(&self) -> Vec<Vec2> {
+        match self.clip_outline() {
+            Some(c) if !self.clip_inverted => c,
+            _ => self.corners().to_vec(),
+        }
+    }
+    /// The closed outlines drawn as the underlay's frame: its clip boundary when clipped
+    /// (inverted too), else the page's edges.
+    pub fn frames(&self) -> Vec<Vec<Vec2>> {
+        vec![self.clip_outline().unwrap_or_else(|| self.corners().to_vec())]
+    }
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Image {

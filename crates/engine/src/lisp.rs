@@ -714,6 +714,24 @@ impl Session {
         names
     }
 
+    /// Whether starting command `name`, in any case, runs a `c:` function of the active drawing.
+    /// A function named like a registered command or alias, or with a prefix [`Session::start`]
+    /// takes off, is defined but never run by that name.
+    pub fn is_lisp_command(&self, name: &str) -> bool {
+        if name.starts_with(['_', '.', '-', '\'']) || crate::cmd::find_command(&crate::cmd::resolve_alias(&name.to_ascii_lowercase())).is_some() {
+            return false;
+        }
+        let Ok(uid) = self.state().map(|s| s.uid) else { return false };
+        let Some(env) = self.lisp.envs.get(&uid) else { return false };
+        !name.is_empty() && matches!(env.get(&format!("C:{}", name.to_ascii_uppercase())), Value::Func(_) | Value::Subr(_))
+    }
+
+    /// A LISP routine waits in a `get…` function. Its prompt is the active one, shown by
+    /// [`Session::prompt_text`], even while a command the routine started is still running.
+    pub fn lisp_waiting_for_input(&self) -> bool {
+        self.lisp_prompt().is_some()
+    }
+
     /// A `c:` function for a command name typed at the command line.
     pub(crate) fn lisp_command(&self, name: &str) -> Option<Value> {
         if self.lisp.active {

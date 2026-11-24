@@ -19,27 +19,39 @@ pub const UPDATE_APP: craft_update::app::App = craft_update::app::App {
 
 pub mod aliasdlg;
 pub mod animation;
+pub mod attedit;
 pub mod autosave;
 pub mod bedit;
 pub mod canvas;
 pub mod capture;
+pub mod chartsdlg;
 pub mod chrome;
 pub mod clipboard;
 pub mod closing;
 pub mod cmdline;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod collab;
 pub mod context_menu;
 pub mod control;
 pub mod credits;
+pub mod ctrldlg;
 pub mod dialogs;
 pub mod docking;
 mod drawing_fonts;
+pub mod elecdlg;
 pub mod fault;
+pub mod partlibdlg;
+pub mod takeoffdlg;
+pub mod titleblockdlg;
+pub mod wallstyledlg;
 // The Find and Replace window behind the FIND command.
 pub mod finddlg;
 pub mod hatchdlg;
 mod line_editor;
 mod mtext_editor;
 mod panel_state;
+/// The PDF Underlay dialog.
+mod pdfattach_dlg;
 pub mod spacemouse;
 pub mod switch;
 // The Edit Text window, opened from the shortcut menu's Edit Text entry.
@@ -72,9 +84,11 @@ pub mod parametric;
 pub mod plotstyles;
 pub mod quick;
 pub mod save_loss;
+pub mod sections;
 pub mod shortcut_menus;
 pub mod textstyles;
 pub mod theme;
+pub mod touch;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod updates_ui;
 pub mod viewcube;
@@ -139,10 +153,14 @@ pub struct UiState {
     /// Animation effects (dialog and menu fades, smoothed scrolling): "system" (follow the OS
     /// setting), "on" or "off".
     pub animations: animation::AnimationPref,
+    /// Which sections of the Architecture and HVAC tabs are open ([`sections`]).
+    #[serde(skip)]
+    pub sections: sections::Sections,
     /// The format Save As suggests: "dxf" or "dwg", for new drawings and opened files alike.
     pub save_format: SaveFormat,
     /// The version Save As writes for a drawing that has no file yet ("2000" … "2018"); a
-    /// drawing opened from a file keeps that file's version.
+    /// drawing opened from a file keeps that file's version. Export writes DXF and DWG files in
+    /// this version for every drawing.
     pub save_version: String,
     /// Drawings opened from a path, newest first (File ▸ Open Recent and the Start page).
     pub recent_files: Vec<String>,
@@ -226,6 +244,7 @@ impl Default for UiState {
             shortcuts: keys::UserKeys::new(),
             theme: theme::ThemePref::default(),
             animations: animation::AnimationPref::default(),
+            sections: sections::Sections::default(),
             save_format: SaveFormat::default(),
             save_version: SaveVersion::default().year().to_string(),
             recent_files: Vec::new(),
@@ -246,7 +265,7 @@ pub struct Services {
     pub pick_plot_style_save: Option<Box<dyn Fn(&str) -> Option<String>>>,
     pub pick_save: Option<Box<dyn Fn(&str) -> Option<String>>>,
     /// Where set, the file dialogs are shown with this instead of calling `pick_open` /
-    /// `pick_save` / `pick_lisp` (which must still be set, to say which dialogs there are), and
+    /// `pick_save` / `pick_lisp` / `pick_pdf` (which must still be set, to say which dialogs there are), and
     /// the answer is acted on in a later frame ([`CadApp::pick_then`]). macOS needs it: a panel run modally
     /// inside the window's event handler gets the window events of its own resizing sent back
     /// into that handler, and winit aborts the app (#1527).
@@ -260,10 +279,15 @@ pub struct Services {
     pub no_file_system: bool,
     /// Pick a `.pgp` alias file, starting in the folder given (the last import's).
     pub pick_pgp: Option<Box<dyn Fn(Option<&str>) -> Option<String>>>,
+    /// Choose a PDF file (PDFATTACH).
+    pub pick_pdf: Option<Box<dyn Fn() -> Option<String>>>,
+    /// Choose a picture file (the logos and the picture of a title block).
+    pub pick_image: Option<Box<dyn Fn() -> Option<String>>>,
 }
 
 /// The file dialog to show: Open, Save with the suggested file name, APPLOAD's `.lsp` picker or
-/// ALIASEDIT's `.pgp` picker, starting in the given folder (empty for the default one).
+/// ALIASEDIT's `.pgp` picker, starting in the given folder (empty for the default one), or
+/// PDFATTACH's PDF picker.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pick {
     Open,
@@ -273,6 +297,9 @@ pub enum Pick {
     PlotStyleSave(String),
     Lisp(String),
     Pgp(String),
+    Pdf,
+    /// A picture file (PNG, JPEG, BMP or TIFF).
+    Image,
 }
 
 /// Shows a file dialog without waiting for it and calls the callback (from any thread) with the
@@ -322,6 +349,15 @@ pub struct CadApp {
     pub opening: opening::Opening,
     pub integrated_titlebar: bool,
     control_rx: Option<Receiver<ControlRequest>>,
+    /// A shared session's connection, when this drawing is being edited together.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub collab: Option<collab::Collab>,
+    /// What the other participants are looking at, by actor.
+    pub remote_presence: std::collections::BTreeMap<String, cadcraft_collab::Presence>,
+    /// The version of the shared drawing this app shows.
+    pub collab_version: u64,
+    collab_seq: u64,
+    last_presence: Option<web_time::Instant>,
     /// Fresh surface and identity snapshot (see [`capture`]).
     pub(crate) capture_geometry: Option<capture::CaptureGeometry>,
     /// Monotonic surface epoch, bumped whenever the window/viewport geometry changes.
@@ -332,6 +368,8 @@ pub struct CadApp {
     /// Admitted `ui.screenshot` requests, including completed-but-undrained ones.
     pub(crate) shots: capture::Shots,
     pub synthetic: Vec<egui::Event>,
+    /// The virtual mouse that turns canvas touches into pointer events ([`touch`]).
+    pub touch: touch::TouchMouse,
     /// Keys, text and clipboard events a floating panel's own OS window left over, with the
     /// modifiers held there, for the main window's next input ([`Self::forward_native_input`]).
     forwarded: Vec<egui::Event>,
@@ -351,6 +389,11 @@ pub struct CadApp {
     pub frame_cap: Option<gpu::FrameCap>,
     /// Language whose interface fonts are installed (`None` until the first frame).
     fonts_language: Option<&'static str>,
+    /// The scripts of the names shown the fonts were installed for, and the name-font loads they
+    /// include (`None` until the first frame): a Korean layer name, a Thai drawing name.
+    fonts_names: Option<(theme::Scripts, u64)>,
+    /// The names last scanned for their scripts (a fingerprint), and those scripts.
+    font_names: Option<(u64, theme::Scripts)>,
     /// Language last given to egui (and so to the AccessKit root; `None` until the first frame).
     shown_language: Option<&'static str>,
     /// The theme last installed into egui (`None` until the first frame).
@@ -386,8 +429,26 @@ pub struct CadApp {
     pub autosave_notice: Option<autosave::AutosaveNotice>,
     /// The Command Aliases dialog while open ([`aliasdlg`]).
     pub alias_dlg: Option<aliasdlg::AliasDlgState>,
+    /// The Wall Styles dialog while open ([`wallstyledlg`]).
+    pub wall_style_dlg: Option<wallstyledlg::WallStyleDlgState>,
+    /// The HVAC Quantities dialog while open ([`takeoffdlg`]).
+    pub takeoff_dlg: Option<takeoffdlg::TakeoffDlgState>,
+    /// The prices and the levels kept for the building total, across uses and restarts.
+    pub takeoff_store: takeoffdlg::Store,
+    /// The design charts window while open ([`chartsdlg`]).
+    pub charts_dlg: Option<chartsdlg::ChartsState>,
+    /// The Electrical Quantities window while open ([`elecdlg`]).
+    pub elec_dlg: Option<elecdlg::ElecDlgState>,
+    /// The Title Block dialog while open ([`titleblockdlg`]).
+    pub title_dlg: Option<titleblockdlg::TitleBlockDlg>,
+    /// The Points List window while open ([`ctrldlg`]).
+    pub ctrl_dlg: Option<ctrldlg::CtrlDlgState>,
+    /// The Pipework Part Library window while open ([`partlibdlg`]).
+    pub part_lib: Option<partlibdlg::PartLibState>,
     /// The Hatch and Gradient dialog while open or picking ([`hatchdlg`]).
     pub hatch_dlg: Option<hatchdlg::HatchDlgState>,
+    /// The Edit Attributes dialog ([`attedit`]).
+    pub attedit: attedit::State,
     /// The Edit Block Definition dialog ([`bedit`]).
     pub bedit: bedit::State,
     /// A file dialog shown with [`Services::start_pick`]: its answer, and what to do with it.
@@ -395,6 +456,49 @@ pub struct CadApp {
     /// The startup update check and its prompt (desktop; [`updates_ui`]).
     #[cfg(not(target_arch = "wasm32"))]
     pub updates_rt: updates_ui::Runtime,
+}
+
+/// The numeric keypad's decimal key types a point at the command line, whatever the system's
+/// language: with a German (or any decimal-comma) layout it sends a comma, and a comma separates
+/// coordinates here (`10,20`), so `2,5` typed on the keypad would be a point instead of a number.
+/// The main keyboard's comma stays. Text fields and prompts that take text never see this, so a
+/// keypad comma typed into MText, a dialog or a list of names stays a comma ([`cmdline::keyboard`]).
+///
+/// The keypad key is told apart by its physical key: egui-winit (desktop) maps none for
+/// `KeyCode::NumpadDecimal`, and of the other keys that could type a comma only the ISO/JIS extra
+/// keys (`IntlBackslash`, `IntlRo`, `IntlYen`) share that. So a comma key press without a physical
+/// key, followed by a typed comma, is the keypad's. A release in between doesn't change that; any
+/// other event does. The web shell reads the DOM code `NumpadDecimal` as `Period`, the same as the
+/// main point key, so there the two can't be told apart and nothing changes.
+pub fn numpad_decimal_point(events: &mut [egui::Event]) {
+    let mut keypad = NumpadDecimal::default();
+    for e in events.iter_mut() {
+        keypad.step(e, true);
+    }
+}
+
+/// [`numpad_decimal_point`] one event at a time, for input whose prompt can change between events.
+#[derive(Default)]
+pub struct NumpadDecimal {
+    armed: bool,
+}
+
+impl NumpadDecimal {
+    /// Pass the next event through: the keypad's comma becomes a point when `numeric` (the prompt
+    /// in force when its text arrives reads numbers or points), and stays a comma otherwise.
+    pub fn step(&mut self, e: &mut egui::Event, numeric: bool) {
+        match e {
+            egui::Event::Key { key: egui::Key::Comma, physical_key: None, pressed: true, .. } => self.armed = true,
+            egui::Event::Key { pressed: false, .. } => {}
+            egui::Event::Text(t) if self.armed && t == "," => {
+                if numeric {
+                    *t = ".".into();
+                }
+                self.armed = false;
+            }
+            _ => self.armed = false,
+        }
+    }
 }
 
 impl CadApp {
@@ -436,11 +540,18 @@ impl CadApp {
             opening: opening::Opening::default(),
             integrated_titlebar: false,
             control_rx: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            collab: None,
+            remote_presence: std::collections::BTreeMap::new(),
+            collab_version: 0,
+            collab_seq: 0,
+            last_presence: None,
             capture_geometry: None,
             capture_epoch: 0,
             capture_identity_epoch: 0,
             shots: capture::Shots::default(),
             synthetic: Vec::new(),
+            touch: touch::TouchMouse::default(),
             forwarded: Vec::new(),
             forwarded_modifiers: None,
             restore_modifiers: None,
@@ -450,6 +561,8 @@ impl CadApp {
             #[cfg(not(target_arch = "wasm32"))]
             frame_cap: None,
             fonts_language: None,
+            fonts_names: None,
+            font_names: None,
             shown_language: None,
             shown_theme: None,
             shown_follows_system: false,
@@ -468,7 +581,16 @@ impl CadApp {
             fault: fault::UiFault::default(),
             autosave_notice: None,
             alias_dlg: None,
+            wall_style_dlg: None,
+            takeoff_dlg: None,
+            takeoff_store: Default::default(),
+            charts_dlg: None,
+            elec_dlg: None,
+            title_dlg: None,
+            ctrl_dlg: None,
+            part_lib: None,
             hatch_dlg: None,
+            attedit: attedit::State::default(),
             bedit: bedit::State::default(),
             #[cfg(not(target_arch = "wasm32"))]
             updates_rt: updates_ui::Runtime::default(),
@@ -514,6 +636,8 @@ impl CadApp {
             Pick::Save(_) => self.services.pick_save.is_some(),
             Pick::Lisp(_) => self.services.pick_lisp.is_some(),
             Pick::Pgp(_) => self.services.pick_pgp.is_some(),
+            Pick::Pdf => self.services.pick_pdf.is_some(),
+            Pick::Image => self.services.pick_image.is_some(),
         };
         if !available {
             return None;
@@ -549,6 +673,8 @@ impl CadApp {
             Pick::Save(name) => self.services.pick_save.as_ref().and_then(|f| f(name)),
             Pick::Lisp(dir) => self.services.pick_lisp.as_ref().and_then(|f| f(dir)),
             Pick::Pgp(dir) => self.services.pick_pgp.as_ref().and_then(|f| f(Some(dir.as_str()).filter(|d| !d.is_empty()))),
+            Pick::Pdf => self.services.pick_pdf.as_ref().and_then(|f| f()),
+            Pick::Image => self.services.pick_image.as_ref().and_then(|f| f()),
         };
         Some(match path {
             Some(path) => then(self, path),
@@ -637,6 +763,10 @@ impl CadApp {
         if let Some(r) = menus::run_ui_command(self, id, &params) {
             return r;
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(r) = self.collab_command(id, &params) {
+            return r;
+        }
         // The bars as the interface shows them now (a `ui.set` may have just changed one), and any
         // MENUBAR or TOOLBAR request applied at once.
         self.sync_bars();
@@ -660,6 +790,10 @@ impl CadApp {
         if menus::run_ui_command(self, name, &Value::Null).is_some() {
             return;
         }
+        if self.is_shared() {
+            self.session.echo("a shared session takes commands with explicit parameters; the interactive command line is not available yet");
+            return;
+        }
         self.sync_bars();
         if let Err(e) = self.session.start(name) {
             self.session.echo(e.to_string());
@@ -676,6 +810,11 @@ impl CadApp {
     /// command or system variable) runs `fallback` instead: Enter on a partly typed name accepts
     /// the highlighted AutoComplete suggestion.
     pub fn cmdline_or(&mut self, text: &str, fallback: Option<&str>) -> Option<String> {
+        if self.is_shared() {
+            let message = "a shared session takes commands with explicit parameters; the interactive command line is not available yet".to_string();
+            self.session.echo(message.clone());
+            return Some(message);
+        }
         self.sync_bars();
         if !self.session.prompting() {
             let first = text.split_whitespace().next().unwrap_or("");
@@ -737,7 +876,13 @@ impl CadApp {
             "quickcalc": self.quickcalc.prefs(),
             "catalogueTools": self.ui.catalogue_tools,
             "architectureTools": self.ui.architecture_tools,
+            "paletteSections": self.ui.sections.prefs(),
+            "refrigerantSizes": options::refrigerant_defaults(self),
+            "takeoffStore": self.takeoff_store,
         });
+        if let Some(u) = self.session.default_insunits {
+            prefs["defaultInsunits"] = json!(u);
+        }
         if self.spacemouse.settings != spacemouse::Settings::default() {
             prefs["spacemouse"] = json!(self.spacemouse.settings);
         }
@@ -771,6 +916,17 @@ impl CadApp {
         if let Some(calculator) = v.get("quickcalc") {
             self.quickcalc.load_prefs(calculator);
         }
+        if let Some(store) = v.get("takeoffStore").and_then(|s| serde_json::from_value::<takeoffdlg::Store>(s.clone()).ok()) {
+            self.takeoff_store = store;
+        }
+        if let Some(sizes) = v.get("refrigerantSizes").and_then(Value::as_array) {
+            let size = |i: usize| sizes.get(i).and_then(Value::as_f64).filter(|x| x.is_finite() && *x > 0.0 && *x < 500.0);
+            let pipe = &mut self.session.last_used.pipe;
+            (pipe.liquid_mm, pipe.gas_mm, pipe.gas2_mm) = (size(0), size(1), size(2));
+        }
+        if let Some(sections) = v.get("paletteSections") {
+            self.ui.sections.load_prefs(sections);
+        }
         if let Some(prefs) = v.get("spacemouse") {
             let _ = self.spacemouse.load_settings(prefs);
         }
@@ -788,6 +944,9 @@ impl CadApp {
         }
         if let Some(v) = v.get("saveVersion").and_then(Value::as_str).and_then(SaveVersion::parse) {
             self.ui.save_version = v.year().to_string();
+        }
+        if let Some(u) = v.get("defaultInsunits").and_then(Value::as_i64).filter(|u| (0..=24).contains(u)) {
+            self.session.default_insunits = Some(u);
         }
         if let Some(files) = v.get("recentFiles").and_then(Value::as_array) {
             self.ui.recent_files = files.iter().filter_map(Value::as_str).filter(|p| !p.is_empty()).take(RECENT_FILES).map(str::to_string).collect();
@@ -837,7 +996,11 @@ impl CadApp {
         // A LISP file (dropped on the window): loaded as APPLOAD loads it.
         if is_lisp_file(path) {
             match cadcraft_engine::lisp::builtins::read_text_file(path) {
-                Some(text) => self.load_lisp(&path.to_string_lossy(), &text),
+                Some(text) => {
+                    // A file that won't load is reported on the command line by `load_lisp`; a file
+                    // dropped on the window has no caller to return the error to.
+                    let _ = self.load_lisp(&path.to_string_lossy(), &text);
+                }
                 None => self.open_failed(format!("APPLOAD: can't read {}", path.display())),
             }
             return;
@@ -890,10 +1053,17 @@ impl CadApp {
     }
 
     /// Load a LISP file: its routine runs and may wait for the user (APPLOAD typed or from the
-    /// menu runs this way too).
-    fn load_lisp(&mut self, name: &str, text: &str) {
-        if let Err(e) = self.session.lisp_load(name, text, false) {
-            self.session.echo(e.to_string());
+    /// menu runs this way too). An error that stops the file from loading at all (source the
+    /// reader rejects, another routine still running) is shown on the command line and returned.
+    /// What the routine does once it runs is shown on the command line only.
+    fn load_lisp(&mut self, name: &str, text: &str) -> Result<(), String> {
+        match self.session.lisp_load(name, text, false) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let e = e.to_string();
+                self.session.echo(e.clone());
+                Err(e)
+            }
         }
     }
 
@@ -915,30 +1085,44 @@ impl CadApp {
 
     /// Open a drawing from its contents where there is no path to open (on the web: the file
     /// picker, a dropped file). Runs OPEN with `{data, name}` as [`Self::open_path`] runs it with
-    /// `{path}`; failures show on the command line and in the status bar.
-    pub fn open_bytes(&mut self, name: &str, bytes: &[u8]) {
+    /// `{path}`; failures show on the command line and in the status bar, and are returned too
+    /// (the web build tells a page that sent the drawing). A LISP file is loaded as APPLOAD loads
+    /// it: source that can't be loaded is returned too, and what its routine does once it runs is
+    /// shown on the command line only.
+    pub fn open_bytes(&mut self, name: &str, bytes: &[u8]) -> Result<(), String> {
         if let Some(e) = Self::open_size_error(name, bytes.len() as u64) {
-            return self.open_failed(e);
+            self.open_failed(e.clone());
+            return Err(e);
         }
         if is_lisp_file(name) {
             return self.load_lisp(name, &String::from_utf8_lossy(bytes));
         }
         let data = cadcraft_engine::cmd::file::base64_encode(bytes);
         let r = self.run("open", json!({ "data": data, "name": name }));
+        let outcome = r.as_ref().map(|_| ()).map_err(Clone::clone);
         self.opened(r);
+        outcome
     }
 
     /// Report a file that could not be opened before OPEN ran (unreadable, too large) as a failed
-    /// OPEN is reported: on the command line and in the status bar.
+    /// OPEN is reported: on the command line and as [`Self::open_error`] does.
     pub fn open_failed(&mut self, e: impl Into<String>) {
         let e = e.into();
         self.session.echo(e.clone());
+        self.open_error(e);
+    }
+
+    /// A drawing that could not be opened: logged, in the status bar, and in an alert that stays
+    /// until dismissed ([`opening::failed_alert`], #2458).
+    fn open_error(&mut self, e: String) {
+        log::warn!("{e}");
+        self.opening.note_failure(&e);
         self.set_status(e);
     }
 
     fn opened(&mut self, r: Result<Value, String>) {
         match r {
-            Err(e) => self.set_status(e),
+            Err(e) => self.open_error(e),
             Ok(v) => {
                 self.ui.start_tab = false;
                 // A drawing that opened on the view it was saved at keeps it (#1626).
@@ -968,6 +1152,32 @@ impl CadApp {
         recent.truncate(RECENT_FILES);
     }
 
+    /// The scripts of the names the interface shows (drawing titles and their layers, layouts and
+    /// blocks) that need a font beyond the interface language's. The names are scanned again only
+    /// when a drawing changes (a new revision, or a new drawing), opens or closes.
+    fn name_scripts(&mut self) -> theme::Scripts {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for d in &self.session.docs {
+            (d.uid, d.revision, std::sync::Arc::as_ptr(&d.doc) as usize, &d.title).hash(&mut h);
+        }
+        let key = h.finish();
+        if let Some((k, s)) = self.font_names
+            && k == key
+        {
+            return s;
+        }
+        let mut s = theme::Scripts::NONE;
+        for d in &self.session.docs {
+            s |= theme::Scripts::of(&d.title);
+            for name in d.doc.layers.iter().map(|l| &l.name).chain(d.doc.layouts.iter().map(|l| &l.name)).chain(d.doc.blocks.keys()) {
+                s |= theme::Scripts::of(name);
+            }
+        }
+        self.font_names = Some((key, s));
+        s
+    }
+
     /// Consume asynchronous work on every logic callback, including hidden `run_logic` ticks.
     ///
     /// Consume-based queues and screenshot settlement run on **every** call, whichever pass
@@ -980,6 +1190,8 @@ impl CadApp {
         // Consume-based queues: each item is handled once, whichever callback delivers it. A
         // reply arriving during a later pass is never starved until the next frame.
         self.drain_control(ctx);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.collab_tick(ctx);
         self.finish_pick(ctx);
         self.finish_opening();
         // Finishing an open switches to the new drawing.
@@ -1034,11 +1246,29 @@ impl CadApp {
         ctx.request_repaint_of(egui::ViewportId::ROOT);
     }
 
-    /// Whether a modal dialog is up: the "Save changes?" prompt, the lossy-save warning or Drawing Recovery. The
-    /// floating panels' own OS windows take no input meanwhile (egui's `Modal` blocks only the
-    /// main window). The app's other dialogs are ordinary windows that leave the drawing usable.
+    /// Whether a modal dialog is up: the "Save changes?" prompt, the lossy-save warning, Drawing
+    /// Recovery or the alert for files that could not be opened. The floating panels' own OS
+    /// windows take no input meanwhile (egui's `Modal` blocks only the main window). The app's
+    /// other dialogs are ordinary windows that leave the drawing usable.
     pub fn shows_modal(&self) -> bool {
-        self.close_prompt().is_some() || self.save_loss.is_some() || !self.recovery.items.is_empty()
+        self.close_prompt().is_some() || self.save_loss.is_some() || !self.recovery.items.is_empty() || self.opening.has_failures()
+    }
+
+    /// Turn touches that start on the drawing canvas into virtual-mouse pointer events
+    /// ([`touch`]). Touches elsewhere and mouse input pass through.
+    pub fn touch_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        let canvas = self.canvas.rect;
+        let now = raw.time.unwrap_or_else(|| now_ms() / 1000.0);
+        let mut touch = std::mem::take(&mut self.touch);
+        // The menus painted on the canvas itself (selection cycling, Dynamic Input options) share
+        // its layer: a touch on one of their rows is a touch on that row.
+        let on_canvas = |p: egui::Pos2| {
+            canvas.is_some_and(|r| r.contains(p))
+                && ctx.layer_id_at(p).is_none_or(|l| l.order == egui::Order::Background)
+                && !canvas::over_canvas_menu(self, p)
+        };
+        touch.filter(&mut raw.events, now, canvas, &on_canvas);
+        self.touch = touch;
     }
 
     /// Input hook: refresh the raw surface snapshot, put in keys forwarded from floating panels'
@@ -1122,10 +1352,12 @@ impl CadApp {
         let ctx = ui.ctx().clone();
         let ctx = &ctx;
         let language = self.language();
-        if self.fonts_language != Some(language) {
+        let names = (self.name_scripts(), theme::fonts_generation());
+        if self.fonts_language != Some(language) || self.fonts_names != Some(names) {
             drawing_fonts::install(ctx);
-            theme::install_fonts(ctx, language);
+            theme::install_fonts_for(ctx, language, names.0);
             self.fonts_language = Some(language);
+            self.fonts_names = Some(names);
         }
         // The AccessKit root carries the language the interface is actually shown in; egui copies
         // it onto the root node at the end of the pass.
@@ -1182,7 +1414,7 @@ impl CadApp {
                 }
             }
         }
-        if !self.synthetic.is_empty() {
+        if !self.synthetic.is_empty() || self.touch.busy() {
             ctx.request_repaint();
         }
     }
@@ -1221,6 +1453,7 @@ impl CadApp {
         palettes::patterns::prompt_picker(self, ui.ctx());
         closing::prompt(self, ui.ctx());
         save_loss::prompt(self, ui.ctx());
+        opening::failed_alert(self, ui.ctx());
         autosave::show(self, ui.ctx());
         autosave::gpu_notice(self, ui.ctx());
         autosave::failure_notice(self, ui.ctx());
@@ -1310,6 +1543,69 @@ mod tests {
             app.ui(ui);
         });
         out.textures_delta.clear();
+    }
+
+    /// Frames until the interface fonts have every glyph of `text` (faces for names load off the
+    /// UI thread), at most about five seconds.
+    fn fonts_show(a: &mut CadApp, ctx: &egui::Context, text: &str) -> bool {
+        for _ in 0..500 {
+            frame(a, ctx, None);
+            if ctx.fonts_mut(|f| f.has_glyphs(&theme::body(), text)) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        false
+    }
+
+    /// A Latin-named drawing in an English interface with a Korean layer name: the scan finds
+    /// Hangul and a font that shows it is installed (when one is installed on this machine);
+    /// renaming it away drops the need. Names are scanned again only when the drawings change.
+    #[test]
+    fn a_layer_name_brings_the_font_its_script_needs() {
+        let mut a = app();
+        a.session.new_drawing(false);
+        let ctx = egui::Context::default();
+        frame(&mut a, &ctx, None);
+        assert_eq!(a.fonts_names.map(|f| f.0), Some(theme::Scripts::NONE), "English interface, Latin names");
+        let rename = |a: &mut CadApp, name: &str| {
+            if let Some(d) = a.session.docs.first_mut() {
+                let mut doc = (*d.doc).clone();
+                if let Some(l) = doc.layers.first_mut() {
+                    l.name = name.into();
+                }
+                d.doc = std::sync::Arc::new(doc);
+            }
+        };
+        rename(&mut a, "도면 레이어");
+        frame(&mut a, &ctx, None);
+        assert_eq!(a.fonts_names.map(|f| f.0), Some(theme::Scripts::HANGUL), "the Layers palette needs Hangul");
+        if cadcraft_fonts::ttf::fallback_for('한').is_some() {
+            assert!(fonts_show(&mut a, &ctx, "도면"), "the layer name shows its characters, not boxes");
+        }
+        let scanned = a.font_names;
+        frame(&mut a, &ctx, None);
+        assert_eq!(a.font_names, scanned, "no change, no new scan");
+        // Installing again for a name's script (and when its face arrives) reuses the language's
+        // fonts read before: the UI and CJK font files aren't read on the UI thread again.
+        let reads = theme::LANGUAGE_FONT_READS.with(std::cell::Cell::get);
+        rename(&mut a, "แผนผัง");
+        frame(&mut a, &ctx, None);
+        frame(&mut a, &ctx, None);
+        assert_eq!(theme::LANGUAGE_FONT_READS.with(std::cell::Cell::get), reads, "the language's fonts are reused");
+        rename(&mut a, "도면 레이어");
+        frame(&mut a, &ctx, None);
+        rename(&mut a, "Walls");
+        frame(&mut a, &ctx, None);
+        assert_eq!(a.fonts_names.map(|f| f.0), Some(theme::Scripts::NONE));
+        // An edit in place through `doc_mut` keeps the drawing's pointer; the scan still sees it.
+        let before = a.session.state().map(|st| std::sync::Arc::as_ptr(&st.doc)).unwrap();
+        if let Some(l) = a.session.doc_mut().unwrap().layers.first_mut() {
+            l.name = "도면 레이어".into();
+        }
+        assert_eq!(a.session.state().map(|st| std::sync::Arc::as_ptr(&st.doc)).unwrap(), before, "edited in place");
+        frame(&mut a, &ctx, None);
+        assert_eq!(a.fonts_names.map(|f| f.0), Some(theme::Scripts::HANGUL), "the in-place rename is scanned");
     }
 
     /// One real UI frame whose first pass asks egui for a second layout pass, as a popup or a
@@ -1582,5 +1878,13 @@ mod tests {
         assert_eq!(a.ui.shortcuts.get("line").map(String::as_str), Some("Ctrl+Shift+L"), "the reset lost a user shortcut");
         assert_eq!(a.ui.last_lisp_dir.as_deref(), Some("lisp-folder"));
         assert_eq!(a.ui.last_pgp_dir.as_deref(), Some("pgp-folder"));
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl CadApp {
+    /// A shared session needs the desktop transport, so a drawing opened on the web is never shared.
+    pub fn is_shared(&self) -> bool {
+        false
     }
 }

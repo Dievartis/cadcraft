@@ -106,7 +106,11 @@ fn drop_unused(d: &mut Drawing, names: &[String]) {
             _ => false,
         };
         let in_spaces = d.model.iter().any(used) || d.layouts.iter().any(|l| l.entities.iter().any(used));
-        let in_blocks = d.blocks.values().any(|b| b.entities.iter().any(used) || b.array.as_ref().is_some_and(|a| a.source.eq_ignore_ascii_case(n)));
+        // A replacement outside the visible item grid is still listed in the parameters and comes back when the array grows.
+        let in_blocks = d.blocks.values().any(|b| {
+            b.entities.iter().any(used)
+                || b.array.as_ref().is_some_and(|a| a.source.eq_ignore_ascii_case(n) || a.replaced.iter().any(|r| r.block.eq_ignore_ascii_case(n)))
+        });
         if !in_spaces && !in_blocks {
             d.blocks.remove(n);
         }
@@ -485,7 +489,17 @@ fn fill_from_between(b: f64, items: u32) -> Result<f64> {
     Ok(fill)
 }
 
+/// ARRAYEDIT applies its changes one after another; a request that fails part-way leaves the drawing as it was.
 fn run_arrayedit(s: &mut Session, p: &Value) -> Result<Value> {
+    let saved = s.state()?.doc.clone();
+    let r = arrayedit_steps(s, p);
+    if r.is_err() {
+        s.state_mut()?.doc = saved;
+    }
+    r
+}
+
+fn arrayedit_steps(s: &mut Session, p: &Value) -> Result<Value> {
     let h = super::super::curves::handle_param(p, "handle").ok_or_else(|| bad("arrayedit", "`handle` (the array) is required"))?;
     refuse_while_editing(s)?;
     array_of(s.doc()?, h)?;

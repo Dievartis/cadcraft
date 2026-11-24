@@ -24,8 +24,10 @@ use crate::{DocError, EntityKind, Hatch, HatchLoop, Line, LwPolyline, OpeningPar
 mod elevation;
 mod grips;
 mod joint;
+mod section;
 pub use elevation::{ELEVATION_DIM_LAYER, ELEVATION_DOOR_LAYER, ELEVATION_LAYER, ELEVATION_OBJECT_LAYER, ELEVATION_WINDOW_LAYER, ElevationSide};
 pub use joint::{EndCut, ForeignBand, MAX_FOREIGN_BANDS, MAX_OPENINGS_PER_WALL, OpeningCut, Placement, WallJoints};
+pub use section::{SECTION_DIM_LAYER, SECTION_LAYER, SECTION_LINE_LAYER, SectionCount};
 
 /// The registered application name of a wall's extended data.
 pub const WALL_APP: &str = "CADCRAFT_WALL";

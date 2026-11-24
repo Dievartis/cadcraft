@@ -435,6 +435,7 @@ fn finite(kind: &EntityKind) -> bool {
         | EntityKind::Region(_)
         | EntityKind::Viewport(_)
         | EntityKind::Image(_)
+        | EntityKind::PdfUnderlay(_)
         | EntityKind::Wipeout(_)
         | EntityKind::Table(_)
         | EntityKind::Tolerance(_)

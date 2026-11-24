@@ -96,11 +96,18 @@ impl CadApp {
         }
     }
 
-    /// Every frame: autosave what is due, and wake up when the next one is.
+    /// Every frame: autosave what is due and keep the drawing locks, and wake up when the next
+    /// autosave or lock heartbeat is.
     pub fn autosave_tick(&mut self, _ctx: &egui::Context) {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(wait) = self.autosave.as_mut().and_then(|s| s.tick(&self.session)) {
             _ctx.request_repaint_after(wait);
+        }
+        // A drawing someone else has open (its lock, `cadcraft_engine::drawlock`): say so.
+        #[cfg(not(target_arch = "wasm32"))]
+        for note in self.autosave.as_mut().map(|s| s.take_lock_notes()).unwrap_or_default() {
+            self.session.echo(note.clone());
+            self.set_status(note);
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -204,26 +211,26 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         ui.set_width(460.0);
         ui.label(RichText::new("Drawing Recovery").strong());
         ui.add_space(4.0);
-        ui.label("CADCraft did not close normally. These drawings were autosaved:");
+        ui.label(crate::i18n::t("CADCraft did not close normally. These drawings were autosaved:"));
         ui.add_space(6.0);
         egui::Grid::new("cc_recovery_list").num_columns(4).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
             for (i, item) in app.recovery.items.iter().enumerate() {
                 ui.label(&item.drawing);
                 ui.label(RichText::new(format!("{} UTC · {} KB", utc(item.modified), item.bytes.div_ceil(1024))).color(t.text_dim));
-                if ui.button("Open").clicked() {
+                if ui.button(crate::i18n::t("Open")).clicked() {
                     open = Some(i);
                 }
-                if ui.button("Discard").clicked() {
+                if ui.button(crate::i18n::t("Discard")).clicked() {
                     discard = Some(i);
                 }
                 ui.end_row();
             }
         });
         ui.add_space(6.0);
-        ui.label(RichText::new("Opened drawings have no file name: save them to keep them.").color(t.text_dim));
+        ui.label(RichText::new(crate::i18n::t("Opened drawings have no file name: save them to keep them.")).color(t.text_dim));
         ui.add_space(8.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("Later").on_hover_text("Keep the files and ask again next time").clicked() {
+            if ui.button(crate::i18n::t("Later")).on_hover_text(crate::i18n::t("Keep the files and ask again next time")).clicked() {
                 later = true;
             }
         });
@@ -261,15 +268,15 @@ pub fn gpu_notice(app: &mut CadApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.set_width(440.0);
             if n.fault.lost {
-                ui.label("The graphics device stopped working (a driver reset or a GPU that stopped responding). CADCraft can't draw again until it restarts.");
+                ui.label(crate::i18n::t("The graphics device stopped working (a driver reset or a GPU that stopped responding). CADCraft can't draw again until it restarts."));
             } else {
                 let times = if n.fault.errors == 1 { String::new() } else { format!(" ({} times)", n.fault.errors) };
                 ui.label(format!("The graphics driver reported an error{times}. CADCraft kept running, but the drawing may not display correctly."));
             }
             ui.add_space(4.0);
             match n.autosaved {
-                0 => ui.label("Nothing needed autosaving."),
-                1 => ui.label("A recovery copy of the open drawing with unsaved changes was autosaved."),
+                0 => ui.label(crate::i18n::t("Nothing needed autosaving.")),
+                1 => ui.label(crate::i18n::t("A recovery copy of the open drawing with unsaved changes was autosaved.")),
                 k => ui.label(format!("Recovery copies of {k} drawings with unsaved changes were autosaved.")),
             };
             ui.label(RichText::new("Save your work and restart CADCraft. Recovery copies are offered at the next start if needed.").strong());
@@ -279,7 +286,7 @@ pub fn gpu_notice(app: &mut CadApp, ctx: &egui::Context) {
             });
             // A row just as tall as the button (a plain right-to-left layout takes the rest).
             ui.allocate_ui_with_layout(vec2(ui.available_width(), 0.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Dismiss").clicked() {
+                if ui.button(crate::i18n::t("Dismiss")).clicked() {
                     dismiss = true;
                 }
             });
@@ -302,7 +309,7 @@ pub fn failure_notice(app: &mut CadApp, ctx: &egui::Context) {
         .anchor(egui::Align2::CENTER_TOP, vec2(0.0, 48.0))
         .show(ctx, |ui| {
             ui.set_width(440.0);
-            ui.label("CADCraft could not write a recovery copy, so recent changes would be lost if the app stopped now.");
+            ui.label(crate::i18n::t("CADCraft could not write a recovery copy, so recent changes would be lost if the app stopped now."));
             ui.label(RichText::new("Save your work. Autosave tries again after the SAVETIME interval; its folder is in Options.").strong());
             ui.add_space(4.0);
             ui.collapsing("Details", |ui| {
@@ -310,7 +317,7 @@ pub fn failure_notice(app: &mut CadApp, ctx: &egui::Context) {
             });
             // A row just as tall as the button (a plain right-to-left layout takes the rest).
             ui.allocate_ui_with_layout(vec2(ui.available_width(), 0.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Dismiss").clicked() {
+                if ui.button(crate::i18n::t("Dismiss")).clicked() {
                     dismiss = true;
                 }
             });

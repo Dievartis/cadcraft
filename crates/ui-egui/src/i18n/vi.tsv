@@ -513,6 +513,7 @@
 	Match Layer	Khớp layer
 	Match Properties	Sao chép thuộc tính
 	Measure	Đo
+	Quick Measure	Đo nhanh
 	Measure Distance	Đo khoảng cách
 	Measure Geometry	Đo hình học
 	Merge Cells	Gộp ô
@@ -1491,6 +1492,11 @@ menu	Modify	Hiệu chỉnh
 	Ctrl+Enter to apply	Ctrl+Enter to apply
 	Edit Text	Edit Text
 	The drawing changed. Close the window and open it again.	Bản vẽ đã thay đổi. Đóng cửa sổ và mở lại.
+	Layer state name	Tên trạng thái layer
+	Switches layers on and off, frozen and locked	Bật và tắt layer, đóng băng và khóa
+	Rename	Đổi tên
+	Objects on locked layers can't be selected	Không thể chọn đối tượng trên layer bị khóa
+	They are still shown and snapped to, like a blueprint.	Chúng vẫn hiển thị và vẫn bắt điểm được, như một bản nền.
 
 # ArtCraft feature naming
 	Additional Tools	Công cụ bổ sung

@@ -1,7 +1,7 @@
 use super::common::T;
 use super::dimassoc::dimassoc;
 use super::document::sortents_table;
-use super::{Drawing, EntityKind, Group, Handle, HashMap, MLeaderStyle, PageSetup, Rx, Tag, Ucs, Vec2, Vec3};
+use super::{Drawing, Entity, EntityKind, Group, Handle, HashMap, MLeaderStyle, PageSetup, Rx, Tag, Ucs, Vec2, Vec3};
 
 /// Non-graphical objects applied once every entity is placed.
 #[derive(Default)]
@@ -32,9 +32,26 @@ pub(super) struct Objects {
     pub(super) sortents: Vec<(String, HashMap<Handle, u64>)>,
     /// WIPEOUTVARIABLES: the drawing's WIPEOUTFRAME (0 = frames hidden, 1 = shown).
     wipeout_frame: Option<i64>,
+    /// DICTIONARY handle (upper case) → the handle of its owner (an MTEXT's extension dictionary).
+    dict_owner: HashMap<String, String>,
+}
+
+/// The owner (group 330 outside the `{ACAD_REACTORS` list) of an object, upper case.
+fn owner_of(tags: &[Tag]) -> Option<String> {
+    let mut in_list = false;
+    for t in tags {
+        match (t.code, t.str().trim()) {
+            (102, v) => in_list = v.starts_with('{') && !v.starts_with("{ACAD_XDICTIONARY"),
+            (330, v) if !in_list => return Some(v.to_ascii_uppercase()),
+            _ => {}
+        }
+    }
+    None
 }
 
 pub(super) const MAX_OBJECTS: usize = 1_000_000;
+/// The extension dictionary entry holding an MTEXT's real contents.
+const MTEXT_RT_KEY: &str = "ACAD_MTEXT_2008_RT";
 
 impl Objects {
     pub(super) fn add(&mut self, kind: &str, tags: &[Tag]) {
@@ -48,6 +65,9 @@ impl Objects {
                 }
             }
             "DICTIONARY" => {
+                if let Some(o) = owner_of(tags).filter(|_| self.dict_owner.len() < MAX_OBJECTS) {
+                    self.dict_owner.insert(h.clone(), o);
+                }
                 let mut name: Option<String> = None;
                 for t in tags {
                     match t.code {
@@ -96,6 +116,41 @@ impl Objects {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// MTEXT with an `ACAD_MTEXT_2008_RT` entry in its extension dictionary: AutoCAD keeps the
+    /// real contents there (paragraph alignment such as `\\pxqc;`) and writes an approximation
+    /// for older readers in the entity itself (a `\\pi` indent instead of centring). AutoCAD
+    /// shows the XRECORD's contents, so they replace the entity's.
+    fn apply_mtext_contents(&self, d: &mut Drawing) {
+        for (xh, tags) in &self.xrecords {
+            if self.names.get(xh).map(String::as_str) != Some(MTEXT_RT_KEY) {
+                continue;
+            }
+            let Some(mtext) = owner_of(tags).and_then(|dict| self.dict_owner.get(&dict)).and_then(|h| Handle::parse_hex(h)) else { continue };
+            let mut text = String::new();
+            for t in tags.iter().filter(|t| t.code == 1 || t.code == 3) {
+                if text.len() > crate::dxf_ext::MAX_PAYLOAD {
+                    break;
+                }
+                text.push_str(&t.str());
+            }
+            if text.trim().is_empty() {
+                continue;
+            }
+            let set = |e: &mut Entity| {
+                if let EntityKind::MText(m) = &mut e.kind {
+                    m.contents = text.clone();
+                }
+            };
+            if d.modify_entity(mtext, set).is_err() {
+                for b in d.blocks.values_mut() {
+                    if std::sync::Arc::make_mut(b).entities.modify(mtext, set) {
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -306,6 +361,7 @@ impl Objects {
     }
 
     pub(super) fn apply(self, d: &mut Drawing, rx: &Rx) {
+        self.apply_mtext_contents(d);
         if let Some(v) = self.wipeout_frame {
             d.header.set_i64("WIPEOUTFRAME", v);
         }
@@ -340,6 +396,40 @@ impl Objects {
                     states.push(st);
                 }
             }
+        }
+        // The drawing's wall styles.
+        if let Some(styles) = self.xrecord_text(crate::dxf_ext::WALL_STYLES_KEY).and_then(|t| crate::dxf_ext::parse_wall_styles(&t)) {
+            d.wall_styles = styles;
+        }
+        // The drawing's air terminal models.
+        if let Some(models) = self.xrecord_text(crate::dxf_ext::AIR_TERMINAL_MODELS_KEY).and_then(|t| crate::dxf_ext::parse_air_terminal_models(&t)) {
+            d.air_terminal_models = models;
+        }
+        // The colours of the pipes and ducts.
+        if let Some(c) = self.xrecord_text(crate::dxf_ext::COLOUR_CONVENTION_KEY).and_then(|t| cadcraft_doc::ColourConvention::parse(&t)) {
+            d.colour_convention = c;
+        }
+        // The pages of the PDFs attached on the web, which have no file to be read again from.
+        if let Some(pages) = self.xrecord_text(crate::dxf_ext::RASTERS_KEY).and_then(|t| crate::dxf_ext::parse_rasters(&t)) {
+            for (path, raster) in pages {
+                d.rasters.insert(&path, std::sync::Arc::new(raster));
+            }
+        }
+        // The drawing's own equipment models.
+        if let Some(models) = self.xrecord_text(crate::dxf_ext::EQUIPMENT_MODELS_KEY).and_then(|t| crate::dxf_ext::parse_equipment_models(&t)) {
+            d.equipment_models = models;
+        }
+        // The drawing's cable types.
+        if let Some(types) = self.xrecord_text(crate::dxf_ext::CABLE_TYPES_KEY).and_then(|t| crate::dxf_ext::parse_cable_types(&t)) {
+            d.cable_types = types;
+        }
+        // The drawing's pipework part models.
+        if let Some(models) = self.xrecord_text(crate::dxf_ext::PART_MODELS_KEY).and_then(|t| crate::dxf_ext::parse_part_models(&t)) {
+            d.part_models = models;
+        }
+        // The drawing's pipe network styles.
+        if let Some(styles) = self.xrecord_text(crate::dxf_ext::NETWORK_STYLES_KEY).and_then(|t| crate::dxf_ext::parse_network_styles(&t)) {
+            d.network_styles = styles;
         }
         d.layer_states = states;
         // The drawing's plot style tables.
@@ -432,6 +522,7 @@ pub(super) fn page_setup(t: &T, tags: &[Tag]) -> PageSetup {
         p.show_plot_styles = flags & 2 != 0;
         p.center = flags & 4 != 0;
         p.lineweights = flags & 128 != 0;
+        p.plot_transparency = flags & 2048 != 0;
         p.scale_to_fit = flags & 16 != 0 && t.i(75) == Some(0);
     }
     // Custom scale: 142 paper units per 143 drawing units; 147 is the scale factor.

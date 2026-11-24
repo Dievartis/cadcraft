@@ -7,14 +7,13 @@
 #![forbid(unsafe_code)]
 
 mod array;
-mod catalogue;
 mod constraint;
-pub use catalogue::*;
 mod entity;
 mod extents;
 mod format;
 mod gdt;
 mod header;
+mod ifc;
 pub mod library;
 mod opening;
 mod plotstyle;
@@ -23,6 +22,7 @@ mod raster;
 mod refedit;
 mod store;
 mod tables;
+mod ventilation;
 mod wall;
 mod wall_library;
 mod xclip;
@@ -44,12 +44,16 @@ pub use extents::{
 pub use format::Format;
 pub use gdt::*;
 pub use header::{HVal, Header};
+pub use opening::*;
 pub use plotstyle::*;
 pub use plotter::*;
 pub use raster::{Raster, Rasters};
 pub use refedit::{RefEdit, WorkItem};
 pub use store::EntityStore;
 pub use tables::*;
+pub use ventilation::*;
+pub use wall::*;
+pub use wall_library::standard_wall_styles;
 pub use xclip::{ClipBoundary, MAX_CLIP_VERTICES};
 
 /// Handles at or above this are not followed: a file may name one (an object's handle, or its
@@ -117,6 +121,21 @@ pub struct Drawing {
     pub table_styles: Vec<TableStyle>,
     /// Multiline styles (MLSTYLE); STANDARD is always there.
     pub mline_styles: Vec<MLineStyle>,
+    /// Wall styles the drawing defines (new walls can also use [`standard_wall_styles`]).
+    pub wall_styles: Vec<WallStyle>,
+    /// Air terminal models the drawing defines (new terminals can also use
+    /// [`standard_air_terminal_models`]).
+    pub air_terminal_models: Vec<TerminalModel>,
+    /// The pipework part models the drawing defines (a library entry, or a part kept as a model); see [`Drawing::part_library`].
+    pub part_models: Vec<PartTemplate>,
+    /// The cable types the drawing keeps (a cable as 3G1.5 or 2x0.75 blindé, under a name); see [`Drawing::available_cable_types`].
+    pub cable_types: Vec<CableType>,
+    /// The equipment models the drawing keeps of its own, beside the library's.
+    pub equipment_models: Vec<EquipmentModel>,
+    /// The colours the pipes and ducts are drawn in: the plan's own, or those of NF X 08-100.
+    pub colour_convention: ColourConvention,
+    /// The style (colour and line type) of each pipe network the drawing has named; see [`Drawing::set_network_style`].
+    pub network_styles: Vec<NetworkStyle>,
     pub blocks: BTreeMap<String, std::sync::Arc<Block>>,
     pub model: EntityStore,
     pub layouts: Vec<Layout>,
@@ -168,10 +187,6 @@ pub struct Drawing {
     pub portable_fonts: bool,
     /// The pixels of the raster images that are loaded (IMAGE). Never written to a file.
     pub rasters: Rasters,
-    /// Drawing-local parametric equipment models (freemans32 catalogue).
-    pub equipment_models: Vec<EquipmentModel>,
-    /// Architectural styles used by parametric walls.
-    pub wall_styles: Vec<WallStyle>,
 }
 
 impl Default for Drawing {
@@ -213,6 +228,13 @@ impl Drawing {
             mleader_styles: vec![MLeaderStyle::default()],
             table_styles: vec![TableStyle::default()],
             mline_styles: vec![MLineStyle::default()],
+            wall_styles: Vec::new(),
+            air_terminal_models: Vec::new(),
+            part_models: Vec::new(),
+            cable_types: Vec::new(),
+            equipment_models: Vec::new(),
+            colour_convention: ColourConvention::Plan,
+            network_styles: Vec::new(),
             blocks: BTreeMap::new(),
             model: EntityStore::new(),
             layouts: vec![Layout::new("Layout1", 1), Layout::new("Layout2", 2)],
@@ -236,8 +258,6 @@ impl Drawing {
             skipped_records: BTreeMap::new(),
             portable_fonts: false,
             rasters: Rasters::default(),
-            equipment_models: Vec::new(),
-            wall_styles: Vec::new(),
         }
     }
 

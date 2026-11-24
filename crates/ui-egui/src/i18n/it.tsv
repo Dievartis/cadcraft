@@ -12,6 +12,16 @@ menu	Modify	Edita
 	Attach DWG...	Associa DWG...
 	Bind	Unisci
 	Detach	Scollega
+	Drawing Properties...	Proprietà del disegno...
+	Enter author	Immettere l'autore
+	Enter comments	Immettere i commenti
+	Enter field name or system variable	Immettere il nome del campo o la variabile di sistema
+	Enter keywords	Immettere le parole chiave
+	Enter property	Immettere la proprietà
+	Enter property to change	Immettere la proprietà da modificare
+	Enter subject	Immettere l'oggetto
+	Enter title	Immettere il titolo
+	Field...	Campo...
 	Loaded	Caricato
 	Make it a block of this drawing, keeping its layer names	Lo rende un blocco di questo disegno, conservando i nomi dei layer
 	Make it a block of this drawing; its layers become NAME$0$LAYER	Lo rende un blocco di questo disegno; i suoi layer diventano NOME$0$LAYER
@@ -26,6 +36,7 @@ menu	Modify	Edita
 	Reload	Ricarica
 	Reload All	Ricarica tutto
 	Saved Path	Percorso salvato
+	Spelling	Controllo ortografico
 	Unload	Scarica
 	Unloaded	Scaricato
 	Unreferenced	Senza riferimenti
@@ -525,6 +536,7 @@ menu	Modify	Edita
 	Match Layer	Associa layer
 	Match Properties	Copia proprietà
 	Measure	Misura
+	Quick Measure	Misura rapida
 	Measure Distance	Misura distanza
 	Measure Geometry	Misura geometria
 	Merge Cells	Unisci celle
@@ -635,6 +647,7 @@ menu	Modify	Edita
 	Pattern	Modello
 	Perpendicular	Perpendicolare
 	Plot	Stampa
+	Plot...	Stampa...
 	Plot (click: do not plot)	Stampa (clic: non stampare)
 	Plot Preview	Anteprima di stampa
 	Plot Window	Finestra di stampa
@@ -654,6 +667,7 @@ menu	Modify	Edita
 	Send Hatches to Back	Porta i tratteggi in secondo piano
 	Send Under Objects	Porta sotto gli oggetti
 	Text Objects Only	Solo oggetti testo
+	Update Fields	Aggiorna campi
 	Use for this layout	Usa per questo layout
 	Display plot styles	Mostra stili di stampa
 	No plot style tables.	Nessuna tabella stili di stampa.
@@ -1367,6 +1381,8 @@ menu	Modify	Edita
 	Check for Updates…	Verifica aggiornamenti…
 	CADCraft is up to date.	CADCraft è aggiornato.
 	Could not check for updates.	Impossibile verificare gli aggiornamenti.
+	Check for Updates	Verifica aggiornamenti
+	Release updates are disabled for this development build.	Gli aggiornamenti di rilascio sono disattivati per questa build di sviluppo.
 	Add a drawing file as a block library	Aggiungi un file di disegno come libreria di blocchi
 	Add a folder of drawings or a drawing file to use its blocks.	Aggiungi una cartella di disegni o un file di disegno per usarne i blocchi.
 	Block Libraries	Librerie di blocchi
@@ -1426,6 +1442,17 @@ menu	Modify	Edita
 	ENTER	INVIO
 	Shortcut Menu: always enabled	Menu di scelta rapida: sempre attivo
 	Shortcut Menu: enabled when command options are present	Menu di scelta rapida: attivo se il comando ha opzioni
+	Layer state name	Nome dello stato layer
+	Switches layers on and off, frozen and locked	Attiva e disattiva i layer, li congela e li blocca
+	Rename	Rinomina
+	Objects on locked layers can't be selected	Gli oggetti sui layer bloccati non possono essere selezionati
+	They are still shown and snapped to, like a blueprint.	Restano visibili e agganciabili, come una base di riferimento.
+# Layers palette: move the selection to a new layer, delete empty layers.
+	Move to New Layer	Sposta su nuovo layer
+	Move Selection to New Layer	Sposta la selezione su un nuovo layer
+	New layer name	Nome del nuovo layer
+	Delete Empty Layers	Elimina layer vuoti
+	Deletes every layer that has no objects on it	Elimina ogni layer che non contiene oggetti
 
 # ArtCraft feature naming
 	Additional Tools	Strumenti aggiuntivi

@@ -7,10 +7,12 @@
 //! follows the view (see [`choose_origin`]).
 //!
 //! Batches: filled triangles (TriangleList), 1-px hairlines (LineList), and instanced screen-space
-//! quads for wide lineweights and point markers. Fills are drawn first, then lines on top. A
-//! wipeout starts a new draw-order group (see [`MeshData::breaks`]): its background-coloured mask
-//! is drawn after everything before it and under everything after it. The shader only uses
-//! vertex buffers and one uniform buffer, so it runs on WebGPU and WebGL2.
+//! quads for wide lineweights and point markers. Within a draw-order group fills are drawn first,
+//! then lines on top. A wipeout starts a new group (see [`MeshData::breaks`]): its
+//! background-coloured mask is drawn after everything before it and under everything after it. So
+//! does a fill that overlaps lines or points drawn before it in its group, so a fill brought to
+//! front covers them (up to [`MAX_FILL_BREAKS`] per list). The shader only uses vertex buffers and
+//! one uniform buffer, so it runs on WebGPU and WebGL2.
 //!
 //! Infinite lines (xline/ray) and all overlays stay egui shapes (see `canvas.rs`), and the
 //! canvas falls back to the CPU path when no wgpu render state was handed to the app.
@@ -35,6 +37,10 @@ const INSTANCE_SIZE: usize = 28;
 const CHUNK: usize = 4_194_300;
 /// Point markers are 1.5 × 1.5 points (as on the CPU path).
 const POINT_SIZE: f32 = 1.5;
+/// Most draw-order groups started per list because a fill overlaps lines drawn before it (see
+/// [`build_mesh`]). Past it, later fills go under their group's lines as before, so a drawing of
+/// many such fills never costs more than about three times this many draw calls.
+const MAX_FILL_BREAKS: usize = 2048;
 
 /// How the native window presents frames (`NativeOptions::wgpu_options.surface`).
 ///
@@ -103,8 +109,10 @@ pub struct MeshData {
     pub lines: Vec<u8>,
     pub tris: Vec<u8>,
     pub quads: Vec<u8>,
-    /// Draw-order breaks, one before each wipeout mask: the fill vertices, line vertices and
-    /// quad instances drawn before it. Each group is drawn fills, lines, quads in turn.
+    /// Draw-order breaks, one before each wipeout mask, before each fill that overlaps lines or
+    /// points earlier in its group, and at each PDF underlay (whose page the canvas draws between
+    /// two groups, see [`underlay_groups`]): the fill vertices, line vertices and quad instances
+    /// drawn before it. Each group is drawn fills, lines, quads in turn.
     pub breaks: Vec<[usize; 3]>,
     /// The vertex buffers already created from this data (see [`MeshData::upload_now`]); the
     /// paint callback then only swaps them in.
@@ -179,6 +187,76 @@ fn premultiplied(c: Rgb, a: u8) -> [u8; 4] {
     [k(c.0), k(c.1), k(c.2), a]
 }
 
+/// Which cells of a 128 × 128 grid over a display list's bounds the lines and points of the
+/// current draw-order group touch (by bounding box), so a later fill can tell whether it overlaps
+/// any of them. One bit per cell: marking or testing a box costs one OR or AND per row it spans.
+///
+/// Wide lines and point markers are drawn a number of screen points across, so how far they reach
+/// past their centreline in world units depends on the zoom, which the mesh outlives. Their
+/// footprint is unknown here: once the group has one, every later fill in it counts as over it.
+struct StrokeGrid {
+    min: Vec2,
+    /// Cells per world unit along x and y (0 when the bounds have no width or height).
+    scale: Vec2,
+    rows: [u128; 128],
+    empty: bool,
+    /// The group has a stroke drawn wider than its centreline (see [`StrokeGrid::add_wide`]).
+    wide: bool,
+}
+
+impl StrokeGrid {
+    fn new(area: &Bounds2) -> StrokeGrid {
+        let s = |len: f64| if len.is_finite() && len > 0.0 { 128.0 / len } else { 0.0 };
+        let min = if area.is_empty() { Vec2::ZERO } else { area.min };
+        StrokeGrid { min, scale: Vec2::new(s(area.width()), s(area.height())), rows: [0; 128], empty: true, wide: false }
+    }
+
+    /// The column bits and row range `b` covers, clamped to the grid (a side that isn't finite
+    /// reaches the grid's edge), or `None` for an empty box.
+    fn span(&self, b: &Bounds2) -> Option<(u128, std::ops::RangeInclusive<usize>)> {
+        if b.is_empty() {
+            return None;
+        }
+        let c = |v: f64, min: f64, scale: f64, edge: usize| {
+            let i = ((v - min) * scale).floor();
+            if i.is_finite() { i.clamp(0.0, 127.0) as usize } else { edge }
+        };
+        let (x0, x1) = (c(b.min.x, self.min.x, self.scale.x, 0), c(b.max.x, self.min.x, self.scale.x, 127));
+        let (y0, y1) = (c(b.min.y, self.min.y, self.scale.y, 0), c(b.max.y, self.min.y, self.scale.y, 127));
+        let (x0, x1) = (x0.min(x1), x0.max(x1));
+        Some(((u128::MAX >> (127 - (x1 - x0))) << x0, y0.min(y1)..=y0.max(y1)))
+    }
+
+    fn add(&mut self, b: &Bounds2) {
+        if let Some((bits, rows)) = self.span(b) {
+            for r in self.rows.get_mut(rows).into_iter().flatten() {
+                *r |= bits;
+            }
+            self.empty = false;
+        }
+    }
+
+    /// A stroke whose screen-sized footprint can reach any later fill at some zoom.
+    fn add_wide(&mut self) {
+        self.wide = true;
+    }
+
+    fn hits(&self, b: &Bounds2) -> bool {
+        if self.wide {
+            return !b.is_empty();
+        }
+        !self.empty && self.span(b).is_some_and(|(bits, rows)| self.rows.get(rows).is_some_and(|rs| rs.iter().any(|r| r & bits != 0)))
+    }
+
+    fn clear(&mut self) {
+        if !self.empty {
+            self.rows = [0; 128];
+            self.empty = true;
+        }
+        self.wide = false;
+    }
+}
+
 /// Convert a display list into vertex data relative to `origin`, colours resolved against `bg`.
 pub fn build_mesh(list: &DisplayList, origin: Vec2, bg: Rgb, lwdisplay: bool) -> MeshData {
     let mut m = MeshData {
@@ -188,9 +266,37 @@ pub fn build_mesh(list: &DisplayList, origin: Vec2, bg: Rgb, lwdisplay: bool) ->
         breaks: Vec::new(),
         uploaded: None,
     };
-    for prim in &list.prims {
+    // The lines and points of the current group, so a fill over ones drawn before it starts a new
+    // group and covers them (draw order). Only kept when the list has fills, and only for
+    // MAX_FILL_BREAKS breaks. Not with PDF underlays: [`underlay_groups`] places their pages by
+    // the mask and underlay breaks only, so a fill break would put a page in the wrong group.
+    let mut strokes = (list.underlays.is_empty() && list.prims.iter().any(|p| p.kind == Kind::Tris)).then(|| StrokeGrid::new(&list.bounds));
+    let mut fill_breaks = 0usize;
+    let mut underlays = list.underlays.iter().map(|u| u.at as usize).peekable();
+    for (i, prim) in list.prims.iter().enumerate() {
+        while underlays.next_if(|at| *at <= i).is_some() {
+            m.breaks.push([m.tri_vertices(), m.line_vertices(), m.quad_instances()]);
+        }
         let col = premultiplied(prim.display_rgb(bg), prim.alpha());
         let pts = list.points(prim);
+        if let Some(s) = strokes.as_mut() {
+            match prim.kind {
+                // Hairlines by their bounds; wide lines and point markers reach past them by a
+                // screen width (see StrokeGrid).
+                Kind::Polyline if wide_width(prim.lw, lwdisplay).is_none() => s.add(&Bounds2::from_points(pts.iter().copied())),
+                Kind::Polyline | Kind::Point => s.add_wide(),
+                Kind::Tris if s.hits(&Bounds2::from_points(pts.iter().copied())) => {
+                    m.breaks.push([m.tri_vertices(), m.line_vertices(), m.quad_instances()]);
+                    s.clear();
+                    fill_breaks += 1;
+                    if fill_breaks >= MAX_FILL_BREAKS {
+                        strokes = None;
+                    }
+                }
+                Kind::Mask => s.clear(),
+                Kind::Tris | Kind::Infinite { .. } | Kind::Image { .. } => {}
+            }
+        }
         match prim.kind {
             Kind::Polyline => match wide_width(prim.lw, lwdisplay) {
                 Some(w) => {
@@ -236,7 +342,24 @@ pub fn build_mesh(list: &DisplayList, origin: Vec2, bg: Rgb, lwdisplay: bool) ->
             Kind::Image { .. } => {}
         }
     }
+    for _ in underlays {
+        m.breaks.push([m.tri_vertices(), m.line_vertices(), m.quad_instances()]);
+    }
     m
+}
+
+/// For each PDF underlay of `list` (in order), the first draw-order group of [`build_mesh`]'s
+/// data drawn over its page: the groups before it are drawn, then the page, then the rest.
+pub fn underlay_groups(list: &DisplayList) -> Vec<usize> {
+    let mut out = Vec::with_capacity(list.underlays.len());
+    let (mut masks, mut from) = (0usize, 0usize);
+    for (j, u) in list.underlays.iter().enumerate() {
+        let at = (u.at as usize).min(list.prims.len()).max(from);
+        masks += list.prims.get(from..at).map_or(0, |ps| ps.iter().filter(|p| p.kind == Kind::Mask).count());
+        from = at;
+        out.push(masks + j + 1);
+    }
+    out
 }
 
 /// Vertex data drawing primitives `prims` of `list` in `color` (the selection highlight), as on
@@ -295,9 +418,13 @@ pub fn build_highlight_mesh(list: &DisplayList, prims: &[usize], origin: Vec2, c
     m
 }
 
+/// Maximum drift of a cached vertex origin from `view_center` (in multiples of `view_height`)
+/// before re-centering to preserve `f32` GPU vertex precision.
+const MAX_ORIGIN_DRIFT_FACTOR: f64 = 512.0;
+
 /// The vertex origin for a display list seen at `view_center` / `view_height`: the list's centre
 /// normally; at deep zoom (the view much smaller than the drawing) a point near the view, snapped
-/// to a coarse grid so panning re-uploads only every few dozen screens.
+/// to a coarse power-of-two grid so consecutive zoom steps and panning re-upload rarely.
 pub fn choose_origin(bounds: &Bounds2, view_center: Vec2, view_height: f64) -> Vec2 {
     let size = bounds.width().max(bounds.height());
     if bounds.is_empty()
@@ -307,8 +434,34 @@ pub fn choose_origin(bounds: &Bounds2, view_center: Vec2, view_height: f64) -> V
     {
         return if bounds.is_empty() { Vec2::ZERO } else { bounds.center() };
     }
-    let step = view_height * 64.0;
-    Vec2::new((view_center.x / step).round() * step, (view_center.y / step).round() * step)
+    let raw = view_height * 64.0;
+    if !raw.is_finite() || raw <= 0.0 {
+        return bounds.center();
+    }
+    let exp = raw.log2().floor().clamp(-1000.0, 1000.0) as i32;
+    let step = 2.0_f64.powi(exp);
+    if !step.is_finite() || step <= 0.0 {
+        return bounds.center();
+    }
+    let o = Vec2::new((view_center.x / step).round() * step, (view_center.y / step).round() * step);
+    if o.is_finite() { o } else { bounds.center() }
+}
+
+/// Whether an already uploaded mesh's `origin` is still close enough to `view_center` for `f32`
+/// vertex precision at `view_height`, avoiding needless GPU mesh rebuilds while zooming or panning.
+pub fn origin_usable(origin: Vec2, bounds: &Bounds2, view_center: Vec2, view_height: f64) -> bool {
+    if !origin.is_finite() {
+        return false;
+    }
+    if bounds.is_empty() || !view_center.is_finite() || view_height.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        return true;
+    }
+    let size = bounds.width().max(bounds.height());
+    if view_height * 2000.0 >= size && origin == bounds.center() {
+        return true;
+    }
+    let d = (view_center.x - origin.x).abs().max((view_center.y - origin.y).abs());
+    d.is_finite() && d <= view_height * MAX_ORIGIN_DRIFT_FACTOR
 }
 
 /// Pending upload shared between the canvas (producer) and the paint callback (consumer).
@@ -335,7 +488,12 @@ pub struct CanvasCallback {
     pub dash: f32,
     /// How the draw uses the stencil buffer.
     pub stencil: Stencil,
+    /// The draw-order groups drawn ([`ALL_GROUPS`], or those between two PDF underlays).
+    pub groups: std::ops::Range<usize>,
 }
+
+/// [`CanvasCallback::groups`]: every group.
+pub const ALL_GROUPS: std::ops::Range<usize> = 0..usize::MAX;
 
 /// How a [`CanvasCallback`] uses the stencil buffer ([`GpuTarget::stencil`]): a clipped
 /// viewport's outline is drawn as a triangle fan that flips a stencil bit ([`Stencil::Mask`],
@@ -764,7 +922,11 @@ impl egui_wgpu::CallbackTrait for CanvasCallback {
         let total = |bs: &[Batch]| bs.iter().map(|b| b.count as usize).sum::<usize>();
         let all = [total(&res.tris), if mask { 0 } else { total(&res.lines) }, if mask { 0 } else { total(&res.quads) }];
         let mut from = [0usize; 3];
-        for to in res.breaks.iter().copied().chain(std::iter::once(all)) {
+        for (g, to) in res.breaks.iter().copied().chain(std::iter::once(all)).enumerate() {
+            if !self.groups.contains(&g) {
+                from = to;
+                continue;
+            }
             for (i, (pipeline, batches)) in [(tri, &res.tris), (line, &res.lines), (quad, &res.quads)].into_iter().enumerate() {
                 let parts = batch_ranges(batches.iter().map(|b| b.count), from[i]..to[i]);
                 if parts.is_empty() {
@@ -971,6 +1133,45 @@ mod tests {
     }
 
     #[test]
+    fn choose_origin_is_stable_across_small_zoom_steps() {
+        let b = Bounds2::new(Vec2::new(0.0, 0.0), Vec2::new(1e6, 1e6));
+        let center = Vec2::new(123_456.7, 654_321.2);
+        let base = choose_origin(&b, center, 1.0);
+        for h in [1.1, 1.25, 1.5, 1.9] {
+            assert_eq!(choose_origin(&b, center, h), base, "view_height {h} changed origin within 2x band");
+        }
+        // Panning far away or zooming across much larger/smaller scales still tracks the camera.
+        let panned = choose_origin(&b, Vec2::new(900_000.0, 900_000.0), 1.0);
+        assert_ne!(panned, base);
+        assert!((panned.x - 900_000.0).abs() <= 32.0);
+        let zoomed_out = choose_origin(&b, center, 64.0);
+        assert!((zoomed_out.x - center.x).abs() <= 2048.0);
+        let zoomed_in = choose_origin(&b, Vec2::new(123_456.789, 654_321.123), 1e-3);
+        assert!((zoomed_in.x - 123_456.789).abs() <= 0.1);
+        // Degenerate view heights and extreme scales fall back cleanly without panicking or NaN.
+        assert_eq!(choose_origin(&b, center, 0.0), b.center());
+        assert_eq!(choose_origin(&b, center, -1.0), b.center());
+        assert_eq!(choose_origin(&b, center, f64::NAN), b.center());
+        assert!(choose_origin(&b, center, 1e-300).is_finite());
+        assert_eq!(choose_origin(&b, center, 1e300), b.center());
+    }
+
+    #[test]
+    fn origin_usable_keeps_origin_within_precision_budget() {
+        let b = Bounds2::new(Vec2::new(0.0, 0.0), Vec2::new(1e6, 1e6));
+        let center = Vec2::new(123_456.7, 654_321.2);
+        let o = choose_origin(&b, center, 1.0);
+        // Small pans and zooming out or moderately in keep the uploaded origin valid.
+        assert!(origin_usable(o, &b, center + Vec2::new(100.0, -200.0), 1.0));
+        assert!(origin_usable(o, &b, center, 10.0));
+        assert!(origin_usable(o, &b, o + Vec2::new(256.0, -256.0), 0.5));
+        // Exceeding 512 * view_height or non-finite origins force a recenter.
+        assert!(!origin_usable(o, &b, o + Vec2::new(513.0, 0.0), 1.0));
+        assert!(!origin_usable(o, &b, o + Vec2::new(60.0, 0.0), 0.1));
+        assert!(!origin_usable(Vec2::new(f64::NAN, 0.0), &b, center, 1.0));
+    }
+
+    #[test]
     fn wipeout_masks_start_a_draw_order_group() {
         let mut l = list();
         if let Some(p) = l.prims.get_mut(1) {
@@ -983,6 +1184,153 @@ mod tests {
         assert_eq!(m.tri_vertices(), 3);
         assert_eq!(&m.tris[8..12], &[10, 20, 30, 255], "the mask takes the background colour");
         assert_eq!(m.quad_instances(), 1);
+    }
+
+    #[test]
+    fn fills_over_earlier_lines_keep_draw_order() {
+        // A line (0,0)-(10,0), a filled triangle over its middle, a line far away and a point
+        // marker on the first line.
+        let mut l = DisplayList {
+            verts: vec![Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0), Vec2::new(50.0, 50.0), Vec2::new(60.0, 50.0), Vec2::new(5.0, 0.0)],
+            tris: vec![Vec2::new(4.0, -1.0), Vec2::new(6.0, -1.0), Vec2::new(6.0, 1.0)],
+            ..Default::default()
+        };
+        let p = |kind, start, len| DPrim { handle: Handle(1), color: Rgb(255, 255, 255), aci7: false, lw: 0.0, transparency: 0, kind, start, len };
+        for v in l.verts.clone() {
+            l.bounds.add(v);
+        }
+        let bg = Rgb(0, 0, 0);
+        // The fill starts a group after the first line, so it is drawn over it.
+        l.prims = vec![p(Kind::Polyline, 0, 2), p(Kind::Tris, 0, 3), p(Kind::Polyline, 2, 2)];
+        let m = build_mesh(&l, Vec2::ZERO, bg, false);
+        assert_eq!(m.breaks, vec![[0, 2, 0]]);
+        assert_eq!((m.tri_vertices(), m.line_vertices()), (3, 4));
+        // So does one over a point marker.
+        l.prims = vec![p(Kind::Point, 4, 1), p(Kind::Tris, 0, 3)];
+        assert_eq!(build_mesh(&l, Vec2::ZERO, bg, false).breaks, vec![[0, 0, 1]]);
+        // Fill first, then the line: nothing to reorder, one group.
+        l.prims = vec![p(Kind::Tris, 0, 3), p(Kind::Polyline, 0, 2)];
+        assert!(build_mesh(&l, Vec2::ZERO, bg, false).breaks.is_empty());
+        // A line elsewhere doesn't split the group.
+        l.prims = vec![p(Kind::Polyline, 2, 2), p(Kind::Tris, 0, 3)];
+        assert!(build_mesh(&l, Vec2::ZERO, bg, false).breaks.is_empty());
+        // A wipeout's group starts empty: a fill after it over a line before it needs no break.
+        l.prims = vec![p(Kind::Polyline, 0, 2), p(Kind::Mask, 0, 3), p(Kind::Tris, 0, 3)];
+        assert_eq!(build_mesh(&l, Vec2::ZERO, bg, false).breaks, vec![[0, 2, 0]]);
+        // A point marker away from the fill still splits: its size is in screen points.
+        l.verts.push(Vec2::new(100.0, 100.0));
+        l.prims = vec![p(Kind::Point, 5, 1), p(Kind::Tris, 0, 3)];
+        assert_eq!(build_mesh(&l, Vec2::ZERO, bg, false).breaks, vec![[0, 0, 1]]);
+        // Many fills over lines: the breaks stop at the budget.
+        l.prims = (0..MAX_FILL_BREAKS + 50).flat_map(|_| [p(Kind::Polyline, 0, 2), p(Kind::Tris, 0, 3)]).collect();
+        assert_eq!(build_mesh(&l, Vec2::ZERO, bg, false).breaks.len(), MAX_FILL_BREAKS);
+    }
+
+    #[test]
+    fn fills_beside_wide_lines_keep_draw_order() {
+        // A line along y = 20.5 and a fill just above it, in grid rows of their own. With
+        // lineweights shown the line is 3.78 points wide, which covers the fill at one point per
+        // unit and reaches further when zoomed out.
+        let mut l = DisplayList {
+            verts: vec![Vec2::new(0.0, 20.5), Vec2::new(128.0, 20.5)],
+            tris: vec![Vec2::new(20.0, 21.0), Vec2::new(30.0, 21.0), Vec2::new(25.0, 22.0)],
+            bounds: Bounds2::new(Vec2::ZERO, Vec2::new(128.0, 128.0)),
+            ..Default::default()
+        };
+        let p = |kind, start, len, lw| DPrim { handle: Handle(1), color: Rgb(255, 255, 255), aci7: false, lw, transparency: 0, kind, start, len };
+        let bg = Rgb(0, 0, 0);
+        l.prims = vec![p(Kind::Polyline, 0, 2, 1.0), p(Kind::Tris, 0, 3, 0.0)];
+        let m = build_mesh(&l, Vec2::ZERO, bg, true);
+        assert_eq!(m.quad_instances(), 1, "drawn as a wide line");
+        assert_eq!(m.breaks, vec![[0, 0, 1]], "the fill starts a group over the wide line");
+        // Lineweights off: a hairline, which stays in its own row.
+        assert!(build_mesh(&l, Vec2::ZERO, bg, false).breaks.is_empty());
+        // A thin lineweight is still a hairline.
+        l.prims = vec![p(Kind::Polyline, 0, 2, 0.1), p(Kind::Tris, 0, 3, 0.0)];
+        assert!(build_mesh(&l, Vec2::ZERO, bg, true).breaks.is_empty());
+        // A wipeout starts a group with no wide line in it.
+        l.prims = vec![p(Kind::Polyline, 0, 2, 1.0), p(Kind::Mask, 0, 3, 0.0), p(Kind::Tris, 0, 3, 0.0)];
+        assert_eq!(build_mesh(&l, Vec2::ZERO, bg, true).breaks, vec![[0, 0, 1]]);
+    }
+
+    #[test]
+    fn stroke_grid_tests_boxes_by_cell() {
+        let mut g = StrokeGrid::new(&Bounds2::new(Vec2::ZERO, Vec2::new(128.0, 128.0)));
+        let b = |x0, y0, x1, y1| Bounds2::new(Vec2::new(x0, y0), Vec2::new(x1, y1));
+        assert!(!g.hits(&b(0.0, 0.0, 128.0, 128.0)));
+        g.add(&b(10.2, 20.2, 12.5, 20.7));
+        assert!(g.hits(&b(12.1, 20.1, 40.0, 40.0)), "shares cell (12, 20)");
+        assert!(!g.hits(&b(13.0, 20.0, 40.0, 40.0)) && !g.hits(&b(0.0, 21.0, 128.0, 128.0)));
+        // Outside the bounds clamps to the edge cells; an infinite side reaches the grid's edge.
+        g.add(&b(-50.0, 500.0, -40.0, 600.0));
+        assert!(g.hits(&b(0.5, 127.5, 0.6, 127.6)));
+        assert!(g.hits(&b(f64::NEG_INFINITY, 20.5, 1e300, 20.5)) && !g.hits(&b(f64::NEG_INFINITY, 64.0, 1e300, 64.0)));
+        assert!(g.hits(&b(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::INFINITY)));
+        g.clear();
+        assert!(!g.hits(&b(0.0, 0.0, 128.0, 128.0)));
+        // A list with no area still works: every box is in the one cell.
+        let mut g = StrokeGrid::new(&Bounds2::EMPTY);
+        g.add(&b(1.0, 1.0, 2.0, 2.0));
+        assert!(g.hits(&b(100.0, 100.0, 101.0, 101.0)));
+    }
+
+    #[test]
+    fn pdf_underlays_split_the_draw_order_groups() {
+        let mut l = list();
+        if let Some(p) = l.prims.get_mut(1) {
+            p.kind = Kind::Mask;
+        }
+        let page = |h: u64, at: u32| cadcraft_render::ListUnderlay {
+            handle: Handle(h),
+            at,
+            origin: Vec2::ZERO,
+            u: Vec2::new(1.0, 0.0),
+            v: Vec2::new(0.0, 1.0),
+            clip: cadcraft_render::PageClip::None,
+            own: None,
+            inverted: false,
+        };
+        // Underlay 7 before the mask, underlay 8 after everything.
+        l.underlays = vec![page(7, 1), page(8, 4)];
+        let m = build_mesh(&l, Vec2::ZERO, Rgb(0, 0, 0), false);
+        // Underlay 7's break, the mask's (at the same place), then underlay 8's at the end.
+        assert_eq!(m.breaks, vec![[0, 4, 0], [0, 4, 0], [3, 4, 1]]);
+        // Underlay 7's page goes between groups 0 and 1, underlay 8's after group 2.
+        assert_eq!(underlay_groups(&l), vec![1, 3]);
+        // Hostile positions past the list end are clamped.
+        l.underlays = vec![page(9, u32::MAX)];
+        assert_eq!(underlay_groups(&l), vec![2]);
+        assert_eq!(build_mesh(&l, Vec2::ZERO, Rgb(0, 0, 0), false).breaks.len(), 2);
+    }
+
+    #[test]
+    fn pdf_underlays_keep_fills_from_breaking_the_groups() {
+        // A line, a fill over it (a fill break without underlays), and an underlay at the end:
+        // with the underlay, only its own break is made, so its page goes after the one group.
+        let mut l = DisplayList {
+            verts: vec![Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0)],
+            tris: vec![Vec2::new(4.0, -1.0), Vec2::new(6.0, -1.0), Vec2::new(6.0, 1.0)],
+            ..Default::default()
+        };
+        let p = |kind, start, len| DPrim { handle: Handle(1), color: Rgb(255, 255, 255), aci7: false, lw: 0.0, transparency: 0, kind, start, len };
+        for v in l.verts.clone() {
+            l.bounds.add(v);
+        }
+        l.prims = vec![p(Kind::Polyline, 0, 2), p(Kind::Tris, 0, 3)];
+        assert_eq!(build_mesh(&l, Vec2::ZERO, Rgb(0, 0, 0), false).breaks.len(), 1, "the fill breaks without underlays");
+        l.underlays = vec![cadcraft_render::ListUnderlay {
+            handle: Handle(7),
+            at: 2,
+            origin: Vec2::ZERO,
+            u: Vec2::new(1.0, 0.0),
+            v: Vec2::new(0.0, 1.0),
+            clip: cadcraft_render::PageClip::None,
+            own: None,
+            inverted: false,
+        }];
+        let m = build_mesh(&l, Vec2::ZERO, Rgb(0, 0, 0), false);
+        assert_eq!(m.breaks.len(), 1, "only the underlay's break");
+        assert_eq!(underlay_groups(&l), vec![m.breaks.len()]);
     }
 
     #[test]

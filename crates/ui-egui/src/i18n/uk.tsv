@@ -9,6 +9,14 @@
 	Attach DWG...	Приєднати DWG...
 	Bind	Вбудувати
 	Detach	Від'єднати
+	Enter author	Введіть автора
+	Enter comments	Введіть коментарі
+	Enter field name or system variable	Введіть назву поля або системну змінну
+	Enter keywords	Введіть ключові слова
+	Enter property	Введіть властивість
+	Enter property to change	Введіть властивість для зміни
+	Enter subject	Введіть тему
+	Enter title	Введіть заголовок
 	Loaded	Завантажено
 	Make it a block of this drawing, keeping its layer names	Зробити блоком цього креслення зі збереженням назв шарів
 	Make it a block of this drawing; its layers become NAME$0$LAYER	Зробити блоком цього креслення; його шари стануть NAME$0$LAYER
@@ -200,6 +208,7 @@
 	Cut with Base Point	Вирізати з базовою точкою
 	Cyan	Блакитний
 	Cylinder	Циліндр
+	Drawing Properties...	Властивості креслення...
 	DWG	DWG
 	DWG Reference...	Посилання на DWG...
 	Raster Image Reference...	Посилання на растрове зображення...
@@ -349,6 +358,7 @@
 	External Reference	Зовнішнє посилання
 	External References	Зовнішні посилання
 	Extrude	Видавити
+	Field...	Поле...
 	File	Файл
 	File Tab	Вкладка файлу
 	Fillet	Спряження
@@ -534,6 +544,7 @@
 	Match Layer	Узгодити шар
 	Match Properties	Копіювати властивості
 	Measure	Розмітити
+	Quick Measure	Швидке вимірювання
 	Measure Distance	Виміряти відстань
 	Measure Geometry	Виміряти геометрію
 	Menu Bar	Рядок меню
@@ -647,6 +658,7 @@
 	Pattern	Візерунок
 	Perpendicular	Перпендикулярність
 	Plot	Друк креслення
+	Plot...	Друк креслення...
 	Plot (click: do not plot)	Друкувати (натисніть, щоб вимкнути друк)
 	Plot Preview	Попередній перегляд друку
 	Plot Window	Вікно друку
@@ -1001,6 +1013,13 @@
 	Screen magnifiers, screen readers and recorders follow the system cursor.	Екранні лупи, програми читання з екрана та запису стежать за системним курсором.
 	Select objects first, then choose a command	Спочатку вибирати об'єкти, потім команду
 	Selection	Вибір
+	Selection Preview Effect	Ефект попереднього перегляду вибору
+	Dash	Штрих
+	Thicken	Потовщення
+	Both	Обидва
+	Selected Objects Effect	Ефект вибраних об'єктів
+	Dashed	Штриховий
+	Selection color	Колір вибору
 	Selection Area Effect	Ефект області вибору
 	Selection Preview Filter	Фільтр попереднього перегляду вибору
 	Selection area opacity:	Непрозорість області вибору:
@@ -1084,6 +1103,7 @@
 	Specify total angle	Укажіть загальний кут
 	Specify total length	Укажіть загальну довжину
 	Specify width for rectangles	Укажіть ширину прямокутників
+	Spelling	Орфографія
 	Sphere	Сфера
 	Spline	Сплайн
 	Spline Edit	Редагувати сплайн
@@ -1170,6 +1190,7 @@
 	Up	Угору
 	Update Data Links	Оновити зв’язки з даними
 	Update	Оновити
+	Update Fields	Оновити поля
 	Use System Setting	Як у системі
 	User	Користувач
 	User Parameters	Параметри користувача
@@ -1359,6 +1380,7 @@
 	Justify	За шириною
 	Text color	Колір тексту
 	Click the ruler to add a tab stop, right-click to remove one	Натисніть на лінійку, щоб додати табуляцію; права кнопка видаляє її
+	Who Has	Хто відкрив креслення
 	3 Point	3 точки
 	New UCS	Нова СКК
 	Origin	Початок координат
@@ -1391,10 +1413,31 @@
 	Discard	Скасувати зміни
 	Customize	Налаштування інтерфейсу
 	Edit Command Aliases (PGP)...	Редагувати псевдоніми команд (PGP)...
+	Adjust	Налаштувати
+	Adjust PDF Underlay	Налаштувати підкладку PDF
+	Attach PDF Underlay	Приєднати підкладку PDF
+	Browse...	Огляд...
+	File name only	Лише ім'я файлу
+	Found at: {path}	Знайдено: {path}
+	Full path	Повний шлях
+	Only the first {count} pages are shown.	Показано лише перші {count} сторінок.
+	PDF Underlay	Підкладка PDF
+	PDF Underlay...	Підкладка PDF...
+	Pages to attach ({count} in the file)	Сторінки для приєднання ({count} у файлі)
+	Path type	Тип шляху
+	Relative path	Відносний шлях
+	Save the drawing first	Спершу збережіть креслення
+	Saved in the drawing as: {path}	Збережено в кресленні як: {path}
+	Scale (1 = size on paper)	Масштаб (1 = розмір на папері)
+	Specify on screen	Вказати на екрані
 	Check for Updates…	Перевірити оновлення…
 	CADCraft is up to date.	Встановлено найновішу версію CADCraft.
 	Could not check for updates.	Не вдалося перевірити оновлення.
+	Check for Updates	Перевірити оновлення
+	Release updates are disabled for this development build.	Оновлення релізів вимкнено для цієї збірки розробки.
 	Save changes to block "{name}"?	Зберегти зміни в блоці «{name}»?
+	Constant	Константа
+	Multiline: edit it with Edit Attributes	Багаторядковий: змінюйте в «Редагувати атрибути»
 	Add a drawing file as a block library	Додати файл креслення як бібліотеку блоків
 	Add a folder of drawings or a drawing file to use its blocks.	Додайте теку з кресленнями або файл креслення, щоб використовувати його блоки.
 	Block Libraries	Бібліотеки блоків
@@ -1461,9 +1504,24 @@
 	ENTER	Клавіша Enter
 	Shortcut Menu: always enabled	Контекстне меню: завжди
 	Shortcut Menu: enabled when command options are present	Контекстне меню: коли команда має параметри
+	Layer state name	Назва стану шарів
+	Switches layers on and off, frozen and locked	Вмикає й вимикає шари, заморожує та блокує
+	Rename	Перейменувати
+	Objects on locked layers can't be selected	Об'єкти на заблокованих шарах не можна вибрати
+	They are still shown and snapped to, like a blueprint.	Вони й далі показуються, і до них працює прив'язка, як до підкладки.
+# Layers palette: move the selection to a new layer, delete empty layers.
+	Move to New Layer	Перемістити на новий шар
+	Move Selection to New Layer	Перемістити вибране на новий шар
+	New layer name	Назва нового шару
+	Delete Empty Layers	Видалити порожні шари
+	Deletes every layer that has no objects on it	Видаляє кожен шар, на якому немає об'єктів
 
 # ArtCraft feature naming
 	Additional Tools	Додаткові інструменти
+	Clip PDF Underlay	Обрізати підкладку PDF
+	Calibrate Scale	Калібрувати масштаб
+
+# ArtCraft feature naming
 # Properties palette: text, mtext and dimension rows (properties.describe)
 	Overrides the dimension style. Right-click to use the style's value.	Перевизначає розмірний стиль. Клацніть правою кнопкою, щоб використати значення стилю.
 	Use the style's value	Використати значення стилю
@@ -1618,7 +1676,6 @@
 	Styles in use	Стилі, що використовуються
 	<style overrides>	<перевизначення стилю>
 	Save to current style	Зберегти в поточному стилі
-	Rename	Перейменувати
 	Preview of: {style}	Попередній перегляд: {style}
 	Preview of: {style} (overrides)	Попередній перегляд: {style} (перевизначення)
 	New...	Новий...

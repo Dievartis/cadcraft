@@ -57,6 +57,7 @@ mod web {
         }
         /// Forward raw input to the web `CadApp` and capture Tab at the command line.
         fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+            self.0.touch_hook(ctx, raw);
             self.0.raw_input_hook(ctx, raw);
             cadcraft_ui_egui::cmdline::capture_tab(ctx, raw);
         }
@@ -64,6 +65,8 @@ mod web {
         fn save(&mut self, storage: &mut dyn eframe::Storage) {
             storage.set_string(cadcraft_ui_egui::options::PROFILE_KEY, self.0.profile_json());
             storage.set_string(cadcraft_ui_egui::PREFS_KEY, self.0.prefs_json());
+            // The autosave interval, folder and backup choice (Options): kept like on the desktop.
+            storage.set_string(cadcraft_ui_egui::autosave::PREFS_KEY, cadcraft_ui_egui::autosave::prefs_json());
             match crate::panel_layout::save(&self.0.ui) {
                 Ok(layout) => storage.set_string(crate::panel_layout::KEY, layout),
                 Err(error) => log::warn!("panel layout was not saved: {error}"),
@@ -112,6 +115,58 @@ mod web {
         Services { pick_save: Some(Box::new(|name: &str| Some(name.to_string()))), no_file_system: true, ..Services::default() }
     }
 
+    /// Whether every touch this touch event changed comes from a stylus. `touchType` is WebKit's
+    /// (a stylus on iPadOS) and has no `web_sys` binding; other browsers report only `pointerType`.
+    fn is_stylus_touch(event: &web_sys::Event) -> bool {
+        use web_sys::js_sys::Reflect;
+        let Some(touches) = event.dyn_ref::<web_sys::TouchEvent>().map(web_sys::TouchEvent::changed_touches) else { return false };
+        let stylus =
+            |i| touches.get(i).and_then(|t| Reflect::get(&t, &"touchType".into()).ok()).and_then(|v| v.as_string()).as_deref() == Some("stylus");
+        touches.length() > 0 && (0..touches.length()).all(stylus)
+    }
+
+    /// Stop the browser events that would reach eframe as pointer events at a finger: the
+    /// browser's own pointer events for canvas touches, and the mouse events it emulates right
+    /// after a touch. Canvas touches then reach the app only as touch events, which
+    /// [`cadcraft_ui_egui::touch::TouchMouse`] turns into pointer events at the crosshair.
+    /// Registered before eframe's listeners, so stopping an event here skips them; a touch's
+    /// `pointerup` still focuses the canvas, as eframe's listener does.
+    fn install_touch_gate(canvas: &web_sys::HtmlCanvasElement) {
+        use cadcraft_ui_egui::touch::{DomEvent, NativeGate};
+        let gate = std::rc::Rc::new(std::cell::Cell::new(NativeGate::default()));
+        let pointer = ["pointerdown", "pointerup", "pointermove", "pointercancel"];
+        let touch = ["touchstart", "touchmove", "touchend", "touchcancel"];
+        let mouse = ["mousedown", "mouseup", "mousemove", "mouseleave", "click"];
+        for name in pointer.into_iter().chain(touch).chain(mouse) {
+            let gate = gate.clone();
+            let element = canvas.clone();
+            let callback = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::Event)>::wrap(Box::new(move |event: web_sys::Event| {
+                let kind = event.type_();
+                let dom = if kind.starts_with("pointer") {
+                    DomEvent::Pointer { touch: event.dyn_ref::<web_sys::PointerEvent>().is_some_and(|p| p.pointer_type() == "touch") }
+                } else if kind.starts_with("touch") {
+                    if is_stylus_touch(&event) { DomEvent::StylusTouch } else { DomEvent::Touch }
+                } else {
+                    DomEvent::Mouse
+                };
+                let mut g = gate.get();
+                let admit = g.admit(dom, web_sys::js_sys::Date::now() / 1000.0);
+                gate.set(g);
+                if !admit {
+                    event.stop_immediate_propagation();
+                    if kind == "pointerup" {
+                        let options = web_sys::FocusOptions::new();
+                        options.set_prevent_scroll(true);
+                        let _ = element.focus_with_options(&options);
+                    }
+                }
+            }));
+            if canvas.add_event_listener_with_callback(name, callback.as_ref().unchecked_ref()).is_ok() {
+                callback.forget();
+            }
+        }
+    }
+
     pub fn start() {
         eframe::WebLogger::init(log::LevelFilter::Info).ok();
         cadcraft_engine::cmd::file::set_io(cadcraft_engine::cmd::file::IoHooks {
@@ -130,12 +185,24 @@ mod web {
         });
         // ... and non-graphic objects (tables, dictionaries, layouts) as DXF records.
         cadcraft_engine::cmd::file::set_object_records(cadcraft_io::object_records);
+        cadcraft_engine::cmd::file::set_proxies_lost(cadcraft_io::proxies_lost);
+        // ... and non-graphic objects (tables, dictionaries, layouts) as DXF records.
+        cadcraft_engine::cmd::file::set_object_records(cadcraft_io::object_records);
         // What a DXF before 2007 leaves out for its proxies' string streams (#3229).
         cadcraft_engine::cmd::file::set_proxies_lost(cadcraft_io::proxies_lost);
         let Some(canvas) = app_canvas() else {
             log::error!("missing <canvas id=\"{CANVAS_ID}\">");
             return;
         };
+        // PDF underlays read their pages.
+        cadcraft_engine::cmd::underlay::set_pdf(cadcraft_engine::cmd::underlay::PdfHooks {
+            page: cadcraft_io::pdf_read::page_info,
+            render: cadcraft_io::pdf_read::render_page,
+            lines: cadcraft_io::pdf_read::page_lines,
+            region: cadcraft_io::pdf_read::render_page_region,
+            layers: cadcraft_io::pdf_layers::layer_list,
+            with_layers: cadcraft_io::pdf_layers::apply_layers,
+        });
         // `?host=parent`: a same-origin page framing CADCraft (such as a Nextcloud app) opens
         // drawings in it and stores what it saves. Otherwise `data-host="page"` on the canvas
         // opts in a page that runs CADCraft in its own document (no iframe) and talks over DOM
@@ -153,6 +220,7 @@ mod web {
         let app_bridge = bridge.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+            install_touch_gate(&canvas);
             let mut options = eframe::WebOptions::default();
             if query().contains("webgl")
                 && let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup
@@ -176,6 +244,9 @@ mod web {
                         if let Some(prefs) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::PREFS_KEY)) {
                             app.load_prefs(&prefs);
                         }
+                        if let Some(prefs) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::autosave::PREFS_KEY)) {
+                            cadcraft_ui_egui::autosave::load_prefs(&prefs);
+                        }
                         if let Some(layout) = cc.storage.and_then(|s| s.get_string(crate::panel_layout::KEY))
                             && let Err(error) = crate::panel_layout::restore(&mut app.ui, &layout)
                         {
@@ -198,6 +269,12 @@ mod web {
                         let picker = inbox.clone();
                         app.services.pick_open = Some(Box::new(move || {
                             picker.pick();
+                            None
+                        }));
+                        // PDFATTACH asks for a PDF: the same picker, limited to .pdf; the file is attached as a backdrop when it arrives.
+                        let pdf_picker = inbox.clone();
+                        app.services.pick_pdf = Some(Box::new(move || {
+                            pdf_picker.pick_pdf();
                             None
                         }));
                         let host = app_bridge.inspect(|bridge| {

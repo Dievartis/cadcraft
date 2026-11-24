@@ -28,6 +28,7 @@ mod portable;
 mod sheet;
 mod single_instance;
 mod spacemouse;
+mod start_failure;
 mod system_animations;
 mod workspace;
 
@@ -44,6 +45,9 @@ struct App {
     system_animations: system_animations::SystemAnimations,
     workspace: workspace::Workspace,
     workspace_error: Option<String>,
+    /// `App::ui` ran after the last `App::logic`. A logic-only tick (window minimized or occluded) leaves it false, and
+    /// the next `logic` shows the system cursor.
+    ui_since_logic: bool,
     /// The first CADCraft of this sign-in: files that later launches hand over (Windows).
     single_instance: Option<single_instance::Server>,
     #[cfg(target_os = "macos")]
@@ -55,6 +59,54 @@ struct App {
     #[cfg(target_os = "macos")]
     movable: Option<bool>,
 }
+
+impl App {
+    /// The system cursor is hidden over the drawing area, where the drawn crosshair is the pointer (as in games). macOS
+    /// shake-to-locate reveals a cursor that is only made transparent, so it is hidden with AppKit. Only while the window
+    /// has focus, so it never stays hidden over other apps.
+    fn update_system_cursor(&mut self, ctx: &egui::Context) {
+        let hide = self.cad.canvas.hide_system_cursor && ctx.input(|i| i.focused);
+        apply_system_cursor(hide);
+    }
+}
+
+/// The system cursor must be shown now, from `App::logic`: the window is hidden (minimized or occluded) or has lost
+/// focus, or the last logic tick never reached `App::ui`. eframe runs only `logic` while the window is hidden, so
+/// `App::update_system_cursor` would never get to show a hidden cursor and it would stay hidden over other apps.
+fn system_cursor_must_show(viewport: &egui::ViewportInfo, focused: bool, ui_since_logic: bool) -> bool {
+    viewport.visible() == Some(false) || !focused || !ui_since_logic
+}
+
+/// The system cursor is hidden over the drawing area (see `App::update_system_cursor`). Global, so the native file
+/// dialogs (`services`) can show it while they are open.
+static SYSTEM_CURSOR_HIDDEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn apply_system_cursor(hide: bool) {
+    if SYSTEM_CURSOR_HIDDEN.swap(hide, std::sync::atomic::Ordering::Relaxed) != hide {
+        set_system_cursor_hidden(hide);
+    }
+}
+
+/// Run a native file dialog with the system cursor shown: it is modal and blocks the frame loop, so a cursor hidden
+/// over the drawing area would stay hidden over the dialog. The next frame hides it again if the pointer is still
+/// over the drawing area.
+fn with_system_cursor<T>(dialog: impl FnOnce() -> T) -> T {
+    apply_system_cursor(false);
+    dialog()
+}
+
+/// Each hide is matched by one unhide: `apply_system_cursor` calls this only when the state changes.
+#[cfg(target_os = "macos")]
+fn set_system_cursor_hidden(hide: bool) {
+    if hide {
+        objc2_app_kit::NSCursor::hide();
+    } else {
+        objc2_app_kit::NSCursor::unhide();
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_system_cursor_hidden(_hide: bool) {}
 
 impl App {
     /// `ctx` is `None` only for the final attempt at exit.
@@ -90,6 +142,11 @@ fn follow_desktop(raw: &mut egui::RawInput, desktop: Option<egui::Theme>) {
 impl eframe::App for App {
     /// eframe logic callback: syncs the OS animation setting and runs `CadApp::logic`; when the pass index is 0 (the first pass or a hidden tick) it also installs/polls the macOS native menu, polls the spacemouse and persists the workspace; a quit request closes the viewport.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Read from the raw input: a logic-only tick updates the viewport info and focus there, but not the ui input.
+        let (viewport, focused) = ctx.input(|i| (i.raw.viewport().clone(), i.raw.focused));
+        if system_cursor_must_show(&viewport, focused, std::mem::replace(&mut self.ui_since_logic, false)) {
+            apply_system_cursor(false);
+        }
         self.cad.system_animations = self.system_animations.current();
         // Files another launch handed over open as tabs here, and the window comes forward.
         if let Some(server) = &self.single_instance {
@@ -133,13 +190,17 @@ impl eframe::App for App {
         cadcraft_ui_egui::cmdline::capture_tab(ctx, raw);
     }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.cad.canvas.hide_system_cursor = false;
         self.cad.guarded_ui(ui);
         #[cfg(target_os = "macos")]
         craft_window::title_bar::sync_movable(ui.ctx(), &mut self.movable);
+        self.update_system_cursor(ui.ctx());
+        self.ui_since_logic = true;
     }
     /// A normal exit: the workspace is saved, and this run's autosave files are not needed (a
     /// crash leaves them for recovery).
     fn on_exit(&mut self) {
+        apply_system_cursor(false);
         self.persist_workspace(None);
         self.cad.cancel_screenshots();
         self.cad.shutdown_autosave();
@@ -174,27 +235,45 @@ pub fn install_io() {
     });
     // ... and non-graphic objects (tables, dictionaries, layouts) as DXF records.
     cadcraft_engine::cmd::file::set_object_records(cadcraft_io::object_records);
+    cadcraft_engine::cmd::file::set_proxies_lost(cadcraft_io::proxies_lost);
+    // PDF underlays read their pages.
+    cadcraft_engine::cmd::underlay::set_pdf(cadcraft_engine::cmd::underlay::PdfHooks {
+        page: cadcraft_io::pdf_read::page_info,
+        render: cadcraft_io::pdf_read::render_page,
+        lines: cadcraft_io::pdf_read::page_lines,
+        region: cadcraft_io::pdf_read::render_page_region,
+        layers: cadcraft_io::pdf_layers::layer_list,
+        with_layers: cadcraft_io::pdf_layers::apply_layers,
+    });
+    // ... and non-graphic objects (tables, dictionaries, layouts) as DXF records.
+    cadcraft_engine::cmd::file::set_object_records(cadcraft_io::object_records);
     // What a DXF before 2007 leaves out for its proxies' string streams (#3229).
     cadcraft_engine::cmd::file::set_proxies_lost(cadcraft_io::proxies_lost);
 }
 
 fn services() -> Services {
     Services {
-        pick_open: Some(Box::new(|| file_dialog(&Pick::Open).pick_file().map(|p| p.to_string_lossy().to_string()))),
+        pick_open: Some(Box::new(|| with_system_cursor(|| file_dialog(&Pick::Open).pick_file().map(|p| p.to_string_lossy().to_string())))),
         pick_image: Some(Box::new(|| file_dialog(&Pick::Image).pick_file().map(|p| p.to_string_lossy().to_string()))),
         pick_plot_style_open: Some(Box::new(|| file_dialog(&Pick::PlotStyleOpen).pick_file().map(|p| p.to_string_lossy().to_string()))),
         pick_plot_style_save: Some(Box::new(|name: &str| {
             file_dialog(&Pick::PlotStyleSave(name.into())).save_file().map(|p| p.to_string_lossy().to_string())
         })),
-        pick_save: Some(Box::new(|name: &str| file_dialog(&Pick::Save(name.into())).save_file().map(|p| p.to_string_lossy().to_string()))),
+        pick_save: Some(Box::new(|name: &str| {
+            with_system_cursor(|| file_dialog(&Pick::Save(name.into())).save_file().map(|p| p.to_string_lossy().to_string()))
+        })),
         // macOS shows the dialogs as sheets (`sheet::start_pick`), set once the window exists.
         start_pick: None,
         // APPLOAD: AutoLISP routines only, starting where the last one was loaded from.
-        pick_lisp: Some(Box::new(|dir: &str| file_dialog(&Pick::Lisp(dir.into())).pick_file().map(|p| p.to_string_lossy().to_string()))),
+        pick_lisp: Some(Box::new(|dir: &str| {
+            with_system_cursor(|| file_dialog(&Pick::Lisp(dir.into())).pick_file().map(|p| p.to_string_lossy().to_string()))
+        })),
         no_file_system: false,
         pick_pgp: Some(Box::new(|dir: Option<&str>| {
-            file_dialog(&Pick::Pgp(dir.unwrap_or_default().into())).pick_file().map(|p| p.to_string_lossy().to_string())
+            with_system_cursor(|| file_dialog(&Pick::Pgp(dir.unwrap_or_default().into())).pick_file().map(|p| p.to_string_lossy().to_string()))
         })),
+        pick_pdf: Some(Box::new(|| file_dialog(&Pick::Pdf).pick_file().map(|p| p.to_string_lossy().to_string()))),
+        pick_image: Some(Box::new(|| file_dialog(&Pick::Image).pick_file().map(|p| p.to_string_lossy().to_string()))),
     }
 }
 
@@ -217,6 +296,10 @@ fn filters(pick: &Pick) -> Vec<(&'static str, Vec<&'static str>)> {
         }
         Pick::Lisp(_) => vec![(i18n::t("AutoLISP (LSP)"), vec!["lsp"]), (i18n::t("All files"), vec!["*"])],
         Pick::Pgp(_) => vec![(i18n::t("Alias files (PGP)"), vec!["pgp"])],
+        Pick::Pdf => vec![(i18n::t("PDF files"), vec!["pdf"]), (i18n::t("All files"), vec!["*"])],
+        Pick::Image => {
+            vec![(i18n::t("Pictures (PNG, JPEG, BMP, TIFF)"), vec!["png", "jpg", "jpeg", "bmp", "tif", "tiff"]), (i18n::t("All files"), vec!["*"])]
+        }
     }
 }
 
@@ -224,19 +307,41 @@ fn filters(pick: &Pick) -> Vec<(&'static str, Vec<&'static str>)> {
 fn file_dialog(pick: &Pick) -> rfd::FileDialog {
     let dialog = filters(pick).iter().fold(rfd::FileDialog::new(), |d, (label, exts)| d.add_filter(*label, exts));
     match pick {
-        Pick::Save(name) | Pick::PlotStyleSave(name) => dialog.set_file_name(name),
+        Pick::Save(name) => {
+            // A name that carries its folder (the quantities file) opens the dialog there.
+            let (dir, file) = split_save_name(name);
+            let dialog = if dir.is_empty() { dialog } else { dialog.set_directory(dir) };
+            dialog.set_file_name(file)
+        }
+        Pick::PlotStyleSave(name) => dialog.set_file_name(name),
         Pick::Lisp(dir) | Pick::Pgp(dir) if !dir.is_empty() => dialog.set_directory(dir),
         _ => dialog,
     }
+}
+
+/// The folder and the file name of a suggested Save name: the folder is empty for a bare name.
+fn split_save_name(name: &str) -> (String, String) {
+    let path = std::path::Path::new(name);
+    let dir = path.parent().map(|d| d.to_string_lossy().to_string()).unwrap_or_default();
+    let file = path.file_name().map_or_else(|| name.to_string(), |f| f.to_string_lossy().to_string());
+    (dir, file)
 }
 
 /// File types for the Save dialog, the suggested name's type first: Windows adds the first
 /// filter's extension, and macOS accepts only listed extensions, replacing any other with the
 /// first one. DWG must be listed for a `.dwg` name to survive, and a drawing opened from DWG
 /// then defaults to DWG; other names keep DXF first.
-fn filters_for_save(name: &str) -> [(&'static str, &'static str); 6] {
-    let mut filters =
-        [("Drawing (DXF)", "dxf"), ("Drawing (DWG)", "dwg"), ("Drawing Template (DWT)", "dwt"), ("SVG", "svg"), ("PNG", "png"), ("PDF", "pdf")];
+fn filters_for_save(name: &str) -> [(&'static str, &'static str); 8] {
+    let mut filters = [
+        ("Drawing (DXF)", "dxf"),
+        ("Drawing (DWG)", "dwg"),
+        ("Drawing Template (DWT)", "dwt"),
+        ("SVG", "svg"),
+        ("PNG", "png"),
+        ("PDF", "pdf"),
+        ("Excel workbook (XLSX)", "xlsx"),
+        ("CSV table (CSV)", "csv"),
+    ];
     let lower = name.to_ascii_lowercase();
     filters.sort_by_key(|(_, ext)| !lower.ends_with(&format!(".{ext}")));
     filters
@@ -367,6 +472,10 @@ fn main() -> eframe::Result {
     let launch = launch_args::parse(launch_args::command(), std::env::args_os().skip(1)).unwrap_or_else(|e| e.exit());
     let vars = env::Env::read();
     let (control_port, sample, files) = (launch.control, launch.sample, launch.files);
+    let collab = match (launch.collab_url, launch.collab_token, launch.collab_doc) {
+        (Some(url), Some(token), Some(doc)) => Some((url, token, doc)),
+        _ => None,
+    };
     // The log file lives under the settings directory; opened after the arguments, so `--version`
     // leaves no file behind. Records logged until now are written to it first.
     if let Some(logger) = logger {
@@ -449,11 +558,27 @@ fn main() -> eframe::Result {
             b.with_close_requested_on_terminate(true);
         }));
     }
-    eframe::run_native(
+    let result = eframe::run_native(
         "CADCraft",
         options,
         Box::new(move |cc| {
             let mut app = CadApp::new(Session::empty(), services());
+            if let Some((url, token, doc)) = collab.clone() {
+                // A shared session's drawing comes from the server; a local empty drawing gives the
+                // change sets somewhere to land until the first snapshot arrives.
+                if app.session.doc().is_err() {
+                    app.session.new_drawing(false);
+                }
+                match cadcraft_ui_egui::collab::Collab::connect(&url, &token, &doc) {
+                    Ok(collab) => {
+                        app = app.with_collab(collab);
+                    }
+                    Err(error) => {
+                        eprintln!("collab: {error}");
+                        app.set_status(format!("collab: {error}"));
+                    }
+                }
+            }
             // File dialogs are sheets on macOS: a modal loop inside the event handler crashes the
             // app when the dialog is resized (#1527).
             #[cfg(target_os = "macos")]
@@ -528,6 +653,7 @@ fn main() -> eframe::Result {
                 spacemouse: spacemouse::SpaceMouse::start(cc.egui_ctx.clone()),
                 workspace,
                 workspace_error,
+                ui_since_logic: true,
                 single_instance: instance,
                 #[cfg(target_os = "macos")]
                 native_menu: None,
@@ -537,12 +663,34 @@ fn main() -> eframe::Result {
                 movable: None,
             }))
         }),
-    )
+    );
+    // Say why instead of exiting silently (`start_failure`).
+    if let Err(e) = &result {
+        start_failure::report(e);
+    }
+    result
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{STENCIL_BITS, filters_for_save, follow_desktop, saved_window, stencil_bits, window_options, without_tiny_window};
+    use super::{
+        STENCIL_BITS, filters_for_save, follow_desktop, saved_window, stencil_bits, system_cursor_must_show, window_options, without_tiny_window,
+    };
+
+    /// A hidden window only gets `App::logic`, so `logic` itself must show a cursor hidden over the drawing area.
+    #[test]
+    fn a_hidden_or_unfocused_window_shows_the_system_cursor() {
+        let shown = egui::ViewportInfo { minimized: Some(false), occluded: Some(false), ..Default::default() };
+        assert!(!system_cursor_must_show(&shown, true, true), "a shown, focused window keeps the canvas's choice");
+        let minimized = egui::ViewportInfo { minimized: Some(true), ..shown.clone() };
+        assert!(system_cursor_must_show(&minimized, true, true));
+        let occluded = egui::ViewportInfo { occluded: Some(true), ..shown.clone() };
+        assert!(system_cursor_must_show(&occluded, true, true));
+        assert!(system_cursor_must_show(&shown, false, true), "focus lost");
+        assert!(system_cursor_must_show(&shown, true, false), "the last logic tick never reached App::ui");
+        let unknown = egui::ViewportInfo::default();
+        assert!(!system_cursor_must_show(&unknown, true, true), "no visibility report: the ui keeps running");
+    }
 
     #[test]
     fn save_dialog_offers_dwg_with_the_drawing_format_first() {

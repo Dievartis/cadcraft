@@ -35,6 +35,41 @@ pub struct LastUsed {
     pub classic_array_polar: bool,
     /// RECTANG's chamfer, fillet, width, elevation, thickness and rotation.
     pub rectang: RectangModes,
+    /// WALLADD's style (empty: the drawing's first) and justification.
+    pub wall_style: String,
+    pub wall_justification: cadcraft_doc::WallJustification,
+    /// AIRTERMINALADD's type, model, flow and air direction.
+    pub air_terminal: cmd::TerminalLastUsed,
+    /// AHUADD's size and air direction, DUCTADD's diameter, kind and air direction.
+    pub ahu: cmd::AhuLastUsed,
+    pub duct: cmd::DuctLastUsed,
+    /// PIPEADD's service, leg, diameter and insulation.
+    pub pipe: cmd::PipeLastUsed,
+    pub part: cmd::PartLastUsed,
+    /// CABLEADD's circuit, use, section and protection; ELECDEVICEADD's type and circuit.
+    pub cable: cmd::CableLastUsed,
+    pub device: cmd::DeviceLastUsed,
+    /// CONTROLADD's type and controller.
+    pub control: cmd::ControlLastUsed,
+    pub slab: cmd::SlabLastUsed,
+    /// CEILINGADD, STAIRADD and RAILADD: the tile, the heights and the sizes.
+    pub design: cmd::DesignLastUsed,
+    /// COLUMNADD and BEAMADD: the section and the elevations.
+    pub structure: cmd::StructLastUsed,
+    /// DUCTACCESSORYADD's type.
+    pub accessory: cmd::AccessoryLastUsed,
+    /// ZONEADD's height and altitude.
+    pub zone: cmd::ZoneLastUsed,
+    /// EQUIPMENTADD's kind and model.
+    pub equipment: cmd::EquipmentLastUsed,
+    /// RISERADD's air direction and way.
+    pub riser: cmd::RiserLastUsed,
+    /// OPENINGADD's type, size and swing.
+    pub opening: cmd::OpeningLastUsed,
+    /// FIXTUREADD's type and rotation.
+    pub sanitary: cmd::SanitaryLastUsed,
+    /// FURNITUREADD's model and rotation.
+    pub furniture: cmd::FurnitureLastUsed,
 }
 
 impl Default for LastUsed {
@@ -56,6 +91,26 @@ impl Default for LastUsed {
             breakline: cmd::BreaklineOptions::default(),
             classic_array_polar: false,
             rectang: RectangModes::default(),
+            wall_style: String::new(),
+            wall_justification: cadcraft_doc::WallJustification::Left,
+            air_terminal: cmd::TerminalLastUsed::default(),
+            ahu: cmd::AhuLastUsed::default(),
+            duct: cmd::DuctLastUsed::default(),
+            pipe: cmd::PipeLastUsed::default(),
+            part: cmd::PartLastUsed::default(),
+            cable: cmd::CableLastUsed::default(),
+            device: cmd::DeviceLastUsed::default(),
+            control: cmd::ControlLastUsed::default(),
+            slab: cmd::SlabLastUsed::default(),
+            design: cmd::DesignLastUsed::default(),
+            structure: cmd::StructLastUsed::default(),
+            accessory: cmd::AccessoryLastUsed::default(),
+            zone: cmd::ZoneLastUsed::default(),
+            equipment: cmd::EquipmentLastUsed::default(),
+            riser: cmd::RiserLastUsed::default(),
+            opening: cmd::OpeningLastUsed::default(),
+            sanitary: cmd::SanitaryLastUsed::default(),
+            furniture: cmd::FurnitureLastUsed::default(),
         }
     }
 }

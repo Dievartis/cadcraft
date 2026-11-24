@@ -1,0 +1,563 @@
+use cadcraft_color::{Color, Rgb};
+
+use super::*;
+use crate::{Common, Drawing, EntityKind, Space};
+
+fn pipe(service: PipeService, leg: PipeLeg, dn: f64) -> PipeParams {
+    PipeParams { leg, length: 3000.0, ..PipeParams::new(service, dn, HvacUnits { mm_per_unit: 1.0 }) }
+}
+
+#[test]
+fn a_service_is_found_by_its_name_in_english_or_french() {
+    for s in PipeService::ALL {
+        assert_eq!(PipeService::parse(s.name()), Some(s));
+    }
+    assert_eq!(PipeService::parse("Eau glacée"), Some(PipeService::ChilledWater));
+    assert_eq!(PipeService::parse("eau chaude"), Some(PipeService::HotWater));
+    assert_eq!(PipeService::parse("Change-over"), Some(PipeService::ChangeOver));
+    assert_eq!(PipeService::parse("condensats"), Some(PipeService::Condensate));
+    assert_eq!(PipeService::parse("gaz"), Some(PipeService::RefrigerantGas));
+    assert_eq!(PipeService::parse("steam"), None);
+    assert_eq!((PipeLeg::parse("retour"), PipeLeg::parse("départ"), PipeLeg::parse("x")), (Some(PipeLeg::Return), Some(PipeLeg::Supply), None));
+    assert!(PipeService::ChangeOver.has_legs() && !PipeService::Condensate.has_legs() && PipeService::RefrigerantGas.is_refrigerant());
+}
+
+#[test]
+fn a_pipe_is_drawn_to_its_outer_diameter_and_its_insulation_with_the_service_written_on_it() {
+    let mut p = pipe(PipeService::HotWater, PipeLeg::Supply, 40.0);
+    assert_eq!(p.outer_diameter_mm(), 48.3, "DN40 steel");
+    p.insulation_mm = 20.0;
+    assert!((p.plan_width_mm() - 88.3).abs() < 1e-9);
+    let pieces = p.generate(false).unwrap();
+    let sides: Vec<f64> = pieces
+        .iter()
+        .filter_map(|x| match &x.kind {
+            EntityKind::Line(l) if x.layer == PIPE_HW_SUPPLY_LAYER => Some(l.a.y),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sides, [-44.15, 44.15], "two sides, half the width either side");
+    let text = pieces.iter().find_map(|x| if let EntityKind::Text(t) = &x.kind { Some(t.value.clone()) } else { None }).unwrap();
+    assert_eq!(text, "DN40 HW-S");
+    // A refrigerant line is the copper tube's outer diameter.
+    let r = pipe(PipeService::RefrigerantLiquid, PipeLeg::Supply, 9.52);
+    assert_eq!(r.outer_diameter_mm(), 9.52);
+    assert!(r.label_text().starts_with("3/8\" REF-L"));
+    // Sized: the flow and the altitude are written, and an arrow shows the way.
+    let mut s = pipe(PipeService::ChilledWater, PipeLeg::Return, 50.0);
+    (s.flow_m3h, s.level_mm, s.flow_forward) = (Some(8.6), Some(2800.0), Some(true));
+    assert_eq!(s.label_text(), "DN50 CHW-R 8.60 m³/h Ai:2.80");
+    assert!(s.generate(false).unwrap().len() > pipe(PipeService::ChilledWater, PipeLeg::Return, 50.0).generate(false).unwrap().len());
+    // A condensate flow is in litres per hour.
+    let mut c = pipe(PipeService::Condensate, PipeLeg::Supply, 25.0);
+    c.flow_m3h = Some(0.012);
+    assert_eq!(c.label_text(), "DN25 COND 12.0 l/h");
+}
+
+#[test]
+fn the_condensate_and_the_chilled_water_are_blue_with_a_yellow_and_a_white_band_as_iso_14726_says() {
+    let mut d = Drawing::new_metric();
+    let add = |d: &mut Drawing, p: PipeParams| {
+        d.add_pipe(&Space::Model, Common::default(), p, cadcraft_geom::Vec2::ZERO, cadcraft_geom::Vec2::new(3000.0, 0.0)).unwrap()
+    };
+    let cond = add(&mut d, pipe(PipeService::Condensate, PipeLeg::Supply, 25.0));
+    let chw = add(&mut d, pipe(PipeService::ChilledWater, PipeLeg::Supply, 50.0));
+    let hw = add(&mut d, pipe(PipeService::HotWater, PipeLeg::Return, 32.0));
+    let blue = Color::True(Rgb(0x1e, 0x6f, 0xd9));
+    let layer_color = |d: &Drawing, name: &str| d.layer(name).map(|l| l.color);
+    assert_eq!(layer_color(&d, PIPE_CONDENSATE_LAYER), Some(blue));
+    assert_eq!(layer_color(&d, PIPE_CHW_SUPPLY_LAYER), Some(blue));
+    assert_eq!(layer_color(&d, PIPE_HW_RETURN_LAYER), Some(Color::True(Rgb(0xff, 0x8a, 0x80))));
+    // The line along the axis: yellow for the condensate, white (index 7) for the chilled water, none for hot water.
+    let axis = |d: &Drawing, h| {
+        let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!("a block reference") };
+        d.block(&i.block)
+            .unwrap()
+            .entities
+            .iter()
+            .filter(|e| matches!(&e.kind, EntityKind::Line(l) if l.a.y == 0.0 && l.b.y == 0.0 && l.b.x > 0.0 && e.common.color != Color::ByLayer))
+            .map(|e| e.common.color)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(axis(&d, cond), [Color::True(Rgb(0xf5, 0xc4, 0x00))]);
+    assert_eq!(axis(&d, chw), [Color::Index(7)]);
+    assert!(axis(&d, hw).is_empty());
+}
+
+#[test]
+fn a_pipe_keeps_its_parameters_through_its_extended_data_and_refuses_what_cannot_be_drawn() {
+    let mut p = pipe(PipeService::ChangeOver, PipeLeg::Return, 65.0);
+    (p.load_kw, p.source, p.level_mm, p.insulation_mm) = (Some(42.5), true, Some(2600.0), 25.0);
+    assert_eq!(PipeParams::from_xdata(&p.to_xdata().unwrap()), Some(p.clone()));
+    for bad in [
+        PipeParams { dn_mm: 0.0, ..p.clone() },
+        PipeParams { dn_mm: f64::NAN, ..p.clone() },
+        PipeParams { length: 0.0, ..p.clone() },
+        PipeParams { insulation_mm: 500.0, ..p.clone() },
+        PipeParams { load_kw: Some(-1.0), ..p.clone() },
+        PipeParams { level_mm: Some(f64::INFINITY), ..p.clone() },
+        PipeParams { label_height_mm: 0.0, ..p.clone() },
+    ] {
+        assert!(bad.validate().is_err(), "{bad:?}");
+    }
+    // Added to a drawing and regenerated: the layer follows the service and the leg.
+    let mut d = Drawing::new_metric();
+    let h = d.add_pipe(&Space::Model, Common::default(), p.clone(), cadcraft_geom::Vec2::ZERO, cadcraft_geom::Vec2::new(0.0, 4000.0)).unwrap();
+    assert_eq!(d.entity(h).unwrap().common.layer, PIPE_CO_RETURN_LAYER);
+    let (back, a, b) = d.pipe_ends(h).unwrap();
+    assert_eq!((back.length, a.y, b.y), (4000.0, 0.0, 4000.0));
+    d.regenerate_pipe(h, &PipeParams { service: PipeService::HotWater, leg: PipeLeg::Supply, ..back }).unwrap();
+    assert_eq!(d.entity(h).unwrap().common.layer, PIPE_HW_SUPPLY_LAYER);
+    assert!(d.add_pipe(&Space::Model, Common::default(), p, cadcraft_geom::Vec2::ZERO, cadcraft_geom::Vec2::new(f64::NAN, 0.0)).is_err());
+}
+
+fn add(d: &mut Drawing, service: PipeService, leg: PipeLeg, a: (f64, f64), b: (f64, f64), load: Option<f64>, source: bool) -> crate::Handle {
+    let p = PipeParams { leg, load_kw: load, source, ..PipeParams::new(service, 25.0, HvacUnits { mm_per_unit: 1.0 }) };
+    d.add_pipe(&Space::Model, Common::default(), p, cadcraft_geom::Vec2::new(a.0, a.1), cadcraft_geom::Vec2::new(b.0, b.1)).unwrap()
+}
+
+#[test]
+fn a_water_network_is_sized_from_the_loads_at_its_ends_back_to_its_source() {
+    let mut d = Drawing::new_metric();
+    let (s, c) = (PipeLeg::Supply, PipeService::ChilledWater);
+    let root = add(&mut d, c, s, (0.0, 0.0), (5000.0, 0.0), None, true);
+    let a = add(&mut d, c, s, (5000.0, 0.0), (5000.0, 3000.0), Some(30.0), false);
+    let b = add(&mut d, c, s, (5000.0, 0.0), (5000.0, -3000.0), Some(70.0), false);
+    let (reports, warnings) = d.size_pipes(&PipeSizingParams::default()).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(reports.len(), 1);
+    let r = &reports[0];
+    assert_eq!((r.service, r.leg, r.source, r.total_load), (c, s, root, 100.0));
+    let run = |h| r.runs.iter().find(|x| x.handle == h).unwrap().clone();
+    // 100 kW at 5 K is 17.2 m³/h in DN80; the branches carry their own loads.
+    assert_eq!((run(root).dn_mm, run(root).load), (80.0, 100.0));
+    assert!((run(root).flow_m3h - 17.225).abs() < 0.01);
+    assert_eq!((run(a).dn_mm, run(b).dn_mm), (50.0, 65.0));
+    // What was found is written on the runs: the size, the flow, the velocity and the way the water runs.
+    let pa = pipe_of(d.entity(a).unwrap()).unwrap();
+    assert_eq!(pa.dn_mm, 50.0);
+    assert!(pa.flow_m3h.is_some_and(|f| (f - 5.17).abs() < 0.01) && pa.velocity.is_some() && pa.loss_pa_m.is_some());
+    assert_eq!(pa.flow_forward, Some(true), "away from the source along the run");
+    assert!(d.entity(a).unwrap().common.layer == PIPE_CHW_SUPPLY_LAYER);
+    // The return of the same network runs the other way: towards the source.
+    let rroot = add(&mut d, c, PipeLeg::Return, (0.0, 200.0), (5000.0, 200.0), None, true);
+    let rleaf = add(&mut d, c, PipeLeg::Return, (5000.0, 200.0), (5000.0, 3200.0), Some(30.0), false);
+    let (reports, _) = d.size_pipes(&PipeSizingParams::default()).unwrap();
+    assert_eq!(reports.len(), 2, "one network per leg");
+    assert_eq!(pipe_of(d.entity(rleaf).unwrap()).unwrap().flow_forward, Some(false));
+    assert_eq!(pipe_of(d.entity(rroot).unwrap()).unwrap().flow_forward, Some(false));
+}
+
+#[test]
+fn a_run_whose_size_was_given_is_kept_and_checked_and_runs_without_a_source_or_a_load_are_reported() {
+    let mut d = Drawing::new_metric();
+    let (s, h) = (PipeLeg::Supply, PipeService::HotWater);
+    let root = add(&mut d, h, s, (0.0, 0.0), (3000.0, 0.0), None, true);
+    add(&mut d, h, s, (3000.0, 0.0), (3000.0, 2000.0), Some(200.0), false);
+    add(&mut d, h, s, (3000.0, 0.0), (3000.0, -2000.0), None, false);
+    // Far from the network, with no source marked.
+    add(&mut d, h, s, (50_000.0, 0.0), (52_000.0, 0.0), Some(10.0), false);
+    let (mut p, ..) = d.pipe_ends(root).unwrap();
+    (p.dn_mm, p.imposed) = (25.0, true);
+    d.regenerate_pipe(root, &p).unwrap();
+    let (reports, warnings) = d.size_pipes(&PipeSizingParams::default()).unwrap();
+    assert_eq!(pipe_of(d.entity(root).unwrap()).unwrap().dn_mm, 25.0, "kept");
+    let r = &reports[0];
+    assert!(r.warnings.iter().any(|w| w.contains("too small")), "{:?}", r.warnings);
+    assert!(r.warnings.iter().any(|w| w.contains("serves no load")), "{:?}", r.warnings);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains("belongs to no network"), "{warnings:?}");
+}
+
+#[test]
+fn a_condensate_drain_is_sized_for_the_flow_typed_at_its_ends_and_runs_towards_its_outfall() {
+    let mut d = Drawing::new_metric();
+    let (s, c) = (PipeLeg::Supply, PipeService::Condensate);
+    let outfall = add(&mut d, c, s, (0.0, 0.0), (4000.0, 0.0), None, true);
+    let leaf = add(&mut d, c, s, (4000.0, 0.0), (4000.0, 2000.0), Some(6000.0), false);
+    let (reports, warnings) = d.size_pipes(&PipeSizingParams::default()).unwrap();
+    assert!(warnings.is_empty());
+    let r = &reports[0];
+    assert_eq!((r.service, r.total_load), (c, 6000.0));
+    let p = pipe_of(d.entity(outfall).unwrap()).unwrap();
+    assert!(p.dn_mm >= 25.0, "{}", p.dn_mm);
+    assert!(p.flow_m3h.is_some_and(|f| (f - 6.0).abs() < 1e-9), "stored in m³/h: 6000 l/h");
+    assert_eq!(p.loss_pa_m, None, "a drain has no pressure loss");
+    assert!(p.label_text().contains("6000.0 l/h"), "{}", p.label_text());
+    // Towards the outfall: against the way the run is entered from the source.
+    assert_eq!(pipe_of(d.entity(leaf).unwrap()).unwrap().flow_forward, Some(false));
+    // A refrigerant line is not sized: its size is the user's.
+    let l = add(&mut d, PipeService::RefrigerantLiquid, s, (0.0, 9000.0), (3000.0, 9000.0), None, true);
+    d.size_pipes(&PipeSizingParams::default()).unwrap();
+    assert_eq!(pipe_of(d.entity(l).unwrap()).unwrap().flow_m3h, None);
+}
+
+#[test]
+fn the_takeoff_counts_the_pipes_by_service_leg_size_and_insulation() {
+    let mut d = Drawing::new_metric();
+    let (s, r) = (PipeLeg::Supply, PipeLeg::Return);
+    let c = PipeService::ChilledWater;
+    add(&mut d, c, s, (0.0, 0.0), (5000.0, 0.0), None, true);
+    add(&mut d, c, s, (5000.0, 0.0), (5000.0, 3000.0), Some(30.0), false);
+    add(&mut d, c, r, (0.0, 200.0), (5000.0, 200.0), None, true);
+    add(&mut d, PipeService::Condensate, s, (0.0, 900.0), (2000.0, 900.0), None, true);
+    add(&mut d, PipeService::RefrigerantGas, s, (0.0, 1500.0), (3000.0, 1500.0), None, false);
+    let t = d.takeoff("RDC").unwrap();
+    let find = |service, leg| t.pipes.iter().find(|q| q.service == service && q.leg == leg).cloned();
+    // The two supply runs of DN25 (the default of `add`): 5 m and 3 m.
+    let supply = find(c, s).unwrap();
+    assert_eq!((supply.size.as_str(), supply.count, supply.length_m), ("DN25", 2, 8.0));
+    assert_eq!(find(c, r).unwrap().count, 1);
+    // A drain and a refrigerant line have no leg; the tube is sized by its outer diameter.
+    assert_eq!(find(PipeService::Condensate, s).unwrap().length_m, 2.0);
+    assert_eq!(find(PipeService::RefrigerantGas, s).unwrap().size, "Ø25.0");
+    assert_eq!((t.totals.pipe_count, t.totals.pipe_length_m), (5, 8.0 + 5.0 + 2.0 + 3.0));
+    // In the sheets: the xlsx has a Pipes sheet (in French too), the csv a Pipes block.
+    let bytes = |lang: &str| String::from_utf8_lossy(&t.to_xlsx(None, lang).unwrap()).into_owned();
+    assert!(bytes("en").contains("Pipes") && bytes("fr").contains("Tuyauteries") && bytes("fr").contains("Eau glacée"));
+    let csv = t.to_csv(false);
+    assert!(csv.contains("Pipes\n") && csv.contains("chilledWater;supply;DN25;0;2;8"), "{csv}");
+    assert_eq!(Drawing::new_metric().takeoff("").unwrap().totals.pipe_count, 0);
+}
+
+#[test]
+fn a_network_starts_at_a_chiller_and_takes_its_loads_from_the_equipment_at_its_ends() {
+    let mut d = Drawing::new_metric();
+    let units = HvacUnits { mm_per_unit: 1.0 };
+    let equip = |d: &mut Drawing, kind: EquipmentKind, kw: f64, at: (f64, f64)| {
+        let m = EquipmentModel {
+            name: "x".into(),
+            kind,
+            reference: String::new(),
+            capacity_kw: Some(kw),
+            heating_kw: None,
+            length_mm: 1000.0,
+            width_mm: 800.0,
+            height_mm: 500.0,
+            weight_kg: None,
+            fans: 0,
+            connections: String::new(),
+        };
+        let p = EquipmentParams::from_model(&m, "E", units);
+        d.add_equipment(&Space::Model, Common::default(), &p, cadcraft_geom::Vec2::new(at.0, at.1), 0.0).unwrap();
+    };
+    equip(&mut d, EquipmentKind::Chiller, 100.0, (0.0, 0.0));
+    equip(&mut d, EquipmentKind::Ducted, 20.0, (6000.0, 0.0));
+    // The run starts inside the chiller (no "source" flag) and ends inside the unit (no typed load).
+    let h = add(&mut d, PipeService::ChilledWater, PipeLeg::Supply, (200.0, 0.0), (5800.0, 0.0), None, false);
+    let (reports, warnings) = d.size_pipes(&PipeSizingParams::default()).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(reports.len(), 1);
+    assert_eq!((reports[0].source, reports[0].total_load), (h, 20.0));
+}
+
+#[test]
+fn the_coils_of_an_air_handling_unit_are_the_loads_of_the_water_pipes_that_end_at_it() {
+    let mut d = Drawing::new_metric();
+    let unit = AhuParams {
+        name: "CTA1".into(),
+        kind: AhuKind::DoubleFlow,
+        ports: vec![],
+        width_mm: 2000.0,
+        depth_mm: 1000.0,
+        port_sizes: Vec::new(),
+        port_levels_mm: Vec::new(),
+        height_mm: None,
+        model: String::new(),
+        weight_kg: None,
+        flow_m3h: None,
+        pressure_pa: None,
+        extract_flow_m3h: None,
+        extract_pressure_pa: None,
+        fresh_flow_m3h: None,
+        fresh_pressure_pa: None,
+        exhaust_flow_m3h: None,
+        exhaust_pressure_pa: None,
+        typed_flows: Vec::new(),
+        coils: AhuCoils { chilled_kw: Some(45.0), hot_kw: Some(30.0), change_over_kw: None, direct_expansion_kw: Some(20.0), ..AhuCoils::default() },
+        electric_kw: None,
+        circuit: String::new(),
+        address: String::new(),
+        show_address: true,
+        label_height_mm: 100.0,
+        bottom_mm: None,
+        units: HvacUnits { mm_per_unit: 1.0 },
+    };
+    assert!(AhuCoils { hot_kw: Some(-1.0), ..unit.coils }.validate().is_err());
+    d.add_ahu(&Space::Model, Common::default(), &unit, cadcraft_geom::Vec2::new(6000.0, 0.0), 0.0).unwrap();
+    // A chilled-water run and a hot-water run, each from its own source to the unit, and no load typed.
+    add(&mut d, PipeService::ChilledWater, PipeLeg::Supply, (0.0, 0.0), (5500.0, 0.0), None, true);
+    add(&mut d, PipeService::HotWater, PipeLeg::Supply, (0.0, 300.0), (5500.0, 300.0), None, true);
+    let (reports, warnings) = d.size_pipes(&PipeSizingParams::default()).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let load = |s| reports.iter().find(|r| r.service == s).map(|r| r.total_load);
+    assert_eq!((load(PipeService::ChilledWater), load(PipeService::HotWater)), (Some(45.0), Some(30.0)));
+    assert!(
+        unit.spec_lines().iter().any(|l| l.contains("Batt. eau glacée 45.0kW")) && unit.spec_lines().iter().any(|l| l.contains("détente directe"))
+    );
+}
+
+#[test]
+fn refrigerant_sizes_are_typed_and_written_in_inches() {
+    for (text, mm) in [
+        ("1/4", 6.35),
+        ("3/8", 9.52),
+        ("3/8\"", 9.52),
+        ("1/2in", 12.7),
+        ("5/8", 15.88),
+        ("7/8", 22.2),
+        ("1 1/8", 28.58),
+        ("1-3/8\"", 34.9),
+        ("9.52", 9.52),
+        ("12 mm", 12.0),
+        ("0.375\"", 9.52),
+    ] {
+        let got = parse_refrigerant_size(text).unwrap_or(f64::NAN);
+        assert!((got - mm).abs() < 0.01, "{text}: {got}");
+    }
+    for bad in ["", "abc", "3/0", "-5", "1/"] {
+        assert_eq!(parse_refrigerant_size(bad), None, "{bad:?}");
+    }
+    assert_eq!(
+        (refrigerant_size_label(9.52).as_str(), refrigerant_size_label(15.88).as_str(), refrigerant_size_label(11.0).as_str()),
+        ("3/8\"", "5/8\"", "Ø11.0")
+    );
+}
+
+#[test]
+fn a_refrigerant_pair_is_one_run_with_the_liquid_and_the_gas_tubes_side_by_side() {
+    let mut p = pipe(PipeService::RefrigerantPair, PipeLeg::Supply, 9.52);
+    p.gas_dn_mm = 15.88;
+    assert_eq!(p.size_text(), "3/8\" - 5/8\"");
+    assert_eq!(p.label_text(), "3/8\" - 5/8\" REF");
+    // 9.52 + 15.88 and the gap between them.
+    assert!((p.plan_width_mm() - 45.4).abs() < 1e-9, "{}", p.plan_width_mm());
+    p.insulation_mm = 10.0;
+    assert!((p.plan_width_mm() - 85.4).abs() < 1e-9);
+    let pieces = p.generate(false).unwrap();
+    let on = |layer: &str| pieces.iter().filter(|x| x.layer == layer && matches!(x.kind, EntityKind::Line(_))).count();
+    assert_eq!((on(PIPE_REFRIGERANT_LIQUID_LAYER), on(PIPE_REFRIGERANT_GAS_LAYER)), (2, 2), "each tube is two lines on its own layer");
+    assert!(PipeParams { gas_dn_mm: 0.0, ..p.clone() }.validate().is_err(), "a pair needs its gas tube");
+    // In a drawing: its own layer, its data kept, and counted by size in the takeoff.
+    let mut d = Drawing::new_metric();
+    let h = d.add_pipe(&Space::Model, Common::default(), p, cadcraft_geom::Vec2::ZERO, cadcraft_geom::Vec2::new(4000.0, 0.0)).unwrap();
+    assert_eq!(d.entity(h).unwrap().common.layer, PIPE_REFRIGERANT_PAIR_LAYER);
+    let back = pipe_of(d.entity(h).unwrap()).unwrap();
+    assert_eq!((back.service, back.dn_mm, back.gas_dn_mm), (PipeService::RefrigerantPair, 9.52, 15.88));
+    assert_eq!(PipeService::parse("liaison frigo"), Some(PipeService::RefrigerantPair));
+    let t = d.takeoff("").unwrap();
+    assert_eq!(t.pipes.first().map(|q| q.size.as_str()), Some("3/8\" - 5/8\""));
+}
+
+#[test]
+fn a_heat_recovery_link_shows_three_tube_sizes_on_its_label() {
+    let mut p = pipe(PipeService::RefrigerantTriple, PipeLeg::Supply, 9.52);
+    (p.gas_dn_mm, p.gas2_dn_mm) = (22.2, 19.05);
+    assert_eq!(p.size_text(), "3/8\" - 7/8\" - 3/4\"", "the liquid, the suction gas, the high/low-pressure gas");
+    assert_eq!(p.label_text(), "3/8\" - 7/8\" - 3/4\" REF-HR");
+    // 9.52 + 19.05 + 22.2 and two gaps of 20.
+    assert!((p.plan_width_mm() - 90.77).abs() < 1e-9, "{}", p.plan_width_mm());
+    let pieces = p.generate(false).unwrap();
+    let on = |layer: &str| pieces.iter().filter(|x| x.layer == layer && matches!(x.kind, EntityKind::Line(_))).count();
+    assert_eq!((on(PIPE_REFRIGERANT_LIQUID_LAYER), on(PIPE_REFRIGERANT_HPLP_LAYER), on(PIPE_REFRIGERANT_GAS_LAYER)), (2, 2, 2));
+    assert!(PipeParams { gas2_dn_mm: 0.0, ..p.clone() }.validate().is_err(), "the third tube is needed");
+    assert_eq!(PipeService::parse("récupération d'énergie"), Some(PipeService::RefrigerantTriple));
+    assert!(PipeService::RefrigerantTriple.is_refrigerant() && !PipeService::RefrigerantTriple.has_legs());
+    let mut d = Drawing::new_metric();
+    let h = d.add_pipe(&Space::Model, Common::default(), p, cadcraft_geom::Vec2::ZERO, cadcraft_geom::Vec2::new(3000.0, 0.0)).unwrap();
+    assert_eq!(d.entity(h).unwrap().common.layer, PIPE_REFRIGERANT_TRIPLE_LAYER);
+    assert_eq!(pipe_of(d.entity(h).unwrap()).unwrap().gas2_dn_mm, 19.05);
+}
+
+#[test]
+fn a_part_in_the_line_of_a_pipe_cuts_it_and_the_network_is_read_through_the_part() {
+    let mut d = Drawing::new_metric();
+    let units = HvacUnits { mm_per_unit: 1.0 };
+    // One run from the source to a unit of 40 kW, a valve in the middle.
+    let h = add(&mut d, PipeService::ChilledWater, PipeLeg::Supply, (0.0, 0.0), (5000.0, 0.0), Some(40.0), true);
+    let valve = standard_part_model_named("Isolation valve (ball)").unwrap().params("V1", units);
+    assert_eq!(valve.length_mm, 150.0);
+    d.add_part(&Space::Model, Common::default(), &valve, cadcraft_geom::Vec2::new(2500.0, 0.0), 0.0).unwrap();
+    let new = d.split_pipe(h, 2500.0, 150.0).unwrap().expect("the gap fits");
+    let (first, a1, b1) = d.pipe_ends(h).unwrap();
+    let (second, a2, b2) = d.pipe_ends(new).unwrap();
+    assert_eq!((a1.x, b1.x, a2.x, b2.x), (0.0, 2425.0, 2575.0, 5000.0), "a gap of the valve's length");
+    assert!((first.length - 2425.0).abs() < 1e-9 && (second.length - 2425.0).abs() < 1e-9);
+    // The source stays on the first, the load typed at the far end goes with the second.
+    assert!(first.source && !second.source);
+    assert_eq!((first.load_kw, second.load_kw), (None, Some(40.0)));
+    // The two runs are one network: the 40 kW reaches the source through the valve.
+    let (reports, warnings) = d.size_pipes(&PipeSizingParams::default()).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!((reports.len(), reports[0].runs.len(), reports[0].total_load), (1, 2, 40.0));
+    // What the pipes and the valve lose from the source to the far end is told: the valve's own loss is in it.
+    let r = &reports[0];
+    assert!(r.runs.iter().all(|x| x.run_loss_kpa > 0.0));
+    let through: Vec<_> = r.runs.iter().filter(|x| !x.parts.is_empty()).collect();
+    assert_eq!(through.len(), 1, "the valve is on the way to the second run");
+    assert!(through[0].part_loss_kpa > 0.0 && through[0].parts[0].1 == through[0].part_loss_kpa);
+    let runs_sum: f64 = r.runs.iter().map(|x| x.run_loss_kpa + x.part_loss_kpa).sum();
+    assert!((r.total_loss_kpa - runs_sum).abs() < 1e-9, "one path: {} {}", r.total_loss_kpa, runs_sum);
+    assert_eq!(r.critical, new);
+    // Without the part between them, the two runs would not meet.
+    let mut bare = Drawing::new_metric();
+    add(&mut bare, PipeService::ChilledWater, PipeLeg::Supply, (0.0, 0.0), (2425.0, 0.0), None, true);
+    add(&mut bare, PipeService::ChilledWater, PipeLeg::Supply, (2575.0, 0.0), (5000.0, 0.0), Some(40.0), false);
+    let (_, warnings) = bare.size_pipes(&PipeSizingParams::default()).unwrap();
+    assert!(!warnings.is_empty(), "a gap with nothing in it is two networks");
+    // A gap that does not fit inside the pipe changes nothing.
+    let short = add(&mut d, PipeService::HotWater, PipeLeg::Supply, (0.0, 1000.0), (100.0, 1000.0), None, false);
+    assert_eq!(d.split_pipe(short, 50.0, 150.0).unwrap(), None);
+    assert_eq!(d.pipe_ends(short).unwrap().0.length, 100.0);
+    assert!(d.split_pipe(short, f64::NAN, 10.0).unwrap().is_none());
+}
+
+#[test]
+fn the_takeoff_counts_the_insulation_surface_and_prices_the_lines() {
+    let mut d = Drawing::new_metric();
+    let units = HvacUnits { mm_per_unit: 1.0 };
+    let p = PipeParams { insulation_mm: 30.0, ..PipeParams::new(PipeService::ChilledWater, 25.0, units) };
+    d.add_pipe(&Space::Model, Common::default(), p, cadcraft_geom::Vec2::new(0.0, 0.0), cadcraft_geom::Vec2::new(3000.0, 0.0)).unwrap();
+    add(&mut d, PipeService::HotWater, PipeLeg::Supply, (0.0, 500.0), (2000.0, 500.0), None, true);
+    let t = d.takeoff("").unwrap();
+    // 3 m of DN25 (33.7 mm) with 30 mm either side: pi x 0.0937 x 3.
+    assert_eq!((t.pipes.iter().map(|q| q.insulation_m2).sum::<f64>(), t.totals.pipe_insulation_m2), (0.88, 0.88));
+    let mut s = TakeoffSettings::default();
+    s.prices.insert("Pipe|chilledWater|DN25".into(), 10.0);
+    s.prices.insert("Pipe insulation".into(), 5.0);
+    let c = t.costing(&s);
+    assert_eq!(c.total, 10.0 * 3.0 + 5.0 * 0.88);
+    assert_eq!(c.unpriced, 1, "the hot water pipe has no price");
+}
+
+#[test]
+fn the_fittings_are_read_from_where_pipes_meet_and_cross() {
+    use crate::PipeFittingKind::{Cross, Crossover, Elbow45, Elbow90, Reducer, Tee};
+    let mut d = Drawing::new_metric();
+    let (s, c) = (PipeLeg::Supply, PipeService::ChilledWater);
+    // An elbow at 90°, then a 45° one, then a tee on the run, a reducer in line, and a pipe of another service crossing.
+    add(&mut d, c, s, (0.0, 0.0), (3000.0, 0.0), None, true);
+    add(&mut d, c, s, (3000.0, 0.0), (3000.0, 3000.0), None, false);
+    add(&mut d, c, s, (3000.0, 3000.0), (5000.0, 5000.0), None, false);
+    add(&mut d, c, s, (1500.0, 0.0), (1500.0, -2000.0), None, false);
+    let big = PipeParams { dn_mm: 50.0, ..PipeParams::new(c, 50.0, HvacUnits { mm_per_unit: 1.0 }) };
+    d.add_pipe(&Space::Model, Common::default(), big, cadcraft_geom::Vec2::new(5000.0, 5000.0), cadcraft_geom::Vec2::new(7000.0, 7000.0)).unwrap();
+    add(&mut d, PipeService::HotWater, s, (-500.0, -1000.0), (-500.0, 1000.0), None, true);
+    add(&mut d, PipeService::Condensate, s, (-1000.0, 0.0), (500.0, 0.0), None, true);
+    let kinds = |d: &Drawing| {
+        let mut k: Vec<_> = d.pipe_fittings().into_iter().map(|f| f.kind).collect();
+        k.sort_by_key(|k| *k as u8);
+        k
+    };
+    assert_eq!(kinds(&d), vec![Elbow90, Elbow45, Tee, Reducer, Crossover]);
+    // Four pipes on a point make a cross.
+    let mut x = Drawing::new_metric();
+    for (a, b) in [((0.0, 0.0), (1000.0, 0.0)), ((0.0, 0.0), (-1000.0, 0.0)), ((0.0, 0.0), (0.0, 1000.0)), ((0.0, 0.0), (0.0, -1000.0))] {
+        add(&mut x, c, s, a, b, None, false);
+    }
+    assert_eq!(kinds(&x), vec![Cross]);
+    // The takeoff counts them with the size of the largest pipe.
+    let t = d.takeoff("").unwrap();
+    assert!(t.fittings.iter().any(|f| f.name == "Pipe elbow 90°" && f.count == 1), "{:?}", t.fittings);
+    assert!(t.fittings.iter().any(|f| f.name == "Pipe reducer" && f.size.contains('→')));
+}
+
+#[test]
+fn pipes_of_one_service_get_their_elbows_and_cones_as_soon_as_they_are_laid_and_follow_their_sizes() {
+    let mut d = Drawing::new_metric();
+    let add = |d: &mut Drawing, service, leg, dn, a: (f64, f64), b: (f64, f64)| {
+        let p = PipeParams::new(service, dn, HvacUnits { mm_per_unit: 1.0 });
+        d.add_pipe(&Space::Model, Common::default(), PipeParams { leg, ..p }, Vec2::new(a.0, a.1), Vec2::new(b.0, b.1)).unwrap()
+    };
+    let (a, b) = (
+        add(&mut d, PipeService::ChilledWater, PipeLeg::Supply, 50.0, (0.0, 0.0), (3000.0, 0.0)),
+        add(&mut d, PipeService::ChilledWater, PipeLeg::Supply, 50.0, (3000.0, 0.0), (3000.0, 3000.0)),
+    );
+    let get = |d: &Drawing, h| pipe_of(d.entity(h).unwrap()).unwrap();
+    assert_eq!(d.draw_pipe_elbows(&Space::Model).unwrap(), 2, "the later pipe has the elbow, both give up its tangent");
+    let (pa, pb) = (get(&d, a), get(&d, b));
+    let e = pb.elbow.expect("an elbow");
+    assert!((e.radius_mm - 1.5 * pb.plan_width_mm()).abs() < 1e-6 && pa.elbow.is_none());
+    assert!((pa.trim_end_mm - e.tangent_mm()).abs() < 1e-6 && (pb.trim_start_mm - e.tangent_mm()).abs() < 1e-6);
+    assert_eq!(d.draw_pipe_elbows(&Space::Model).unwrap(), 0, "done once");
+    // A pipe of another service meeting there is not the same network: no elbow with it.
+    let other = add(&mut d, PipeService::HotWater, PipeLeg::Supply, 50.0, (3000.0, 3000.0), (6000.0, 3000.0));
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    assert!(get(&d, other).elbow.is_none());
+    // The later pipe is made bigger: the elbow is drawn again at the new radius, and the cone is on the other pipe, from the elbow's width.
+    let mut big = get(&d, b);
+    big.dn_mm = 80.0;
+    d.regenerate_pipe(b, &big).unwrap();
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    let (pa, pb) = (get(&d, a), get(&d, b));
+    assert!((pb.elbow.unwrap().radius_mm - 1.5 * pb.plan_width_mm()).abs() < 1e-6);
+    assert_eq!(pa.reducer.map(|r| (r.at_end, r.from_mm)), Some((true, pb.plan_width_mm())), "{:?}", pa.reducer);
+    // Straight on, a cone: two pipes in line of two sizes.
+    let c = add(&mut d, PipeService::Condensate, PipeLeg::Supply, 25.0, (0.0, 9000.0), (3000.0, 9000.0));
+    let e2 = add(&mut d, PipeService::Condensate, PipeLeg::Supply, 40.0, (3000.0, 9000.0), (6000.0, 9000.0));
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    assert_eq!((get(&d, c).reducer, get(&d, e2).reducer.map(|r| r.at_end)), (None, Some(false)));
+    assert!(get(&d, e2).generate(false).unwrap().len() > 4);
+    // The same size again: the cone goes.
+    let mut same = get(&d, e2);
+    same.dn_mm = 25.0;
+    d.regenerate_pipe(e2, &same).unwrap();
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    assert!(get(&d, e2).reducer.is_none());
+}
+
+#[test]
+fn the_links_of_refrigerant_get_their_elbows_and_cones_too_with_each_tube_at_its_own_radius() {
+    let mut d = Drawing::new_metric();
+    let units = HvacUnits { mm_per_unit: 1.0 };
+    let link = |d: &mut Drawing, service, liquid: f64, a: (f64, f64), b: (f64, f64)| {
+        let p = PipeParams::new(service, liquid, units);
+        d.add_pipe(&Space::Model, Common::default(), p, Vec2::new(a.0, a.1), Vec2::new(b.0, b.1)).unwrap()
+    };
+    let get = |d: &Drawing, h| pipe_of(d.entity(h).unwrap()).unwrap();
+    // Liquid and gas: two pipes that turn.
+    let (a, b) = (
+        link(&mut d, PipeService::RefrigerantPair, 9.52, (0.0, 0.0), (3000.0, 0.0)),
+        link(&mut d, PipeService::RefrigerantPair, 9.52, (3000.0, 0.0), (3000.0, 3000.0)),
+    );
+    assert_eq!(d.draw_pipe_elbows(&Space::Model).unwrap(), 2);
+    let (pa, pb) = (get(&d, a), get(&d, b));
+    let e = pb.elbow.expect("an elbow on the link");
+    assert!((e.radius_mm - 1.5 * pb.plan_width_mm()).abs() < 1e-6 && (pa.trim_end_mm - e.tangent_mm()).abs() < 1e-6);
+    // Each tube has its own two arcs, about one centre, at radii that differ by the offsets of the tubes.
+    let arcs: Vec<(Vec2, f64)> = pb
+        .generate(false)
+        .unwrap()
+        .iter()
+        .filter_map(|x| if let EntityKind::Arc(a) = &x.kind { Some((a.center.xy(), a.radius)) } else { None })
+        .collect();
+    assert_eq!(arcs.len(), 4, "two tubes, two arcs each: {arcs:?}");
+    assert!(arcs.iter().all(|c| c.0.dist(arcs[0].0) < 1e-9), "one centre");
+    let mut radii: Vec<f64> = arcs.iter().map(|c| c.1).collect();
+    radii.sort_by(f64::total_cmp);
+    assert!(radii[0] < radii[1] && radii[2] < radii[3] && radii[0] > 0.0, "{radii:?}");
+    // The outermost arc is the axis radius plus half the link's width, the innermost that minus half of it (the gap between the tubes included).
+    let half = pb.plan_width_mm() / 2.0;
+    assert!((radii[3] - (e.radius_mm + half)).abs() < 1e-6 && (radii[0] - (e.radius_mm - half)).abs() < 1e-6, "{radii:?} {half}");
+    // A bigger link joined to it: a cone from its width, on the pipe that has no elbow.
+    let mut big = get(&d, b);
+    (big.dn_mm, big.gas_dn_mm) = (12.7, 28.58);
+    d.regenerate_pipe(b, &big).unwrap();
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    let (pa, pb) = (get(&d, a), get(&d, b));
+    assert_eq!(pa.reducer.map(|r| (r.at_end, (r.from_mm - pb.plan_width_mm()).abs() < 1e-6)), Some((true, true)), "{:?}", pa.reducer);
+    assert!(pa.generate(false).unwrap().len() > pb.generate(false).unwrap().len() - 8);
+    // Three tubes (heat recovery): the same.
+    let (c, e2) = (
+        link(&mut d, PipeService::RefrigerantTriple, 9.52, (0.0, 9000.0), (3000.0, 9000.0)),
+        link(&mut d, PipeService::RefrigerantTriple, 9.52, (3000.0, 9000.0), (3000.0, 12000.0)),
+    );
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    assert!(get(&d, e2).elbow.is_some() && get(&d, c).elbow.is_none());
+    let arcs = get(&d, e2).generate(false).unwrap().iter().filter(|x| matches!(x.kind, EntityKind::Arc(_))).count();
+    assert_eq!(arcs, 6, "three tubes, two arcs each");
+    // A pair meeting a triple is not one network: no elbow between them.
+    let single = link(&mut d, PipeService::RefrigerantPair, 9.52, (3000.0, 12000.0), (6000.0, 12000.0));
+    d.draw_pipe_elbows(&Space::Model).unwrap();
+    assert!(get(&d, single).elbow.is_none());
+}

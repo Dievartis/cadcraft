@@ -5,7 +5,7 @@ use cadcraft_engine::Session;
 use serde_json::json;
 
 #[path = "../support/temp_dir.rs"]
-mod temp_dir;
+pub(crate) mod temp_dir;
 
 use temp_dir::TempDir;
 

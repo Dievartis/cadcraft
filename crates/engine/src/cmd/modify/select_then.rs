@@ -1,4 +1,4 @@
-use super::break_join::join;
+use super::break_join::{join, join_makes_circle};
 use super::explode::explode;
 use super::transform::{at_elevation, erase, scale_entities, transform_entities};
 use super::{
@@ -39,6 +39,8 @@ pub(super) struct SelectThen {
     ask_erase: bool,
     /// JOIN of a single arc or elliptical arc: the prompt asks for arcs to join to it, or cLose.
     join_source: Option<Handle>,
+    /// JOIN of arcs that make a circle: asking whether to.
+    ask_circle: bool,
 }
 
 impl SelectThen {
@@ -56,6 +58,7 @@ impl SelectThen {
             copy_mode: false,
             ask_erase: false,
             join_source: None,
+            ask_circle: false,
         }
     }
     fn apply(&mut self, s: &mut Session) -> Result<Step> {
@@ -83,8 +86,17 @@ impl SelectThen {
         }
     }
 
-    /// JOIN the selected objects and report what they became.
+    /// JOIN the selected objects and report what they became. Arcs that make a circle ask first,
+    /// as AutoCAD 2024 does.
     fn join_now(&mut self, s: &mut Session) -> Result<Step> {
+        if join_makes_circle(s, &self.objs) {
+            self.ask_circle = true;
+            return Ok(Step::Continue);
+        }
+        self.join_apply(s)
+    }
+
+    fn join_apply(&mut self, s: &mut Session) -> Result<Step> {
         match join(s, &self.objs) {
             Ok(h) => {
                 // Objects outside the joined chain are kept, so count only the ones JOIN consumed
@@ -94,6 +106,9 @@ impl SelectThen {
                 let what = match h.and_then(|h| d.entity(h)).map(|e| &e.kind) {
                     Some(EntityKind::Spline(_)) => "spline",
                     Some(EntityKind::Ellipse(_)) => "ellipse",
+                    Some(EntityKind::Line(_)) => "line",
+                    Some(EntityKind::Arc(_)) => "arc",
+                    Some(EntityKind::Circle(_)) => "circle",
                     _ => "polyline",
                 };
                 s.echo(format!("{n} objects joined into 1 {what}"))
@@ -246,6 +261,12 @@ impl SelectThen {
         s.set_selection(Vec::new());
         Ok(Step::Done)
     }
+
+    /// The second point of MIRROR's line: the cursor while it is picked, then the picked point,
+    /// so the mirrored copy stays on screen at "Erase source objects?" (#2667).
+    fn mirror_end(&self, cursor: Vec2) -> Option<Vec2> {
+        if self.ask_erase { self.pts.get(1).copied() } else { Some(cursor) }
+    }
 }
 
 /// Objects whose text MIRROR keeps readable instead of mirroring it with the geometry.
@@ -306,6 +327,9 @@ impl Interactive for SelectThen {
         if self.ask_erase {
             return Prompt::new("Erase source objects?", Accept::TEXT).kw(&["Yes", "No"]).default("No");
         }
+        if self.ask_circle {
+            return Prompt::new("Combined arc segments form a circle.  Convert to circle?", crate::cmd::curves::KW).kw(&["Yes", "No"]).default("Yes");
+        }
         if let Some(src) = self.join_source {
             let ellipse = s.doc().is_ok_and(|d| matches!(d.entity(src).map(|e| &e.kind), Some(EntityKind::Ellipse(_))));
             let msg = if ellipse { "Select elliptical arcs to join to source" } else { "Select arcs to join to source" };
@@ -357,6 +381,14 @@ impl Interactive for SelectThen {
                     return self.apply(s);
                 }
             }
+        }
+        // No leaves every arc as it is (AutoCAD 2024, measured).
+        if self.ask_circle {
+            return match &i {
+                Input::Keyword(k) if k == "No" => Ok(Step::Done),
+                Input::Keyword(_) | Input::Enter => self.join_apply(s),
+                _ => Err(EngineError::Other("Invalid option keyword.".into())),
+            };
         }
         if let Some(src) = self.join_source {
             return self.join_source_input(s, src, i);
@@ -473,7 +505,10 @@ impl Interactive for SelectThen {
                 None if self.ref_len.is_some() => return Vec::new(),
                 None => return self.ref_from.map(|a| vec![line(a, c)]).unwrap_or_default(),
             },
-            Op::Mirror if !self.ask_erase => Mat3::mirror(base, c),
+            Op::Mirror => match self.mirror_end(c) {
+                Some(end) => Mat3::mirror(base, end),
+                None => return Vec::new(),
+            },
             _ => return Vec::new(),
         };
         let Ok(d) = s.doc() else { return Vec::new() };
@@ -488,7 +523,9 @@ impl Interactive for SelectThen {
                 k
             })
             .collect();
-        out.push(line(base, c));
+        if !self.ask_erase {
+            out.push(line(base, c));
+        }
         out
     }
     fn drag(&self, s: &Session, c: Vec2) -> Option<crate::prompt::Drag> {
@@ -501,10 +538,11 @@ impl Interactive for SelectThen {
             Op::Rotate => Mat3::rotate_about(base, base.angle_to(c)),
             Op::Scale if !self.reference => Mat3::scale_about(base, base.dist(c).max(1e-9)),
             Op::Scale => Mat3::scale_about(base, self.ref_len.and_then(|r| positive_length(Some(base.dist(c) / r)))?),
-            Op::Mirror if !self.ask_erase => Mat3::mirror(base, c),
+            Op::Mirror => Mat3::mirror(base, self.mirror_end(c)?),
             _ => return None,
         };
-        let mut extra = vec![line(base, c)];
+        // The rubber band follows the cursor only while a point is being picked.
+        let mut extra = if self.ask_erase { Vec::new() } else { vec![line(base, c)] };
         if self.op != Op::Mirror {
             return Some(crate::prompt::Drag { handles: self.objs.clone(), matrix, extra, clipboard: false });
         }

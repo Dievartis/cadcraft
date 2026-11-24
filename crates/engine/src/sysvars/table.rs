@@ -66,7 +66,11 @@ const HEADER: &[(&str, Kind, Def)] = &[
     // Negative: Through (OFFSET picks a point).
     ("OFFSETDIST", Kind::AnyReal, Def::Real(-1.0)),
     ("OFFSETERASE", Kind::Choice(&[0, 1]), Def::Int(0)),
+    // 0: extend offset lines to meet at corners; 1: fill the gap with an arc; 2: with a chamfer.
+    ("OFFSETGAPTYPE", Kind::Choice(&[0, 1, 2]), Def::Int(0)),
     ("OFFSETLAYER", Kind::Choice(&[0, 1]), Def::Int(0)),
+    // The width a new polyline starts at; PLINE's Width and Halfwidth answers set it.
+    ("PLINEWID", Kind::Real { min: 0.0, strict: false }, Def::Real(0.0)),
     ("POLYSIDES", Kind::Int(3, 1024), Def::Int(4)),
     ("PROJMODE", Kind::Choice(&[0, 1, 2]), Def::Int(1)),
     ("REVCLOUDARCLEN", Kind::Real { min: 0.0, strict: true }, Def::Units(0.5, 15.0)),
@@ -81,6 +85,8 @@ const HEADER: &[(&str, Kind, Def)] = &[
     ("WIPEOUTFRAME", Kind::Choice(&[0, 1, 2]), Def::Int(1)),
     // XCLIP boundaries: 0 hidden, 1 shown and plotted, 2 shown but not plotted.
     ("XCLIPFRAME", Kind::Choice(&[0, 1, 2]), Def::Int(2)),
+    // PDF underlays' frame: 0 none, 1 shown and plotted, 2 shown but not plotted.
+    ("PDFFRAME", Kind::Choice(&[0, 1, 2]), Def::Int(1)),
 ];
 
 /// The standard lineweights in hundredths of a millimetre.

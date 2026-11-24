@@ -46,7 +46,7 @@ pub(super) fn linear_kind(p1: Vec2, p2: Vec2, at: Vec2, rotation: Option<f64>, a
     DimKind::Linear { rotation: rotation.unwrap_or_else(auto) }
 }
 
-/// Add a dimension. With DIMASSOC on, definition points that sit on object endpoints,
+/// Add a dimension. With DIMASSOC 2, definition points that sit on object endpoints,
 /// vertices or centres are attached to them (associative dimensions).
 pub(super) fn add_dim(s: &mut Session, k: EntityKind) -> Result<Handle> {
     let mut k = k;
@@ -74,8 +74,10 @@ pub(super) fn add_dim(s: &mut Session, k: EntityKind) -> Result<Handle> {
     Ok(h)
 }
 
+/// Only DIMASSOC mode 2 attaches newly created dimensions to their source geometry.
 pub(super) fn assoc_enabled(s: &Session) -> bool {
-    s.doc().map(|d| d.header.i64("DIMASSOC", 2) != 0).unwrap_or(false)
+    // Mode 1 keeps a dimension as one object without linking it to source geometry.
+    s.doc().map(|d| d.header.i64("DIMASSOC", 2) == 2).unwrap_or(false)
 }
 
 pub(super) fn with_assoc(k: EntityKind, assoc: Vec<DimAssoc>) -> EntityKind {
@@ -116,6 +118,60 @@ pub(super) fn hex_param(p: &Value, key: &str) -> Option<Handle> {
 pub(super) fn pick_at(s: &Session, p: Vec2) -> Option<Handle> {
     let ap = s.pixel_size() * s.settings.pickbox.max(1.0) * 1.5;
     s.pick_object(&s.space(), p, ap).ok().flatten()
+}
+
+/// Most objects of a block reference looked at for one pick (nested references included).
+const MAX_NESTED_PICK: usize = 100_000;
+
+/// The circle or arc picked at `p`, in drawing coordinates: a circle or arc of the drawing, or
+/// one inside the block reference picked there (nested references too), as AutoCAD's DIMRADIUS,
+/// DIMDIAMETER and DIMJOGGED take one (#1967). Inside a reference it is the object under the
+/// cursor, so a pick on a block's line is not a circle; one the reference scales unevenly is
+/// drawn as an ellipse and is not taken either.
+pub(super) fn circle_at(s: &Session, p: Vec2) -> Option<(Vec2, f64)> {
+    let h = pick_at(s, p)?;
+    // A circle with no size (a zero radius read from a file) makes a degenerate dimension.
+    let usable = |(c, r): &(Vec2, f64)| c.is_finite() && r.is_finite() && *r > 0.0;
+    if let Some(c) = circle_of(s, h) {
+        return Some(c).filter(usable);
+    }
+    let d = s.doc().ok()?;
+    let EntityKind::Insert(ins) = &d.entity(h)?.kind else { return None };
+    let ap = crate::cmd::curves::pick_aperture(s);
+    let mut nearest: Option<(f64, Option<(Vec2, f64)>)> = None;
+    let mut budget = MAX_NESTED_PICK;
+    // Inside a layout viewport, what its frozen layers hold isn't drawn there.
+    let frozen = s.state().ok().and_then(|st| st.active_viewport().map(|(_, vp)| vp.frozen_layers)).unwrap_or_default();
+    crate::snap::block_leaves(d, ins, &cadcraft_geom::Mat3::IDENTITY, 0, &mut budget, &frozen, &mut |k, m| {
+        // Measured on what is drawn, as any pick measures (text inside its box, a SOLID inside
+        // its fill, a ray only ahead of its start), on the object placed by the reference. A curve
+        // the reference scales unevenly is drawn as an ellipse, which placing the object doesn't
+        // make, so it is measured on its exactly placed primitives instead.
+        let dist = match (k, m.similarity_scale()) {
+            (EntityKind::Circle(_) | EntityKind::Arc(_) | EntityKind::Ellipse(_), None) => {
+                k.prims().iter().map(|pr| crate::cmd::curves::prim_distance(&crate::snap::xform_prim(pr, m), p)).fold(f64::INFINITY, f64::min)
+            }
+            _ => {
+                let mut placed = k.clone();
+                placed.transform(m);
+                crate::select::entity_distance(d, &cadcraft_doc::Entity::new(Handle(0), placed), p, ap / 4.0)
+            }
+        };
+        if !dist.is_finite() || dist > ap {
+            return;
+        }
+        let circle = m.similarity_scale().and_then(|scale| match k {
+            EntityKind::Circle(c) => Some((m.apply(c.center.xy()), c.radius * scale)),
+            EntityKind::Arc(a) => Some((m.apply(a.center.xy()), a.radius * scale)),
+            _ => None,
+        });
+        // The nearest wins; at the same distance, a circle or arc over anything else.
+        let better = nearest.is_none_or(|(best, held)| dist < best || (dist <= best && held.is_none() && circle.is_some()));
+        if better {
+            nearest = Some((dist, circle));
+        }
+    });
+    nearest.and_then(|(_, c)| c).filter(usable)
 }
 
 /// The straight or curved piece of `h` picked at `p`: a line, an arc, or the polyline segment nearest `p`.

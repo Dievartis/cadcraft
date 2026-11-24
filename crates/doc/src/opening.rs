@@ -10,7 +10,7 @@
 use cadcraft_geom::{PolyVertex, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
-use crate::catalogue::{HvacPiece, xdata};
+use crate::ventilation::{HvacPiece, xdata};
 use crate::{DocError, EntityKind, Line, LwPolyline, RawTag, Result, WallUnits};
 
 /// The registered application name of an opening's extended data.

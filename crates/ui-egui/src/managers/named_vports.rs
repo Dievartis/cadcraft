@@ -30,7 +30,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Option<
     let t = Tokens::get();
     let Ok(d) = app.session.doc() else {
         egui::Window::new("Named Viewports").open(open).collapsible(false).resizable(false).show(ctx, |ui| {
-            ui.label("Open a drawing first.");
+            ui.label(crate::i18n::t("Open a drawing first."));
         });
         return None;
     };
@@ -52,7 +52,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Option<
         }
         ui.separator();
         if configs.is_empty() {
-            ui.label("This drawing has no named viewport configurations.");
+            ui.label(crate::i18n::t("This drawing has no named viewport configurations."));
         }
         ui.horizontal_top(|ui| {
             egui::ScrollArea::vertical().id_salt("namedvp_list").max_height(120.0).min_scrolled_width(180.0).show(ui, |ui| {
@@ -77,12 +77,12 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Option<
             if ui.add_enabled(sel.is_some(), egui::Button::new("Restore")).on_hover_text(hint).clicked() {
                 restore = true;
             }
-            if ui.add_enabled(sel.is_some(), egui::Button::new("Delete")).on_hover_text("Delete the saved configuration").clicked()
+            if ui.add_enabled(sel.is_some(), egui::Button::new("Delete")).on_hover_text(crate::i18n::t("Delete the saved configuration")).clicked()
                 && let Some(n) = &sel
             {
                 action = Some(("vports.named", json!({ "name": n, "delete": true })));
             }
-            if ui.button("Close").clicked() {
+            if ui.button(crate::i18n::t("Close")).clicked() {
                 close = true;
             }
         });

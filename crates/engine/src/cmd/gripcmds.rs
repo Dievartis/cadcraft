@@ -230,16 +230,41 @@ pub(super) fn stretched(s: &Session, hot: &[(Handle, usize)], others: &[Handle],
 /// What a duct or pipe run is, for the grips that redraw it.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RunKind {
+    Duct,
+    Pipe,
+    Cable,
     Wall,
 }
+
 fn run_kind(e: &Entity) -> Option<RunKind> {
-    cadcraft_doc::wall_of(e).map(|_| RunKind::Wall)
+    if cadcraft_doc::duct_of(e).is_some() {
+        Some(RunKind::Duct)
+    } else if cadcraft_doc::pipe_of(e).is_some() {
+        Some(RunKind::Pipe)
+    } else if cadcraft_doc::cable_of(e).is_some() {
+        Some(RunKind::Cable)
+    } else if cadcraft_doc::wall_of(e).is_some() {
+        Some(RunKind::Wall)
+    } else {
+        None
+    }
 }
-fn stretch_run_grip(d: &mut cadcraft_doc::Drawing, _kind: RunKind, h: Handle, index: usize, to: Vec2) -> Result<bool> {
-    Ok(d.stretch_wall_grip(h, index, to)?)
+
+fn stretch_run_grip(d: &mut cadcraft_doc::Drawing, kind: RunKind, h: Handle, index: usize, to: Vec2) -> Result<bool> {
+    Ok(match kind {
+        RunKind::Duct => d.stretch_duct_grip(h, index, to)?,
+        RunKind::Pipe => d.stretch_pipe_grip(h, index, to)?,
+        RunKind::Cable => d.stretch_cable_grip(h, index, to)?,
+        RunKind::Wall => d.stretch_wall_grip(h, index, to)?,
+    })
 }
-fn follower_grips(_kind: RunKind, grips: &[Vec2]) -> Vec<usize> {
-    (0..grips.len().div_ceil(2)).collect()
+
+/// The grips of `kind` that are the ends of a run, where the runs that meet it follow: the two ends of a duct, a pipe or a cable, every vertex of a wall.
+fn follower_grips(kind: RunKind, grips: &[Vec2]) -> Vec<usize> {
+    match kind {
+        RunKind::Wall => (0..grips.len().div_ceil(2)).collect(),
+        _ => vec![0, 2],
+    }
 }
 
 /// The duct, pipe, cable and wall runs of the hot grips moved by `delta`: each hot grip of a run stretches it, and the runs of the same kind in `others`
@@ -257,7 +282,11 @@ fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], del
             if !moves.iter().any(|m| m.1 == h && m.2 == i) {
                 moves.push((kind, h, i, to));
             }
-            let points = d.wall_grip_points(h, i);
+            let points = match kind {
+                RunKind::Wall => d.wall_grip_points(h, i),
+                _ if i == 1 => Vec::new(),
+                _ => vec![from],
+            };
             for at in points {
                 let tol = 1e-9 * (1.0 + at.len());
                 for &o in others.iter().take(MAX_GRIPS) {

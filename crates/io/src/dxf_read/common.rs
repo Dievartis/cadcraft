@@ -1,4 +1,5 @@
 use super::{Color, Common, Lineweight, PolyVertex, Rgb, Tag, Transparency, Vec2, Vec3};
+use std::borrow::Cow;
 
 /// Value lookup helpers over an entity's tags.
 pub(super) struct T<'a>(pub(super) &'a [Tag]);
@@ -62,20 +63,39 @@ pub(super) fn outside_app(tags: &[Tag]) -> impl Iterator<Item = (usize, &Tag)> {
     })
 }
 
+/// The AcDbEntity group codes a writer can put after the entity's own subclass marker instead
+/// (DXF Reference, Common Group Codes for Entities): paper space, layout, layer, linetype,
+/// material, colour, lineweight, linetype scale, visibility, true colour, colour name,
+/// transparency, plot style and shadow mode.
+const ENTITY_CODES: [i32; 14] = [67, 410, 8, 6, 347, 62, 370, 48, 60, 420, 430, 440, 390, 284];
+
 /// The groups of the AcDbEntity subclass: the record up to the entity's own subclass marker (all
 /// of it in files without markers, and in lists with no AcDbEntity marker, whose layer and colour
 /// may follow the entity's marker), or up to an embedded object (101). Later groups reuse the
 /// codes: an MTEXT's column width is 48. Markers inside an application-defined group (`102 {`
 /// to `102 }`, whose codes are the application's) do not count.
-fn entity_groups(tags: &[Tag]) -> &[Tag] {
+///
+/// Some writers leave the AcDbEntity subclass without a layer and put its groups right after the
+/// entity's own marker (#2856). Every entity has a layer, so its absence marks that layout, and
+/// the run of [`ENTITY_CODES`] that starts after the marker is read too. The run ends at the
+/// first other code, so the entity's own groups that reuse a code are not taken for it. Only
+/// such a record pays for the copy.
+fn entity_groups(tags: &[Tag]) -> Cow<'_, [Tag]> {
     let outside_app = || outside_app(tags);
     let marked = outside_app().any(|(_, t)| t.code == 100 && t.str() == "AcDbEntity");
     let end = outside_app().find(|(_, t)| (marked && t.code == 100 && t.str() != "AcDbEntity") || t.code == 101).map_or(tags.len(), |(i, _)| i);
-    tags.get(..end).unwrap_or(tags)
+    let groups = tags.get(..end).unwrap_or(tags);
+    let after_own_marker = marked && tags.get(end).is_some_and(|t| t.code == 100);
+    if !after_own_marker || self::outside_app(groups).any(|(_, t)| t.code == 8) {
+        return Cow::Borrowed(groups);
+    }
+    let run = tags.get(end + 1..).unwrap_or_default().iter().take_while(|t| ENTITY_CODES.contains(&t.code));
+    Cow::Owned(groups.iter().chain(run).cloned().collect())
 }
 
 pub(super) fn common(t: &T) -> Common {
-    let e = T(entity_groups(t.0));
+    let groups = entity_groups(t.0);
+    let e = T(&groups);
     let mut c = Common { layer: e.s(8).unwrap_or_else(|| "0".into()), linetype: e.s(6).unwrap_or_else(|| "ByLayer".into()), ..Common::default() };
     if let Some(v) = e.i(62) {
         c.color = Color::from_aci(v as i16);
@@ -119,15 +139,17 @@ pub(super) fn ocs_n(n: Vec3, p: Vec3) -> Vec3 {
 /// billionth of the object's size and distance from the origin. A normal that is the Z axis
 /// or the Z axis turned over moves nothing, and noise in one moves points by a negligible
 /// amount, so those objects keep their arcs; however small the tilt, an object far enough from
-/// the origin to be moved visibly is projected.
-pub(super) fn tilted(n: Vec3, pts: impl IntoIterator<Item = Vec3>) -> bool {
-    if !n.is_finite() || n.len() < 1e-12 {
+/// the origin to be moved visibly is projected. The points are only gathered for a normal off
+/// the Z axis: along it (x and y exactly 0, as in nearly every drawing) nothing moves, and
+/// sampling every arc of every object for that would be wasted.
+pub(super) fn tilted<I: IntoIterator<Item = Vec3>>(n: Vec3, pts: impl FnOnce() -> I) -> bool {
+    if !n.is_finite() || n.len() < 1e-12 || (n.x == 0.0 && n.y == 0.0) {
         return false;
     }
     let m = cadcraft_geom::Mat4::ocs(n);
     let flip = if n.z < 0.0 { -1.0 } else { 1.0 };
     let (mut moved, mut reach) = (0.0f64, 1.0f64);
-    for p in pts.into_iter().filter(|p| p.is_finite()) {
+    for p in pts().into_iter().filter(|p| p.is_finite()) {
         let shown = Vec2::new(flip * p.x, p.y);
         moved = moved.max((m.apply(p).xy() - shown).len());
         reach = reach.max(p.x.abs()).max(p.y.abs()).max(p.z.abs());
@@ -203,4 +225,27 @@ pub(super) fn plan_of_tilted(n: Vec3, elevation: f64, vertices: &[PolyVertex], c
     let to_plan = |p: Vec2| m.apply(Vec3::new(p.x, p.y, elevation));
     let z = if local.is_empty() { elevation } else { local.iter().map(|v| to_plan(v.p).z).sum::<f64>() / local.len() as f64 };
     (local.into_iter().map(|v| PolyVertex { p: to_plan(v.p).xy(), ..v }).collect(), z)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A normal on the Z axis, either way up and of any length, moves no point, so [`tilted`]
+    /// answers without sampling the object's arcs; any other normal gathers them.
+    #[test]
+    fn a_normal_on_the_z_axis_gathers_no_points() {
+        let gathered = std::cell::Cell::new(0);
+        let pts = || {
+            gathered.set(gathered.get() + 1);
+            vec![Vec3::new(1.0, 2.0, 3.0)]
+        };
+        for n in [Vec3::Z, Vec3::new(0.0, 0.0, -1.0), Vec3::new(0.0, 0.0, 2.5), Vec3::new(-0.0, 0.0, -0.1)] {
+            assert!(!tilted(n, pts), "{n:?}");
+        }
+        assert_eq!(gathered.get(), 0);
+        assert!(tilted(Vec3::new(0.0, 0.5, -0.75f64.sqrt()), pts));
+        assert!(!tilted(Vec3::new(0.0, 1e-15, 1.0), pts), "noise in a plan normal still moves nothing visible");
+        assert_eq!(gathered.get(), 2);
+    }
 }

@@ -388,7 +388,11 @@ impl Session {
             }
             Some(i) => {
                 if let Input::Point(p) = &i {
-                    self.last_point = *p;
+                    // A point the command refuses must not become the last point: `@` alone answers
+                    // with it, so a non-finite one would poison relative input for the session.
+                    if p.is_finite() {
+                        self.last_point = *p;
+                    }
                     if let Some(b) = base.filter(|b| b.is_finite() && p.is_finite() && b.dist(*p) > 1e-12) {
                         self.last_segment = Some((b, *p));
                     }
@@ -477,6 +481,22 @@ impl Session {
         {
             self.echo(e.to_string());
         }
+        // Esc puts the selection back as it was when the command started (#2889). A "Select
+        // objects" prompt highlights its picks through the selection, so without this they would
+        // stay selected, and the next command would take them as a pickfirst selection without
+        // asking. A pickfirst selection the command started with is kept. A cancel keeps what the
+        // command already changed, so objects it removed are left out. A layout switch or
+        // MSPACE/PSPACE run during the command (a program can run one) cleared the selection and
+        // changed the space, so only objects in the space the drawing is in now come back; the
+        // next command would otherwise take objects from another space as its selection.
+        if cancelled {
+            let space = self.space();
+            if let Ok(st) = self.state_mut() {
+                let mut kept = run.selection_before.clone();
+                kept.retain(|h| st.doc.space_of(*h).as_ref() == Some(&space));
+                st.selection = kept;
+            }
+        }
         // A command outside undo that changed the drawing (UNDO, which swapped it for an earlier
         // one) records no undo step, as in `execute`.
         if find_command(&run.id).is_some_and(|c| !c.undoable) && self.state().is_ok_and(|st| !Arc::ptr_eq(&run.before, &st.doc)) {
@@ -486,7 +506,6 @@ impl Session {
         self.pending_window = None;
         self.select_mode = None;
         let label = find_command(&run.id).map(|c| c.label).unwrap_or("Command");
-        let _ = cancelled;
         if let Some(m) = cmd::blocks::refedit::after_command(self, &run.before, &run.id) {
             self.echo(m);
         }
@@ -525,6 +544,7 @@ impl Session {
         #[cfg(test)]
         crate::guard::tests::panic_if_armed();
         cmd::groups::after_command(self, before);
+        cmd::arch::after_command(self, before);
         cmd::constraints::after_command(self, before, ok);
         assoc::after_command(self, before, uid);
         if uid.is_none() || self.state().is_ok_and(|st| Some(st.uid) == uid) {

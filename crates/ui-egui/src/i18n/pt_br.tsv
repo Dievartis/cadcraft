@@ -196,6 +196,7 @@
 	Cut with Base Point	Recortar com ponto base
 	Cyan	Ciano
 	Cylinder	Cilindro
+	Drawing Properties...	Propriedades do desenho...
 	DWG	DWG
 	DWG Reference...	Referência DWG...
 	DXF	DXF
@@ -285,6 +286,14 @@
 	End angle	Ângulo final
 	Endpoint	Extremidade
 	Enter	Enter
+	Enter author	Digite o autor
+	Enter comments	Digite os comentários
+	Enter field name or system variable	Digite o nome do campo ou a variável de sistema
+	Enter keywords	Digite as palavras-chave
+	Enter property	Digite a propriedade
+	Enter property to change	Digite a propriedade a alterar
+	Enter subject	Digite o assunto
+	Enter title	Digite o título
 	Enter Top, Zero or Bottom.	Digite Top, Zero ou Bottom.
 	Enter a fit data option	Digite uma opção de dados de ajuste
 	Enter a pattern name	Digite o nome de um padrão
@@ -345,6 +354,7 @@
 	External Reference	Referência externa
 	External References	Referências externas
 	Extrude	Extrudar
+	Field...	Campo...
 	File	Arquivo
 	File Tab	Guia de arquivo
 	Fillet	Concordância
@@ -536,6 +546,7 @@
 	Match Layer	Igualar camada
 	Match Properties	Copiar propriedades
 	Measure	Medir
+	Quick Measure	Medição rápida
 	Measure Distance	Medir distância
 	Measure Geometry	Medir geometria
 	Merge Cells	Mesclar células
@@ -663,6 +674,7 @@
 	Pattern	Padrão
 	Perpendicular	Perpendicular
 	Plot	Plotar
+	Plot...	Plotar...
 	Plot (click: do not plot)	Plotar (clique para não plotar)
 	Plot Preview	Visualizar plotagem
 	Plot Window	Janela de plotagem
@@ -699,6 +711,7 @@
 	Reset Panel Layout	Redefinir layout dos painéis
 	Reset keeps the interface language.	A redefinição mantém o idioma da interface.
 	Reset to Defaults	Redefinir para os padrões
+	Spelling	Ortografia
 	SVG drawings (SVG, SVGZ)	Desenhos SVG (SVG, SVGZ)
 	Save new drawings as	Salvar novos desenhos como
 	Saved Path	Caminho salvo
@@ -744,6 +757,7 @@
 	Unreferenced	Sem referência
 	Unresolved	Não resolvida
 	Update Data Links	Atualizar vínculos de dados
+	Update Fields	Atualizar campos
 	Use for this layout	Usar neste layout
 	Display plot styles	Exibir estilos de plotagem
 	No plot style tables.	Nenhuma tabela de estilos de plotagem.
@@ -1254,6 +1268,8 @@
 	Check for Updates…	Verificar atualizações…
 	CADCraft is up to date.	O CADCraft está atualizado.
 	Could not check for updates.	Não foi possível verificar atualizações.
+	Check for Updates	Verificar atualizações
+	Release updates are disabled for this development build.	As atualizações de versão estão desativadas nesta compilação de desenvolvimento.
 	Add a drawing file as a block library	Adicionar um arquivo de desenho como biblioteca de blocos
 	Add a folder of drawings or a drawing file to use its blocks.	Adicione uma pasta de desenhos ou um arquivo de desenho para usar seus blocos.
 	Block Libraries	Bibliotecas de blocos
@@ -1493,6 +1509,17 @@ menu	View	Exibir
 	Ctrl+Enter to apply	Ctrl+Enter to apply
 	Edit Text	Edit Text
 	The drawing changed. Close the window and open it again.	O desenho mudou. Feche a janela e abra-a novamente.
+	Layer state name	Nome do estado de camadas
+	Switches layers on and off, frozen and locked	Liga e desliga camadas, congela e bloqueia
+	Rename	Renomear
+	Objects on locked layers can't be selected	Objetos em camadas bloqueadas não podem ser selecionados
+	They are still shown and snapped to, like a blueprint.	Eles continuam visíveis e com snap, como uma planta de fundo.
+# Layers palette: move the selection to a new layer, delete empty layers.
+	Move to New Layer	Mover para nova camada
+	Move Selection to New Layer	Mover a seleção para nova camada
+	New layer name	Nome da nova camada
+	Delete Empty Layers	Excluir camadas vazias
+	Deletes every layer that has no objects on it	Exclui cada camada que não tem objetos
 
 # ArtCraft feature naming
 	Additional Tools	Ferramentas adicionais

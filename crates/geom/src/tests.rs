@@ -103,6 +103,17 @@ fn line_intersections() {
 }
 
 #[test]
+fn line_line_capped_slack_is_a_length_not_a_fraction_of_a_long_segment() {
+    // Crossing 0.5 units before the start of a 1e9-long segment.
+    let long = Line::new(Vec2::new(0.0, 0.0), Vec2::new(1e9, 0.0));
+    let behind = Line::new(Vec2::new(-0.5, -5.0), Vec2::new(-0.5, 5.0));
+    assert!(line_line_capped(&long, &behind).is_none());
+    assert!(line_line_capped(&behind, &long).is_none());
+    let on = Line::new(Vec2::new(0.0, -5.0), Vec2::new(0.0, 5.0));
+    assert!(line_line_capped(&long, &on).is_some());
+}
+
+#[test]
 fn line_circle_hits() {
     let l = Line::new(Vec2::new(-5.0, 0.0), Vec2::new(5.0, 0.0));
     let hits = line_circle(&l, &Circle::new(Vec2::ZERO, 2.0));
@@ -175,7 +186,7 @@ fn spline_interpolates_fit_points() {
         assert!(d < 0.05, "fit point {f:?} missed by {d}");
     }
     assert!(s.eval(0.0).near(fit[0], 1e-9));
-    assert!(s.eval(1.0).near(fit[4], 1e-9));
+    assert!(s.eval(s.domain().1).near(fit[4], 1e-9));
 }
 
 #[test]
@@ -375,4 +386,17 @@ fn open_polyline_centroid_ignores_last_bulge() {
     pl.vertices[2].bulge = 1.0;
     let after = pl.centroid().unwrap();
     assert!(before.near(after, 1e-9), "{before:?} -> {after:?}");
+}
+
+#[test]
+fn tiny_arc_sweep_is_not_a_full_circle() {
+    for x in [0.0, 1.0, 5.5] {
+        assert!(close(ccw_sweep(x, x), TAU));
+    }
+    assert!((ccw_sweep(0.0, 5e-10) - 5e-10).abs() < 1e-15, "{}", ccw_sweep(0.0, 5e-10));
+    let a = Arc::new(Vec2::new(0.0, 0.0), 1e6, 0.0, 5e-10);
+    assert!((a.len() - 5e-4).abs() < 1e-6, "{}", a.len());
+    assert!(a.contains_angle(2.5e-10));
+    assert!(!a.contains_angle(1.0));
+    assert!(a.mid_point().near(Vec2::new(1e6, 0.0), 1e-2));
 }

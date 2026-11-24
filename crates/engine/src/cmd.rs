@@ -12,12 +12,19 @@ mod opening;
 pub use opening::OpeningLastUsed;
 pub mod clipboard;
 pub mod constraints;
+mod control;
+mod curtain;
+mod design;
 mod dimstyle_cli;
 mod dimstyles;
 mod draw;
 mod draw2;
 mod draworder;
+mod duct;
+mod duct_acc;
+mod duct_cross;
 mod edit;
+mod elec;
 mod equipment;
 mod exchange;
 pub mod file;
@@ -25,8 +32,40 @@ mod furniture;
 mod gripcmds;
 mod griphot;
 pub(crate) mod groups;
+mod network;
+mod opening;
+mod part;
+mod pipe;
+mod pipe_riser;
+mod riser;
+mod roof;
+mod sanitary;
+mod section;
+mod slab;
+mod structure;
+mod takeoff;
+mod titleblock;
+mod zone;
+pub use control::ControlLastUsed;
+pub use design::DesignLastUsed;
+pub use duct::{AhuLastUsed, DuctLastUsed};
+pub use duct_acc::AccessoryLastUsed;
+pub use elec::{CableLastUsed, DeviceLastUsed};
+pub use equipment::EquipmentLastUsed;
+pub use furniture::FurnitureLastUsed;
+pub use opening::OpeningLastUsed;
+pub use part::PartLastUsed;
+pub use pipe::PipeLastUsed;
+pub use riser::RiserLastUsed;
+pub use sanitary::SanitaryLastUsed;
+pub use slab::SlabLastUsed;
+pub use structure::StructLastUsed;
+pub use zone::ZoneLastUsed;
+mod hvac;
+pub use hvac::TerminalLastUsed;
 pub(crate) mod hatch;
 mod image;
+pub use image::MAX_PDF_BYTES;
 mod inquiry;
 pub mod interface;
 mod layer;
@@ -57,10 +96,11 @@ mod qselect;
 mod selecttools;
 mod settings;
 mod spline_opts;
-mod table;
+pub mod table;
 mod tolerance;
 mod trimextend;
 mod txt2mtxt;
+pub mod underlay;
 pub use txt2mtxt::Txt2MtxtOptions;
 mod ucs;
 mod utility;
@@ -213,6 +253,31 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(modify::specs());
         v.extend(draworder::specs());
         v.extend(array::specs());
+        v.extend(arch::specs());
+        v.extend(hvac::specs());
+        v.extend(duct::specs());
+        v.extend(pipe::specs());
+        v.extend(elec::specs());
+        v.extend(sanitary::specs());
+        v.extend(furniture::specs());
+        v.extend(control::specs());
+        v.extend(part::specs());
+        v.extend(network::specs());
+        v.extend(pipe_riser::specs());
+        v.extend(slab::specs());
+        v.extend(design::specs());
+        v.extend(titleblock::specs());
+        v.extend(curtain::specs());
+        v.extend(roof::specs());
+        v.extend(section::specs());
+        v.extend(structure::specs());
+        v.extend(duct_acc::specs());
+        v.extend(zone::specs());
+        v.extend(riser::specs());
+        v.extend(equipment::specs());
+        v.extend(takeoff::specs());
+        v.extend(duct_cross::specs());
+        v.extend(opening::specs());
         v.extend(modify2::specs());
         v.extend(groups::specs());
         v.extend(gripcmds::specs());
@@ -235,6 +300,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(utility::specs());
         v.extend(table::specs());
         v.extend(tolerance::specs());
+        v.extend(underlay::specs());
         v.extend(txt2mtxt::specs());
         v.extend(constraints::specs());
         v.extend(lisp::specs());
@@ -265,8 +331,100 @@ pub fn resolve_alias(name: &str) -> String {
 pub(crate) fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
+/// The `altitude` of a command, metres, as the altitude of an underside in mm: absent is `None`, null is `Some(None)` (clears it).
+pub(crate) fn altitude_param(cmd: &str, p: &Value) -> Result<Option<Option<f64>>> {
+    match p.get("altitude") {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(v) => v
+            .as_f64()
+            .filter(|m| m.is_finite() && m.abs() <= 100_000.0)
+            .map(|m| Some(Some(m * 1000.0)))
+            .ok_or_else(|| bad(cmd, "`altitude` must be a number of metres or null")),
+    }
+}
+
+/// Refuse a parameter name the command does not take, naming it, so a misspelt option is not
+/// silently dropped. Non-object params carry no names and pass.
+pub(crate) fn reject_unknown_params(cmd: &str, p: &Value, allowed: &[&str]) -> Result<()> {
+    match p.as_object().and_then(|o| o.keys().find(|k| !allowed.contains(&k.as_str()))) {
+        Some(k) => Err(bad(cmd, format!("unknown parameter `{k}` (takes {})", allowed.join(", ")))),
+        None => Ok(()),
+    }
+}
 pub(crate) fn f64_or(p: &Value, key: &str, default: f64) -> f64 {
     p.get(key).and_then(Value::as_f64).filter(|v| v.is_finite()).unwrap_or(default)
+}
+/// Which point of a piece being placed is the one the cursor holds: nine places (a corner, the middle of a side, the centre), which Tab goes round.
+/// `x` is -1 left, 0 middle, 1 right of the piece as drawn at no turn; `y` is 1 at its back, 0 in the middle, -1 at its front.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Anchor {
+    pub x: i8,
+    pub y: i8,
+}
+
+impl Anchor {
+    /// The back middle: where a piece with its origin on the back wall is held, and the centre for a piece with its origin in the middle.
+    pub const BACK: Anchor = Anchor { x: 0, y: 1 };
+    pub const CENTRE: Anchor = Anchor { x: 0, y: 0 };
+
+    /// The anchors in the order Tab goes round: the back row from the left, then the middle, then the front.
+    const ORDER: [Anchor; 9] = [
+        Anchor { x: -1, y: 1 },
+        Anchor { x: 0, y: 1 },
+        Anchor { x: 1, y: 1 },
+        Anchor { x: -1, y: 0 },
+        Anchor { x: 0, y: 0 },
+        Anchor { x: 1, y: 0 },
+        Anchor { x: -1, y: -1 },
+        Anchor { x: 0, y: -1 },
+        Anchor { x: 1, y: -1 },
+    ];
+
+    pub fn next(self) -> Anchor {
+        let i = Self::ORDER.iter().position(|a| *a == self).unwrap_or(0);
+        Self::ORDER.get((i + 1) % Self::ORDER.len()).copied().unwrap_or(self)
+    }
+
+    /// The words that say where it is, for the command line.
+    pub fn name(self) -> &'static str {
+        match (self.y, self.x) {
+            (1, -1) => "back left",
+            (1, 0) => "back middle",
+            (1, 1) => "back right",
+            (0, -1) => "middle left",
+            (0, 0) => "centre",
+            (0, 1) => "middle right",
+            (-1, -1) => "front left",
+            (-1, 0) => "front middle",
+            _ => "front right",
+        }
+    }
+
+    /// Where the piece is put when the cursor is at `at`: its origin moved so that this point of the piece is on the cursor. The piece is `width_mm` along
+    /// x and `depth_mm` along y; `from_back` is true when its origin is the middle of its back (it goes toward -y), false when it is its centre.
+    pub fn origin_for(self, at: Vec2, units: cadcraft_doc::HvacUnits, width_mm: f64, depth_mm: f64, from_back: bool, rotation: f64) -> Vec2 {
+        let (half_w, depth) = (units.to_units(width_mm) / 2.0, units.to_units(depth_mm));
+        let cy = if from_back { -depth / 2.0 } else { 0.0 };
+        let held = Vec2::new(f64::from(self.x) * half_w, cy + f64::from(self.y) * depth / 2.0);
+        at - held.rotate(rotation)
+    }
+}
+
+/// The turn in degrees that a piece being placed at `at` is given by `i`: the direction of a second click, or a typed angle; `None` for Enter (the piece keeps its turn).
+pub(crate) fn aimed_degrees(i: &crate::Input, at: Vec2) -> Result<Option<f64>> {
+    use crate::Input;
+    match i {
+        Input::Point(p) if !p.near(at, 1e-9) => Ok(Some((*p - at).angle().to_degrees())),
+        Input::Text(t) | Input::Keyword(t) => {
+            let t = t.trim();
+            if t.is_empty() {
+                return Ok(None);
+            }
+            t.parse::<f64>().ok().filter(|a| a.is_finite()).map(Some).ok_or_else(|| EngineError::Other("Requires an angle in degrees.".into()))
+        }
+        _ => Ok(None),
+    }
 }
 pub(crate) fn f64_req(cmd: &str, p: &Value, key: &str) -> Result<f64> {
     p.get(key).and_then(Value::as_f64).filter(|v| v.is_finite()).ok_or_else(|| bad(cmd, format!("`{key}` (number) is required")))

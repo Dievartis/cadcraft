@@ -75,13 +75,18 @@ pub struct Prompt {
     /// Rubber-band origin (for direct distance entry, ortho and polar).
     pub base: Option<Vec2>,
     /// The command resolves deferred tangent/perpendicular snaps ([`Input::Deferred`]) at this
-    /// prompt (a point with no base yet, e.g. the first point of a line). Elsewhere a deferred
-    /// pick arrives as the plain point it was picked at.
+    /// prompt (a point with no base yet, e.g. the first point of a line; with a base, only
+    /// tangents, e.g. a circle's radius). Elsewhere a deferred pick arrives as the plain point it
+    /// was picked at.
     pub deferred: bool,
     /// The base is a rectangle's first corner (ZOOM Window, PLOTWINDOW, RECTANG, ARRAYRECT's unit
     /// cell): ortho does not bend the opposite corner, so the rectangle keeps its area.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub corner: bool,
+    /// Dynamic Input asks for this point as X and Y, whatever DYNPIFORMAT says: a rectangle's size
+    /// (RECTANG's other corner), as the reference application does.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub xy: bool,
     /// The grip this prompt stretches (one hot grip at the STRETCH prompt), as (object, grip
     /// index): Dynamic Input shows its dimensions ([`crate::grip_dims`]).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -103,10 +108,49 @@ pub struct Prompt {
     /// the routine writes, so it cannot be read for the word "Select" (#1598).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub picks_one: bool,
+    /// The message's source when values are put in it ([`Prompt::with_values`]): `message` is the
+    /// English text with the values in, and the interface translates the source and puts the
+    /// values back, so a translation can move them (#2611).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template: Option<Template>,
     /// The prompt takes a block's name as well as its keywords: a Greek word that is an existing
     /// block's name is that block, not a keyword read from its Latin keys.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub takes_block: bool,
+}
+
+/// A prompt message's source text, naming its values in braces (`"Enter value for {tag}"`), and
+/// the values.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Template {
+    pub source: &'static str,
+    pub values: Vec<(&'static str, String)>,
+}
+
+/// `source` with each `{name}` replaced by its value. A value is put in as it is, never read
+/// for braces again, so a block named `{tag}` stays `{tag}`; a name with no value stays.
+pub fn fill(source: &str, values: &[(&str, String)]) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut rest = source;
+    while let Some((before, tail)) = rest.split_once('{') {
+        out.push_str(before);
+        let Some((key, after)) = tail.split_once('}') else {
+            out.push('{');
+            rest = tail;
+            break;
+        };
+        match values.iter().find(|(name, _)| *name == key) {
+            Some((_, value)) => out.push_str(value),
+            None => {
+                out.push('{');
+                out.push_str(key);
+                out.push('}');
+            }
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Parse `@distance<angle` (relative polar), returning `(distance, angle in radians)`. The
@@ -149,6 +193,20 @@ impl Prompt {
     pub fn new(message: impl Into<String>, accept: Accept) -> Self {
         Prompt { message: message.into(), accept, ..Default::default() }
     }
+    /// A message with values in it: `source` names them in braces (`"Enter value for {tag}"`,
+    /// `[("tag", tag)]`). The interface translates `source` before the values go in; everything
+    /// else reads `message`, the English text.
+    pub fn with_values(source: &'static str, values: impl Into<Vec<(&'static str, String)>>, accept: Accept) -> Self {
+        let values = values.into();
+        Prompt { message: fill(source, &values), template: Some(Template { source, values }), accept, ..Default::default() }
+    }
+    /// The same prompt asking something else: `message` replaced, and its template with it (one
+    /// left behind would show the old message, translated).
+    pub fn reworded(mut self, message: impl Into<String>) -> Self {
+        self.message = message.into();
+        self.template = None;
+        self
+    }
     /// The grip being stretched (the `grip` field).
     pub fn grip(mut self, g: (Handle, usize)) -> Self {
         self.grip = Some(g);
@@ -180,6 +238,11 @@ impl Prompt {
     pub fn corner(mut self, p: Vec2) -> Self {
         self.base = Some(p);
         self.corner = true;
+        self
+    }
+    /// Dynamic Input asks for X and Y (the `xy` field).
+    pub fn xy(mut self) -> Self {
+        self.xy = true;
         self
     }
     /// Asks for a distance from the base (the `distance` field).
@@ -345,8 +408,9 @@ pub trait Interactive: Send {
         None
     }
     /// The multiline text being typed (MTEXT, once its box is known, with empty contents) or edited
-    /// (TEXTEDIT on an MTEXT or a multileader's text, with its contents): where the UI places its
-    /// in-place editor and with which height, width, justification and starting text.
+    /// (TEXTEDIT on an MTEXT or a multileader's text, or TABLEDIT on a table cell, with its
+    /// contents): where the UI places its in-place editor and with which height, width,
+    /// justification and starting text.
     fn editing_mtext(&self) -> Option<cadcraft_doc::MText> {
         None
     }
@@ -526,6 +590,23 @@ mod tests {
         assert_eq!(latin.match_keyword("ΘΝ").as_deref(), Some("Undo"));
         assert_eq!(latin.match_keyword("ΘΝΔΟ").as_deref(), Some("Undo"));
         assert_eq!(latin.match_keyword("Θ").as_deref(), Some("Undo"), "a Greek-layout shortcut still works");
+    }
+
+    #[test]
+    fn values_fill_a_template() {
+        let v = |pairs: &[(&'static str, &str)]| pairs.iter().map(|(k, v)| (*k, v.to_string())).collect::<Vec<_>>();
+        assert_eq!(fill("Enter value for {tag}", &v(&[("tag", "NUMBER")])), "Enter value for NUMBER");
+        assert_eq!(fill("{b}/{a}", &v(&[("a", "1"), ("b", "2")])), "2/1");
+        // A value is put in as it is: braces in it are not read again.
+        assert_eq!(fill("Block \"{name}\"?", &v(&[("name", "{name}")])), "Block \"{name}\"?");
+        // A name with no value, and an unclosed brace, stay as written.
+        assert_eq!(fill("{a} {missing}", &v(&[("a", "x")])), "x {missing}");
+        assert_eq!(fill("width {a", &v(&[("a", "x")])), "width {a");
+        let p = Prompt::with_values("Enter value for {tag}", [("tag", "NUMBER".to_string())], Accept::TEXT).default("A-1");
+        assert_eq!(p.message, "Enter value for NUMBER");
+        assert_eq!(p.display(), "Enter value for NUMBER <A-1>:");
+        assert_eq!(p.template.as_ref().map(|t| t.source), Some("Enter value for {tag}"));
+        assert!(Prompt::new("Select objects", Accept::SELECT).template.is_none());
     }
 
     #[test]

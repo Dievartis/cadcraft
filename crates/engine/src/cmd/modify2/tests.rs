@@ -411,6 +411,9 @@ fn chspace_json_and_command_line() {
         layer_colors: Vec::new(),
         clip: None,
         on: true,
+        ucs: None,
+        ucs_per_viewport: false,
+        extra: Vec::new(),
         twist: 0.0,
     };
     s.doc_mut().unwrap().add(&Space::Paper("Layout1".into()), Default::default(), EntityKind::Viewport(vp)).unwrap();
@@ -639,6 +642,32 @@ fn arraypath_json_and_command_line() {
     assert!(matches!(last(&s), EntityKind::Line(l) if near(l.a.xy(), -5.0, 20.0) && near(l.b.xy(), -6.0, 20.0)));
     assert!(s.execute("arraypath", &json!({"handles": [dot], "path": dot})).is_err());
 
+    // By spacing, AutoCAD 2024 fills a closed path with floor(length / spacing) items and an open
+    // one with one more, at the end (measured on a 100 square and on the same square open).
+    let square = [[0, 0], [100, 0], [100, 100], [0, 100]];
+    let r400 = 400.0 / std::f64::consts::TAU;
+    for (closed, spacing, items) in
+        [(true, 100, 4), (true, 30, 13), (true, 200, 2), (true, 400, 1), (true, 399, 1), (false, 100, 4), (false, 30, 11), (false, 300, 2)]
+    {
+        let mut s = Session::new();
+        let dot = h(&s.execute("circle", &json!({"center": [0, 0], "radius": 1})).unwrap());
+        let path = h(&s.execute("pline", &json!({"points": square, "closed": closed})).unwrap());
+        let r = s.execute("arraypath", &json!({"handles": [dot], "path": path, "spacing": spacing})).unwrap();
+        assert_eq!(r["handles"].as_array().map(Vec::len), Some(items - 1), "closed {closed}, spacing {spacing}");
+    }
+    // A circle 400 round: 4 items at 100, none on the first (AutoCAD 2024, measured).
+    let mut s = Session::new();
+    let dot = h(&s.execute("circle", &json!({"center": [0, 0], "radius": 1})).unwrap());
+    let path = h(&s.execute("circle", &json!({"center": [0, r400], "radius": r400})).unwrap());
+    let r = s.execute("arraypath", &json!({"handles": [dot], "path": path, "spacing": 100})).unwrap();
+    assert_eq!(r["handles"].as_array().map(Vec::len), Some(3));
+    // Three sides of 0.35 add up to a hair under 3 × 0.35; the item at the end still fits.
+    let mut s = Session::new();
+    let dot = h(&s.execute("circle", &json!({"center": [0, 0], "radius": 0.01})).unwrap());
+    let path = h(&s.execute("pline", &json!({"points": [[0, 0], [0.35, 0], [0.35, 0.35], [0, 0.35]]})).unwrap());
+    let r = s.execute("arraypath", &json!({"handles": [dot], "path": path, "spacing": 0.35})).unwrap();
+    assert_eq!(r["handles"].as_array().map(Vec::len), Some(3));
+
     let mut s = Session::new();
     s.execute("circle", &json!({"center": [0, 1], "radius": 0.25})).unwrap();
     s.execute("line", &json!({"points": [[0, 0], [10, 0]]})).unwrap();
@@ -647,6 +676,40 @@ fn arraypath_json_and_command_line() {
     s.cmdline("5,0 3").unwrap();
     assert!(s.running.is_none(), "{}", s.prompt_text());
     assert_eq!(s.doc().unwrap().model.len(), 4);
+}
+
+#[test]
+fn arraypath_item_count_as_autocad_takes_it() {
+    // AutoCAD 2024 at "Enter number of items along path": a whole number from 1 to 32767 in plain
+    // decimals, 5. and 5.0 included; 4.5, 1e1, 8/2, 3', 0 and 32768 are refused.
+    let mut s = Session::new();
+    s.execute("circle", &json!({"center": [0, 1], "radius": 0.25})).unwrap();
+    s.execute("line", &json!({"points": [[0, 0], [10, 0]]})).unwrap();
+    s.cmdline("arraypath 0.25,1").unwrap();
+    s.cmdline("").unwrap();
+    s.cmdline("5,0").unwrap();
+    let asked = s.prompt_text();
+    // Measured, then texts that aren't plain whole numbers (not measured).
+    for t in ["4.5", "1e1", "8/2", "3'", "0", "32768", "+", ".5", "5.0.0", "5.1"] {
+        s.cmdline(t).unwrap();
+        assert_eq!(s.log.last().map(String::as_str), Some("Requires an integer between 1 and 32767."), "{t}");
+        assert_eq!(s.prompt_text(), asked, "{t}");
+    }
+    s.cmdline("3").unwrap();
+    assert!(s.running.is_none(), "{}", s.prompt_text());
+    // The ends of the range, without drawing 32,767 copies.
+    assert_eq!((super::patharray::item_count("1"), super::patharray::item_count("32767")), (Some(1), Some(32_767)));
+    for (typed, items) in [("5", 5), ("5.", 5), ("5.0", 5), ("5.00", 5), ("05.0", 5), ("+5.0", 5), ("05", 5), ("+4", 4), ("1", 1)] {
+        let mut s = Session::new();
+        s.execute("circle", &json!({"center": [0, 1], "radius": 0.25})).unwrap();
+        s.execute("line", &json!({"points": [[0, 0], [10, 0]]})).unwrap();
+        for t in ["arraypath 0.25,1", "", "5,0", typed] {
+            s.cmdline(t).unwrap();
+        }
+        assert!(s.running.is_none(), "{typed}: {}", s.prompt_text());
+        // The path and the items (the original is the first).
+        assert_eq!(s.doc().unwrap().model.len(), 1 + items, "{typed}");
+    }
 }
 
 #[test]
@@ -763,6 +826,135 @@ fn offset_polyline_arc_bulge_follows_joined_endpoints() {
     assert!((arc.radius - 4.0).abs() < 1e-6, "radius {}", arc.radius);
 }
 
+/// Offset the polyline `pl` by 1 towards `side` with OFFSETGAPTYPE = `gap`.
+fn offset_with_gap(pts: Value, closed: bool, side: [f64; 2], gap: i64) -> cadcraft_doc::LwPolyline {
+    let mut s = Session::new();
+    s.execute("setvar", &json!({"name": "OFFSETGAPTYPE", "value": gap})).unwrap();
+    let pl = pline(&mut s, pts, closed);
+    s.execute("offset", &json!({"handle": pl, "distance": 1, "side": side})).unwrap();
+    poly(&last(&s))
+}
+
+fn area(p: &cadcraft_doc::LwPolyline) -> f64 {
+    Polyline { vertices: p.vertices.clone(), closed: p.closed }.area()
+}
+
+fn square() -> Value {
+    json!([[0, 0], [10, 0], [10, 10], [0, 10]])
+}
+
+#[test]
+fn offset_gap_type_extends_fillets_or_chamfers_outside_corners() {
+    let p = offset_with_gap(square(), true, [12.0, 5.0], 0);
+    assert_eq!(p.vertices.len(), 4);
+    assert!(p.vertices.iter().all(|v| v.bulge == 0.0));
+    assert!((area(&p) - 144.0).abs() < 1e-9, "area {}", area(&p));
+
+    let p = offset_with_gap(square(), true, [12.0, 5.0], 1);
+    assert_eq!(p.vertices.len(), 8);
+    let q = (std::f64::consts::PI / 8.0).tan();
+    assert_eq!(p.vertices.iter().filter(|v| (v.bulge - q).abs() < 1e-9).count(), 4, "{:?}", p.vertices);
+    assert_eq!(p.vertices.iter().filter(|v| v.bulge == 0.0).count(), 4);
+    assert!((area(&p) - (140.0 + std::f64::consts::PI)).abs() < 1e-9, "area {}", area(&p));
+    for v in p.vertices.iter().filter(|v| v.bulge != 0.0) {
+        let (arc, ccw) = cadcraft_geom::bulge_to_arc(v.p, p.vertices[(p.vertices.iter().position(|w| w == v).unwrap() + 1) % 8].p, v.bulge).unwrap();
+        assert!(ccw && (arc.radius - 1.0).abs() < 1e-9, "{arc:?}");
+        assert!([(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].iter().any(|&(x, y)| near(arc.center, x, y)), "{arc:?}");
+    }
+
+    let p = offset_with_gap(square(), true, [12.0, 5.0], 2);
+    assert_eq!(p.vertices.len(), 8);
+    assert!(p.vertices.iter().all(|v| v.bulge == 0.0));
+    let k = std::f64::consts::SQRT_2 - 1.0;
+    assert!(p.vertices.iter().any(|v| near(v.p, 10.0 + k, -1.0)) && p.vertices.iter().any(|v| near(v.p, 11.0, -k)), "{:?}", p.vertices);
+    // Every chamfer lies at distance 1 from its corner.
+    let corners = [Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0), Vec2::new(10.0, 10.0), Vec2::new(0.0, 10.0)];
+    for i in 0..8 {
+        let (a, b) = (p.vertices[i].p, p.vertices[(i + 1) % 8].p);
+        if a.dist(b) < 2.0 {
+            let c = corners.iter().min_by(|x, y| x.dist(a).total_cmp(&y.dist(a))).unwrap();
+            assert!((cadcraft_geom::Line::new(a, b).dist(*c) - 1.0).abs() < 1e-9, "chamfer {a:?}-{b:?}");
+        }
+    }
+    assert!((area(&p) - (144.0 - 2.0 * (1.0 - k) * (1.0 - k))).abs() < 1e-9, "area {}", area(&p));
+}
+
+#[test]
+fn offset_gap_type_handles_open_outside_corners_in_both_orientations() {
+    let k = std::f64::consts::SQRT_2 - 1.0;
+    // A left turn offset to the right and a right turn offset to the left: the corner at (10, 0)
+    // is outside in both, with the copies at y = -1 / x = 11 and y = 1 / x = 11.
+    for (pts, side, sy) in [(json!([[0, 0], [10, 0], [10, 10]]), [5.0, -2.0], -1.0), (json!([[0, 0], [10, 0], [10, -10]]), [5.0, 2.0], 1.0)] {
+        let p = offset_with_gap(pts.clone(), false, side, 1);
+        assert_eq!(p.vertices.len(), 4, "{:?}", p.vertices);
+        assert!(near(p.vertices[1].p, 10.0, sy) && near(p.vertices[2].p, 11.0, 0.0), "{:?}", p.vertices);
+        let (arc, ccw) = cadcraft_geom::bulge_to_arc(p.vertices[1].p, p.vertices[2].p, p.vertices[1].bulge).unwrap();
+        assert_eq!(ccw, sy < 0.0, "{arc:?}");
+        assert!(near(arc.center, 10.0, 0.0) && (arc.radius - 1.0).abs() < 1e-9, "{arc:?}");
+
+        let p = offset_with_gap(pts, false, side, 2);
+        assert_eq!(p.vertices.len(), 4, "{:?}", p.vertices);
+        assert!(p.vertices.iter().all(|v| v.bulge == 0.0));
+        let (a, b) = (p.vertices[1].p, p.vertices[2].p);
+        assert!(near(a, 10.0 + k, sy) && near(b, 11.0, sy * k), "{:?}", p.vertices);
+        assert!((cadcraft_geom::Line::new(a, b).dist(Vec2::new(10.0, 0.0)) - 1.0).abs() < 1e-9, "chamfer {a:?}-{b:?}");
+    }
+}
+
+#[test]
+fn offset_gap_type_leaves_inside_corners_and_arc_joints_alone() {
+    let inward: Vec<_> = (0..3).map(|g| offset_with_gap(square(), true, [5.0, 2.0], g).vertices).collect();
+    assert_eq!(inward[0].len(), 4);
+    assert!(inward.iter().all(|v| *v == inward[0]));
+    // An L's inside corner.
+    let l = json!([[0, 0], [10, 0], [10, 10]]);
+    let inside: Vec<_> = (0..3).map(|g| offset_with_gap(l.clone(), false, [8.0, 2.0], g).vertices).collect();
+    assert!(near(inside[0][1].p, 9.0, 1.0), "{:?}", inside[0]);
+    assert!(inside.iter().all(|v| *v == inside[0]));
+    // A line into an arc keeps its join.
+    let la = json!([[0, -5], {"p": [10, 0], "bulge": 1}, [10, 10]]);
+    let arcs: Vec<_> = (0..3).map(|g| offset_with_gap(la.clone(), false, [12.0, 5.0], g).vertices).collect();
+    assert!(arcs.iter().all(|v| *v == arcs[0]));
+    let outward: Vec<_> = (0..3).map(|g| offset_with_gap(la.clone(), false, [9.0, 5.0], g).vertices).collect();
+    assert!(outward.iter().all(|v| *v == outward[0]));
+}
+
+#[test]
+fn offset_gap_type_leaves_lines_around_a_collapsed_arc_joined() {
+    // Offset 1 towards the centre of the radius-0.5 arc collapses it; the lines either side of
+    // it never met, so no gap type fills a corner between them.
+    let pts = json!([[-2, 0], {"p": [0, 0], "bulge": 1}, [0, -1], [1, -4]]);
+    let joined: Vec<_> = (0..3).map(|g| offset_with_gap(pts.clone(), false, [-0.3, -0.5], g).vertices).collect();
+    assert!(joined[0].iter().all(|v| v.bulge == 0.0), "arc collapsed: {:?}", joined[0]);
+    assert!(joined.iter().all(|v| *v == joined[0]), "{joined:?}");
+}
+
+#[test]
+fn offset_echoes_the_gap_type() {
+    let mut s = Session::new();
+    s.execute("setvar", &json!({"name": "OFFSETGAPTYPE", "value": 1})).unwrap();
+    s.cmdline("offset").unwrap();
+    assert!(s.log.iter().any(|l| l.contains("OFFSETGAPTYPE=1")), "{:?}", s.log);
+}
+
+#[test]
+fn interactive_offset_previews_and_makes_the_gap_type_fill() {
+    for (gap, bulged) in [(1, 4), (2, 0)] {
+        let mut s = Session::new();
+        s.execute("setvar", &json!({"name": "OFFSETGAPTYPE", "value": gap})).unwrap();
+        pline(&mut s, square(), true);
+        s.cmdline("offset 1").unwrap();
+        s.input(crate::Input::Point(Vec2::new(10.0, 5.0))).unwrap();
+        let shown: Vec<_> = s.preview(Vec2::new(12.0, 5.0)).into_iter().map(|e| poly(&e.kind)).collect();
+        assert_eq!(shown.len(), 1, "gap {gap}");
+        s.input(crate::Input::Point(Vec2::new(12.0, 5.0))).unwrap();
+        let made = poly(&last(&s));
+        assert_eq!(made.vertices.len(), 8, "gap {gap}: {:?}", made.vertices);
+        assert_eq!(made.vertices.iter().filter(|v| v.bulge != 0.0).count(), bulged, "gap {gap}: {:?}", made.vertices);
+        assert_eq!(shown.first().map(|p| &p.vertices), Some(&made.vertices), "gap {gap}: preview matches the copy");
+    }
+}
+
 #[test]
 fn offset_elliptical_arc_follows_picked_side() {
     let max_x = |side: Value| {
@@ -776,4 +968,26 @@ fn offset_elliptical_arc_follows_picked_side() {
     assert!((centre - 9.0).abs() < 0.05, "centre side went outward: max x = {centre}");
     let outer = max_x(json!([20, 20]));
     assert!((outer - 11.0).abs() < 0.05, "outer side went inward: max x = {outer}");
+}
+
+#[test]
+fn offset_closed_polyline_past_half_width_fails() {
+    let mut s = Session::new();
+    let sq = h(&s.execute("rectang", &json!({"p1": [0, 0], "p2": [10, 10]})).unwrap());
+    let err = s.execute("offset", &json!({"handle": sq, "distance": 6, "side": [5, 5]})).unwrap_err();
+    assert!(err.to_string().contains("cannot offset that object"), "{err}");
+}
+
+#[test]
+fn offset_closed_polyline_within_half_width_keeps_winding() {
+    let mut s = Session::new();
+    let sq = h(&s.execute("rectang", &json!({"p1": [0, 0], "p2": [10, 10]})).unwrap());
+    s.execute("offset", &json!({"handle": sq, "distance": 2, "side": [5, 5]})).unwrap();
+    let p = poly(&last(&s));
+    let pts: Vec<Vec2> = p.vertices.iter().map(|v| v.p).collect();
+    let orig = poly(&kind(&s, &sq));
+    let area = |v: &[Vec2]| (0..v.len()).map(|i| v[i].cross(v[(i + 1) % v.len()])).sum::<f64>() / 2.0;
+    let oarea = area(&orig.vertices.iter().map(|v| v.p).collect::<Vec<_>>());
+    assert!((area(&pts) - 36.0 * oarea.signum()).abs() < 1e-6, "{pts:?}");
+    assert!(pts.iter().all(|q| (q.x - 2.0).abs() < 1e-6 || (q.x - 8.0).abs() < 1e-6), "{pts:?}");
 }

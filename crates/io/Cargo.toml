@@ -20,14 +20,24 @@ cadcraft-render = { workspace = true }
 cadcraft-fonts = { workspace = true }
 thiserror = { workspace = true }
 serde_json = { workspace = true }
+# The pages of PDFs attached on the web, kept in the drawing as PNG text.
+base64 = { workspace = true }
 serde = { workspace = true }
 craft-pdf = { workspace = true, features = ["write"] }
+quick-xml = { workspace = true }
+image = { workspace = true }
+hayro = { workspace = true }
+# Geometry types of the PDF reader's API (the version hayro uses).
+kurbo = "0.13"
+# Which paths stored in a drawing (PDF underlays) may be opened.
+craft-docpath = { workspace = true }
 
 [dev-dependencies]
 miniz_oxide = "0.9"
 tiff = "0.11"
 image = { workspace = true }
 tiny-skia = { workspace = true }
+cadcraft-hvac = { workspace = true }
 # Reads plotted PDFs back.
 craft-pdf = { workspace = true, features = ["read"] }
 

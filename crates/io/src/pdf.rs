@@ -62,7 +62,8 @@ const MAX_TEXT: usize = 1000;
 pub struct PdfOptions {
     /// Plot style table name, replacing the page setup's (`"None"` plots without one).
     pub plot_style_table: Option<String>,
-    /// Paper name from [`cadcraft_render::PAPER_SIZES`] (`"A4"`, `"Letter"`, `"ANSI B"`…).
+    /// Paper name from [`cadcraft_render::PAPER_SIZES`] (`"A4"`, `"Letter"`, `"ANSI B"`, `"B4 (JIS)"`,
+    /// `"Japanese Postcard"`…).
     pub paper: Option<String>,
     /// Custom paper size in millimetres (portrait width, height).
     pub paper_mm: Option<(f64, f64)>,
@@ -104,6 +105,8 @@ pub struct PdfOptions {
     /// Plot objects with their transparency (PDF alpha). `None` = the page setup's "Plot
     /// transparency" (off for model space).
     pub plot_transparency: Option<bool>,
+    /// The drawing's file, which relative PDF underlay paths are found from.
+    pub document: Option<String>,
 }
 
 impl Default for PdfOptions {
@@ -128,6 +131,7 @@ impl Default for PdfOptions {
             margins: None,
             hyperlinks: true,
             plot_transparency: None,
+            document: None,
         }
     }
 }
@@ -143,6 +147,7 @@ impl PdfOptions {
             _ => None,
         };
         PdfOptions {
+            document: v.get("document").and_then(Value::as_str).filter(|d| !d.is_empty()).map(|d| d.chars().take(4096).collect()),
             // `layers?` (default on), `offLayers?`, `links?: [{handle, url}]`, `text?: "text" |
             // "geometry"`.
             text_as_geometry: v.get("text").and_then(Value::as_str).is_some_and(|t| t.eq_ignore_ascii_case("geometry")),
@@ -243,6 +248,7 @@ pub fn plot(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
                 po.window = Some(w);
                 po.fit = Some(true);
                 po.compress = o.compress;
+                po.document = o.document.clone();
                 Ok((Space::Model, po))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -454,6 +460,7 @@ fn write_pdf(d: &Drawing, items: &[(Space, PdfOptions)], o: &PdfOptions, text_as
         let mut writer = Writer::new(settings, metadata);
         let mut fonts = fonts::Fonts::new(!text_as_geometry);
         let mut groups = Groups::default();
+        let mut images: std::collections::HashMap<(usize, u32, u32), KrillaImage> = std::collections::HashMap::new();
         // Link annotations of the whole file: each page keeps its own copy of the targets, so the
         // pages times the links must not multiply without a bound.
         let mut annotations_left = MAX_FILE_ANNOTATIONS;
@@ -467,7 +474,7 @@ fn write_pdf(d: &Drawing, items: &[(Space, PdfOptions)], o: &PdfOptions, text_as
             let doc = writer.document_mut();
             // Groups are added to the document, so they must exist before the page starts.
             groups.add(doc, d, &page.layers);
-            write_page(doc, &page, &groups, &mut fonts)?;
+            write_page(doc, &page, &groups, &mut fonts, &mut images)?;
         }
         if items.len() == 1 && !groups.ids.is_empty() {
             writer.document_mut().set_optional_content_page_mode(true);
@@ -515,6 +522,9 @@ struct SheetPage {
     links: Vec<(Bounds2, String)>,
     /// Page label: the layout name.
     label: String,
+    /// PDF underlays' pages: pixels and their placement on the page in points (`cm` matrix
+    /// mapping the unit square, its top row first, onto the page's parallelogram).
+    images: Vec<(crate::underlay_plot::PlotImage, [f64; 6])>,
 }
 
 /// `o` with a layout's saved page setup filled in where the options don't say: its plot window,
@@ -560,6 +570,7 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
         text: true,
         linetypes: true,
         fill: true,
+        patterns: true,
         lineweights,
         view_height: 0.0,
         plot_style_table,
@@ -578,7 +589,7 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
     // Relative point sizes follow the plotted window (else the extents).
     let view_height = window.map(|w| w.height()).unwrap_or(0.0);
     let list = cadcraft_render::build_plot(d, space, &cadcraft_render::Options { tolerance, view_height, ..ropts });
-    let b = window.unwrap_or(list.bounds);
+    let b = window.unwrap_or_else(|| crate::underlay_plot::plotted_bounds(&list));
     let s = plot_scale(&b, &sheet, fit, o.scale);
     // A layout plotted over a window is placed like model space: the window on the printable area.
     let placed = fit || window.is_some() || matches!(space, Space::Model);
@@ -593,7 +604,15 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
     let mut list = list;
     cadcraft_render::pen::apply(&mut list, map.s * unit_mm);
     let media = sheet.size * k;
-    let clip_pt = if placed { Bounds2::new(sheet.printable.min * k, sheet.printable.max * k) } else { Bounds2::new(Vec2::ZERO, media) };
+    let clip_pt = match window {
+        // A window plot shows only what lies inside the window (#3087), not the rest of the sheet.
+        Some(w) => {
+            let c = plot_area(&sheet.printable, Some((&w, map.from, map.s, map.to)));
+            Bounds2::new(c.min * k, c.max * k)
+        }
+        None if placed => Bounds2::new(sheet.printable.min * k, sheet.printable.max * k),
+        None => Bounds2::new(Vec2::ZERO, media),
+    };
     // The layers drawn on, in order of first use.
     let mut layers: Vec<u32> = Vec::new();
     if o.layers {
@@ -605,7 +624,33 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
         }
     }
     let links = links(&list, &map, &clip_pt, links_to);
-    Ok(SheetPage { media, list, map, clip_pt, layers, links, label: sheet_name(space) })
+    // Underlays at the plot resolution: drawing units → points → pixels.
+    let px_per_unit = map.s * map.k / 72.0 * crate::underlay_plot::DPI;
+    let images = crate::underlay_plot::images(d, &list, o.document.as_deref(), px_per_unit, None)
+        .into_iter()
+        .map(|im| {
+            let o = map.pt(im.origin);
+            let (u, v) = (map.pt(im.origin + im.u) - o, map.pt(im.origin + im.v) - o);
+            (im, [u.x, u.y, v.x, v.y, o.x, o.y])
+        })
+        .collect();
+    Ok(SheetPage { media, list, map, clip_pt, layers, links, label: sheet_name(space), images })
+}
+
+/// The area a placed plot shows, in paper units: the printable area, cut to the plot window when
+/// there is one (`window`, then the mapping `p' = (p - from) * s + to`). A window plot is clipped
+/// to the window, so what lies outside it never reaches the sheet even when the window's shape
+/// leaves paper to spare (#3087). A window placed off the printable area gives an empty area.
+pub(crate) fn plot_area(printable: &Bounds2, window: Option<(&Bounds2, Vec2, f64, Vec2)>) -> Bounds2 {
+    let Some((w, from, s, to)) = window else { return *printable };
+    let (a, b) = ((w.min - from) * s + to, (w.max - from) * s + to);
+    let min = a.min(b).max(printable.min);
+    let max = a.max(b).min(printable.max);
+    // Not finite, or no overlap: an empty area at the printable corner (draws nothing).
+    if !(min.is_finite() && max.is_finite()) {
+        return Bounds2 { min: printable.min, max: printable.min };
+    }
+    Bounds2 { min, max: max.max(min) }
 }
 
 /// Source and destination origins for the shared model-space PDF/PNG placement behavior.
@@ -751,7 +796,13 @@ fn circle_path(x: f32, y: f32, r: f32) -> Option<Path> {
 }
 
 /// Write one sheet as a page: its size, label, link annotations and marks.
-fn write_page(doc: &mut kr::Document, p: &SheetPage, groups: &Groups, fonts: &mut fonts::Fonts) -> std::result::Result<(), Failure> {
+fn write_page(
+    doc: &mut kr::Document,
+    p: &SheetPage,
+    groups: &Groups,
+    fonts: &mut fonts::Fonts,
+    images: &mut std::collections::HashMap<(usize, u32, u32), KrillaImage>,
+) -> std::result::Result<(), Failure> {
     let (w, h) = (p.media.x as f32, p.media.y as f32);
     let label = PageLabel::new(None, Some(p.label.chars().take(MAX_TEXT).collect()), None);
     let settings = PageSettings::from_wh(w, h).ok_or_else(|| IoError::Format("the sheet has no area".into()))?.with_page_label(label);
@@ -770,7 +821,7 @@ fn write_page(doc: &mut kr::Document, p: &SheetPage, groups: &Groups, fonts: &mu
     let mut drawn = Ok(());
     if let Some(clip) = rect_path(p.clip_pt.min, p.clip_pt.max) {
         surface.push_clip_path(&clip, &FillRule::NonZero);
-        drawn = marks(&mut surface, p, groups, fonts);
+        drawn = marks(&mut surface, p, groups, fonts, images);
         surface.pop();
     }
     surface.pop();
@@ -786,6 +837,123 @@ struct StrokeStyle {
     rgb: Rgb,
     width: f32,
     transparency: u8,
+}
+
+/// Encode a raster as PNG so the PDF preserves exact `(width, height)` in `IHDR` (avoiding
+/// `KrillaImage::from_rgba8`'s dimension-blind pixel hash) and omits `/SMask` for opaque images.
+fn encode_png(r: &cadcraft_doc::Raster) -> Option<Vec<u8>> {
+    use craft_image_codecs::{ChannelLayout, EncodeOptions, Image as CodecImage, PngRows};
+    let (w, h) = (r.width(), r.height());
+    let stride = usize::try_from(w).ok()?.checked_mul(4).filter(|n| *n > 0)?;
+    let expected = stride.checked_mul(usize::try_from(h).ok()?)?;
+    if h == 0 || r.rgba().len() != expected {
+        return None;
+    }
+    let opaque = r.opaque();
+    let layout = if opaque { ChannelLayout::Rgb } else { ChannelLayout::Rgba };
+    let mut rows = r.rgba().chunks_exact(stride);
+    let make_row = |rgba_row: &[u8]| -> Option<CodecImage> {
+        let bytes = if opaque {
+            let mut rgb = Vec::with_capacity(usize::try_from(w).ok()?.checked_mul(3)?);
+            for px in rgba_row.as_chunks::<4>().0 {
+                rgb.extend_from_slice(&px[..3]);
+            }
+            rgb
+        } else {
+            rgba_row.to_vec()
+        };
+        CodecImage::from_u8(w, 1, layout, bytes).ok()
+    };
+    let first = make_row(rows.next()?)?;
+    let mut out = Vec::new();
+    let mut encoder = PngRows::new(&mut out, &first, h, &EncodeOptions::default()).ok()?;
+    encoder.push(&first).ok()?;
+    for row in rows {
+        encoder.push(&make_row(row)?).ok()?;
+    }
+    encoder.finish().ok()?;
+    Some(out)
+}
+
+fn krilla_image(r: &std::sync::Arc<cadcraft_doc::Raster>, cache: &mut std::collections::HashMap<(usize, u32, u32), KrillaImage>) -> KrillaImage {
+    let key = (std::sync::Arc::as_ptr(r) as usize, r.width(), r.height());
+    if let Some(existing) = cache.get(&key) {
+        return existing.clone();
+    }
+    let img = if let Some(png) = encode_png(r)
+        && let Ok(kimg) = KrillaImage::from_png(png.into(), true)
+    {
+        kimg
+    } else {
+        KrillaImage::from_rgba8(r.rgba().to_vec(), r.width(), r.height())
+    };
+    cache.insert(key, img.clone());
+    img
+}
+
+/// Draw a raster image onto the Y-up PDF surface, respecting its world-to-page transform,
+/// clip outlines and fade/transparency.
+fn draw_raster_image(
+    s: &mut Surface<'_>,
+    p: &SheetPage,
+    img: &cadcraft_render::DImage,
+    t: u8,
+    cache: &mut std::collections::HashMap<(usize, u32, u32), KrillaImage>,
+) {
+    let (w, h) = (img.raster.width(), img.raster.height());
+    if w == 0 || h == 0 {
+        return;
+    }
+    let Some(size) = Size::from_wh(w as f32, h as f32) else { return };
+    let scale = p.map.s * p.map.k;
+    let Some((ox, oy)) = coord(p.map.pt(img.origin)) else { return };
+    let Some((rx, ry)) = coord(img.right * scale) else { return };
+    let Some((dx, dy)) = coord(img.down * scale) else { return };
+    let det = rx * dy - ry * dx;
+    if !det.is_finite() || det == 0.0 {
+        return;
+    }
+    let mut clip_paths = Vec::with_capacity(img.clips.len());
+    for outline in &img.clips {
+        let mut pb = PathBuilder::new();
+        let mut count = 0usize;
+        for &q in outline {
+            let Some((x, y)) = coord(p.map.pt(q)) else { return };
+            if count == 0 {
+                pb.move_to(x, y);
+            } else {
+                pb.line_to(x, y);
+            }
+            count += 1;
+        }
+        if count < 3 {
+            return;
+        }
+        pb.close();
+        let Some(path) = pb.finish() else { return };
+        clip_paths.push(path);
+    }
+    let k_img = krilla_image(&img.raster, cache);
+    let clips_pushed = clip_paths.len();
+    for path in &clip_paths {
+        s.push_clip_path(path, &FillRule::EvenOdd);
+    }
+    s.push_transform(&Transform::from_row(rx, ry, dx, dy, ox, oy));
+    let op = opacity(t).get() * (1.0 - f32::from(img.fade.min(100)) / 100.0);
+    let pushed_opacity = if op < 1.0 {
+        s.push_opacity(NormalizedF32::new(op.max(0.0)).unwrap_or(NormalizedF32::ONE));
+        true
+    } else {
+        false
+    };
+    s.draw_image(k_img, size);
+    if pushed_opacity {
+        s.pop();
+    }
+    s.pop();
+    for _ in 0..clips_pushed {
+        s.pop();
+    }
 }
 
 /// Opacity of a transparency in percent.
@@ -847,13 +1015,29 @@ fn krilla_failure(e: KrillaError) -> Failure {
 /// Primitives that stand for a glyph in an embeddable font (see [`fonts::Fonts`]) are written
 /// as text instead: the glyph at font size 1 under its glyph matrix (the matrix axes are one
 /// em).
-fn marks(s: &mut Surface<'_>, p: &SheetPage, groups: &Groups, fonts: &mut fonts::Fonts) -> std::result::Result<(), Failure> {
+fn marks(
+    s: &mut Surface<'_>,
+    p: &SheetPage,
+    groups: &Groups,
+    fonts: &mut fonts::Fonts,
+    images: &mut std::collections::HashMap<(usize, u32, u32), KrillaImage>,
+) -> std::result::Result<(), Failure> {
     let list = &p.list;
     let texts = fonts::texts(list);
     let white = Rgb(255, 255, 255);
     let mut batch: Option<(StrokeStyle, PathBuilder)> = None;
     let mut layer: Option<OcgId> = None;
+    // PDF underlays' pages, each before the primitive it comes before.
+    let mut pages: Vec<&(crate::underlay_plot::PlotImage, [f64; 6])> = p.images.iter().collect();
+    pages.sort_by_key(|(im, _)| im.at);
+    let mut pages = pages.into_iter().peekable();
     for (i, prim) in list.prims.iter().enumerate() {
+        // A page is drawn outside the marks' layer.
+        while let Some((im, m)) = pages.next_if(|(im, _)| im.at <= i) {
+            flush(s, &mut batch);
+            layer_changed(s, layer.take(), None)?;
+            underlay(s, im, m, &p.map);
+        }
         let want = list.prim_layers.get(i).and_then(|l| groups.ids.get(l)).copied();
         if want != layer {
             flush(s, &mut batch);
@@ -893,7 +1077,51 @@ fn marks(s: &mut Surface<'_>, p: &SheetPage, groups: &Groups, fonts: &mut fonts:
         }
     }
     flush(s, &mut batch);
-    layer_changed(s, layer, None)
+    layer_changed(s, layer, None)?;
+    for (im, m) in pages {
+        underlay(s, im, m, &p.map);
+    }
+    Ok(())
+}
+
+/// A PDF underlay's page: its pixels on the parallelogram `m` maps the unit square onto (its
+/// top row first, as a PDF image's `cm`), clipped to the viewport it is seen through. The
+/// paper is transparent: the page's alpha goes with it.
+fn underlay(s: &mut Surface<'_>, im: &crate::underlay_plot::PlotImage, m: &[f64; 6], map: &Map) {
+    let rgba: Vec<u8> =
+        im.rgb.as_chunks::<3>().0.iter().zip(im.alpha.iter().chain(std::iter::repeat(&255))).flat_map(|([r, g, b], a)| [*r, *g, *b, *a]).collect();
+    let n = (im.width as usize).saturating_mul(im.height as usize);
+    let Some(size) = kr::geom::Size::from_wh(1.0, 1.0) else { return };
+    if n == 0 || rgba.len() != n * 4 || m.iter().any(|v| !v.is_finite()) {
+        return;
+    }
+    let mut clipped = false;
+    if !im.clip.is_empty() {
+        let mut pb = PathBuilder::new();
+        for tri in im.clip.as_chunks::<3>().0 {
+            let Some(v) = tri.iter().map(|q| coord(map.pt(*q))).collect::<Option<Vec<_>>>() else { continue };
+            for (j, (x, y)) in v.iter().enumerate() {
+                if j == 0 {
+                    pb.move_to(*x, *y);
+                } else {
+                    pb.line_to(*x, *y);
+                }
+            }
+            pb.close();
+        }
+        // Seen through nothing: not drawn.
+        let Some(path) = pb.finish() else { return };
+        s.push_clip_path(&path, &FillRule::NonZero);
+        clipped = true;
+    }
+    // The writer draws an image's top row at y = 0 of the unit square.
+    let [ux, uy, vx, vy, ox, oy] = m.map(|v| v as f32);
+    s.push_transform(&Transform::from_row(ux, uy, -vx, -vy, ox + vx, oy + vy));
+    s.draw_image(kr::image::Image::from_rgba8(rgba, im.width, im.height), size);
+    s.pop();
+    if clipped {
+        s.pop();
+    }
 }
 
 /// Paint a loaded raster image as a PDF image XObject.  The render list already contains the
@@ -1043,7 +1271,8 @@ fn point(s: &mut Surface<'_>, batch: &mut Option<(StrokeStyle, PathBuilder)>, ma
 fn glyph(s: &mut Surface<'_>, font: kr::text::Font, t: &cadcraft_render::PlotText, map: &Map, rgb: Rgb, transparency: u8) {
     let k = map.s * map.k;
     let g = &t.glyph;
-    let (Some((a, b)), Some((c, d)), Some((e, f))) = (coord(g.x * k), coord(g.y * k), coord(map.pt(g.origin))) else { return };
+    let pt = map.pt(g.origin);
+    let (Some((a, b)), Some((c, d)), Some((e, f))) = (coord(g.x * k), coord(g.y * k), coord(pt)) else { return };
     let det = a * d - b * c;
     if !det.is_finite() || det == 0.0 {
         return;
@@ -1149,6 +1378,28 @@ mod saved_setup_tests {
         d.layouts.iter_mut().find(|l| l.name == "L1").unwrap().page.plot_area = "layout".into();
         let m = map(&d, json!({}));
         assert_eq!((m.s, m.from, m.to), (1.0, Vec2::ZERO, Vec2::ZERO));
+    }
+
+    /// A window plot is clipped to the window placed on the sheet, not to the whole printable
+    /// area, so objects beside the window never reach the page (#3087).
+    #[test]
+    fn a_window_plot_is_clipped_to_the_window() {
+        let mut d = Drawing::new_metric();
+        let line = |x0: f64, x1: f64| EntityKind::Line(Line { a: Vec3::new(x0, 50.0, 0.0), b: Vec3::new(x1, 50.0, 0.0) });
+        d.add(&Space::Model, Common::default(), line(0.0, 60.0)).unwrap();
+        d.add(&Space::Model, Common::default(), line(-30.0, -10.0)).unwrap();
+        // A4 landscape, 10 mm margins: the window (0,0)-(60,100) fits 1.9 mm per unit, 114 mm wide,
+        // centred at x = 148.5 mm.
+        let o = json!({"paper": "A4", "landscape": true, "margins": [10, 10, 10, 10], "window": [[0, 0], [60, 100]]});
+        let p = sheet(&d, &Space::Model, &PdfOptions::from_json(&o), &[]).unwrap();
+        let mm = |v: f64| v * PT_PER_MM;
+        let want = Bounds2::new(Vec2::new(mm(91.5), mm(10.0)), Vec2::new(mm(205.5), mm(200.0)));
+        assert!(p.clip_pt.min.dist(want.min) < 1e-6 && p.clip_pt.max.dist(want.max) < 1e-6, "clip {:?}, want {want:?}", p.clip_pt);
+        // Without a window the plot area is still the whole printable area.
+        let p =
+            sheet(&d, &Space::Model, &PdfOptions::from_json(&json!({"paper": "A4", "landscape": true, "margins": [10, 10, 10, 10]})), &[]).unwrap();
+        let want = Bounds2::new(Vec2::new(mm(10.0), mm(10.0)), Vec2::new(mm(287.0), mm(200.0)));
+        assert!(p.clip_pt.min.dist(want.min) < 1e-6 && p.clip_pt.max.dist(want.max) < 1e-6, "clip {:?}, want {want:?}", p.clip_pt);
     }
 
     /// An explicit `scale` beats a saved scale to fit, in the PDF as in the preview.

@@ -96,6 +96,10 @@ impl Rasters {
     pub fn len(&self) -> usize {
         self.0.len()
     }
+    /// The rasters by path.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Arc<Raster>)> {
+        self.0.iter().map(|(k, v)| (k.as_str(), v))
+    }
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

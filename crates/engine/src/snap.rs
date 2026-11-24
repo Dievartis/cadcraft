@@ -31,6 +31,8 @@ pub mod mode {
     pub const OFF: u32 = 16384;
     /// Not an OSMODE bit: snaps also find hatch objects (OSNAPHATCH = 1).
     pub const HATCH: u32 = 1 << 16;
+    /// Not an OSMODE bit: snaps don't find PDF underlays' page lines (PDFOSNAP = 0).
+    pub const NOPDF: u32 = 1 << 17;
     pub const ALL: [(u32, &str); 14] = [
         (END, "Endpoint"),
         (MID, "Midpoint"),
@@ -137,7 +139,7 @@ impl SnapCurve {
     }
     /// Points on the curve whose perpendicular passes through `p`; `picked` is where the curve
     /// was picked, kept when `p` is the center of a circle or arc (every radius is perpendicular).
-    fn perpendiculars(&self, p: Vec2, picked: Vec2) -> Vec<Vec2> {
+    pub(crate) fn perpendiculars(&self, p: Vec2, picked: Vec2) -> Vec<Vec2> {
         match self {
             SnapCurve::Circle { center, radius } | SnapCurve::Arc { center, radius, .. } => {
                 let u = (p - *center).normalized();
@@ -229,7 +231,10 @@ fn prim_segments(p: &Prim) -> Vec<Segment> {
 /// Tangent and perpendicular snaps need the base point (the other end of the line). With no
 /// base and `deferred` set (the prompt says it can resolve them, `Prompt.deferred`),
 /// they snap as *deferred*: the hit carries the curve and is resolved once the other end is
-/// known. Deferred hits only win where no other snap does (they are as unspecific as Nearest).
+/// known. With a base and `deferred` set, tangents to circles and circular arcs are deferred too
+/// (CIRCLE's radius: the circle around the base that touches the curve, #1512); an elliptical arc
+/// or a spline keeps its ordinary tangent from the base. Deferred hits only win
+/// where no other snap does (they are as unspecific as Nearest).
 pub fn osnap(d: &Drawing, space: &Space, cursor: Vec2, aperture: f64, osmode: u32, base: Option<Vec2>, deferred: bool) -> Option<SnapHit> {
     if osmode == 0 || osmode & mode::OFF != 0 {
         return None;
@@ -478,6 +483,12 @@ pub(crate) fn gather(
     gather_in(d, space, ix, cursor, aperture, osmode, &[])
 }
 
+/// Whether `k` is snapped to as an object: a PDF underlay's frame only while it is shown
+/// (PDFFRAME 1 or 2).
+fn snaps_to(d: &Drawing, k: &EntityKind) -> bool {
+    !(matches!(k, EntityKind::PdfUnderlay(_)) && d.header.i64("PDFFRAME", 1) == 0)
+}
+
 fn gather_in(
     d: &Drawing,
     space: &Space,
@@ -523,16 +534,112 @@ fn gather_in(
             }
         }
         let mut sink = Sink { osmode, aperture, probe, cands: &mut cands, near: &mut near_prims };
-        sink.object(&e.kind, None);
+        if snaps_to(d, &e.kind) {
+            sink.object(&e.kind, None);
+        }
         // A block reference snaps to the objects inside it, placed by its transform.
         if let EntityKind::Insert(ins) = &e.kind {
-            block_leaves(d, ins, &Mat3::IDENTITY, 0, &mut budget, frozen, &mut |k, m| sink.object(k, Some(m)));
+            block_leaves(d, ins, &Mat3::IDENTITY, 0, &mut budget, frozen, &mut |k, m| {
+                if snaps_to(d, k) {
+                    sink.object(k, Some(m));
+                }
+                // A PDF underlay in the block: the lines of its page, placed by the reference.
+                if let EntityKind::PdfUnderlay(_) = k {
+                    let mut placed = k.clone();
+                    placed.transform(m);
+                    if let EntityKind::PdfUnderlay(u) = &placed {
+                        underlay_lines(u, &probe, osmode, &mut |l| sink.object(l, None));
+                    }
+                }
+            });
         }
         if let EntityKind::Dimension(dm) = &e.kind {
             sink.dimension(d, dm, &mut budget, frozen);
         }
+        // A PDF underlay snaps to the lines drawn on its page, met as lines near the cursor.
+        if let EntityKind::PdfUnderlay(u) = &e.kind {
+            underlay_lines(u, &probe, osmode, &mut |k| sink.object(k, None));
+        }
     }
     Some((cands, near_prims))
+}
+
+/// Most underlay segments one snap query looks at.
+const MAX_UNDERLAY_SEGMENTS: usize = 2000;
+
+/// The segments of underlay `u`'s page lines that cross `probe`, as lines in drawing units
+/// (only their parts inside its clip boundary when it is clipped, outside it when inverted).
+fn underlay_lines(u: &cadcraft_doc::PdfUnderlay, probe: &Bounds2, osmode: u32, f: &mut dyn FnMut(&EntityKind)) {
+    // PDFOSNAP 0: no snaps on PDF underlays' pages; none on an unloaded or hidden one.
+    if osmode & mode::NOPDF != 0 || u.unloaded || u.hidden {
+        return;
+    }
+    let Some(lines) = crate::cmd::underlay::page_lines(&u.path, u.page, &u.layers_key()) else { return };
+    let o = u.insert.xy();
+    let (ax, ay) = u.axes();
+    let to = |p: Vec2| o + ax * p.x + ay * p.y;
+    // The probe in page fractions: only the runs of lines that cross it are looked at.
+    let det = ax.x * ay.y - ax.y * ay.x;
+    let from = |p: Vec2| {
+        let q = p - o;
+        Vec2::new((q.x * ay.y - q.y * ay.x) / det, (ax.x * q.y - ax.y * q.x) / det)
+    };
+    let corners = [probe.min, Vec2::new(probe.max.x, probe.min.y), probe.max, Vec2::new(probe.min.x, probe.max.y)];
+    let on_page = Bounds2::from_points(corners.map(from));
+    if !(on_page.min.is_finite() && on_page.max.is_finite()) {
+        return;
+    }
+    let clip = u.clip_outline().and_then(|c| cadcraft_render::clip::PolyClip::new(&c));
+    let mut n = 0usize;
+    for run in lines.iter().filter(|r| r.bounds.intersects(&on_page)) {
+        for w in run.points.windows(2) {
+            let (Some(a), Some(b)) = (w.first(), w.get(1)) else { continue };
+            let (a, b) = (to(*a), to(*b));
+            if !Bounds2::from_points([a, b]).intersects(probe) || a == b {
+                continue;
+            }
+            let pieces = match &clip {
+                Some(c) if u.clip_inverted => outside(c, a, b),
+                Some(c) => c.clip_polyline(&[a, b]),
+                None => vec![vec![a, b]],
+            };
+            for piece in pieces {
+                let (Some(a), Some(b)) = (piece.first(), piece.last()) else { continue };
+                n += 1;
+                if n > MAX_UNDERLAY_SEGMENTS {
+                    return;
+                }
+                f(&EntityKind::Line(cadcraft_doc::Line { a: a.to3(0.0), b: b.to3(0.0) }));
+            }
+        }
+    }
+}
+
+/// The parts of segment `a`–`b` outside clip region `c`.
+fn outside(c: &cadcraft_render::clip::PolyClip, a: Vec2, b: Vec2) -> Vec<Vec<Vec2>> {
+    let poly = c.polygon();
+    let d = b - a;
+    let mut ts = vec![0.0, 1.0];
+    for (i, p) in poly.iter().enumerate() {
+        let Some(q) = poly.get((i + 1) % poly.len()) else { continue };
+        let e = *q - *p;
+        let den = d.x * e.y - d.y * e.x;
+        if den.abs() < 1e-300 {
+            continue;
+        }
+        let w = *p - a;
+        let (t, s) = ((w.x * e.y - w.y * e.x) / den, (w.x * d.y - w.y * d.x) / den);
+        if t.is_finite() && (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&s) {
+            ts.push(t);
+        }
+    }
+    ts.sort_by(f64::total_cmp);
+    ts.windows(2)
+        .filter_map(|w| {
+            let (t0, t1) = (*w.first()?, *w.get(1)?);
+            (t1 - t0 > 1e-12 && !c.contains(a + d * ((t0 + t1) / 2.0))).then(|| vec![a + d * t0, a + d * t1])
+        })
+        .collect()
 }
 
 /// Ranks the gathered candidates within the aperture ([`ranked`]), adding the base-dependent
@@ -569,6 +676,8 @@ fn finish(
             }
             if osmode & mode::TAN != 0 {
                 let pts = match p {
+                    // A deferred prompt resolves tangents to circles and arcs itself.
+                    Prim::Seg(Segment::Arc { .. }) | Prim::Circle(_) if deferred => Vec::new(),
                     // Only the tangent points that lie on the arc itself (not its circle).
                     Prim::Seg(Segment::Arc { arc, .. }) => Circle::new(arc.center, arc.radius)
                         .tangent_points(bp)
@@ -802,7 +911,11 @@ impl Sink<'_> {
                     row_spacing: 0.0,
                     clip: None,
                 };
-                block_leaves(d, &ins, &Mat3::IDENTITY, 0, budget, frozen, &mut |k, m| self.object(k, Some(m)));
+                block_leaves(d, &ins, &Mat3::IDENTITY, 0, budget, frozen, &mut |k, m| {
+                    if snaps_to(d, k) {
+                        self.object(k, Some(m));
+                    }
+                });
             }
             None => {
                 let g = cadcraft_render::dimension_in(d, dm);
@@ -847,7 +960,15 @@ fn dim_def_points(dm: &cadcraft_doc::Dimension) -> Vec<Vec2> {
 /// Calls `f` with each object drawn by a block reference and the transform placing it, nested
 /// references expanded (within [`MAX_BLOCK_DEPTH`] levels and `budget` objects); objects that
 /// aren't drawn (hidden, on a layer that is off or frozen, attribute definitions) are left out.
-fn block_leaves(d: &Drawing, ins: &Insert, m: &Mat3, depth: usize, budget: &mut usize, frozen: &[String], f: &mut dyn FnMut(&EntityKind, &Mat3)) {
+pub(crate) fn block_leaves(
+    d: &Drawing,
+    ins: &Insert,
+    m: &Mat3,
+    depth: usize,
+    budget: &mut usize,
+    frozen: &[String],
+    f: &mut dyn FnMut(&EntityKind, &Mat3),
+) {
     if depth >= MAX_BLOCK_DEPTH {
         return;
     }
@@ -902,7 +1023,7 @@ fn prim_near(p: &Prim, probe: &Bounds2, aperture: f64) -> bool {
 
 /// `p` placed by the affine transform `m`, exactly: circles and arcs under a non-uniform scale
 /// become ellipses and elliptical arcs.
-fn xform_prim(p: &Prim, m: &Mat3) -> Prim {
+pub(crate) fn xform_prim(p: &Prim, m: &Mat3) -> Prim {
     let mirror = m.is_mirroring();
     match p {
         Prim::Seg(Segment::Line(l)) => Prim::Seg(Segment::Line(cadcraft_geom::Line::new(m.apply(l.a), m.apply(l.b)))),
@@ -1232,6 +1353,28 @@ mod tests {
     }
 
     #[test]
+    fn center_snaps_from_the_curve_far_from_it() {
+        let mut d = Drawing::new_imperial();
+        let arc = cadcraft_doc::Arc { center: Vec3::new(100.0, 50.0, 0.0), radius: 80.0, start: 30f64.to_radians(), end: 150f64.to_radians() };
+        d.add(&Space::Model, Common::default(), EntityKind::Arc(arc)).unwrap();
+        let on_arc = Vec2::polar(Vec2::new(100.0, 50.0), 80.1, 70f64.to_radians());
+        let h = osnap(&d, &Space::Model, on_arc, 0.5, mode::CEN, None, false).unwrap();
+        assert_eq!((h.mode, h.point), (mode::CEN, Vec2::new(100.0, 50.0)));
+        // Without Center, or away from the curve, nothing.
+        assert!(osnap(&d, &Space::Model, on_arc, 0.5, mode::END | mode::MID, None, false).is_none());
+        assert!(osnap(&d, &Space::Model, Vec2::polar(Vec2::new(100.0, 50.0), 81.0, 70f64.to_radians()), 0.5, mode::CEN, None, false).is_none());
+        // Past the arc's ends, its circle isn't hovered.
+        assert!(osnap(&d, &Space::Model, Vec2::polar(Vec2::new(100.0, 50.0), 80.0, -30f64.to_radians()), 0.5, mode::CEN, None, false).is_none());
+        // A snap under the cursor still wins: the arc's midpoint.
+        let top = Vec2::new(100.2, 130.1);
+        assert_eq!(osnap(&d, &Space::Model, top, 0.5, mode::CEN | mode::MID, None, false).unwrap().mode, mode::MID);
+        // A full circle, too.
+        let d = drawing();
+        let h = osnap(&d, &Space::Model, Vec2::new(21.0, 1.8), 0.5, mode::CEN, None, false).unwrap();
+        assert_eq!(h.point, Vec2::new(20.0, 0.0));
+    }
+
+    #[test]
     fn perpendicular_from_base() {
         let d = drawing();
         let h = osnap(&d, &Space::Model, Vec2::new(3.0, 0.2), 0.5, mode::PER, Some(Vec2::new(3.0, 4.0)), false).unwrap();
@@ -1280,9 +1423,14 @@ mod tests {
         let df = h.deferred.unwrap();
         assert_eq!(df.curve, SnapCurve::Circle { center: Vec2::new(20.0, 0.0), radius: 2.0 });
         assert_eq!(h.input(), crate::Input::Deferred(df));
-        // With a base it is an ordinary tangent.
-        let t = osnap(&d, &Space::Model, Vec2::new(19.9, 1.9), 1.0, mode::TAN, Some(Vec2::new(10.0, 0.0)), true).unwrap();
+        // With a base it is an ordinary tangent, unless the prompt resolves it (CIRCLE's radius).
+        let t = osnap(&d, &Space::Model, Vec2::new(19.9, 1.9), 1.0, mode::TAN, Some(Vec2::new(10.0, 0.0)), false).unwrap();
         assert!(t.deferred.is_none() && t.name == "Tangent");
+        let t = osnap(&d, &Space::Model, at, 0.5, mode::TAN, Some(Vec2::new(10.0, 0.0)), true).unwrap();
+        assert_eq!(t.name, "Deferred Tangent");
+        // A perpendicular from the base is still resolved from it.
+        let p = osnap(&d, &Space::Model, Vec2::new(2.0, 0.2), 0.5, mode::PER, Some(Vec2::new(2.0, 5.0)), true).unwrap();
+        assert!(p.deferred.is_none() && p.point.near(Vec2::new(2.0, 0.0), 1e-9));
         // A specific snap still wins over a deferred one.
         let q = osnap(&d, &Space::Model, at, 0.5, mode::TAN | mode::QUA, None, true).unwrap();
         assert_eq!(q.mode, mode::QUA);

@@ -5,12 +5,15 @@ use serde_json::{Value, json};
 use crate::{EngineError, Result, Session};
 
 mod table;
+#[cfg(test)]
+mod tests;
 
 const SESSION_VARS: &[&str] = &[
     "AUDITCTL",
     "ATTREQ",
     "OSMODE",
     "OSNAPHATCH",
+    "PDFOSNAP",
     "ANNOAUTOSCALE",
     "ORTHOMODE",
     "POLARMODE",
@@ -60,10 +63,12 @@ const SESSION_VARS: &[&str] = &[
     "FILEDIA",
     "PICKADD",
     "PICKDRAG",
+    "MBUTTONPAN",
     "PICKSTYLE",
     "GRIPSIZE",
     "CURSORSIZE",
     "MAXARRAY",
+    "SPELLDICTIONARY",
     "ZOOMFACTOR",
     "MEASUREINIT",
     "LASTPOINT",
@@ -83,6 +88,7 @@ pub fn get(s: &Session, name: &str) -> Option<Value> {
     let v = match n.as_str() {
         "OSMODE" => json!(st.osmode),
         "OSNAPHATCH" => json!(i32::from(st.osnaphatch)),
+        "PDFOSNAP" => json!(i32::from(st.pdfosnap)),
         // AutoCAD's values: positive on, negative off (4 = every annotative object).
         "ANNOAUTOSCALE" => json!(if st.annoautoscale { 4 } else { -4 }),
         // Paper units per drawing unit of the current annotation scale (1:50 → 0.02).
@@ -141,10 +147,12 @@ pub fn get(s: &Session, name: &str) -> Option<Value> {
         "FILEDIA" => json!(i32::from(st.filedia)),
         "PICKADD" => json!(i32::from(st.pickadd)),
         "PICKDRAG" => json!(i32::from(st.pickdrag) * 2),
+        "MBUTTONPAN" => json!(i32::from(st.mbuttonpan)),
         "PICKSTYLE" => json!(st.pickstyle),
         "GRIPSIZE" => json!(st.gripsize),
         "CURSORSIZE" => json!(st.cursorsize),
         "MAXARRAY" => json!(st.maxarray),
+        "SPELLDICTIONARY" => json!(st.spelldictionary),
         "ZOOMFACTOR" => json!(st.zoomfactor),
         "MEASUREINIT" => json!(i32::from(st.measureinit)),
         "LASTPOINT" => json!([s.last_point.x, s.last_point.y, 0.0]),
@@ -163,7 +171,10 @@ pub fn get(s: &Session, name: &str) -> Option<Value> {
         "SAVETIME" => json!(crate::autosave::savetime()),
         "SAVEFILEPATH" => json!(crate::autosave::savefilepath()),
         "ISAVEBAK" => json!(i32::from(crate::autosave::isavebak())),
-        "CMDNAMES" => json!(s.running.as_ref().map(|r| r.id.to_ascii_uppercase()).unwrap_or_default()),
+        // The command a transparent one runs inside comes first, as AutoCAD gives it ("LINE'ZOOM").
+        // While a transparent command reads its input it isn't `running`, but the outer command
+        // is still suspended, and still active.
+        "CMDNAMES" => json!([&s.suspended, &s.running].into_iter().flatten().map(|r| r.id.to_ascii_uppercase()).collect::<Vec<_>>().join("'")),
         "DWGNAME" => json!(s.state().map(|d| d.title.clone()).unwrap_or_default()),
         "DBMOD" => json!(s.state().map(|d| i32::from(d.is_dirty())).unwrap_or(0)),
         // The next handle the drawing gives out, in hex as `$HANDSEED` (the header keeps the
@@ -173,9 +184,13 @@ pub fn get(s: &Session, name: &str) -> Option<Value> {
         // The drawing's folder with a trailing separator ("" while it has no file); DWGTITLED is 1 once it has one.
         "DWGPREFIX" => json!(s.state().ok().and_then(|d| d.path.as_deref()).map(dwg_prefix).unwrap_or_default()),
         "DWGTITLED" => json!(s.state().map(|d| i32::from(d.path.is_some())).unwrap_or(0)),
-        "CMDACTIVE" => json!(i32::from(s.running.is_some())),
+        // 1: a command is active; 2: a transparent one, inside it.
+        "CMDACTIVE" => json!(i32::from(s.running.is_some() || s.suspended.is_some()) + 2 * i32::from(s.suspended.is_some())),
         "TILEMODE" => json!(i32::from(s.state().is_ok_and(|d| d.space.layout().is_none()))),
         "PLATFORM" => json!(std::env::consts::OS),
+        // The clock, in UTC: the workspace's chrono has no time zone support (no `clock` feature).
+        "CDATE" => json!(cdate(now_secs()?)?),
+        "DATE" => json!(julian_date(now_secs()?)?),
         "BLOCKEDITOR" => json!(i32::from(s.state().is_ok_and(|d| d.block_edit.is_some()))),
         // The template NEW/QNEW start from (a profile setting, like FONTALT; "" = none).
         "QNEWTEMPLATE" => json!(crate::cmd::file::qnew_template()),
@@ -243,6 +258,35 @@ fn dwg_prefix(path: &str) -> String {
     }
 }
 
+/// Whole seconds since 1970 from the system clock (`None` for a clock set before 1970).
+#[cfg(not(target_arch = "wasm32"))]
+fn now_secs() -> Option<i64> {
+    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?;
+    i64::try_from(since.as_secs()).ok()
+}
+/// The web build has no clock in std (`SystemTime::now` panics there), so CDATE and DATE read nil.
+#[cfg(target_arch = "wasm32")]
+fn now_secs() -> Option<i64> {
+    None
+}
+
+/// CDATE: `secs` since 1970 as the real YYYYMMDD.HHMMSS, to the second like AutoCAD 2017 on.
+fn cdate(secs: i64) -> Option<f64> {
+    use chrono::{Datelike, Timelike};
+    let t = chrono::DateTime::from_timestamp(secs, 0)?;
+    let day = f64::from(t.year()) * 10_000.0 + f64::from(t.month() * 100 + t.day());
+    let time = f64::from(t.hour() * 10_000 + t.minute() * 100 + t.second());
+    Some(day + time / 1_000_000.0)
+}
+
+/// DATE: `secs` since 1970 as a Julian day number plus the fraction of the day since midnight
+/// (AutoCAD's form: 1998-01-01 12:00 is 2450815.5). Day 1 CE is Julian day 1_721_426.
+fn julian_date(secs: i64) -> Option<f64> {
+    use chrono::{Datelike, Timelike};
+    let t = chrono::DateTime::from_timestamp(secs, 0)?;
+    Some(f64::from(t.num_days_from_ce()) + 1_721_425.0 + f64::from(t.num_seconds_from_midnight()) / 86_400.0)
+}
+
 fn as_bool(v: &Value) -> Option<bool> {
     v.as_bool().or_else(|| v.as_i64().map(|i| i != 0)).or_else(|| v.as_str().and_then(|s| s.trim().parse::<i64>().ok()).map(|i| i != 0))
 }
@@ -270,6 +314,8 @@ const READ_ONLY: &[&str] = &[
     "CMDACTIVE",
     "TILEMODE",
     "PLATFORM",
+    "CDATE",
+    "DATE",
     "DBMOD",
     "HANDSEED",
     "BLOCKEDITOR",
@@ -324,6 +370,7 @@ pub fn set(s: &mut Session, name: &str, v: &Value) -> Result<()> {
         // The `color` command's input: ByLayer, ByBlock, a name, an index or a true colour.
         "CECOLOR" => crate::cmd::set_current_color_value(s, v).ok_or_else(bad)?,
         "OSNAPHATCH" => st.osnaphatch = as_bool(v).ok_or_else(bad)?,
+        "PDFOSNAP" => st.pdfosnap = small(v, 1).ok_or_else(bad)? == 1,
         "ANNOAUTOSCALE" => st.annoautoscale = as_i(v).filter(|i| (-4..=4).contains(i)).ok_or_else(bad)? > 0,
         // A scale of the drawing's list; ANNOAUTOSCALE adds it to the annotative objects.
         "CANNOSCALE" => crate::cmd::annoscale::set_current(s, v.as_str().ok_or_else(bad)?)?,
@@ -395,9 +442,11 @@ pub fn set(s: &mut Session, name: &str, v: &Value) -> Result<()> {
         "FILEDIA" => st.filedia = small(v, 1).ok_or_else(bad)? == 1,
         "PICKADD" => st.pickadd = as_bool(v).ok_or_else(bad)?,
         "PICKDRAG" => st.pickdrag = as_i(v).filter(|b| matches!(b, 0 | 2)).map(|b| b == 2).ok_or_else(bad)?,
+        "MBUTTONPAN" => st.mbuttonpan = small(v, 1).ok_or_else(bad)? == 1,
         "PICKSTYLE" => st.pickstyle = as_i(v).filter(|b| (0..=3).contains(b)).and_then(|b| u8::try_from(b).ok()).ok_or_else(bad)?,
         "GRIPSIZE" => st.gripsize = as_f64(v).ok_or_else(bad)?.clamp(1.0, 255.0),
         "CURSORSIZE" => st.cursorsize = as_f64(v).ok_or_else(bad)?.clamp(1.0, 100.0),
+        "SPELLDICTIONARY" => st.spelldictionary = v.as_str().filter(|p| p.len() <= 4096 && !p.contains('\0')).ok_or_else(bad)?.trim().to_string(),
         "MAXARRAY" => st.maxarray = as_f64(v).ok_or_else(bad)?.clamp(100.0, 10_000_000.0) as u64,
         "ZOOMFACTOR" => st.zoomfactor = as_i(v).filter(|z| (3..=100).contains(z)).ok_or_else(bad)? as u32,
         "MEASUREINIT" => st.measureinit = small(v, 1).ok_or_else(bad)? == 1,

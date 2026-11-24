@@ -7,7 +7,9 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
+pub mod area_boolean;
 mod bounds;
+mod conic;
 mod curve;
 mod fillet;
 mod intersect;
@@ -19,12 +21,15 @@ mod spline_fit;
 mod vec;
 
 pub use bounds::Bounds2;
+pub use conic::{
+    Conic, circle_ellipse, ellipse_arc_closest_param, ellipse_arcs, ellipse_closest_param, ellipse_ellipse, line_ellipse, on_ellipse_arc,
+};
 pub use curve::{
     Arc, Circle, Ellipse, Line, MAX_TESSELLATED_POINTS, PolyVertex, Polyline, Segment, arc_to_bulge, bulge_to_arc, point_in_polygon,
     polygon_centroid, shoelace,
 };
 pub use fillet::{CornerFit, TanCurve, tangent_circles};
-pub use intersect::{circle_circle, intersect_ext, intersect_segments, line_circle, line_line, line_line_infinite};
+pub use intersect::{circle_circle, intersect_ext, intersect_segments, line_circle, line_line, line_line_capped, line_line_infinite};
 pub use mat::{Mat3, Mat4};
 pub use spline::{MAX_DEGREE as MAX_SPLINE_DEGREE, Spline};
 pub use spline_fit::{FitOptions, KnotParam};
@@ -45,9 +50,10 @@ pub fn norm_angle(a: f64) -> f64 {
 }
 
 /// Counter-clockwise sweep from `start` to `end`, in `(0, 2π]`.
+/// Only (numerically) equal angles give a full turn; tiny genuine sweeps are kept.
 pub fn ccw_sweep(start: f64, end: f64) -> f64 {
     let s = norm_angle(end - start);
-    if s <= EPS { TAU } else { s }
+    if s <= 1e-14 { TAU } else { s }
 }
 
 /// True when angle `a` lies on the CCW sweep from `start` to `end` (inclusive, with tolerance).
@@ -82,6 +88,8 @@ pub fn arc_segments(radius: f64, sweep: f64, tol: f64) -> usize {
     (n as usize).clamp(1, 4096)
 }
 
+#[cfg(test)]
+mod conic_tests;
 #[cfg(test)]
 mod property_tests;
 #[cfg(test)]

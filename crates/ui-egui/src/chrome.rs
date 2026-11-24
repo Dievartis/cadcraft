@@ -18,7 +18,7 @@ const TOOLBAR: &[&[(Icon, &str, &str, Option<&str>)]] = &[
     ],
     &[(Icon::Undo, "u", "Undo", Some("Cmd+Z")), (Icon::Redo, "redo", "Redo", Some("Cmd+Shift+Z"))],
     &[
-        (Icon::Plot, "plot", "Print", None),
+        (Icon::Plot, "plot", "Plot", None),
         (Icon::Publish, "publish", "Batch Publish", None),
         (Icon::PageSetup, "pagesetup", "Page Setup Manager", None),
         (Icon::Preview, "preview", "Plot Preview", None),
@@ -558,7 +558,7 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
         // A transient message occupies the same bounded readout slot as coordinates.
         // Ellipsis and a tooltip keep either value readable without covering layout tabs.
         let message = app.status.as_ref().filter(|(_, at)| crate::now_ms() - at < 5000.0).map(|(message, _)| message);
-        let readout = message.cloned().or(coord);
+        let readout = message.map(|m| crate::i18n::echo(m).into_owned()).or(coord);
         if let Some(text) = readout {
             let left = x + 8.0;
             let width = (coord_right - left).max(0.0);
@@ -691,5 +691,20 @@ mod tests {
         assert_eq!(visible_tabs(&w, Some(3), 0.0), 3..4);
         assert_eq!(visible_tabs(&w, Some(9), f32::NAN), 0..0);
         assert_eq!(visible_tabs(&[], Some(0), 100.0), 0..0);
+    }
+
+    #[test]
+    fn a_click_on_a_layout_tab_switches_to_it() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = CadApp::new(cadcraft_engine::Session::new(), crate::Services::default());
+        app.run("layout.new", json!({})).unwrap();
+        app.run("layout.set", json!({"name": "Model"})).unwrap();
+        app.start("pipeadd");
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1266.0, 1310.0)).build_ui_state(|ui, app: &mut CadApp| app.ui(ui), app);
+        h.run_steps(3);
+        let name = h.state().session.state().unwrap().doc.layouts.first().unwrap().name.clone();
+        h.get_by_label(&name).click();
+        h.run_steps(3);
+        assert!(matches!(&h.state().session.state().unwrap().space, cadcraft_doc::Space::Paper(n) if *n == name));
     }
 }

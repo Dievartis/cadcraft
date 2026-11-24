@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 mod mline;
 pub use mline::*;
 
+/// Fields (`%<\AcVar Date>%` …) in text values.
+pub mod fields;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Entity {
     pub handle: Handle,
@@ -51,7 +54,9 @@ pub use common::{Common, Handle, Lineweight, RawTag, Transparency};
 pub use curves::{Arc, Circle, Ellipse, Face3d, Line, LwPolyline, Point, PolyfaceMesh, Polyline3d, RayLine, Solid};
 pub use dim::{AssocSnap, DimAssoc, DimBreak, DimKind, DimMarks, Dimension, Inspection, JoggedRadius, Leader, MLeader};
 pub use fill::{Gradient, Hatch, HatchLoop};
-pub use layout::{Image, Table, TableCell, Viewport};
+pub use layout::{
+    Image, PdfUnderlay, Table, TableCell, UNDERLAY_MAX_FADE, UNDERLAY_MAX_PDF_BYTES, UnderlayLayer, Viewport, ViewportUcs, turn_lightness,
+};
 pub use text::{HAlign, MText, MTextColumnType, MTextColumns, Text, VAlign};
 pub use wipeout::Wipeout;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -97,6 +102,7 @@ pub enum EntityKind {
     Region(Region),
     Viewport(Viewport),
     Image(Image),
+    PdfUnderlay(PdfUnderlay),
     Wipeout(Wipeout),
     Table(Table),
     Tolerance(crate::Tolerance),
@@ -152,6 +158,7 @@ impl EntityKind {
             EntityKind::Region(_) => "Region",
             EntityKind::Viewport(_) => "Viewport",
             EntityKind::Image(_) => "Raster Image",
+            EntityKind::PdfUnderlay(_) => "PDF Underlay",
             EntityKind::Wipeout(_) => "Wipeout",
             EntityKind::Table(_) => "Table",
             EntityKind::Tolerance(_) => "Tolerance",
@@ -188,6 +195,7 @@ impl EntityKind {
             EntityKind::Region(_) => "REGION",
             EntityKind::Viewport(_) => "VIEWPORT",
             EntityKind::Image(_) => "IMAGE",
+            EntityKind::PdfUnderlay(_) => "PDFUNDERLAY",
             EntityKind::Wipeout(_) => "WIPEOUT",
             EntityKind::Table(_) => "ACAD_TABLE",
             EntityKind::Tolerance(_) => "TOLERANCE",
@@ -262,6 +270,17 @@ impl EntityKind {
                 .chain(m.block.iter().map(|b| Prim::Point(b.insert.xy())))
                 .collect(),
             EntityKind::Image(i) => vec![Prim::Point(i.insert.xy())],
+            // The page's frame (its clip boundary when clipped): an underlay is picked on its edges, not inside.
+            // Unloaded: not shown, nothing to pick.
+            EntityKind::PdfUnderlay(u) if u.unloaded => Vec::new(),
+            EntityKind::PdfUnderlay(u) => u
+                .frames()
+                .iter()
+                .flat_map(|c| {
+                    let n = c.len();
+                    (0..n).filter_map(move |i| Some(Prim::Seg(Segment::Line(GLine::new(*c.get(i)?, *c.get((i + 1) % n)?)))))
+                })
+                .collect(),
             EntityKind::Table(t) => vec![Prim::Point(t.insert.xy())],
             EntityKind::Tolerance(t) => vec![Prim::Point(t.insert.xy())],
             EntityKind::Unknown(_) => Vec::new(),
@@ -361,7 +380,12 @@ impl EntityKind {
                 if let Some(c) = &mut t.columns {
                     c.scale(s);
                 }
-                t.rotation = cadcraft_geom::norm_angle(t.rotation + rot);
+                // MTEXT has no backwards or upside-down flags: mirrored, it reads forward like
+                // a TEXT (#1169).
+                t.rotation = readable_rotation(t.rotation, rot, mirror);
+                if mirror {
+                    keep_mirrored_mtext_box(t, m);
+                }
             }
             EntityKind::Insert(i) => {
                 t3(&mut i.insert);
@@ -406,6 +430,9 @@ impl EntityKind {
                     l.iter_mut().for_each(t3);
                 }
                 t3(&mut ml.landing);
+                // Scaled whole, as AutoCAD scales it: the arrowhead and dogleg with the text.
+                ml.arrow_size *= s;
+                ml.dogleg *= s;
                 if let Some(t) = &mut ml.text {
                     t3(&mut t.insert);
                     t.height *= s;
@@ -457,6 +484,39 @@ impl EntityKind {
                 i.u = m.apply_vec(i.u.xy()).to3(0.0);
                 i.v = m.apply_vec(i.v.xy()).to3(0.0);
             }
+            // The page is never shown mirrored: a mirror lays it, unmirrored, on the mirrored
+            // outline, turned the way that keeps it nearer upright (as text with MIRRTEXT = 0),
+            // and its clip boundary on the mirrored one.
+            EntityKind::PdfUnderlay(u) if mirror && u.size != Vec2::ZERO => {
+                let (au, av) = u.axes();
+                let o = u.insert.xy();
+                let mu = m.apply_vec(au);
+                let along = cadcraft_geom::norm_angle(mu.y.atan2(mu.x));
+                let turned = cadcraft_geom::norm_angle(along + std::f64::consts::PI);
+                let off = |r: f64| {
+                    let d = (r - u.rotation).rem_euclid(std::f64::consts::TAU);
+                    d.min(std::f64::consts::TAU - d)
+                };
+                let (w, h) = (u.size.x, u.size.y);
+                if off(along) <= off(turned) {
+                    // From the mirrored upper-left corner; page points flip top to bottom.
+                    let at = m.apply(o + av);
+                    (u.insert.x, u.insert.y, u.rotation) = (at.x, at.y, along);
+                    u.clip.iter_mut().for_each(|p| p.y = h - p.y);
+                } else {
+                    // From the mirrored lower-right corner, half a turn on; left to right.
+                    let at = m.apply(o + au);
+                    (u.insert.x, u.insert.y, u.rotation) = (at.x, at.y, turned);
+                    u.clip.iter_mut().for_each(|p| p.x = w - p.x);
+                }
+                u.scale *= s;
+            }
+            // Without a page size (not read yet) only the insertion point is known.
+            EntityKind::PdfUnderlay(u) => {
+                t3(&mut u.insert);
+                u.scale *= s;
+                u.rotation += rot;
+            }
             EntityKind::Wipeout(w) => w.boundary.iter_mut().for_each(|p| *p = m.apply(*p)),
             EntityKind::Table(t) => {
                 if let Some(b) = &mut t.breaks {
@@ -473,8 +533,7 @@ impl EntityKind {
             EntityKind::Tolerance(t) => {
                 t3(&mut t.insert);
                 // Like text with MIRRTEXT = 0: a mirrored frame keeps reading left to right.
-                let a = if mirror { t.rotation() } else { t.rotation() + rot };
-                t.dir = Vec2::from_angle(cadcraft_geom::norm_angle(a)).to3(0.0);
+                t.dir = Vec2::from_angle(readable_rotation(t.rotation(), rot, mirror)).to3(0.0);
             }
             EntityKind::Unknown(u) if u.is_ole_frame() => crate::ole_frame_transform(&mut u.tags, m),
             EntityKind::Unknown(_) => {}
@@ -561,6 +620,7 @@ impl EntityKind {
             EntityKind::PolyfaceMesh(m) => m.vertices.iter_mut().for_each(z),
             EntityKind::Viewport(v) => z(&mut v.center),
             EntityKind::Image(i) => z(&mut i.insert),
+            EntityKind::PdfUnderlay(u) => z(&mut u.insert),
             EntityKind::Table(t) => z(&mut t.insert),
             EntityKind::Tolerance(t) => z(&mut t.insert),
             EntityKind::Spline(_) | EntityKind::Region(_) | EntityKind::Wipeout(_) | EntityKind::Unknown(_) => {}
@@ -617,7 +677,7 @@ impl EntityKind {
             EntityKind::Text(t) => vec![t.justify_point()],
             EntityKind::MText(t) => vec![t.insert.xy()],
             EntityKind::AttDef(a) => vec![a.text.justify_point()],
-            EntityKind::Insert(i) => std::iter::once(i.insert.xy()).chain(i.attribs.iter().map(|a| a.text.justify_point())).collect(),
+            EntityKind::Insert(i) => std::iter::once(i.insert.xy()).chain(i.grip_attribs().map(|(_, a)| a.text.justify_point())).collect(),
             EntityKind::Dimension(d) => vec![d.p13.xy(), d.p14.xy(), d.defpt.xy(), d.text_mid.xy()],
             EntityKind::MLine(m) => m.points(),
             EntityKind::Leader(l) => l.vertices.iter().map(|v| v.xy()).collect(),
@@ -641,6 +701,7 @@ impl EntityKind {
                 let v = i.v.xy() * i.size.y;
                 vec![a, a + u, a + u + v, a + v, a + u * 0.5, a + u + v * 0.5, a + v + u * 0.5, a + v * 0.5, a + (u + v) * 0.5]
             }
+            EntityKind::PdfUnderlay(u) => u.outline(),
             EntityKind::Wipeout(w) => w.vertices().to_vec(),
             EntityKind::Table(t) => vec![t.insert.xy()],
             EntityKind::Tolerance(t) => vec![t.insert.xy()],
@@ -659,8 +720,39 @@ fn transform_text(t: &mut Text, m: &Mat3, s: f64, rot: f64, mirror: bool) {
         a.y = q.y;
     }
     t.height *= s;
-    // MIRRTEXT = 0 (the default): mirrored text keeps reading left to right.
-    t.rotation = cadcraft_geom::norm_angle(t.rotation + if mirror { 0.0 } else { rot });
+    t.rotation = readable_rotation(t.rotation, rot, mirror);
+}
+
+/// The rotation of text after a transform that turns by `rot`. A mirroring transform leaves it as
+/// it is, so mirrored text keeps reading left to right (MIRRTEXT 0): adding `rot` would turn it
+/// upside down about a vertical mirror line. TEXT, MTEXT and TOLERANCE all follow this rule.
+fn readable_rotation(rotation: f64, rot: f64, mirror: bool) -> f64 {
+    cadcraft_geom::norm_angle(if mirror { rotation } else { rotation + rot })
+}
+
+/// After `m` mirrored `t` and [`readable_rotation`] kept it reading forward: when the mirror line
+/// crosses the text's direction at right angles (a vertical line for horizontal text), move the
+/// insertion point across the defined width, so the copy fills the box its mirror image would.
+/// A left-attached copy then ends where the mirror image ends instead of running back over the
+/// mirror line; the attachment stays. Mirroring twice gives the insertion point back.
+///
+/// A line along the text or at any other angle keeps the mirrored insertion point, and so does an
+/// MTEXT without a defined width: only the font can measure that width, and `doc` has none.
+fn keep_mirrored_mtext_box(t: &mut MText, m: &Mat3) {
+    if !(t.width.is_finite() && t.width > 0.0) {
+        return;
+    }
+    let dir = Vec2::from_angle(t.rotation);
+    if m.apply_vec(dir).normalized().dot(dir) > -1.0 + 1e-9 {
+        return;
+    }
+    let width = t.columns.as_ref().map_or(t.width, |c| c.total_width(t.width));
+    // Attachment 1-9 runs left, centre, right along each row: the copy's insertion point moves by
+    // a whole width for a left or right attachment and stays for a centred one.
+    let column = f64::from((t.attach.clamp(1, 9) - 1) % 3);
+    let shift = dir * (width * (column - 1.0));
+    t.insert.x += shift.x;
+    t.insert.y += shift.y;
 }
 
 #[cfg(test)]

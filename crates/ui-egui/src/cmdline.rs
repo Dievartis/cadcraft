@@ -58,7 +58,7 @@ pub fn dyn_frame(app: &CadApp) -> Option<crate::dyninput::Frame> {
     }
     let p = app.session.current_prompt().filter(cadcraft_engine::pointmod::accepts)?;
     let ucs = app.session.input_ucs();
-    Some(crate::dyninput::Frame { base: p.base, cartesian: st.dynpi_cartesian, absolute: st.dynpi_absolute, ucs })
+    Some(crate::dyninput::Frame { base: p.base, cartesian: st.dynpi_cartesian || p.xy, absolute: st.dynpi_absolute, ucs })
 }
 
 /// Take Tab away from egui before it moves keyboard focus to the next widget (which would leave
@@ -103,7 +103,7 @@ fn tab(app: &mut CadApp) {
     {
         // Both values typed: Tab locks the second one as well.
         app.cmd.locked_second = Some(app.cmd.buffer.clone());
-    } else if let Some(s) = catalogue_suggestions(app, &app.cmd.buffer).first() {
+    } else if let Some(s) = suggest(app, &app.cmd.buffer).first() {
         app.cmd.buffer = s.id.clone();
     }
 }
@@ -119,19 +119,30 @@ pub struct Suggestion {
     pub label: &'static str,
 }
 
-/// [`suggestions`] for what `session` can run: a Greek word that is a command of its own there (an
-/// alias, a command the drawing's LISP defines) stays as typed.
+/// The label AutoComplete shows for a command a LISP routine defines.
+const LISP_LABEL: &str = "LISP command";
+
+/// AutoComplete for the command line's text: [`suggestions`] with the commands the active
+/// drawing's LISP defines, and a Greek word that is a command of its own there (an alias, a command
+/// the drawing's LISP defines) left as typed.
+fn suggest(app: &CadApp, prefix: &str) -> Vec<Suggestion> {
+    if prefix.is_empty() || prefix.contains(' ') {
+        return Vec::new();
+    }
+    suggestions(prefix, &crate::context_menu::lisp_commands(app), &|word| app.session.greek_word_is_a_command(word))
+}
+
+/// [`suggestions`] for what `session` can run, without the commands LISP defines.
+#[cfg(test)]
 fn suggestions_in(session: &cadcraft_engine::Session, prefix: &str) -> Vec<Suggestion> {
-    suggestions(prefix, &|word| session.greek_word_is_a_command(word))
+    suggestions(prefix, &[], &|word| session.greek_word_is_a_command(word))
 }
 
-fn catalogue_suggestions(app: &CadApp, prefix: &str) -> Vec<Suggestion> {
-    suggestions_in(&app.session, prefix).into_iter().filter(|s| crate::catalogue::visible(app, &s.id.to_ascii_lowercase())).collect()
-}
-
-/// Matching command names/aliases for AutoComplete. `is_own_command` tells whether a Greek-layout
-/// word is a command of its own rather than the Latin name its keys type.
-fn suggestions(prefix: &str, is_own_command: &dyn Fn(&str) -> bool) -> Vec<Suggestion> {
+/// Matching command names/aliases for AutoComplete; `lisp` are the names of the commands LISP
+/// routines define (`c:` functions), listed after the registered commands whose name matches, or
+/// first when the whole name is typed: that is what Enter runs. `is_own_command` tells whether a
+/// Greek-layout word is a command of its own rather than the Latin name its keys type.
+fn suggestions(prefix: &str, lisp: &[String], is_own_command: &dyn Fn(&str) -> bool) -> Vec<Suggestion> {
     if prefix.is_empty() || prefix.contains(' ') {
         return Vec::new();
     }
@@ -167,7 +178,18 @@ fn suggestions(prefix: &str, is_own_command: &dyn Fn(&str) -> bool) -> Vec<Sugge
         seen_ids.insert(c.id);
     }
 
-    // 3. Command alias prefix matches (for commands not yet added).
+    // 3. Commands LISP defines, by name (a registered command of the same name wins).
+    let mut lisp_matches: Vec<String> =
+        lisp.iter().map(|n| n.to_ascii_lowercase()).filter(|n| n.starts_with(&p) && cadcraft_engine::cmd::find_command(n).is_none()).collect();
+    lisp_matches.sort_by(|a, b| (a.len(), a).cmp(&(b.len(), b)));
+    lisp_matches.dedup();
+    for n in lisp_matches {
+        let id = n.to_ascii_uppercase();
+        let at = if n == p { 0 } else { out.len() };
+        out.insert(at, Suggestion { display: id.clone(), id, label: LISP_LABEL });
+    }
+
+    // 4. Command alias prefix matches (for commands not yet added).
     let mut alias_matches: Vec<(&'static str, &'static cadcraft_engine::CommandSpec)> = Vec::new();
     for c in cadcraft_engine::command_specs() {
         if c.id.contains('.') || seen_ids.contains(c.id) {
@@ -302,6 +324,18 @@ fn enable_ime(app: &mut CadApp, ctx: &egui::Context) {
     });
 }
 
+/// Whether the running prompt collects text (TEXT's "Enter text"), not a number or a point.
+fn collects_text(app: &CadApp) -> bool {
+    app.session.current_prompt().is_some_and(|p| p.accept.text && !p.accept.point && !p.accept.number)
+}
+
+/// Whether the keypad's comma is a decimal point here: at a prompt that reads only numbers or
+/// points, or with no prompt running. A prompt that takes any text keeps the comma, since there it
+/// separates list entries (`-LAYER` names, `-ATTEDIT` colours as `255,128,0`).
+fn keypad_types_point(app: &CadApp) -> bool {
+    !app.session.current_prompt().is_some_and(|p| p.accept.text)
+}
+
 /// Handle keyboard input destined for the command line (when no text field has focus).
 pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
     if ctx.egui_wants_keyboard_input() {
@@ -313,7 +347,7 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
     let selection = app.session.selection();
     app.cmd.watch_selection(&selection);
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
-    let text_prompt = app.session.current_prompt().is_some_and(|p| p.accept.text && !p.accept.point && !p.accept.number);
+    let text_prompt = collects_text(app);
     if text_prompt {
         enable_ime(app, ctx);
     } else {
@@ -322,7 +356,12 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
         app.cmd.ime_on = false;
     }
     options_still_fit(app);
-    for ev in events {
+    // Numbers and points: the keypad's decimal key is a decimal point, a prompt taking text keeps its comma.
+    let mut keypad = crate::NumpadDecimal::default();
+    for mut ev in events {
+        // Asked per event: an Enter earlier in the same batch can move on to a text prompt.
+        let numeric = keypad_types_point(app);
+        keypad.step(&mut ev, numeric);
         // The options menu takes the arrows, Enter and Escape; typing closes it.
         if app.cmd.options.is_some() {
             let space = matches!(&ev, egui::Event::Text(t) if t == " ") && !text_prompt;
@@ -357,7 +396,9 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
         match ev {
             egui::Event::Text(t) => {
                 if t == "\t" {
-                    if ctx.input(|i| i.modifiers.shift) || !app.cmd.buffer.is_empty() || !app.session.cycle_alignment() {
+                    // Tab changes the justification or the insertion point of what is being placed; Shift+Tab (and Tab where there is nothing to change) go round the snaps.
+                    let shift = ctx.input(|i| i.modifiers.shift);
+                    if shift || !app.cmd.buffer.is_empty() || !app.session.cycle_alignment() {
                         tab(app);
                     }
                 } else if t == " " && !text_prompt {
@@ -478,7 +519,7 @@ pub fn submit(app: &mut CadApp) {
         return;
     }
     // A partly typed command name runs the highlighted (first) AutoComplete suggestion.
-    let completion = if app.session.prompting() { None } else { catalogue_suggestions(app, text.trim()).into_iter().next() };
+    let completion = if app.session.prompting() { None } else { suggest(app, text.trim()).into_iter().next() };
     app.cmdline_or(&text, completion.map(|s| s.id.to_ascii_lowercase()).as_deref());
 }
 
@@ -503,7 +544,13 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
         let hr = Rect::from_min_size(pos2(bar.left(), bar.top() - lh * lines.len() as f32 - 4.0), vec2(w, lh * lines.len() as f32 + 2.0));
         p.rect_filled(hr, 3.0, t.cmd_history);
         for (i, l) in lines.iter().enumerate() {
-            p.text(pos2(hr.left() + 8.0, hr.top() + 1.0 + lh * i as f32), egui::Align2::LEFT_TOP, l, crate::theme::small(), t.text_dim);
+            p.text(
+                pos2(hr.left() + 8.0, hr.top() + 1.0 + lh * i as f32),
+                egui::Align2::LEFT_TOP,
+                crate::i18n::echo(l),
+                crate::theme::small(),
+                t.text_dim,
+            );
         }
     }
     p.rect_filled(bar, 3.0, t.cmd_bg);
@@ -522,7 +569,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
             p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text_faint);
             x += gw;
             // A LISP `get…` prompt shows as the routine wrote it (no keywords, default or colon added).
-            let message = if pr.raw { pr.display() } else { crate::i18n::t(&pr.message).to_string() };
+            let message = if pr.raw { pr.display() } else { crate::i18n::prompt(pr).into_owned() };
             let g = p.layout_no_wrap(message, font.clone(), t.text);
             let gw = g.size().x;
             p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
@@ -619,7 +666,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     );
     // AutoComplete list.
     if !app.session.prompting() {
-        let sug = catalogue_suggestions(app, &app.cmd.buffer);
+        let sug = suggest(app, &app.cmd.buffer);
         if !sug.is_empty() {
             let rh = 20.0;
             let lr = Rect::from_min_size(
@@ -681,7 +728,7 @@ fn zones(app: &CadApp, canvas: Rect, bar: Rect) -> Zones {
     let grip = Rect::from_min_max(pos2(bar.left(), top - 3.0), pos2(bar.right(), top + 3.0));
     let mut all = bar.union(grip);
     if !app.session.prompting() {
-        let k = catalogue_suggestions(app, &app.cmd.buffer).len();
+        let k = suggest(app, &app.cmd.buffer).len();
         if k > 0 {
             let above = if n == 0 { 0.0 } else { LINE_H * n as f32 + 6.0 };
             all = all.union(Rect::from_min_size(pos2(bar.left(), bar.top() - 6.0 - 20.0 * k as f32 - above), vec2(bar.width(), 1.0)));
@@ -747,7 +794,7 @@ fn history_window(app: &CadApp, ui: &mut egui::Ui, r: Rect) {
             for l in log.get(rows).into_iter().flatten() {
                 let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), LINE_H), Sense::hover());
                 let p = ui.painter().with_clip_rect(row.intersect(ui.clip_rect()));
-                p.text(pos2(row.left(), row.center().y), egui::Align2::LEFT_CENTER, l, crate::theme::small(), t.text_dim);
+                p.text(pos2(row.left(), row.center().y), egui::Align2::LEFT_CENTER, crate::i18n::echo(l), crate::theme::small(), t.text_dim);
             }
         },
     );
@@ -796,12 +843,12 @@ mod tests {
     #[test]
     fn autocomplete_reads_a_greek_layout_prefix_as_its_latin_keys() {
         // ΛΙΝ is the keys L-I-N on the Greek layout: it completes like the Latin prefix does.
-        let latin: Vec<String> = suggestions("lin", &|_| false).into_iter().map(|s| s.id).collect();
+        let latin: Vec<String> = suggestions("lin", &[], &|_| false).into_iter().map(|s| s.id).collect();
         assert!(latin.iter().any(|id| id == "LINE"), "{latin:?}");
-        let greek: Vec<String> = suggestions("ΛΙΝ", &|_| false).into_iter().map(|s| s.id).collect();
+        let greek: Vec<String> = suggestions("ΛΙΝ", &[], &|_| false).into_iter().map(|s| s.id).collect();
         assert_eq!(greek, latin);
         // A prefix that is not Greek-layout typing is matched as it is.
-        assert!(suggestions("ЖЖЖ", &|_| false).is_empty());
+        assert!(suggestions("ЖЖЖ", &[], &|_| false).is_empty());
     }
 
     /// A Greek word the user made an alias is offered as that alias's command, which is what Enter
@@ -814,7 +861,7 @@ mod tests {
         let _alone = crate::aliasdlg::lock_alias_store();
         let mut session = Session::empty();
         session.execute("aliasedit", &serde_json::json!({ "set": { "Ξ": "qsave" } })).unwrap();
-        let first = suggestions("Ξ", &|_| false).into_iter().next().map(|s| s.id);
+        let first = suggestions("Ξ", &[], &|_| false).into_iter().next().map(|s| s.id);
         session.execute("aliasedit", &serde_json::json!({ "remove": ["Ξ"] })).unwrap();
         assert_eq!(first.as_deref(), Some("QSAVE"));
     }
@@ -874,6 +921,35 @@ mod tests {
         // No text asked for: the next frame lets the IME go, so it can't swallow ASCII typing.
         let out = frame(&mut app, &ctx, Vec::new());
         assert!(out.platform_output.ime.is_none());
+    }
+
+    #[test]
+    fn the_keypad_comma_follows_the_prompt_in_force_when_it_is_typed() {
+        use cadcraft_engine::geom::Vec2;
+        let enter = |pressed| Event::Key { key: Key::Enter, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE };
+        let keypad = Event::Key { key: Key::Comma, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        let ctx = egui::Context::default();
+        let mut app = CadApp::new(Session::new(), crate::Services::default());
+        app.start("text");
+        app.session.input(Input::Point(Vec2::new(0.0, 0.0))).unwrap();
+        assert_eq!(app.session.current_prompt().map(|p| p.message.clone()).as_deref(), Some("Specify height"));
+        // One batch: Enter takes the default height, Enter the default rotation, then the keypad's
+        // comma arrives at "Enter text" and stays a comma.
+        frame(&mut app, &ctx, vec![enter(true), enter(false), enter(true), enter(false), keypad, Event::Text(",".into())]);
+        assert_eq!(app.session.current_prompt().map(|p| p.message.clone()).as_deref(), Some("Enter text"));
+        assert_eq!(app.cmd.buffer, ",");
+    }
+
+    #[test]
+    fn a_prompt_that_takes_names_keeps_the_keypad_comma() {
+        let keypad = Event::Key { key: Key::Comma, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        let ctx = egui::Context::default();
+        let mut app = CadApp::new(Session::new(), crate::Services::default());
+        app.start("-layer");
+        app.session.input(Input::Keyword("New".into())).unwrap();
+        assert_eq!(app.session.current_prompt().map(|p| p.message.clone()).as_deref(), Some("Enter name list for new layer(s)"));
+        frame(&mut app, &ctx, vec![Event::Text("A".into()), keypad, Event::Text(",".into()), Event::Text("B".into())]);
+        assert_eq!(app.cmd.buffer, "A,B");
     }
 
     #[test]
@@ -977,7 +1053,7 @@ mod autocomplete_tests {
 
     #[test]
     fn exact_alias_is_first_suggestion_with_alias_display() {
-        let rec = suggestions("rec", &|_| false);
+        let rec = suggestions("rec", &[], &|_| false);
         assert!(!rec.is_empty());
         assert_eq!(rec[0].id, "RECTANG");
         assert_eq!(rec[0].display, "REC (RECTANG)");
@@ -987,28 +1063,47 @@ mod autocomplete_tests {
         assert_eq!(rec[1].id, "RECOVER");
         assert_eq!(rec[1].display, "RECOVER");
 
-        let l = suggestions("l", &|_| false);
+        let l = suggestions("l", &[], &|_| false);
         assert_eq!(l[0].id, "LINE");
         assert_eq!(l[0].display, "L (LINE)");
 
-        let c = suggestions("c", &|_| false);
+        let c = suggestions("c", &[], &|_| false);
         assert_eq!(c[0].id, "CIRCLE");
         assert_eq!(c[0].display, "C (CIRCLE)");
 
-        let co = suggestions("co", &|_| false);
+        let co = suggestions("co", &[], &|_| false);
         assert_eq!(co[0].id, "COPY");
         assert_eq!(co[0].display, "CO (COPY)");
     }
 
     #[test]
     fn prefix_without_alias_shows_command_id() {
-        let rect = suggestions("rect", &|_| false);
+        let rect = suggestions("rect", &[], &|_| false);
         assert_eq!(rect[0].id, "RECTANG");
         assert_eq!(rect[0].display, "RECTANG");
 
-        let line = suggestions("line", &|_| false);
+        let line = suggestions("line", &[], &|_| false);
         assert_eq!(line[0].id, "LINE");
         assert_eq!(line[0].display, "LINE");
+    }
+
+    #[test]
+    fn lisp_commands_are_suggested_after_registered_ones() {
+        let lisp = ["PIDLINEA".to_string(), "PIDINST".to_string(), "LINE".to_string(), "PP".to_string()];
+        let pid = suggestions("pid", &lisp, &|_| false);
+        assert_eq!(pid.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["PIDINST", "PIDLINEA"]);
+        assert!(pid.iter().all(|s| s.label == LISP_LABEL && s.display == s.id));
+        // A registered command of the same name is listed once, as the registered command.
+        let line = suggestions("line", &lisp, &|_| false);
+        assert_eq!(line.iter().filter(|s| s.id == "LINE").count(), 1);
+        assert_ne!(line[0].label, LISP_LABEL);
+        // Typed in any case; nothing without a prefix.
+        assert_eq!(suggestions("PidI", &lisp, &|_| false).first().map(|s| s.id.as_str()), Some("PIDINST"));
+        assert!(suggestions("", &lisp, &|_| false).is_empty());
+        // The whole name goes first, ahead of the registered commands it is a prefix of.
+        let lin = suggestions("lin", &["LIN".to_string()], &|_| false);
+        assert_eq!((lin[0].id.as_str(), lin[0].label), ("LIN", LISP_LABEL));
+        assert_eq!(lin[1].id, "LINE");
     }
 
     #[test]

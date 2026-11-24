@@ -9,11 +9,22 @@ use crate::CadApp;
 use crate::icons::{self, Icon};
 use crate::theme::Tokens;
 
+/// The hatch pattern picker.
+mod building;
 /// Rows the engine describes (text, mtext, dimensions).
 mod described;
+mod electricity;
+mod furniture;
+mod hvachelp;
 #[cfg(test)]
 mod layer_menu_tests;
-/// The hatch pattern picker.
+mod objects;
+mod plumbing;
+pub(crate) use objects::pipe_service_label;
+mod regulation;
+mod thumbs;
+pub(crate) use objects::is_parametric;
+pub(crate) use thumbs::paint_part;
 pub mod patterns;
 /// The QuickCalc palette.
 pub mod quickcalc;
@@ -137,8 +148,78 @@ pub const DRAFTING: &[(&str, &[Tool], &[Tool])] = &[
     ),
 ];
 
+/// Every Tool Sets tab: Drafting, Modeling, then the building tabs.
+pub fn toolset_tabs() -> Vec<&'static str> {
+    ["Drafting", "Modeling"].into_iter().chain(building::TABS.iter().copied()).collect()
+}
+
 fn command_known(id: &str) -> bool {
     cadcraft_engine::find_command(id).is_some() || crate::menus::is_ui_command(id)
+}
+
+/// How wide the column of tabs of the Tool Sets is, points.
+const TAB_COLUMN_WIDTH: f32 = 124.0;
+/// The column of icons of a panel narrower than [`NARROW_PANEL_WIDTH`], and that width.
+const TAB_COLUMN_ICONS_WIDTH: f32 = 44.0;
+const NARROW_PANEL_WIDTH: f32 = 300.0;
+
+/// A small picture for tab `name` of the Tool Sets in `r`.
+fn paint_tab_icon(p: &egui::Painter, r: Rect, name: &str, colour: Color32) {
+    let s = Stroke::new(1.4, colour);
+    let at = |x: f32, y: f32| pos2(r.left() + r.width() * x, r.top() + r.height() * y);
+    let poly = |pts: &[(f32, f32)], closed: bool| {
+        let v: Vec<egui::Pos2> = pts.iter().map(|(x, y)| at(*x, *y)).collect();
+        p.add(if closed { egui::Shape::closed_line(v, s) } else { egui::Shape::line(v, s) });
+    };
+    let dot = |x: f32, y: f32, rad: f32| {
+        p.circle_stroke(at(x, y), rad, s);
+    };
+    match name {
+        "Drafting" => {
+            poly(&[(0.1, 0.85), (0.4, 0.3), (0.65, 0.65), (0.9, 0.15)], false);
+            dot(0.1, 0.85, 1.8);
+            dot(0.9, 0.15, 1.8);
+        }
+        "Modeling" => {
+            poly(&[(0.5, 0.05), (0.92, 0.28), (0.92, 0.72), (0.5, 0.95), (0.08, 0.72), (0.08, 0.28)], true);
+            poly(&[(0.08, 0.28), (0.5, 0.5), (0.92, 0.28)], false);
+            poly(&[(0.5, 0.5), (0.5, 0.95)], false);
+        }
+        "Architecture" => {
+            poly(&[(0.08, 0.92), (0.08, 0.4), (0.5, 0.1), (0.92, 0.4), (0.92, 0.92)], true);
+            poly(&[(0.4, 0.92), (0.4, 0.6), (0.6, 0.6), (0.6, 0.92)], false);
+        }
+        "Furniture" => {
+            poly(&[(0.08, 0.35), (0.92, 0.35), (0.92, 0.85), (0.08, 0.85)], true);
+            poly(&[(0.18, 0.35), (0.18, 0.15), (0.82, 0.15), (0.82, 0.35)], false);
+            poly(&[(0.18, 0.55), (0.82, 0.55)], false);
+        }
+        "HVAC" => {
+            dot(0.5, 0.5, 2.6);
+            poly(&[(0.5, 0.05), (0.5, 0.3)], false);
+            poly(&[(0.5, 0.7), (0.5, 0.95)], false);
+            poly(&[(0.05, 0.5), (0.3, 0.5)], false);
+            poly(&[(0.7, 0.5), (0.95, 0.5)], false);
+        }
+        "Plumbing" => {
+            poly(&[(0.12, 0.35), (0.62, 0.35), (0.8, 0.5), (0.8, 0.92)], false);
+            poly(&[(0.12, 0.15), (0.12, 0.55)], false);
+            poly(&[(0.62, 0.1), (0.62, 0.35)], false);
+        }
+        "Regulation" => {
+            poly(&[(0.05, 0.9), (0.95, 0.9)], false);
+            poly(&[(0.2, 0.9), (0.2, 0.5)], false);
+            poly(&[(0.5, 0.9), (0.5, 0.25)], false);
+            poly(&[(0.8, 0.9), (0.8, 0.6)], false);
+            dot(0.2, 0.4, 1.6);
+            dot(0.5, 0.15, 1.6);
+            dot(0.8, 0.5, 1.6);
+        }
+        "Electricity" => poly(&[(0.6, 0.05), (0.2, 0.55), (0.5, 0.55), (0.4, 0.95), (0.82, 0.4), (0.52, 0.4)], true),
+        _ => {
+            p.rect_stroke(r.shrink(2.0), 1.0, s, egui::StrokeKind::Inside);
+        }
+    }
 }
 
 /// Tool Sets strip with Drafting/Modeling tabs, their command buttons and the collapse control.
@@ -147,37 +228,60 @@ pub fn toolsets(app: &mut CadApp, ui: &mut egui::Ui) {
     egui::Frame::NONE.fill(t.panel).show(ui, |ui| {
         let r = ui.max_rect();
         let p = ui.painter().clone();
-        // Tabs.
-        let tab_h = 28.0;
-        let mut x = r.left();
-        for name in ["Drafting", "Modeling"] {
-            let w = 92.0;
-            let tr = Rect::from_min_size(pos2(x, r.top()), vec2(w, tab_h));
+        // The tabs are a column on the left, each with its icon and its name; a line sets the building tabs apart from Drafting and Modeling.
+        // A panel too narrow for the names keeps the icons only; the name is in the tooltip.
+        let icons_only = r.width() < NARROW_PANEL_WIDTH;
+        let (tab_h, col_w) = (30.0, if icons_only { TAB_COLUMN_ICONS_WIDTH } else { TAB_COLUMN_WIDTH });
+        let column = Rect::from_min_max(r.min, pos2(r.left() + col_w, r.max.y));
+        p.rect_filled(column, 0.0, t.chrome);
+        let mut y = r.top() + 6.0;
+        for (i, name) in toolset_tabs().into_iter().enumerate() {
+            if i == 2 {
+                p.hline(column.x_range().shrink(10.0), y + 3.0, Stroke::new(1.0, t.border));
+                y += 8.0;
+            }
+            let tr = Rect::from_min_size(pos2(column.left(), y), vec2(col_w, tab_h));
             let active = app.ui.toolset_tab == name;
             let resp = ui.interact(tr, ui.scope_id().with(("ts", name)), Sense::click());
-            p.rect_filled(tr, 0.0, if active { t.tab_active } else { t.chrome });
-            p.text(
-                tr.center(),
-                egui::Align2::CENTER_CENTER,
-                crate::i18n::t(name),
-                egui::FontId::proportional(13.5),
-                if active { t.text } else { t.text_dim },
-            );
+            if active || resp.hovered() {
+                p.rect_filled(tr, 0.0, if active { t.tab_active } else { t.chrome_dark });
+            }
+            if active {
+                p.rect_filled(Rect::from_min_size(tr.min, vec2(3.0, tab_h)), 0.0, t.icon_accent);
+            }
+            let icon_x = if icons_only { tr.center().x } else { tr.left() + 19.0 };
+            paint_tab_icon(&p, Rect::from_center_size(pos2(icon_x, tr.center().y), vec2(17.0, 17.0)), name, t.icon_accent);
+            if !icons_only {
+                p.with_clip_rect(tr.shrink2(vec2(2.0, 0.0))).text(
+                    pos2(tr.left() + 34.0, tr.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    crate::i18n::t(name),
+                    egui::FontId::proportional(12.5),
+                    if active { t.text } else { t.text_dim },
+                );
+            }
+            let resp = resp.on_hover_text(crate::i18n::t(name));
             icons::describe_control(ui, &resp, crate::i18n::t(name), Some(active), true);
             if resp.clicked() {
                 app.ui.toolset_tab = name.into();
             }
-            x += w;
+            y += tab_h;
         }
-        p.rect_filled(Rect::from_min_max(pos2(x, r.top()), pos2(r.right(), r.top() + tab_h)), 0.0, t.chrome);
-        let cr = Rect::from_center_size(pos2(r.right() - 14.0, r.top() + tab_h / 2.0), vec2(14.0, 14.0));
+        // The strip over the tools holds the control that folds the panel.
+        let head_h = 22.0;
+        p.rect_filled(Rect::from_min_max(pos2(column.right(), r.top()), pos2(r.right(), r.top() + head_h)), 0.0, t.chrome);
+        let cr = Rect::from_center_size(pos2(r.right() - 14.0, r.top() + head_h / 2.0), vec2(14.0, 14.0));
         let cresp = ui.interact(cr, ui.scope_id().with("ts_collapse"), Sense::click());
         icons::paint(&p, cr, Icon::ChevronLeft, false);
         icons::describe_control(ui, &cresp, "Collapse Tool Sets", None, false);
         if cresp.on_hover_text(crate::tl!("Collapse Tool Sets")).clicked() {
             app.ui.show_toolsets = false;
         }
-        let body = Rect::from_min_max(pos2(r.left(), r.top() + tab_h), r.max);
+        let body = Rect::from_min_max(pos2(column.right(), r.top() + head_h), r.max);
+        if let Some(tab) = building::TABS.iter().find(|t| app.ui.toolset_tab == **t) {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(body), |ui| building::body(app, ui, tab));
+            return;
+        }
         let mut clicked: Option<&'static str> = None;
         let mut toggle_group = None;
         let mut tool_visible: Option<(String, bool)> = None;
@@ -850,11 +954,178 @@ fn shown_part(s: &str) -> String {
     }
 }
 
+/// The current colour row: its menu of the standard colours; returns the colour picked.
+fn current_color_row(ui: &mut egui::Ui, cecolor: i64) -> Option<(&'static str, Value)> {
+    let mut action = None;
+    prop_row(ui, "Color", |ui| {
+        ui.menu_button(format!("■ {}", crate::i18n::t(&Color::from_aci(cecolor as i16).name())), |ui| {
+            for (n, c) in
+                [("ByLayer", 256), ("ByBlock", 0), ("Red", 1), ("Yellow", 2), ("Green", 3), ("Cyan", 4), ("Blue", 5), ("Magenta", 6), ("White", 7)]
+            {
+                if ui.button(crate::i18n::t(n)).clicked() {
+                    action = Some(("color", json!({ "color": c })));
+                    ui.close();
+                }
+            }
+        });
+    });
+    action
+}
+
+/// In the Block Editor, the edited block's name and description come first; returns the change made.
+fn block_edit_rows(app: &CadApp, d: &cadcraft_doc::Drawing, ui: &mut egui::Ui) -> Option<(&'static str, Value)> {
+    let mut action = None;
+    let edited = app.session.state().ok().and_then(|st| {
+        let be = st.block_edit.as_ref().filter(|be| !be.current)?;
+        let b = d.block(&be.name).or_else(|| be.host.doc.block(&be.name));
+        Some((be.name.clone(), b.map(|b| b.description.clone()).unwrap_or_default()))
+    });
+    if let Some((name, description)) = edited {
+        prop_row(ui, "Name", |ui| {
+            value_box(ui, &name, false, false).on_hover_text(crate::tl!("Read-only"));
+        });
+        prop_row(ui, "Description", |ui| {
+            if let Some(text) = edit_field(ui, ui.scope_id().with("block_description"), description) {
+                action = Some(("blocks.description", json!({ "description": text })));
+            }
+        });
+    }
+    action
+}
+
+/// The properties of nothing selected: the current properties new objects get; each row runs the command that sets it.
+fn current_properties(app: &mut CadApp, ui: &mut egui::Ui) {
+    let Ok(d) = app.session.doc() else { return };
+    let h = &d.header;
+    // Lengths are shown as the drawing's units say (UNITS), and read back in any format.
+    let (lu, lp) = (h.i64("LUNITS", 2), h.i64("LUPREC", 4));
+    let len = |v: f64| cadcraft_engine::units::format_distance(v, lu, lp);
+    let mut bad: Option<String> = None;
+    // Current properties for new objects; each row runs the command that sets it.
+    let layers: Vec<String> = d.layers.iter().map(|l| l.name.clone()).collect();
+    let linetypes: Vec<String> = d.linetypes.iter().map(|l| l.name.clone()).collect();
+    let text_styles: Vec<String> = d.text_styles.iter().map(|l| l.name.clone()).collect();
+    let dim_styles: Vec<String> = d.dim_styles.iter().map(|l| l.name.clone()).collect();
+    let ml_styles: Vec<String> = d.mleader_styles.iter().map(|l| l.name.clone()).collect();
+    let tb_styles: Vec<String> = d.table_styles.iter().map(|l| l.name.clone()).collect();
+    let mut action: Option<(&str, Value)> = None;
+    let mut act = |c: &'static str, p: Value| action = Some((c, p));
+    if let Some((c, p)) = block_edit_rows(app, d, ui) {
+        act(c, p);
+    }
+    if let Some((c, p)) = current_color_row(ui, h.i64("CECOLOR", 256)) {
+        act(c, p);
+    }
+    prop_row(ui, "Layer", |ui| {
+        if let Some(l) = pick_menu(ui, &h.str("CLAYER", "0"), layers) {
+            act("layer.current", json!({ "name": l }));
+        }
+    });
+    prop_row(ui, "Linetype", |ui| {
+        let items = ["ByLayer", "ByBlock"]
+            .map(String::from)
+            .into_iter()
+            .chain(linetypes.into_iter().filter(|l| !["ByLayer", "ByBlock"].contains(&l.as_str())));
+        if let Some(l) = pick_menu(ui, &h.str("CELTYPE", "ByLayer"), items) {
+            act("linetype", json!({ "current": l }));
+        }
+    });
+    prop_row(ui, "Linetype scale", |ui| {
+        if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_celtscale"), format!("{:.4}", h.f64("CELTSCALE", 1.0))), &mut bad) {
+            act("setvar", json!({ "name": "CELTSCALE", "value": f }));
+        }
+    });
+    prop_row(ui, "Lineweight", |ui| {
+        ui.menu_button(crate::i18n::t(&cadcraft_doc::Lineweight::from_dxf(h.i64("CELWEIGHT", -1) as i16).name()), |ui| {
+            for n in ["ByLayer", "ByBlock", "Default"] {
+                if ui.button(crate::i18n::t(n)).clicked() {
+                    act("lweight", json!({ "lineweight": n }));
+                    ui.close();
+                }
+            }
+            for v in cadcraft_doc::Lineweight::STANDARD {
+                if ui.button(format!("{:.2} mm", f64::from(v) / 100.0)).clicked() {
+                    act("lweight", json!({ "lineweight": f64::from(v) / 100.0 }));
+                    ui.close();
+                }
+            }
+        });
+    });
+    prop_row(ui, "Transparency", |ui| unavailable(ui, "ByLayer"));
+    prop_row(ui, "Thickness", |ui| {
+        if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_thickness"), len(h.f64("THICKNESS", 0.0))), &mut bad) {
+            act("setvar", json!({ "name": "THICKNESS", "value": f }));
+        }
+    });
+    prop_row(ui, "Text style", |ui| {
+        if let Some(n) = pick_menu(ui, &h.str("TEXTSTYLE", "Standard"), text_styles) {
+            act("style.current", json!({ "name": n }));
+        }
+    });
+    prop_row(ui, "Dimension style", |ui| {
+        if let Some(n) = pick_menu(ui, &h.str("DIMSTYLE", "Standard"), dim_styles) {
+            act("dimstyle.current", json!({ "name": n }));
+        }
+    });
+    prop_row(ui, "Multileader style", |ui| {
+        if let Some(n) = pick_menu(ui, &h.str("CMLEADERSTYLE", "Standard"), ml_styles) {
+            act("mleaderstyle", json!({ "name": n, "current": true }));
+        }
+    });
+    prop_row(ui, "Table style", |ui| {
+        if let Some(n) = pick_menu(ui, &h.str("CTABLESTYLE", "Standard"), tb_styles) {
+            act("tablestyle", json!({ "name": n, "current": true }));
+        }
+    });
+    prop_row(ui, "Annotation scale", |ui| unavailable(ui, "1:1"));
+    prop_row(ui, "Text height", |ui| {
+        if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_textsize"), len(h.f64("TEXTSIZE", 0.2))), &mut bad) {
+            act("setvar", json!({ "name": "TEXTSIZE", "value": f }));
+        }
+    });
+    // The current layout's plot style table; named tables give the current plot style.
+    let space = app.session.layout_space();
+    let layout = space.layout().and_then(|n| d.layout(n).map(|l| (n.to_string(), l.page.plot_style_table.clone())));
+    let table = layout.as_ref().and_then(|(_, t)| cadcraft_doc::plot_style_table(d, t));
+    match table.as_ref().filter(|t| !t.is_color_dependent()) {
+        Some(t) => prop_row(ui, "Plot style", |ui| {
+            let items = ["ByLayer", "ByBlock"].map(String::from).into_iter().chain(t.styles.iter().map(|s| s.name.clone()));
+            if let Some(n) = pick_menu(ui, &h.str("CPLOTSTYLE", "ByLayer"), items) {
+                act("plotstyle", json!({ "name": n }));
+            }
+        }),
+        None => prop_row(ui, "Plot style", |ui| read_only(ui, "ByColor")),
+    }
+    match &layout {
+        Some((name, current)) => prop_row(ui, "Plot style table", |ui| {
+            let shown = if current.trim().is_empty() { "None".to_string() } else { current.clone() };
+            let items = std::iter::once("None".to_string()).chain(cadcraft_doc::plot_style_table_names(d));
+            if let Some(n) = pick_menu(ui, &shown, items) {
+                act("pagesetup", json!({ "layout": name, "plotStyleTable": n }));
+            }
+        }),
+        None => prop_row(ui, "Plot style table", |ui| unavailable(ui, "None")),
+    }
+    let attached = layout.as_ref().map(|(n, _)| n.clone()).unwrap_or_else(|| "Model".into());
+    prop_row(ui, "Plot style attached to", |ui| read_only(ui, &attached));
+    let kind = match &table {
+        Some(t) if t.is_color_dependent() => "Color-dependent",
+        Some(_) => "Named",
+        None => "Not available",
+    };
+    prop_row(ui, "Plot table type", |ui| read_only(ui, kind));
+    if let Some((c, p)) = action {
+        let _ = app.run(c, p);
+    }
+    report_bad(app, bad);
+}
+
 /// Properties palette: the selection's common properties, or the current defaults when nothing is selected; formats lengths per drawing units and dispatches setter commands.
 pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
     let t = Tokens::get();
     properties_header(app, ui);
     let sel = app.session.selection();
+    let uid = app.session.state().ok().map(|st| st.uid);
     let Ok(d) = app.session.doc() else { return };
     ui.add_space(4.0);
     let h = &d.header;
@@ -864,153 +1135,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
     let lenx = |v: f64| exact(len(v), v);
     let mut bad: Option<String> = None;
     if sel.is_empty() {
-        // Current properties for new objects; each row runs the command that sets it.
-        let layers: Vec<String> = d.layers.iter().map(|l| l.name.clone()).collect();
-        let linetypes: Vec<String> = d.linetypes.iter().map(|l| l.name.clone()).collect();
-        let text_styles: Vec<String> = d.text_styles.iter().map(|l| l.name.clone()).collect();
-        let dim_styles: Vec<String> = d.dim_styles.iter().map(|l| l.name.clone()).collect();
-        let ml_styles: Vec<String> = d.mleader_styles.iter().map(|l| l.name.clone()).collect();
-        let tb_styles: Vec<String> = d.table_styles.iter().map(|l| l.name.clone()).collect();
-        let mut action: Option<(&str, Value)> = None;
-        let mut act = |c: &'static str, p: Value| action = Some((c, p));
-        // In the Block Editor, the edited block's name and description come first.
-        let edited = app.session.state().ok().and_then(|st| {
-            let be = st.block_edit.as_ref().filter(|be| !be.current)?;
-            let b = d.block(&be.name).or_else(|| be.host.doc.block(&be.name));
-            Some((be.name.clone(), b.map(|b| b.description.clone()).unwrap_or_default()))
-        });
-        if let Some((name, description)) = edited {
-            prop_row(ui, "Name", |ui| {
-                value_box(ui, &name, false, false).on_hover_text(crate::tl!("Read-only"));
-            });
-            prop_row(ui, "Description", |ui| {
-                if let Some(text) = edit_field(ui, ui.scope_id().with("block_description"), description) {
-                    act("blocks.description", json!({ "description": text }));
-                }
-            });
-        }
-        prop_row(ui, "Color", |ui| {
-            ui.menu_button(format!("■ {}", crate::i18n::t(&Color::from_aci(h.i64("CECOLOR", 256) as i16).name())), |ui| {
-                for (n, c) in [
-                    ("ByLayer", 256),
-                    ("ByBlock", 0),
-                    ("Red", 1),
-                    ("Yellow", 2),
-                    ("Green", 3),
-                    ("Cyan", 4),
-                    ("Blue", 5),
-                    ("Magenta", 6),
-                    ("White", 7),
-                ] {
-                    if ui.button(crate::i18n::t(n)).clicked() {
-                        act("color", json!({ "color": c }));
-                        ui.close();
-                    }
-                }
-            });
-        });
-        prop_row(ui, "Layer", |ui| {
-            if let Some(l) = pick_menu(ui, &h.str("CLAYER", "0"), layers) {
-                act("layer.current", json!({ "name": l }));
-            }
-        });
-        prop_row(ui, "Linetype", |ui| {
-            let items = ["ByLayer", "ByBlock"]
-                .map(String::from)
-                .into_iter()
-                .chain(linetypes.into_iter().filter(|l| !["ByLayer", "ByBlock"].contains(&l.as_str())));
-            if let Some(l) = pick_menu(ui, &h.str("CELTYPE", "ByLayer"), items) {
-                act("linetype", json!({ "current": l }));
-            }
-        });
-        prop_row(ui, "Linetype scale", |ui| {
-            if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_celtscale"), format!("{:.4}", h.f64("CELTSCALE", 1.0))), &mut bad) {
-                act("setvar", json!({ "name": "CELTSCALE", "value": f }));
-            }
-        });
-        prop_row(ui, "Lineweight", |ui| {
-            ui.menu_button(crate::i18n::t(&cadcraft_doc::Lineweight::from_dxf(h.i64("CELWEIGHT", -1) as i16).name()), |ui| {
-                for n in ["ByLayer", "ByBlock", "Default"] {
-                    if ui.button(crate::i18n::t(n)).clicked() {
-                        act("lweight", json!({ "lineweight": n }));
-                        ui.close();
-                    }
-                }
-                for v in cadcraft_doc::Lineweight::STANDARD {
-                    if ui.button(format!("{:.2} mm", f64::from(v) / 100.0)).clicked() {
-                        act("lweight", json!({ "lineweight": f64::from(v) / 100.0 }));
-                        ui.close();
-                    }
-                }
-            });
-        });
-        prop_row(ui, "Transparency", |ui| unavailable(ui, "ByLayer"));
-        prop_row(ui, "Thickness", |ui| {
-            if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_thickness"), len(h.f64("THICKNESS", 0.0))), &mut bad) {
-                act("setvar", json!({ "name": "THICKNESS", "value": f }));
-            }
-        });
-        prop_row(ui, "Text style", |ui| {
-            if let Some(n) = pick_menu(ui, &h.str("TEXTSTYLE", "Standard"), text_styles) {
-                act("style.current", json!({ "name": n }));
-            }
-        });
-        prop_row(ui, "Dimension style", |ui| {
-            if let Some(n) = pick_menu(ui, &h.str("DIMSTYLE", "Standard"), dim_styles) {
-                act("dimstyle.current", json!({ "name": n }));
-            }
-        });
-        prop_row(ui, "Multileader style", |ui| {
-            if let Some(n) = pick_menu(ui, &h.str("CMLEADERSTYLE", "Standard"), ml_styles) {
-                act("mleaderstyle", json!({ "name": n, "current": true }));
-            }
-        });
-        prop_row(ui, "Table style", |ui| {
-            if let Some(n) = pick_menu(ui, &h.str("CTABLESTYLE", "Standard"), tb_styles) {
-                act("tablestyle", json!({ "name": n, "current": true }));
-            }
-        });
-        prop_row(ui, "Annotation scale", |ui| unavailable(ui, "1:1"));
-        prop_row(ui, "Text height", |ui| {
-            if let Some(f) = number(edit_field(ui, ui.scope_id().with("cur_textsize"), len(h.f64("TEXTSIZE", 0.2))), &mut bad) {
-                act("setvar", json!({ "name": "TEXTSIZE", "value": f }));
-            }
-        });
-        // The current layout's plot style table; named tables give the current plot style.
-        let space = app.session.layout_space();
-        let layout = space.layout().and_then(|n| d.layout(n).map(|l| (n.to_string(), l.page.plot_style_table.clone())));
-        let table = layout.as_ref().and_then(|(_, t)| cadcraft_doc::plot_style_table(d, t));
-        match table.as_ref().filter(|t| !t.is_color_dependent()) {
-            Some(t) => prop_row(ui, "Plot style", |ui| {
-                let items = ["ByLayer", "ByBlock"].map(String::from).into_iter().chain(t.styles.iter().map(|s| s.name.clone()));
-                if let Some(n) = pick_menu(ui, &h.str("CPLOTSTYLE", "ByLayer"), items) {
-                    act("plotstyle", json!({ "name": n }));
-                }
-            }),
-            None => prop_row(ui, "Plot style", |ui| read_only(ui, "ByColor")),
-        }
-        match &layout {
-            Some((name, current)) => prop_row(ui, "Plot style table", |ui| {
-                let shown = if current.trim().is_empty() { "None".to_string() } else { current.clone() };
-                let items = std::iter::once("None".to_string()).chain(cadcraft_doc::plot_style_table_names(d));
-                if let Some(n) = pick_menu(ui, &shown, items) {
-                    act("pagesetup", json!({ "layout": name, "plotStyleTable": n }));
-                }
-            }),
-            None => prop_row(ui, "Plot style table", |ui| unavailable(ui, "None")),
-        }
-        let attached = layout.as_ref().map(|(n, _)| n.clone()).unwrap_or_else(|| "Model".into());
-        prop_row(ui, "Plot style attached to", |ui| read_only(ui, &attached));
-        let kind = match &table {
-            Some(t) if t.is_color_dependent() => "Color-dependent",
-            Some(_) => "Named",
-            None => "Not available",
-        };
-        prop_row(ui, "Plot table type", |ui| read_only(ui, kind));
-        if let Some((c, p)) = action {
-            let _ = app.run(c, p);
-        }
-        report_bad(app, bad);
+        current_properties(app, ui);
         return;
     }
     // Selected objects: common + geometry for a single object.
@@ -1052,6 +1177,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
     let ids = &*memo.ids();
     let mut set: Option<Value> = None;
     let mut custom_set: Option<Value> = None;
+    let mut att_set: Option<Value> = None;
     let group = |ui: &mut egui::Ui, title: &str| {
         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
         ui.painter().rect_filled(r.shrink2(vec2(6.0, 1.0)), 2.0, t.chrome_dark);
@@ -1157,6 +1283,8 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
             }
         });
     };
+    // Walls (and the other parametric objects) show their own parameters first.
+    let object_action = objects::section(ui, d, &sel, &len, &mut bad);
     // Text, mtext and dimensions: the rows the engine describes, for one or many of them.
     let desc = described::described(ui, app, &sel);
     let mut edit: Option<described::Edit> = None;
@@ -1278,6 +1406,29 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
                             };
                             if let Some(v) = picked.filter(|v| *v != p.value) {
                                 custom_set = Some(json!({ "handle": e.handle.hex(), "name": p.name, "value": v }));
+                            }
+                        });
+                    }
+                }
+                let atts = cadcraft_engine::attributes(d, e.handle);
+                if !atts.is_empty() {
+                    group(ui, "Attributes");
+                    for (i, a) in atts.iter().enumerate() {
+                        prop_row(ui, &a.tag, |ui| {
+                            // The buffer is the drawing's too: handles repeat across drawings, and a
+                            // pending value must not follow a tab switch.
+                            // A value with line breaks is edited in the Edit Attributes dialog;
+                            // a single-line field would join its lines.
+                            if !a.editable || a.value.contains('\n') {
+                                let r = value_box(ui, &a.value.replace('\n', " "), false, false);
+                                r.on_hover_text(if a.editable {
+                                    crate::tl!("Multiline: edit it with Edit Attributes")
+                                } else {
+                                    crate::tl!("Constant")
+                                });
+                            } else if let Some(v) = edit_field(ui, ui.scope_id().with(("attval", uid, e.handle, i)), a.value.clone()) {
+                                // By place: another attribute may share the tag.
+                                att_set = Some(json!({ "handle": e.handle.hex(), "at": { i.to_string(): v } }));
                             }
                         });
                     }
@@ -1521,6 +1672,9 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
         }
         let _ = app.run("properties.set", p);
     }
+    if let Some((c, p)) = object_action {
+        let _ = app.run(c, p);
+    }
     // A described row the engine couldn't take (a value out of range…) says so.
     if let Some(e) = edit
         && let Ok(r) = app.run("properties.set", e.params)
@@ -1531,6 +1685,9 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
     report_bad(app, bad);
     if let Some(p) = custom_set {
         let _ = app.run("blocks.reference.set", p);
+    }
+    if let Some(p) = att_set {
+        let _ = app.run("attedit", p);
     }
 }
 
@@ -1599,6 +1756,53 @@ mod tests {
             output.textures_delta.clear();
         }
         texts
+    }
+
+    /// The Door fixture's `code value` lines as DXF pairs.
+    fn dxf(src: &str) -> String {
+        src.lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(|l| {
+                let (code, value) = l.split_once(' ').unwrap_or((l, ""));
+                format!("{code}\n{value}\n")
+            })
+            .collect()
+    }
+
+    /// An app whose drawing holds two references to the dynamic Door block, each changed so it
+    /// points at its own anonymous `*U…` block, as a real dynamic reference does.
+    fn app_with_two_door_references() -> CadApp {
+        let src = include_str!("../../io/tests/data/dynblock_door.txt").replace("\r\n", "\n");
+        let d = cadcraft_io::read_dxf(dxf(&src).as_bytes()).expect("the Door fixture reads");
+        let mut s = Session::empty();
+        s.open_drawing(d, "door", None);
+        let handles: Vec<Value> = [[100.0, 0.0], [100.0, 0.0]]
+            .map(|at| s.execute("insert", &json!({ "name": "Door", "at": at })).expect("Door inserts")["handle"].clone())
+            .to_vec();
+        for h in &handles {
+            s.execute("blocks.reference.set", &json!({ "handle": h, "name": "Visibility1", "value": "Closed" })).expect("Visibility1 sets");
+        }
+        {
+            let block = |h: &Value| match &s.doc().unwrap().entity(cadcraft_doc::Handle::parse_hex(h.as_str().unwrap()).unwrap()).unwrap().kind {
+                EntityKind::Insert(i) => i.block.clone(),
+                _ => panic!("the handle is not an insert"),
+            };
+            assert!(handles.iter().all(|h| block(h).starts_with("*U")), "the changed references point at anonymous blocks");
+        }
+        s.execute("select", &json!({ "handles": handles })).expect("the references select");
+        CadApp::new(s, Services::default())
+    }
+
+    /// Several references to one dynamic block show its name, not the anonymous `*U…` blocks
+    /// they point at; that fix had no regression test.
+    #[test]
+    fn several_dynamic_block_references_show_the_block_name() {
+        let mut app = app_with_two_door_references();
+        let texts = painted_texts(&mut app, properties_section);
+        assert!(texts.iter().any(|t| t == "Door"), "the dynamic block name shows; painted: {texts:?}");
+        assert!(!texts.iter().any(|t| t == VARIES), "both references show the same name; painted: {texts:?}");
+        assert!(!texts.iter().any(|t| t.starts_with("*U")), "no anonymous block name shows; painted: {texts:?}");
     }
 
     /// Several dimensions selected: the Properties palette shows all of a dimension's properties,

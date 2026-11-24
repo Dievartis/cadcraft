@@ -26,10 +26,18 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         "wallstyles" => crate::wallstyledlg::dialog(app, ctx, &mut open),
         "hatch" => crate::hatchdlg::dialog(app, ctx, &mut open),
         "aliasedit" => crate::aliasdlg::dialog(app, ctx, &mut open),
+        "wallstyles" => crate::wallstyledlg::dialog(app, ctx, &mut open),
+        "controlpoints" => crate::ctrldlg::dialog(app, ctx, &mut open),
+        "elecreport" => crate::elecdlg::dialog(app, ctx, &mut open),
+        "titleblock" => crate::titleblockdlg::dialog(app, ctx, &mut open),
+        "charts" => crate::chartsdlg::dialog(app, ctx, &mut open),
+        "takeoff" => crate::takeoffdlg::dialog(app, ctx, &mut open),
+        "partlib" => crate::partlibdlg::dialog(app, ctx, &mut open),
         "find" => crate::finddlg::dialog(app, ctx, &mut open),
         crate::keys::DIALOG => crate::keys::dialog(app, ctx, &mut open),
         "about" => about(ctx, &mut open),
         "preview" => crate::exchange::dialog(app, ctx, &mut open),
+        o if o.starts_with("pdfattach:") => crate::pdfattach_dlg::dialog(app, ctx, o.trim_start_matches("pdfattach:"), &mut open),
         "commands" => commands(app, ctx, &mut open),
         "bedit" => crate::bedit::dialog(app, ctx, &mut open),
         "authoring" => crate::bedit::authoring_dialog(app, ctx, &mut open),
@@ -327,33 +335,39 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             .unwrap_or([2, 4, 0, 0, 1])
     });
     let (mut apply, mut cancel) = (false, false);
-    egui::Window::new("Drawing Units").open(open).resizable(false).collapsible(false).show(ctx, |ui| {
+    // Whether the insertion unit is the one every drawing takes when it is opened: chosen once, kept with the preferences.
+    let keep_id = id.with("keep_insunits");
+    let mut keep = ctx.data_mut(|d| d.get_temp::<bool>(keep_id)).unwrap_or(app.session.default_insunits.is_some());
+    egui::Window::new(crate::i18n::t("Drawing Units")).open(open).resizable(false).collapsible(false).show(ctx, |ui| {
         let [lu, lp, au, ap, ins] = &mut v;
-        let types = |t: &[(i64, &str)]| t.iter().map(|(k, l)| (*k, l.to_string())).collect::<Vec<_>>();
+        let types = |t: &[(i64, &str)]| t.iter().map(|(k, l)| (*k, crate::i18n::t(l).to_string())).collect::<Vec<_>>();
         egui::Grid::new("units_grid").num_columns(2).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
-            ui.strong("Length");
+            ui.strong(crate::i18n::t("Length"));
             ui.end_row();
-            ui.label("Type");
+            ui.label(crate::i18n::t("Type"));
             pick(ui, "units_lunits", lu, &types(&LENGTH_TYPES));
             ui.end_row();
-            ui.label("Precision");
+            ui.label(crate::i18n::t("Precision"));
             pick(ui, "units_luprec", lp, &length_precisions(*lu));
             ui.end_row();
-            ui.strong("Angle");
+            ui.strong(crate::i18n::t("Angle"));
             ui.end_row();
-            ui.label("Type");
+            ui.label(crate::i18n::t("Type"));
             pick(ui, "units_aunits", au, &types(&ANGLE_TYPES));
             ui.end_row();
-            ui.label("Precision");
+            ui.label(crate::i18n::t("Precision"));
             pick(ui, "units_auprec", ap, &(0..=8).map(|p| (p, format_angle(45f64.to_radians(), *au, p))).collect::<Vec<_>>());
             ui.end_row();
-            ui.strong("Insertion scale");
+            ui.strong(crate::i18n::t("Insertion scale"));
             ui.end_row();
-            ui.label("Units to scale inserted content");
-            let names = INSERTION_UNITS.iter().enumerate().map(|(k, l)| (k as i64, l.to_string())).collect::<Vec<_>>();
+            ui.label(crate::i18n::t("Units to scale inserted content"));
+            let names = INSERTION_UNITS.iter().enumerate().map(|(k, l)| (k as i64, crate::i18n::t(l).to_string())).collect::<Vec<_>>();
             pick(ui, "units_insunits", ins, &names);
             ui.end_row();
-            ui.strong("Sample output");
+            ui.label("");
+            ui.checkbox(&mut keep, crate::i18n::t("Use it for every drawing I open"));
+            ui.end_row();
+            ui.strong(crate::i18n::t("Sample output"));
             ui.end_row();
             ui.label("");
             ui.label(format!("{},{},{}", format_distance(1.5, *lu, *lp), format_distance(2.0039, *lu, *lp), format_distance(0.0, *lu, *lp)));
@@ -365,18 +379,25 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
         ui.separator();
         ui.horizontal(|ui| {
             apply = ui.button("OK").clicked();
-            cancel = ui.button("Cancel").clicked();
+            cancel = ui.button(crate::i18n::t("Cancel")).clicked();
         });
     });
     if apply {
         let [lu, lp, au, ap, ins] = v;
         let _ = app.run("units", json!({ "lunits": lu, "luprec": lp, "aunits": au, "auprec": ap, "insunits": ins }));
+        app.session.default_insunits = keep.then_some(ins);
     }
     if apply || cancel || !*open {
-        ctx.data_mut(|d| d.remove::<[i64; 5]>(id));
+        ctx.data_mut(|d| {
+            d.remove::<[i64; 5]>(id);
+            d.remove::<bool>(keep_id);
+        });
         *open = false;
     } else {
-        ctx.data_mut(|d| d.insert_temp(id, v));
+        ctx.data_mut(|d| {
+            d.insert_temp(id, v);
+            d.insert_temp(keep_id, keep);
+        });
     }
 }
 

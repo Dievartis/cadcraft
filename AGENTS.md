@@ -1,3 +1,5 @@
+> **Fork freemans32/cadcraft :** lis aussi [`FORK.md`](FORK.md) (consignes du fork et état d'avancement), sur la branche `perso`.
+
 <!-- craft-agents:start source=5b1a2b1982fe7c774739d06d4a3818033cf4884c sha256=41dc0e35957946bfe7639237fbf1eca92093fe7f6bd76a778779c359c4e4a82a -->
 # Rules for agents in Craft repositories
 

@@ -227,6 +227,7 @@ pub fn route(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value,
 struct UiChanges {
     theme: Option<ThemePref>,
     animations: Option<AnimationPref>,
+    palette_sections: Option<crate::sections::SectionsMode>,
     language: Option<crate::i18n::Preference>,
     save_format: Option<crate::SaveFormat>,
     system_cursor: Option<bool>,
@@ -248,6 +249,8 @@ struct UiChanges {
     right_click_command: Option<CommandClick>,
     interface_scale: Option<f32>,
     locked_unselectable: Option<bool>,
+    /// The refrigerant tube sizes a new link starts with, mm (`Some(None)`: the built-in size): liquid, gas, high/low-pressure gas.
+    refrigerant: [Option<Option<f64>>; 3],
 }
 
 fn color_param(key: &str, v: &Value) -> Result<Option<Color32>, String> {
@@ -263,10 +266,24 @@ fn parse_ui(key: &str, v: &Value, c: &mut UiChanges) -> Result<bool, String> {
     match key {
         "theme" => c.theme = Some(ThemePref::parse(text()?).ok_or("theme must be system, light or dark")?),
         "animations" => c.animations = Some(AnimationPref::parse(text()?).ok_or("animations must be system, on or off")?),
+        "paletteSections" => {
+            c.palette_sections = Some(crate::sections::SectionsMode::parse(text()?).ok_or("paletteSections must be open, closed or remember")?)
+        }
         "interfaceLanguage" => {
             c.language = Some(
                 crate::i18n::Preference::parse(text()?).ok_or_else(|| format!("interfaceLanguage must be {}", crate::i18n::Preference::codes()))?,
             )
+        }
+        "refrigerantLiquid" | "refrigerantGas" | "refrigerantHpGas" => {
+            let i = REFRIGERANT_KEYS.iter().position(|k| *k == key).unwrap_or(0);
+            let bad = || format!("{key} must be a tube size in inches (3/8, 1 1/8), in millimetres, or null");
+            c.refrigerant[i] = Some(match v {
+                Value::Null => None,
+                Value::String(t) if t.trim().is_empty() => None,
+                Value::Number(n) => Some(n.as_f64().filter(|x| x.is_finite() && *x > 0.0).ok_or_else(bad)?),
+                Value::String(t) => Some(cadcraft_doc::parse_refrigerant_size(t).ok_or_else(bad)?),
+                _ => return Err(bad()),
+            });
         }
         "saveFormat" => c.save_format = Some(crate::SaveFormat::parse(text()?).ok_or("saveFormat must be dxf or dwg")?),
         "architectureTools" => c.architecture_tools = Some(v.as_bool().ok_or("architectureTools must be true or false")?),
@@ -331,6 +348,7 @@ fn ui_json(app: &CadApp) -> Map<String, Value> {
     let mut m = Map::new();
     m.insert("theme".into(), json!(app.ui.theme.as_str()));
     m.insert("animations".into(), json!(app.ui.animations.as_str()));
+    m.insert("paletteSections".into(), json!(app.ui.sections.mode.as_str()));
     m.insert("interfaceLanguage".into(), json!(app.ui.interface_language.code()));
     m.insert("saveFormat".into(), json!(app.ui.save_format.as_str()));
     m.insert("architectureTools".into(), json!(app.ui.architecture_tools));
@@ -342,6 +360,9 @@ fn ui_json(app: &CadApp) -> Map<String, Value> {
     m.insert("selectionColor".into(), color_json(o.selection_color));
     m.insert("snapMarkerSize".into(), json!(o.snap_marker_size));
     m.insert("interfaceScale".into(), json!(o.interface_scale));
+    for (key, mm) in REFRIGERANT_KEYS.iter().zip(refrigerant_defaults(app)) {
+        m.insert((*key).into(), json!(mm));
+    }
     m.insert("saveVersion".into(), json!(app.ui.save_version));
     m.insert("SAVETIME".into(), json!(cadcraft_engine::autosave::savetime()));
     m.insert("SAVEFILEPATH".into(), json!(cadcraft_engine::autosave::savefilepath()));
@@ -386,6 +407,9 @@ fn run_json(app: &mut CadApp, params: &Value) -> Result<Value, String> {
     if let Some(a) = ui.animations {
         app.ui.animations = a;
     }
+    if let Some(m) = ui.palette_sections {
+        app.ui.sections.set_mode(m);
+    }
     if let Some(l) = ui.language {
         app.ui.interface_language = l;
     }
@@ -419,6 +443,12 @@ fn run_json(app: &mut CadApp, params: &Value) -> Result<Value, String> {
     if let Some(n) = ui.interface_scale {
         app.options.interface_scale = n;
     }
+    let pipe = &mut app.session.last_used.pipe;
+    for (i, c) in ui.refrigerant.iter().enumerate() {
+        if let Some(mm) = *c {
+            *[&mut pipe.liquid_mm, &mut pipe.gas_mm, &mut pipe.gas2_mm][i] = mm;
+        }
+    }
     if let Some(v) = ui.save_version {
         app.ui.save_version = v.year().to_string();
     }
@@ -439,6 +469,15 @@ fn run_json(app: &mut CadApp, params: &Value) -> Result<Value, String> {
     }
     apply_right_click(&mut app.options, &ui);
     Ok(report(app))
+}
+
+/// The option keys of the refrigerant tube sizes a new link starts with: liquid, gas, high/low-pressure gas.
+pub(crate) const REFRIGERANT_KEYS: [&str; 3] = ["refrigerantLiquid", "refrigerantGas", "refrigerantHpGas"];
+
+/// The sizes a new refrigerant link starts with, mm (`None`: the built-in one).
+pub(crate) fn refrigerant_defaults(app: &CadApp) -> [Option<f64>; 3] {
+    let p = &app.session.last_used.pipe;
+    [p.liquid_mm, p.gas_mm, p.gas2_mm]
 }
 
 /// Right-Click Customization's settings (the time-sensitive switch aside) from `c`.

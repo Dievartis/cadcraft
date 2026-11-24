@@ -12,6 +12,7 @@ use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, pos2, vec2};
 use crate::CadApp;
 use crate::theme::Tokens;
 
+mod area_fill;
 mod cursor;
 mod cycle;
 mod draw;
@@ -24,18 +25,20 @@ mod press;
 mod viewport;
 mod widgets;
 
+use area_fill::{AreaPreviewCache, area_preview_fill};
 use cursor::{draw_crosshair, draw_snap_marker, draw_tracking, effective_point, override_cursor};
-use cycle::{CycleList, cycle_badge, cycle_click, cycle_list, over_canvas_menu, shift_space_cycle};
+pub(crate) use cycle::over_canvas_menu;
+use cycle::{CycleList, cycle_badge, cycle_click, cycle_list, shift_space_cycle};
 pub(crate) use draw::{Look, draw_highlight, draw_list};
-use draw::{dashed_polygon, dashed_rect, draw_drag_gpu, draw_highlight_gpu, draw_list_gpu, list_mesh_key, selection_area_fill};
+use draw::{dashed_polygon, dashed_rect, draw_drag_gpu, draw_highlight_gpu, draw_list_gpu, draw_list_with_pages, list_mesh_key, selection_area_fill};
 use dyn_boxes::dynamic_input;
 pub(crate) use dyn_boxes::length_units;
 use grid::draw_grid;
 use grips::{click_grip, grip_at, grip_menu, grip_options, grip_rect};
-use list::{OnlyList, PrimIndex, ensure_list, rebuilt_preview};
+use list::{OnlyList, PrimIndex, ensure_list, note_truncated, rebuilt_preview};
 #[cfg(test)]
 use list::{preview_options, prims_of};
-use pick::{edit_text_at, hatch_at, wheel_zoom_points};
+use pick::{edit_table_cell_at, edit_text_at, hatch_at, insert_at, parametric_at, titleblock_at, wheel_zoom_points};
 #[cfg(test)]
 use viewport::viewport_highlight_tolerance;
 use viewport::{VpContent, VpHighlight, draw_vp_content, ensure_vp_content};
@@ -102,6 +105,8 @@ fn same_content(a: &ListKey, b: &ListKey) -> bool {
 #[derive(Default)]
 pub struct CanvasState {
     pub list: Option<DisplayList>,
+    /// AREA's fixed selected-edge validation, reused across cursor movements.
+    area_preview_cache: AreaPreviewCache,
     /// The font set the list was drawn with ([`cadcraft_fonts::ttf::generation`] and
     /// [`cadcraft_fonts::shx::generation`]): a new font folder redraws the text.
     font_generation: u64,
@@ -146,6 +151,9 @@ pub struct CanvasState {
     /// Milliseconds spent converting the display list to vertex data (last rebuild).
     pub mesh_ms: f64,
     pub rect: Option<Rect>,
+    /// The pointer is over the drawing area, where the drawn crosshair is the pointer and the system cursor is hidden.
+    /// `show` sets it each frame; the app hides and shows the system cursor to match.
+    pub hide_system_cursor: bool,
     pub xf: Option<Xf>,
     pub hover: Option<Handle>,
     pub snap: Option<SnapHit>,
@@ -204,6 +212,11 @@ pub struct CanvasState {
     hover_cycle: Option<(Pos2, Vec<Handle>, usize)>,
     /// What the cycling list and the Shift+Space highlight were made for (see [`CycleKey`]).
     cycle_key: Option<CycleKey>,
+    /// The drawing (its state's `uid`) whose display list was last said to leave block contents
+    /// out ([`list::note_truncated`]): said once per drawing, not at every rebuild.
+    truncation_noted: Option<u64>,
+    /// PDF underlay pages read for the canvas.
+    pub(crate) underlays: underlay::Cache,
 }
 
 /// The command, prompt, drawing (and its revision) and view that the objects under the cursor
@@ -343,15 +356,37 @@ fn handle_scroll_zoom(app: &mut CadApp, ui: &mut egui::Ui, nav: &Navigation<'_>,
         let _ = app.session.zoom_about(factor, about);
     }
     let pinch = ui.input(|i| crate::animation::zoom_delta(i, &opts, app.shows_animations()));
+    // A touch-screen pinch zooms about the fingers, not the (virtual) mouse crosshair.
+    let pinch_centre = ui.input(|i| i.multi_touch().map(|t| t.center_pos)).filter(|at| nav.rect.contains(*at));
+    // Fingers that landed off the canvas (on a panel, a menu) belong there, wherever they move.
+    let touch_elsewhere = app.touch.passing();
     if inside
+        && !touch_elsewhere
         && (pinch - 1.0).abs() > 1e-4
-        && let Some(at) = p.hover_pos
+        && let Some(at) = pinch_centre.or(p.hover_pos)
     {
         let _ = app.session.zoom_about(f64::from(pinch), nav.xf.to_world(at));
+    }
+    // Two fingers pan with their midpoint; one finger drives the crosshair ([`crate::touch`]).
+    // Only under the virtual mouse: elsewhere the first finger is already a left drag.
+    if app.touch.gesturing()
+        && let Some(touch) = ui.input(|i| i.multi_touch())
+        && nav.rect.contains(touch.center_pos)
+        && touch.translation_delta != egui::Vec2::ZERO
+        && let Ok(st) = app.session.state_mut()
+    {
+        let view = st.view();
+        st.set_view_quiet(cadcraft_engine::View { center: view.center - nav.xf.screen_delta_to_world(touch.translation_delta), ..view });
     }
 }
 
 fn handle_button_navigation(app: &mut CadApp, nav: &Navigation<'_>, inside: bool) {
+    // MBUTTONPAN 0: the middle button opens the object snap menu instead (and with panning goes
+    // the double click's Zoom Extents), so it never moves the view.
+    if !app.session.settings.mbuttonpan {
+        app.canvas.pan_last = None;
+        return;
+    }
     let p = nav.pointer;
     let middle_pressed = nav.response.ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Middle));
     let focused = nav.response.ctx.input(|i| i.focused);
@@ -399,6 +434,51 @@ struct CanvasPaint<'a> {
     raw_world: Option<Vec2>,
 }
 
+/// Other participants' cursors in the space being shown.
+///
+/// Presence is ephemeral (ADR-0006): a dot, a ring and a name, redrawn every frame from the last
+/// message; a cursor in another space or outside the view is not drawn.
+fn paint_presence(app: &crate::CadApp, painter: &egui::Painter, xf: &Xf, rect: Rect) {
+    let Ok(state) = app.session.state() else { return };
+    for (actor, presence) in &app.remote_presence {
+        if presence.space != state.space {
+            continue;
+        }
+        let Some(cursor) = presence.cursor else { continue };
+        let at = xf.to_screen(Vec2::new(cursor[0], cursor[1]));
+        if !rect.contains(at) {
+            continue;
+        }
+        let color = presence_color(actor);
+        painter.circle_filled(at, 4.0, color);
+        painter.circle_stroke(at, 7.0, Stroke::new(1.5, color));
+        painter.text(at + vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, actor, egui::FontId::proportional(12.0), color);
+    }
+}
+
+/// A stable, readable colour per participant: the same name always gets the same hue.
+fn presence_color(actor: &str) -> Color32 {
+    let mut hash: u32 = 2_166_136_261;
+    for byte in actor.bytes() {
+        hash = (hash ^ u32::from(byte)).wrapping_mul(16_777_619);
+    }
+    let hue = (hash % 360) as f32 / 60.0;
+    let (saturation, value) = (0.72_f32, 0.95_f32);
+    let c = value * saturation;
+    let x = c * (1.0 - ((hue % 2.0) - 1.0).abs());
+    let m = value - c;
+    let (r, g, b) = match hue as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let channel = |v: f32| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    Color32::from_rgb(channel(r), channel(g), channel(b))
+}
+
 fn paint_content_highlights(frame: &mut CanvasPaint<'_>, bg: Rgb, sel: &[Handle], preview_look: Look, selection_look: Option<Look>) {
     let app = &mut *frame.app;
     let painter = frame.painter;
@@ -434,13 +514,25 @@ fn paint_content_highlights(frame: &mut CanvasPaint<'_>, bg: Rgb, sel: &[Handle]
         if let Some(f) = ensure_vp_content(app, &xf_paper, ui.ctx()) {
             let gpu = app.canvas.gpu.is_some();
             let clipped = painter.with_clip_rect(f.on_screen.intersect(rect));
-            draw_vp_content(&mut app.canvas.vp, gpu, &clipped, &f, &xf_paper, bg, app.session.settings.lwdisplay);
+            // Its PDF underlays' pages, clipped to a clipped viewport's outline (in list units: the
+            // list moves with the viewport's view, see `vp_motion`).
+            let lus = app.canvas.vp.list.underlays.clone();
+            let outline = f.outline.as_ref().and_then(|o| {
+                let (k, b) = app.canvas.vp.motion.unwrap_or((1.0, Vec2::ZERO));
+                let pts: Vec<Vec2> = o.iter().map(|q| (*q - b) / k).collect();
+                cadcraft_render::clip::PolyClip::new(&pts)
+            });
+            let pages = underlay::shapes(app, &clipped, &f.xf, underlay::Scope::Viewport, &lus, outline.as_ref(), bg);
+            draw_vp_content(&mut app.canvas.vp, gpu, &clipped, &f, &xf_paper, pages, bg, app.session.settings.lwdisplay);
             masked = gpu && f.outline.is_some();
         }
+        // PDF underlays' pages, each at its place in the drawing order.
+        let lus = app.canvas.list.as_ref().map(|l| l.underlays.clone()).unwrap_or_default();
+        let pages = underlay::shapes(app, painter, &xf_paper, underlay::Scope::Main, &lus, None, bg);
         if app.canvas.gpu.is_some() {
-            draw_list_gpu(&mut app.canvas, painter, &xf_paper, bg, app.session.settings.lwdisplay);
+            draw_list_gpu(&mut app.canvas, painter, &xf_paper, pages, bg, app.session.settings.lwdisplay);
         } else if let Some(list) = &app.canvas.list {
-            draw_list(painter, &xf_paper, list, bg, app.session.settings.lwdisplay);
+            draw_list_with_pages(painter, &xf_paper, list, pages, bg, app.session.settings.lwdisplay);
         }
     }
     if let Some(vp) = &active_vp {
@@ -565,9 +657,12 @@ fn paint_pointer_overlay(frame: &mut CanvasPaint<'_>, paper_rect: Option<Rect>, 
     if app.ui.show_command_line {
         crate::cmdline::show(app, ui, full);
     }
-    // Crosshair cursor.
-    if inside && !on_menu {
-        // Hide the OS cursor under the drawn crosshair, unless assistive tech needs it (#39).
+    // The software draws the pointer across the drawing area, and the system cursor is hidden there, as in games. This is
+    // set after the overlays (ViewCube, UCS icon, command line), so their hover cursors cannot bring it back. Floating
+    // windows and menus (including the canvas's own option and cycling menus) are not drawing area and keep the arrow.
+    let over_drawing = !on_menu && hover_pos.is_some_and(|p| rect.contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id()));
+    if over_drawing {
+        // The system crosshair stays visible when assistive tech needs it (#39).
         ui.ctx().set_cursor_icon(if app.ui.system_cursor { egui::CursorIcon::Crosshair } else { egui::CursorIcon::None });
         if let Some(hp) = hover_pos {
             // Use the painted sheet even in MSPACE, where the editing transform follows a
@@ -580,6 +675,7 @@ fn paint_pointer_overlay(frame: &mut CanvasPaint<'_>, paper_rect: Option<Rect>, 
             }
         }
     }
+    let mut tooltip = false;
     if inside
         && app.session.settings.dynmode
         && let Some(hp) = hover_pos
@@ -589,7 +685,12 @@ fn paint_pointer_overlay(frame: &mut CanvasPaint<'_>, paper_rect: Option<Rect>, 
         let fields = crate::grip_dyn::draw(app, painter);
         if !fields || app.session.current_prompt().is_some_and(|p| p.distance) {
             dynamic_input(app, painter, hp, fields);
+            tooltip = true;
         }
+    }
+    // Without the tooltip its options menu is not on screen, so a click cannot pick one of last frame's rows.
+    if !tooltip {
+        app.cmd.option_rows.clear();
     }
     // Over the crosshair, so the row under the pointer reads clearly.
     cycle_list(app, painter);
@@ -610,6 +711,47 @@ struct DoubleClickContext<'a> {
 
 fn handle_double_click(app: &mut CadApp, ctx: DoubleClickContext<'_>) -> Option<bool> {
     let DoubleClickContext { inside, double, hover, xf, xf_paper, scale, active_viewport, active_clip } = ctx;
+    // Double-click a wall (or another parametric object) to change it in the Properties palette,
+    // as AutoCAD Architecture does; its labels and lines are generated, never edited one by one.
+    // Double-click a title block: its dialog.
+    if inside
+        && double
+        && app.session.running.is_none()
+        && let Some(hp) = hover
+        && let Some(h) = titleblock_at(app, xf.to_world(hp), scale)
+    {
+        app.session.set_selection(vec![h]);
+        crate::titleblockdlg::open(app, Some(h));
+        return Some(false);
+    }
+    if inside
+        && double
+        && app.session.running.is_none()
+        && let Some(hp) = hover
+        && let Some(h) = parametric_at(app, xf.to_world(hp), scale)
+    {
+        app.session.set_selection(vec![h]);
+        app.ui.show_palettes = true;
+        app.canvas.hot_grips.clear();
+        return Some(false);
+    }
+    // Double-click a block reference (no command running) to edit that reference in place with
+    // REFEDIT, as AutoCAD's default DBLCLKEDIT does: its objects become ordinary objects with the
+    // rest of the block faded and the drawing still visible. The Block Editor, which hides the
+    // drawing, stays on the context menu and the menu bar. The click is used up, and it comes
+    // before the viewport case so a reference on a paper-space sheet is edited, not MSPACE'd.
+    if inside
+        && double
+        && app.session.running.is_none()
+        && let Some(hp) = hover
+        && let Some(h) = insert_at(app, xf.to_world(hp))
+    {
+        app.session.set_selection(vec![h]);
+        // REFEDIT reports why it refuses a reference (unequal scale, an xref, generated geometry)
+        // through the command line; `run` echoes the error and nothing panics.
+        let _ = app.run("refedit", serde_json::json!({ "handle": h.hex() }));
+        return Some(false);
+    }
     if inside
         && double
         && !app.session.prompting()
@@ -638,6 +780,16 @@ fn handle_double_click(app: &mut CadApp, ctx: DoubleClickContext<'_>) -> Option<
         && app.session.running.is_none()
         && let Some(hp) = hover
         && edit_text_at(app, xf.to_world(hp))
+    {
+        return None;
+    }
+
+    // Double-click a table cell to edit it in place, as in AutoCAD: TABLEDIT on that cell (#3136).
+    if inside
+        && double
+        && app.session.running.is_none()
+        && let Some(hp) = hover
+        && edit_table_cell_at(app, xf.to_world(hp))
     {
         return None;
     }
@@ -831,6 +983,15 @@ pub(crate) fn right_click_cancels_placing(app: &CadApp) -> bool {
 /// replaces the pointer over the drawing alone. A menu bar, an open menu (including its frame, not
 /// just its items), a tooltip or a floating palette above the canvas keeps the normal OS cursor
 /// visible (#1701), and so do the menus painted on the canvas itself (see [`over_canvas_menu`]).
+/// A part dragged from the Pipework Part Library and dropped here goes where it was dropped.
+fn drop_dragged_part(app: &mut CadApp, ui: &egui::Ui, resp: &egui::Response, xf: &Xf) {
+    if let Some(drag) = resp.dnd_release_payload::<crate::partlibdlg::PartDrag>()
+        && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+    {
+        crate::partlibdlg::drop_part(app, &drag.0, xf.to_world(pos));
+    }
+}
+
 pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     let t = Tokens::get();
     let full = ui.available_rect_before_wrap();
@@ -871,6 +1032,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     let scale = f64::from(rect.height()) / view.height.max(1e-12);
     let xf = Xf { rect, center: view.center, scale, twist: view.twist };
     app.canvas.xf = Some(xf);
+    drop_dragged_part(app, ui, &resp, &xf);
     // The paper (display) transform; equal to `xf` except inside an MSPACE viewport.
     let (xf_paper, active_vp) = match app.session.state() {
         Ok(st) => {
@@ -920,6 +1082,11 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     let (raw_world, dyn_frame) = update_canvas_cursor(app, ui, &xf, inside, hover_pos);
 
     // A click on the Dynamic Input options menu picks the keyword; elsewhere it closes the menu.
+    // Rows from the previous frame are stale when the menu is hidden, so drop them before this
+    // click lookup (the tooltip's own cleanup runs later in the frame).
+    if !inside || !app.session.settings.dynmode {
+        app.cmd.option_rows.clear();
+    }
     let mut picked = false;
     if pressed_primary && app.cmd.options.is_some() {
         match hover_pos.and_then(|h| app.cmd.option_at(h)) {
@@ -1145,6 +1312,7 @@ fn paint_canvas(frame: CanvasPaint<'_>) {
         (xf.world_bounds(), 1.0 / xf.scale)
     }));
     ensure_list(app, &xf_paper, &views, ui.ctx());
+    note_truncated(app);
     let sheet = app.canvas.list.as_ref().and_then(|l| l.sheet);
     let surround = Color32::from_rgb(0x50, 0x57, 0x63);
     let (bg, paper_rect) = match sheet {
@@ -1197,6 +1365,7 @@ fn paint_canvas(frame: CanvasPaint<'_>) {
         preview_look,
         selection_look,
     );
+    paint_presence(app, painter, &xf_paper, rect);
     app.canvas.draw_ms = crate::now_ms() - t0;
     compare::paint(app, ui.ctx(), painter, &xf_paper, rect);
     blockedit::paint(app, ui.ctx(), painter, &xf_paper, rect);
@@ -1268,6 +1437,11 @@ fn paint_canvas(frame: CanvasPaint<'_>) {
         }
         crate::dyngrips::draw(app, painter, &xf, rect, hover_pos);
     }
+    // Do not retain AREA validation across separate commands. The exact
+    // coordinates in the cache key also cover Undo and changed selections.
+    if app.session.active_command_id() != Some("area") {
+        app.canvas.area_preview_cache.clear();
+    }
     // Rubber band preview of the active command.
     // `xf` is the space being edited: paper space, or model space inside the active viewport.
     let drag = match (app.canvas.cursor, app.canvas.gpu.is_some()) {
@@ -1287,6 +1461,10 @@ fn paint_canvas(frame: CanvasPaint<'_>) {
         if !ents.is_empty()
             && let Ok(st) = app.session.state()
         {
+            // Paint translucent AREA fill below the unchanged rubber-band outline.
+            if let Some(mesh) = area_preview_fill(app.session.active_command_id(), &ents, &xf, &mut app.canvas.area_preview_cache) {
+                painter.add(Shape::mesh(mesh));
+            }
             let list = rebuilt_preview(&st.doc, ents.iter(), scale);
             draw_list(painter, &xf, &list, bg, false);
         }
@@ -1345,3 +1523,6 @@ mod compare;
 /// Background rebuilds of the display list for a new view.
 mod images;
 mod rebuild;
+
+/// PDF underlays' pages under the drawing.
+mod underlay;

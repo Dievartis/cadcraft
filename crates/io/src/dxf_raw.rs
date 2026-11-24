@@ -43,7 +43,8 @@ const MODELLED_KEYS: &[&str] = &[
 const MODELLED_XDICT_KEYS: &[&str] = &["ACAD_DIMASSOC", "ACAD_LAYERSTATES", "ACAD_SORTENTS", "ACDBCONTEXTDATAMANAGER"];
 
 /// Applications whose xdata CADCraft reads and writes itself. `ACAD` holds dimension overrides
-/// (DSTYLE) on dimensions and dimension styles; elsewhere it is kept.
+/// (DSTYLE) on dimensions and dimension styles, and `ADESKUNDERLAYLAYEROVERRIDEDATA` the hidden
+/// layers of a PDF underlay; elsewhere they are kept (a DWF or DGN underlay's, for one).
 const OWN_APPS: &[&str] = &["CADCRAFT", "ACADANNOTATIVE", "ACCMTRANSPARENCY", "ACAECLAYERSTANDARD"];
 
 /// Most objects kept from one file.
@@ -91,7 +92,7 @@ fn handle(s: &str) -> Option<Handle> {
 }
 
 /// Group codes whose values are handles of other objects (DXF Reference, group code ranges).
-fn is_pointer(code: i32) -> bool {
+pub(crate) fn is_pointer(code: i32) -> bool {
     matches!(code, 320..=369 | 390..=399 | 480..=481 | 1005)
 }
 
@@ -233,7 +234,9 @@ fn foreign_xdata(kind: &str, tags: &[Tag]) -> Vec<RawTag> {
         let chunk = rest.get(i..i + 1 + len).unwrap_or(&[]);
         i += 1 + len;
         let app = up(&first.str());
-        let own = OWN_APPS.contains(&app.as_str()) || (app == "ACAD" && matches!(kind, "DIMENSION" | "DIMSTYLE"));
+        let own = OWN_APPS.contains(&app.as_str())
+            || (app == "ACAD" && matches!(kind, "DIMENSION" | "DIMSTYLE"))
+            || (app == "ADESKUNDERLAYLAYEROVERRIDEDATA" && kind == "PDFUNDERLAY");
         if app.is_empty() || own || out.len() + chunk.len() > MAX_XDATA_GROUPS {
             continue;
         }
@@ -439,6 +442,9 @@ pub(crate) fn read(secs: &[SectionRef<'_>], d: &mut Drawing) {
     }
     for e in all_entities(d) {
         note(&e.common.xdata);
+        if let EntityKind::Viewport(v) = &e.kind {
+            note(&v.extra);
+        }
     }
     for e in all_entities(d) {
         if let EntityKind::Unknown(u) = &e.kind {
@@ -803,7 +809,9 @@ fn strip_entries(tags: &mut Vec<RawTag>) {
 
 /// An entity of a type CADCraft doesn't model, as read, with its handle, owner, space and layer
 /// from the drawing. Its reactors, extension dictionary and xdata are added by [`finish`] (they
-/// are kept with the drawing's other foreign data); its references are remapped there too.
+/// are kept with the drawing's other foreign data); its references are remapped there too. An
+/// application's own `102 {NAME` groups are kept as read, like those of unknown objects; the
+/// handles inside them are remapped by [`finish`] with the entity's other references.
 pub(crate) fn unknown_entity(u: &Unknown, e: &Entity, owner: &str, paper: bool) -> Vec<Tag> {
     let kind = up(&u.dxf_type);
     if STRUCTURAL.contains(&kind.as_str()) || u.dxf_type.trim() != u.dxf_type {
@@ -811,17 +819,37 @@ pub(crate) fn unknown_entity(u: &Unknown, e: &Entity, owner: &str, paper: bool) 
     }
     let mut out = vec![Tag::s(0, u.dxf_type.clone()), Tag::s(5, e.handle.hex()), Tag::s(330, owner)];
     let fixed = out.len();
-    let mut in_group = false;
+    // Inside a `102 {NAME` group: whether it is dropped (reactors and extension dictionary are
+    // written by `finish`) or kept as it is (an application's own group).
+    let mut in_group: Option<bool> = None;
     let mut owner_seen = false;
     let mut layer = false;
     let mut paper_done = !paper;
     for r in u.tags.iter().take_while(|r| r.code < 1000) {
-        match r.code {
-            102 => {
-                in_group = r.value.trim().starts_with('{');
-                continue;
+        if r.code == 102 {
+            let v = r.value.trim();
+            let skip = match in_group {
+                Some(skip) => skip,
+                // A stray `102 }` outside any group is dropped.
+                None => v.strip_prefix('{').is_none_or(|n| matches!(up(n).as_str(), "ACAD_REACTORS" | "ACAD_XDICTIONARY")),
+            };
+            if v.starts_with('{') && in_group.is_none() {
+                in_group = Some(skip);
+            } else if v == "}" {
+                in_group = None;
             }
-            _ if in_group => continue,
+            if !skip {
+                out.push(tag(r));
+            }
+            continue;
+        }
+        if let Some(skip) = in_group {
+            if !skip {
+                out.push(tag(r));
+            }
+            continue;
+        }
+        match r.code {
             5 | 67 => continue,
             // After a subclass marker, 330 can be proxy data even without a source owner.
             100 => owner_seen = true,
@@ -1020,17 +1048,41 @@ fn extra_for<'a>(f: &'a Foreign, xd: &XdataOf, rec: &Rec, body: &[Tag], block: &
     }
 }
 
-/// Entities' own xdata ([`cadcraft_doc::Common::xdata`]), by handle.
-type XdataOf<'a> = HashMap<Handle, &'a [RawTag]>;
+/// What an entity carries itself (so its copies carry it too), by handle: its xdata
+/// ([`cadcraft_doc::Common::xdata`]) and a viewport's unmodelled groups
+/// ([`cadcraft_doc::Viewport::extra`]).
+type XdataOf<'a> = HashMap<Handle, Own<'a>>;
 
-/// The extras of entity `h`: what the drawing keeps for it, with the entity's own xdata.
+#[derive(Clone, Copy)]
+struct Own<'a> {
+    xdata: &'a [RawTag],
+    tail: &'a [RawTag],
+}
+
+/// The [`Own`] data of every entity that carries any.
+fn own_data(d: &Drawing) -> XdataOf<'_> {
+    all_entities(d)
+        .filter_map(|e| {
+            let tail: &[RawTag] = match &e.kind {
+                EntityKind::Viewport(v) => &v.extra,
+                _ => &[],
+            };
+            (!e.common.xdata.is_empty() || !tail.is_empty()).then_some((e.handle, Own { xdata: &e.common.xdata, tail }))
+        })
+        .collect()
+}
+
+/// The extras of entity `h`: what the drawing keeps for it, with what the entity carries itself.
 fn entity_extra<'a>(f: &'a Foreign, xd: &XdataOf, h: Handle) -> Option<Cow<'a, ForeignExtra>> {
     let kept = f.entities.get(&h);
     match xd.get(&h) {
         None => kept.map(Cow::Borrowed),
-        Some(xdata) => {
+        Some(own) => {
             let mut x = kept.cloned().unwrap_or_default();
-            x.xdata = xdata.to_vec();
+            if !own.xdata.is_empty() {
+                x.xdata = own.xdata.to_vec();
+            }
+            x.tail = own.tail.to_vec();
             Some(Cow::Owned(x))
         }
     }
@@ -1090,10 +1142,11 @@ pub(crate) fn finish(
     modern: bool,
     target_modern: bool,
     strings: bool,
+    fields_foreign: Option<&Foreign>,
 ) -> HashSet<Handle> {
-    let f = d.foreign.as_ref();
+    let f = fields_foreign.unwrap_or(d.foreign.as_ref());
     let unknown = unknown_handles(d);
-    let xd: XdataOf = all_entities(d).filter(|e| !e.common.xdata.is_empty()).map(|e| (e.handle, e.common.xdata.as_slice())).collect();
+    let xd = own_data(d);
     if f.is_empty() && unknown.is_empty() && xd.is_empty() {
         return HashSet::new();
     }
@@ -1482,6 +1535,7 @@ fn record(map: &Map, r: &Rec, b: &[Tag], x: Option<&ForeignExtra>, unknown: Opti
         if i == xdata_at
             && let Some(x) = x
         {
+            out.extend(x.tail.iter().map(|p| map.group(p)));
             xdata(map, x, &own_apps, out);
         }
         if t.code == 102 {
@@ -1527,6 +1581,7 @@ fn record(map: &Map, r: &Rec, b: &[Tag], x: Option<&ForeignExtra>, unknown: Opti
             out.extend(x.props.iter().map(|p| map.group(p)));
         }
         if xdata_at == b.len() {
+            out.extend(x.tail.iter().map(|p| map.group(p)));
             xdata(map, x, &own_apps, out);
         }
     }

@@ -2,7 +2,8 @@
 //!
 //! The command-line text is the single source of truth; the boxes are a view of it:
 //! - `40` is typing in the first box (X, or the distance for second and next points, which
-//!   default to polar as in AutoCAD; DYNPIFORMAT = 1 makes them Cartesian).
+//!   default to polar as in AutoCAD; DYNPIFORMAT = 1 makes them Cartesian). RECTANG's other
+//!   corner is always X and Y (`Prompt::xy`), so `40` Tab `30` is a 40 by 30 rectangle.
 //! - `40,` locks X = 40 and moves to Y; `40<` locks the distance and moves to the angle. A locked
 //!   value holds the cursor.
 //! - Tab types the separator for the format on show, so `40` Tab `90` reads `40<90`; Tab after the
@@ -44,7 +45,8 @@ impl Format {
 pub struct Frame {
     /// The prompt's base point (the last point), if it has one.
     pub base: Option<Vec2>,
-    /// DYNPIFORMAT = 1: second and next points start Cartesian instead of polar.
+    /// DYNPIFORMAT = 1, or a prompt that asks for X and Y: second and next points start Cartesian
+    /// instead of polar.
     pub cartesian: bool,
     /// DYNPICOORDS = 1: second and next points are absolute instead of relative.
     pub absolute: bool,
@@ -484,6 +486,24 @@ mod tests {
             egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: m },
             egui::Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers: m },
         ]
+    }
+
+    /// Off the drawing area the tooltip is not drawn, so last frame's option rows cannot be clicked.
+    #[test]
+    fn option_rows_are_dropped_when_the_tooltip_is_not_drawn() {
+        let mut app = crate::CadApp::new(cadcraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        run_frame(&mut app, &ctx, Vec::new());
+        let center = app.canvas.rect.map_or(egui::pos2(700.0, 450.0), |r| r.center());
+        app.cmdline("circle");
+        run_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(center)]);
+        run_frame(&mut app, &ctx, key(egui::Key::ArrowDown));
+        run_frame(&mut app, &ctx, Vec::new());
+        assert!(!app.cmd.option_rows.is_empty(), "the menu is drawn at the cursor");
+        let outside = egui::pos2(1.0, 1.0);
+        assert!(app.canvas.rect.is_some_and(|r| !r.contains(outside)));
+        run_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(outside)]);
+        assert!(app.cmd.option_rows.is_empty(), "{:?}", app.cmd.option_rows);
     }
 
     #[test]

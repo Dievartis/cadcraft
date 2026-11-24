@@ -119,6 +119,16 @@ fn run_refedit(s: &mut Session, p: &Value) -> Result<Value> {
             ),
         ));
     }
+    // A dynamic block reference shows an anonymous copy (`*U12`) made for its values.
+    if let Some(r) = cadcraft_doc::dynblock::reference(d, ih) {
+        return Err(bad(
+            "refedit",
+            format!(
+                "\"{}\" is a dynamic block: edit it in the Block Editor (BEDIT), or its attributes with Edit Attributes (ATTEDIT); editing dynamic blocks in place is not available yet",
+                r.definition
+            ),
+        ));
+    }
     if blk.name.starts_with('*') || blk.array.is_some() {
         return Err(bad("refedit", format!("\"{}\" is generated geometry and can't be edited in place", blk.name)));
     }
@@ -404,11 +414,7 @@ impl Interactive for RefsetM {
                 p.default = Some("Add".into());
                 p
             }
-            RStage::Pick(remove) => {
-                let mut p = self.sel.prompt();
-                p.message = format!("Select objects to {}", if remove { "remove" } else { "add" });
-                p
-            }
+            RStage::Pick(remove) => self.sel.prompt().reworded(if remove { "Select objects to remove" } else { "Select objects to add" }),
         }
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {

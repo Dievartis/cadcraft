@@ -1,5 +1,6 @@
 //! Moving drawings in and out: EXPORT (DXF, DWG, SVG, PNG or PDF), IMPORT (the objects of another
-//! DXF/DWG file), PREVIEW (a picture of the plot) and PUBLISH (plot several sheets at once).
+//! DXF/DWG file), DXFOUT and DXFIN (AutoCAD's names for writing a DXF and bringing one in),
+//! PREVIEW (a picture of the plot) and PUBLISH (plot several sheets at once).
 //! ATTACH, SHARE and 3DORBIT are registered so the tool bar and command line say they are not
 //! available yet.
 //!
@@ -20,7 +21,7 @@ use serde_json::{Value, json};
 use super::file::{base64_decode, base64_encode, io};
 use super::{CommandSpec, bad, point_value, str_param};
 
-use crate::{EngineError, Result, Session};
+use crate::{Accept, EngineError, Input, Interactive, Prompt, Result, Session, Step};
 
 /// Formats EXPORT writes (the io layer picks the writer from the extension).
 pub const EXPORT_FORMATS: &[&str] = &["dxf", "dwg", "svg", "png", "pdf"];
@@ -39,8 +40,15 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("export", "Export...", run_export)
             .menu(&["File", "Export..."])
             .alias(&["exp"])
-            .params("{path? (else returns base64 `data`), format?: dxf|dwg|svg|png|pdf (default: the path's extension)} → {format, bytes, path? | data}")
+            .params("{path? (else returns base64 `data`), format?: dxf|dwg|svg|png|pdf (default: the path's extension), version?: 2000|2004|2007|2010|2013|2018 (DXF and DWG; default: the drawing's own), binary?: false (DXF only)} → {format, bytes, version? (DXF and DWG), path? | data}")
             .noundo(),
+        CommandSpec::new("dxfin", "DXF In", run_dxfin)
+            .params("{path | data: base64, name?} (DXF or DWG), at?: [x,y] (default 0,0), scale?: (default 1) → as IMPORT; typed: the file name")
+            .interactive(|_| Ok(Box::new(DxfFileM { out: false }))),
+        CommandSpec::new("dxfout", "DXF Out", run_dxfout)
+            .params("{path? (else returns base64 `data`; `.dxf` is added when it ends otherwise)} → {format: \"dxf\", bytes, path? | data}; always DXF; typed: the file name (default: the drawing's, as .dxf)")
+            .noundo()
+            .interactive(|_| Ok(Box::new(DxfFileM { out: true }))),
         CommandSpec::new("preview", "Plot Preview", run_preview)
             .menu(&["File", "Plot Preview"])
             .alias(&["pre"])
@@ -53,7 +61,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("pdfbook", "Sheet Books to PDF...", run_pdfbook)
             .menu(&["File", "Sheet Books to PDF..."])
             .alias(&["printpdf", "pdfb"])
-            .params("{path?: \"DIR/NAME^NAME2.pdf\" (default: the drawing's file; a `^` splits the name into one book name per row of frames; else returns base64 `data` per book), names?: [book names], frameHeight?: mm (default 297), unit?: mm per drawing unit (default 1)} → {books: [{name, pages, bytes, path? | data}], skipped}: closed polylines of the frame height in model space are sheet frames; each row (same lower edge, bottom to top) is one PDF, its frames left to right one page each on the paper (ISO A-series, either orientation) they match")
+            .params("{path?: \"DIR/NAME^NAME2.pdf\" (default: the drawing's file; a `^` splits the name into one book name per row of frames; else returns base64 `data` per book), names?: [book names], frameHeight?: mm (default 297), unit?: mm per drawing unit (default 1)} → {books: [{name, pages, bytes, path? | data}], skipped}: closed polylines of the frame height in model space are sheet frames; each row (same lower edge, bottom to top) is one PDF, its frames left to right one page each on the paper (any standard size — ISO, JIS, ANSI — either orientation) they match")
             .noundo(),
         CommandSpec::new("attach", "Attach", |s, p| match str_param(p, "path").map(extension) {
             Some(e) if super::image::is_image_ext(&e) => super::image::run_imageattach(s, p),
@@ -108,9 +116,17 @@ pub(super) fn deliver_file(cmd: &str, path: &str, bytes: &[u8], hook: Option<sup
 
 // ---------- EXPORT ----------
 
+/// The optional `path`: absent or null is none; anything else must be a string, so a mistyped one
+/// is refused instead of the file coming back as base64 with nothing written.
+fn path_param<'a>(cmd: &str, p: &'a Value) -> Result<Option<&'a str>> {
+    match p.get("path") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v.as_str().map(Some).ok_or_else(|| bad(cmd, format!("`path` must be a string, got {v}"))),
+    }
+}
+
 fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
-    let hooks = io().ok_or_else(|| bad("export", "file formats are not available in this build"))?;
-    let path = str_param(p, "path");
+    let path = path_param("export", p)?;
     let format = match str_param(p, "format") {
         Some(f) => f.trim().trim_start_matches('.').to_ascii_lowercase(),
         None => path.map(extension).unwrap_or_default(),
@@ -118,19 +134,104 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
     if !EXPORT_FORMATS.contains(&format.as_str()) {
         return Err(bad("export", "`format` must be dxf, dwg, svg, png or pdf (or give a `path` with one of those extensions)"));
     }
+    export_as(s, "export", p, path, &format)
+}
+
+/// Write the drawing as `format` to `path`, or return it as base64 without one. A folder made
+/// for it, and what the format can't hold, are reported (EXPORT and DXFOUT alike).
+fn export_as(s: &mut Session, cmd: &str, p: &Value, path: Option<&str>, format: &str) -> Result<Value> {
+    let hooks = io().ok_or_else(|| bad(cmd, "file formats are not available in this build"))?;
     let file = format!("export.{format}");
-    let bytes = (hooks.write)(s.doc()?, &file).map_err(|e| bad("export", e))?;
+    // DXF and DWG take SAVEAS's version and binary options; the drawing keeps its own version and
+    // name (an export is not a save).
+    let opts = super::file::save_options(cmd, p)?;
+    let drawing_format = matches!(format, "dxf" | "dwg");
+    if opts.version.is_some() && !drawing_format {
+        return Err(bad(cmd, "`version` applies to DXF and DWG files only"));
+    }
+    if opts.binary && format != "dxf" {
+        return Err(bad(cmd, "`binary` applies to DXF files only"));
+    }
+    let bytes = if opts.version.is_some() || opts.binary {
+        let w = super::file::write_as().ok_or_else(|| bad(cmd, "exporting at a chosen version or as binary DXF is not available in this build"))?;
+        w(s.doc()?, &file, &opts).map_err(|e| bad(cmd, e))?
+    } else {
+        (hooks.write)(s.doc()?, &file).map_err(|e| bad(cmd, e))?
+    };
     let folder = path.and_then(super::file::new_folder);
     let mut r = match path {
         Some(path) => {
-            write_file("export", path, &bytes)?;
+            write_file(cmd, path, &bytes)?;
             json!({ "path": path, "format": format, "bytes": bytes.len(), "message": format!("Exported to {path}") })
         }
         None => json!({ "data": base64_encode(&bytes), "format": format, "bytes": bytes.len() }),
     };
+    if let (Some(v), Some(o)) = (opts.version, r.as_object_mut()) {
+        o.insert("version".into(), json!(v.year()));
+    }
     super::file::report_new_folder(s, &mut r, folder);
-    super::file::report_loss(s, &mut r, &file);
+    super::file::report_loss(s, &mut r, &file, opts.version);
     Ok(r)
+}
+
+// ---------- DXFOUT, DXFIN ----------
+
+/// DXFOUT: the drawing as DXF. A name without the .dxf extension gets it, as AutoCAD adds it, so
+/// a DXF is never written under another format's name (EXPORT picks the format from the name).
+fn run_dxfout(s: &mut Session, p: &Value) -> Result<Value> {
+    let path = path_param("dxfout", p)?.map(|p| if extension(p) == "dxf" { p.to_string() } else { format!("{p}.dxf") });
+    export_as(s, "dxfout", p, path.as_deref(), "dxf")
+}
+
+/// DXFIN: a DXF's (or DWG's) objects into the current drawing, as IMPORT.
+fn run_dxfin(s: &mut Session, p: &Value) -> Result<Value> {
+    path_param("dxfin", p)?;
+    run_import(s, p)
+}
+
+/// DXFOUT's default file: the drawing's, with a .dxf extension.
+fn dxf_file_name(s: &Session) -> String {
+    let Ok(st) = s.state() else { return "Drawing1.dxf".into() };
+    let base = st.path.clone().unwrap_or_else(|| st.title.clone());
+    std::path::Path::new(&base).with_extension("dxf").to_string_lossy().into_owned()
+}
+
+/// DXFIN and DXFOUT typed at the command line, or in a script or LISP routine: the file name,
+/// then the import or the export, as AutoCAD asks with FILEDIA 0. The desktop app asks with a file
+/// dialog instead while FILEDIA is 1.
+struct DxfFileM {
+    out: bool,
+}
+
+impl Interactive for DxfFileM {
+    fn name(&self) -> &'static str {
+        if self.out { "DXFOUT" } else { "DXFIN" }
+    }
+    fn prompt(&self, s: &Session) -> Prompt {
+        if self.out {
+            Prompt::new("Enter file name", Accept::TEXT).default(dxf_file_name(s))
+        } else {
+            Prompt::new("Enter name of file to import", Accept::TEXT)
+        }
+    }
+    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
+        // A path typed with quotes, as AutoCAD takes one with spaces, is the path inside them.
+        let typed = match &i {
+            Input::Text(t) => t.trim().trim_matches('"').trim().to_string(),
+            Input::Enter => String::new(),
+            _ => return Ok(Step::Continue),
+        };
+        let r = match (self.out, typed.is_empty()) {
+            (true, true) => run_dxfout(s, &json!({ "path": dxf_file_name(s) }))?,
+            (true, false) => run_dxfout(s, &json!({ "path": typed }))?,
+            (false, true) => return Ok(Step::Cancel),
+            (false, false) => run_dxfin(s, &json!({ "path": typed }))?,
+        };
+        if let Some(m) = r["message"].as_str() {
+            s.echo(m);
+        }
+        Ok(Step::Done)
+    }
 }
 
 // ---------- IMPORT ----------
@@ -148,7 +249,7 @@ fn run_import(s: &mut Session, p: &Value) -> Result<Value> {
             .ok_or_else(|| bad("import", "`scale` must be a non-zero number"))?,
         None => 1.0,
     };
-    let (bytes, name) = if let Some(path) = str_param(p, "path") {
+    let (bytes, name) = if let Some(path) = path_param("import", p)? {
         (read_file(path)?, path.to_string())
     } else {
         let data = str_param(p, "data").ok_or_else(|| bad("import", "`path` or `data` (base64) is required"))?;
@@ -178,6 +279,7 @@ fn import_drawing(s: &mut Session, src: &Drawing, at: Vec2, scale: f64, file: &s
             nb.entities.push(e);
         }
         d.blocks.insert(to.clone(), Arc::new(nb));
+        adopt_block_record_extras(d, src, from, to);
     }
     let mut handles = Vec::new();
     for e in src.model.iter() {
@@ -225,6 +327,53 @@ fn merge_tables(d: &mut Drawing, src: &Drawing) -> (usize, usize) {
         + merge(&mut d.mleader_styles, &src.mleader_styles, |t| &t.name)
         + merge(&mut d.table_styles, &src.table_styles, |t| &t.name);
     (layers, others)
+}
+
+/// Carry a source block record's extension dictionary (where dynamic blocks keep their
+/// parameters) and extended data over to the copied block `to`: the objects reachable from the
+/// dictionary are copied with fresh handles and their references renumbered.
+fn adopt_block_record_extras(d: &mut Drawing, src: &Drawing, from: &str, to: &str) {
+    let key = |n: &str| ("BLOCK_RECORD".to_string(), n.to_ascii_uppercase());
+    let Some(extra) = src.foreign.records.get(&key(from)) else { return };
+    let mut extra = extra.clone();
+    extra.reactors.clear();
+    // The objects reachable from the extension dictionary, in discovery order.
+    let mut map: BTreeMap<cadcraft_doc::Handle, cadcraft_doc::Handle> = BTreeMap::new();
+    let mut queue: Vec<cadcraft_doc::Handle> = extra.xdict.into_iter().collect();
+    while let Some(h) = queue.pop() {
+        if map.contains_key(&h) {
+            continue;
+        }
+        let Some(o) = src.foreign.objects.iter().find(|o| o.handle == h) else { continue };
+        map.insert(h, d.new_handle());
+        for t in &o.tags {
+            if (350..=369).contains(&t.code) {
+                queue.extend(cadcraft_doc::Handle::parse_hex(t.value.trim()));
+            }
+        }
+    }
+    let mut copies = Vec::new();
+    for o in src.foreign.objects.iter().filter(|o| map.contains_key(&o.handle)) {
+        let mut o = o.clone();
+        o.handle = map[&o.handle];
+        // Owners outside the copied set (the source block record) are dropped, not left dangling.
+        o.tags.retain(|t| t.code != 330 || cadcraft_doc::Handle::parse_hex(t.value.trim()).is_some_and(|h| map.contains_key(&h)));
+        for t in &mut o.tags {
+            if (330..=369).contains(&t.code)
+                && let Some(n) = cadcraft_doc::Handle::parse_hex(t.value.trim()).and_then(|h| map.get(&h))
+            {
+                t.value = n.hex();
+            }
+        }
+        copies.push(o);
+    }
+    extra.xdict = extra.xdict.and_then(|h| map.get(&h).copied());
+    if extra.is_empty() {
+        return;
+    }
+    let f = Arc::make_mut(&mut d.foreign);
+    f.objects.extend(copies);
+    f.records.insert(key(to), extra);
 }
 
 /// A copy of a source entity for this drawing: a fresh handle, block references renamed, and
@@ -356,7 +505,14 @@ fn run_preview(s: &mut Session, p: &Value) -> Result<Value> {
             let (x, y) = view.to_screen((q - to) / k + from);
             (f64::from(x), f64::from(y))
         };
-        let (min, max) = (sheet.printable.min, sheet.printable.max);
+        // A saved window shows only what lies inside it (#3087): cut the printable area to the
+        // window on paper (drawing point w lands on paper point (w - from) * k + to).
+        let (mut min, mut max) = (sheet.printable.min, sheet.printable.max);
+        if let Some(w) = saved.window {
+            let (p, q) = ((w.min - from) * k + to, (w.max - from) * k + to);
+            min = p.min(q).max(min);
+            max = p.max(q).min(max).max(min);
+        }
         let (a, b) = (screen(Vec2::new(min.x, max.y)), screen(Vec2::new(max.x, min.y)));
         cadcraft_render::raster::blank_outside_pixels(&mut pm, a, b);
     }
@@ -438,7 +594,8 @@ struct Frame {
     landscape: bool,
 }
 
-/// The ISO/ANSI paper a frame of `w` x `h` mm fits (either orientation), and whether it is landscape.
+/// The standard paper (ISO, JIS or ANSI) a frame of `w` x `h` mm fits (either orientation), and whether
+/// it is landscape.
 fn paper_for(w: f64, h: f64) -> Option<(&'static str, bool)> {
     cadcraft_render::PAPER_SIZES.iter().find_map(|p| {
         let (pw, ph) = (p.width_mm, p.height_mm);
@@ -645,6 +802,43 @@ mod tests {
     }
 
     #[test]
+    fn import_keeps_the_block_records_extension_dictionary() {
+        use cadcraft_doc::RawTag;
+        use cadcraft_doc::foreign::{ForeignExtra, ForeignObject};
+        let tag = |code: i32, value: &str| RawTag { code, value: value.into() };
+        let mut src = Drawing::new_imperial();
+        src.blocks.insert("SYM".into(), block("SYM", 1.0));
+        src.add(&Space::Model, Common::default(), insert("SYM")).unwrap();
+        Arc::make_mut(&mut src.foreign).objects.push(ForeignObject {
+            handle: Handle(0xF00),
+            kind: "DICTIONARY".into(),
+            tags: vec![tag(330, "B10"), tag(3, "OTTO_TEST"), tag(350, "F01")],
+        });
+        Arc::make_mut(&mut src.foreign).objects.push(ForeignObject {
+            handle: Handle(0xF01),
+            kind: "XRECORD".into(),
+            tags: vec![tag(330, "E00"), tag(1, "kept?")],
+        });
+        Arc::make_mut(&mut src.foreign).objects.push(ForeignObject { handle: Handle(0xE00), kind: "DICTIONARY".into(), tags: vec![tag(350, "F01")] });
+        let key = ("BLOCK_RECORD".to_string(), "SYM".to_string());
+        Arc::make_mut(&mut src.foreign).records.insert(key.clone(), ForeignExtra { xdict: Some(Handle(0xF00)), ..ForeignExtra::default() });
+
+        let mut s = session();
+        import_drawing(&mut s, &src, Vec2::ZERO, 1.0, "lib.dxf").unwrap();
+        let d = s.doc().unwrap();
+        let x = d.foreign.records.get(&key).and_then(|r| r.xdict).expect("the block record keeps its extension dictionary");
+        let dict = d.foreign.objects.iter().find(|o| o.handle == x).expect("the dictionary object is copied");
+        let entry = dict.tags.iter().find(|t| t.code == 350).and_then(|t| Handle::parse_hex(&t.value)).unwrap();
+        assert!(d.foreign.objects.iter().any(|o| o.handle == entry && o.kind == "XRECORD"), "its entries are copied too");
+        assert!(dict.tags.iter().all(|t| t.code != 330 || t.value != "B10"), "the owner is not the source block record");
+        assert!(
+            d.foreign.objects.iter().all(|o| o.handle != Handle(0xE00) && o.handle != Handle(0xB10)),
+            "unrelated source dictionaries are not copied"
+        );
+        assert_eq!(d.foreign.objects.iter().filter(|o| o.kind == "DICTIONARY").count(), 1);
+    }
+
+    #[test]
     fn import_brings_objects_with_their_layers_and_blocks() {
         let mut src = Drawing::new_imperial();
         src.layers.push(Layer::new("WALLS"));
@@ -709,6 +903,17 @@ mod tests {
         let r = s.execute("preview", &json!({ "layout": "layout1", "paper": "A4", "landscape": true, "width": 600 })).unwrap();
         assert_eq!((r["layout"].as_str(), r["width"].as_u64(), r["height"].as_u64()), (Some("Layout1"), Some(600), Some(424)));
         assert_eq!(r["paper"], "ISO A4 (210.00 x 297.00 MM)");
+        // The bare B5 is the ISO size it always was; the JIS sheet needs its explicit name, and the
+        // Japanese postcards resolve by their names and their Japanese spelling.
+        let r = s.execute("preview", &json!({ "layout": "layout1", "paper": "B5", "landscape": false, "width": 400 })).unwrap();
+        assert_eq!(r["paper"], "ISO B5 (176.00 x 250.00 MM)");
+        assert_eq!((r["width"].as_u64(), r["height"].as_u64()), (Some(400), Some(568)));
+        let r = s.execute("preview", &json!({ "layout": "layout1", "paper": "B5 (JIS)", "landscape": false, "width": 400 })).unwrap();
+        assert_eq!(r["paper"], "JIS B5 (182.00 x 257.00 MM)");
+        assert_eq!((r["width"].as_u64(), r["height"].as_u64()), (Some(400), Some(565)));
+        let r = s.execute("preview", &json!({ "layout": "layout1", "paper": "はがき", "landscape": false, "width": 200 })).unwrap();
+        assert_eq!(r["paper"], "Japanese Postcard (100.00 x 148.00 MM)");
+        assert_eq!(r["height"], 296);
         assert!(s.execute("preview", &json!({ "layout": "Nope" })).is_err());
         assert!(s.execute("preview", &json!({ "paper": "Nope" })).is_err());
         for p in [json!({ "scale": -1, "fit": false }), json!({ "scale": 1e-300, "fit": false }), json!({ "width": -5 }), json!({ "width": 1e30 })] {
@@ -768,6 +973,29 @@ mod tests {
             s.execute("preview", &json!({ "layout": "Layout1", "width": 600 })).unwrap()["data"].as_str().unwrap_or_default().to_string()
         };
         assert_eq!(build(true), build(false), "a line in the margin is clipped away");
+    }
+
+    /// A saved window shows only what lies inside it, even where its shape leaves printable paper
+    /// beside it (#3087): the window (0,0)-(60,100) fitted on A4 landscape is 114 mm wide, and a
+    /// line 10 units left of it would land inside the printable area.
+    #[test]
+    fn preview_clips_a_saved_window_to_the_window() {
+        let build = |outside_line: bool| {
+            let mut s = Session::new();
+            s.execute("layout.set", &json!({ "name": "Layout1" })).unwrap();
+            s.execute("line", &json!({ "points": [[0.0, 50.0], [60.0, 50.0]] })).unwrap();
+            if outside_line {
+                s.execute("line", &json!({ "points": [[-10.0, 0.0], [-10.0, 100.0]] })).unwrap();
+            }
+            s.execute("pagesetup", &json!({ "layout": "Layout1", "paper": "A4", "landscape": true, "margins": [10, 10, 10, 10] })).unwrap();
+            let page = &mut s.doc_mut().unwrap().layouts.iter_mut().find(|l| l.name == "Layout1").unwrap().page;
+            page.plot_area = "window".into();
+            page.plot_window = [0.0, 0.0, 60.0, 100.0];
+            page.scale_to_fit = true;
+            page.center = true;
+            s.execute("preview", &json!({ "layout": "Layout1", "width": 600 })).unwrap()["data"].as_str().unwrap_or_default().to_string()
+        };
+        assert_eq!(build(true), build(false), "a line beside the window is clipped away");
     }
 
     /// On a tall sheet the height cap makes the view scale and centre the sheet in the image; the

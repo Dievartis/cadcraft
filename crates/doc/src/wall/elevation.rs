@@ -3,12 +3,12 @@
 //! by its height; every opening in it is drawn at its place with its sill and height, and a chain of
 //! dimensions below gives the distances between the openings. It is one block reference, so it
 //! moves, copies and explodes like any other object, and it is a picture made now: it does not
-//! follow later changes to the plan. What stands against the face seen (equipment and furniture, within a metre of it) is drawn too, at its place and height.
+//! follow later changes to the plan. What stands against the face seen (equipment, air terminals, units, devices, furniture, within a metre of it) is drawn too, at its place and height.
 
 use cadcraft_geom::{PolyVertex, Vec2};
 
 use super::{WallParams, joint, wall_of};
-use crate::catalogue::{HvacPiece, equipment_of, furniture_of};
+use crate::ventilation::{HvacPiece, ahu_of, air_terminal_of, device_of, equipment_of, furniture_of};
 use crate::{Common, DocError, Drawing, EntityKind, HAlign, Handle, Line, LwPolyline, OpeningKind, Result, Space, Text, VAlign, opening_of};
 
 /// The layers of an elevation.
@@ -16,7 +16,7 @@ pub const ELEVATION_LAYER: &str = "A-ELEV";
 pub const ELEVATION_DOOR_LAYER: &str = "A-ELEV-DOOR";
 pub const ELEVATION_WINDOW_LAYER: &str = "A-ELEV-GLAZ";
 pub const ELEVATION_DIM_LAYER: &str = "A-ELEV-DIMS";
-/// What stands in front of the wall: equipment and furniture, seen as they are on it.
+/// What stands in front of the wall: equipment, air terminals, units, devices and furniture, seen as they are on it.
 pub const ELEVATION_OBJECT_LAYER: &str = "A-ELEV-OBJ";
 
 /// Most objects drawn in front of one wall, and how far from its face (mm) one still counts as standing against it.
@@ -198,7 +198,7 @@ impl Drawing {
         Ok(pieces_of(&params, &openings, &objects, side))
     }
 
-    /// The equipment and furniture of `space` that stand against the face of the wall seen from `side` (within a metre of it,
+    /// The equipment, air terminals, units, devices and furniture of `space` that stand against the face of the wall seen from `side` (within a metre of it,
     /// in front of the segment they are nearest to), as the elevation shows them: their extent along the wall and in height, from the altitude of their
     /// underside (the floor, or 2.50 m for a terminal that has none, as a section puts it).
     fn front_objects(&self, space: &Space, wall: &joint::Placed, start: &[f64], side: ElevationSide) -> Vec<FrontObject> {
@@ -217,8 +217,16 @@ impl Drawing {
             // (half sizes in plan, mm; underside and height, mm; name)
             let (half, bottom, height, name) = if let Some(q) = equipment_of(o) {
                 ((q.length_mm / 2.0, q.width_mm / 2.0), q.bottom_mm.unwrap_or(0.0), q.height_mm, q.name)
+            } else if let Some(t) = air_terminal_of(o) {
+                ((t.model.width_mm / 2.0, t.model.depth_mm / 2.0), t.bottom_mm.unwrap_or(2500.0), 100.0, String::new())
+            } else if let Some(a) = ahu_of(o) {
+                ((a.width_mm / 2.0, a.depth_mm / 2.0), a.bottom_mm.unwrap_or(0.0), a.height_mm.unwrap_or(1000.0), a.name)
             } else if let Some(f) = furniture_of(o) {
                 ((f.width_mm / 2.0, f.depth_mm / 2.0), f.bottom_mm.unwrap_or(0.0), f.height_mm, f.name)
+            } else if let Some(d) = device_of(o) {
+                // A device is a plate of 80 mm, at its mounting height; a board is as big as it is.
+                let (w, h) = (d.board_width_mm.unwrap_or(80.0), d.board_height_mm.unwrap_or(80.0));
+                ((w / 2.0, d.board_depth_mm.unwrap_or(80.0) / 2.0), d.height_mm, h, d.name)
             } else {
                 continue;
             };

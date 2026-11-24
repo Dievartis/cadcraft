@@ -100,6 +100,71 @@ fn hatch_pattern_and_solid() {
 }
 
 #[test]
+fn fillmode_0_draws_a_solid_or_gradient_hatch_as_its_boundary() {
+    // FILLMODE 0 turns fills off, for hatches as for SOLIDs and wide polylines (#3116).
+    let sq = vec![
+        PolyVertex::new(Vec2::new(0.0, 0.0)),
+        PolyVertex::new(Vec2::new(4.0, 0.0)),
+        PolyVertex::new(Vec2::new(4.0, 4.0)),
+        PolyVertex::new(Vec2::new(0.0, 4.0)),
+    ];
+    let hole = vec![
+        PolyVertex::new(Vec2::new(1.0, 1.0)),
+        PolyVertex::new(Vec2::new(2.0, 1.0)),
+        PolyVertex::new(Vec2::new(2.0, 2.0)),
+        PolyVertex::new(Vec2::new(1.0, 2.0)),
+    ];
+    let solid = Hatch {
+        pattern: "SOLID".into(),
+        solid: true,
+        loops: vec![
+            HatchLoop { vertices: sq.clone(), outer: true, sources: Vec::new() },
+            HatchLoop { vertices: hole, outer: false, sources: Vec::new() },
+        ],
+        scale: 1.0,
+        angle: 0.0,
+        associative: false,
+        style: 0,
+        elevation: 0.0,
+        gradient: None,
+        origin: Vec2::ZERO,
+        background: None,
+        pattern_lines: Vec::new(),
+    };
+    let kinds = |h: &Hatch, fillmode: i64| {
+        let mut d = Drawing::new_imperial();
+        d.header.set_i64("FILLMODE", fillmode);
+        d.add(&Space::Model, Common::default(), EntityKind::Hatch(h.clone())).unwrap();
+        build(&d, &Space::Model, &Options::default()).prims.iter().map(|p| p.kind).collect::<Vec<_>>()
+    };
+    assert_eq!(kinds(&solid, 1), vec![Kind::Tris]);
+    // Off: no fill, one closed outline per loop, the island's too.
+    let off = kinds(&solid, 0);
+    assert!(!off.contains(&Kind::Tris), "{off:?}");
+    assert_eq!(off.len(), 2, "{off:?}");
+    let mut d = Drawing::new_imperial();
+    d.header.set_i64("FILLMODE", 0);
+    d.add(&Space::Model, Common::default(), EntityKind::Hatch(solid.clone())).unwrap();
+    let l = build(&d, &Space::Model, &Options::default());
+    for p in &l.prims {
+        let ring = &l.verts[p.start as usize..(p.start + p.len) as usize];
+        assert!(ring.len() == 5 && ring.first() == ring.last(), "{ring:?}");
+    }
+    // The outline is the edge of what the fill would cover. The "ignore" style (2) fills over
+    // the island, so only the outer loop is drawn.
+    let ignore = Hatch { style: 2, ..solid.clone() };
+    assert_eq!(kinds(&ignore, 1), vec![Kind::Tris]);
+    assert_eq!(kinds(&ignore, 0).len(), 1, "{:?}", kinds(&ignore, 0));
+    // A pattern hatch keeps its lines, and loses only its background colour.
+    let pattern = Hatch { pattern: "ANSI31".into(), solid: false, background: Some(Color::Index(5)), ..solid.clone() };
+    let on = kinds(&pattern, 1);
+    let off = kinds(&pattern, 0);
+    assert_eq!(on.iter().filter(|k| **k == Kind::Tris).count(), 1, "{on:?}");
+    assert!(!off.contains(&Kind::Tris), "{off:?}");
+    assert_eq!(off.len(), on.len() - 1);
+}
+
+#[test]
 fn raster_draws_pixels() {
     let d = sample();
     let l = build(&d, &Space::Model, &Options::default());
@@ -137,6 +202,9 @@ fn vp(center: Vec2, w: f64, h: f64, view_center: Vec2, view_height: f64, id: u32
         layer_colors: Vec::new(),
         clip: None,
         on: true,
+        ucs: None,
+        ucs_per_viewport: false,
+        extra: Vec::new(),
         twist: 0.0,
     }
 }
@@ -891,6 +959,30 @@ fn attributes_follow_the_reference_layer_and_have_no_definition() {
 }
 
 #[test]
+fn an_attribute_shown_by_itself_shows_under_a_hidden_definition() {
+    // Title blocks from other programs hide their attribute definitions as objects (group 60)
+    // and show the references' attributes; without visibility of its own an attribute hides with
+    // its definition (a dynamic block's visibility state), and its Invisible mode still hides it.
+    let hidden_def = Common { visible: false, ..Default::default() };
+    let with = |visible: Option<bool>, invisible: bool| {
+        let mut d = attributed(hidden_def.clone(), Common::default());
+        let h = d.model.iter().next().unwrap().handle;
+        d.modify_entity(h, |e| {
+            if let EntityKind::Insert(ins) = &mut e.kind {
+                ins.attribs[0].props.visible = visible;
+                ins.attribs[0].invisible = invisible;
+            }
+        })
+        .unwrap();
+        build(&d, &Space::Model, &with_transparency()).prims.len()
+    };
+    let line_only = with(None, false);
+    assert!(with(Some(true), false) > line_only, "the attribute is drawn");
+    assert_eq!(with(Some(true), true), line_only);
+    assert_eq!(with(Some(false), false), line_only);
+}
+
+#[test]
 fn mtext_exact_spacing_ignores_taller_lines() {
     // #711: a doubled middle line pushes the next baseline down with At least, not with Exactly.
     let mtext = |contents: &str, line_spacing: f64, line_spacing_exact: bool| cadcraft_doc::MText {
@@ -1292,6 +1384,55 @@ fn without_linetypes_every_line_is_drawn_whole() {
     assert_eq!(dashed.tris, continuous.tris);
     let drawn = build(&drawing("DASHED"), &Space::Model, &Options::default());
     assert!(drawn.prims.len() > 2 * continuous.prims.len(), "drawn with its linetype: {} primitives", drawn.prims.len());
+}
+
+/// #2773: past the block budget a screen build leaves out the same objects at every build, the
+/// last ones in drawing order, as a one-thread build does. Built on all cores, the budget ran out
+/// in whichever chunks the threads reached first, so blocks came and went between rebuilds.
+#[test]
+fn past_the_block_budget_every_build_leaves_out_the_last_objects() {
+    // A block whose copy draws one line and costs 5002 budget units: the copy, that line, and
+    // 5000 lines on a frozen layer (charged, never drawn).
+    let mut d = Drawing::new_imperial();
+    d.ensure_layer("HIDDEN");
+    d.layer_mut("HIDDEN").unwrap().frozen = true;
+    let line = |y: f64| EntityKind::Line(cadcraft_doc::Line { a: Vec3::new(0.0, y, 0.0), b: Vec3::new(1.0, y, 0.0) });
+    let mut blk = cadcraft_doc::Block::new("HEAVY");
+    blk.entities.push(cadcraft_doc::Entity::new(cadcraft_doc::Handle(1), line(0.0)));
+    for i in 0..5000u64 {
+        let mut e = cadcraft_doc::Entity::new(cadcraft_doc::Handle(i + 2), line(1.0));
+        e.common.layer = "HIDDEN".into();
+        blk.entities.push(e);
+    }
+    d.blocks.insert("HEAVY".into(), std::sync::Arc::new(blk));
+    // 600 references, more than two chunks, so the screen build runs on all cores: 3,001,200 units.
+    for i in 0..600u32 {
+        let ins = cadcraft_doc::Insert {
+            block: "HEAVY".into(),
+            insert: Vec3::new(f64::from(i) * 2.0, 0.0, 0.0),
+            scale: Vec3::new(1.0, 1.0, 1.0),
+            rotation: 0.0,
+            attribs: vec![],
+            cols: 1,
+            rows: 1,
+            col_spacing: 0.0,
+            row_spacing: 0.0,
+            clip: None,
+        };
+        d.add(&Space::Model, Common::default(), EntityKind::Insert(ins)).unwrap();
+    }
+    // The budget runs out inside the 400th reference (399 × 5002 = 1,995,798; its copy and line
+    // still fit): the first 400 lines are drawn, in drawing order.
+    let first: Vec<cadcraft_doc::Handle> = d.model.iter().take(400).map(|e| e.handle).collect();
+    let handles = |l: &DisplayList| l.prims.iter().map(|p| p.handle).collect::<Vec<_>>();
+    let one_thread = build_entities(&d, d.model.iter().map(|e| e.as_ref()), &Options::default());
+    assert!(one_thread.truncated);
+    assert_eq!(handles(&one_thread), first);
+    for _ in 0..2 {
+        let all_cores = build(&d, &Space::Model, &Options::default());
+        assert!(all_cores.truncated, "the cut is still reported");
+        assert_eq!(handles(&all_cores), first, "the same objects as one thread, at every build");
+    }
 }
 
 /// A broken table whose parts, with their repeated labels, together hold more cells than a table may

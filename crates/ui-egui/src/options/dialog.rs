@@ -129,6 +129,14 @@ fn theme_label(t: ThemePref) -> &'static str {
     }
 }
 
+fn sections_label(m: crate::sections::SectionsMode) -> &'static str {
+    match m {
+        crate::sections::SectionsMode::Open => crate::tl!("All open"),
+        crate::sections::SectionsMode::Closed => crate::tl!("All closed"),
+        crate::sections::SectionsMode::Remember => crate::tl!("Remember the last use"),
+    }
+}
+
 fn animations_label(a: AnimationPref) -> &'static str {
     match a {
         AnimationPref::System => crate::tl!("Use System Setting"),
@@ -193,6 +201,19 @@ fn display(app: &CadApp, ui: &mut egui::Ui, changes: &mut Map<String, Value>) {
         }
         ui.end_row();
 
+        let sections_caption = ui.label(crate::tl!("Menu sections in the tabs"));
+        let mut sections = app.ui.sections.mode;
+        let sections_combo = craft_ui::ComboBox::from_id_salt("options_palette_sections").selected_text(sections_label(sections)).show_ui(ui, |ui| {
+            for m in crate::sections::SectionsMode::ALL {
+                ui.selectable_value(&mut sections, m, sections_label(m));
+            }
+        });
+        sections_combo.response.labelled_by(sections_caption.id);
+        if sections != app.ui.sections.mode {
+            changes.insert("paletteSections".into(), json!(sections.as_str()));
+        }
+        ui.end_row();
+
         let scale_caption = ui.label(crate::tl!("Interface scale"));
         let scale = app.options.interface_scale;
         let percent = |s: f32| format!("{} %", (s * 100.0).round());
@@ -206,6 +227,15 @@ fn display(app: &CadApp, ui: &mut egui::Ui, changes: &mut Map<String, Value>) {
         });
         scale_combo.response.labelled_by(scale_caption.id);
         ui.end_row();
+
+        for (i, (key, label)) in super::REFRIGERANT_KEYS
+            .iter()
+            .zip(["Refrigerant liquid tube", "Refrigerant gas tube", "Refrigerant high/low-pressure gas tube"])
+            .enumerate()
+        {
+            refrigerant_row(ui, label, key, super::refrigerant_defaults(app)[i], changes);
+            ui.end_row();
+        }
 
         let background_caption = ui.label(crate::tl!("Model background"));
         color_row(ui, app.options.model_background, Tokens::DARK.canvas, "modelBackground", changes, background_caption.id);
@@ -243,6 +273,30 @@ fn display(app: &CadApp, ui: &mut egui::Ui, changes: &mut Map<String, Value>) {
 }
 
 /// Files tab: save format and default version, new-drawing units, autosave interval and autosave file location; edits accumulate in `changes`.
+/// The inch sizes of the refrigerant tubes the Options offer.
+const TUBE_SIZES: [&str; 9] = ["1/4", "3/8", "1/2", "5/8", "3/4", "7/8", "1 1/8", "1 3/8", "1 5/8"];
+
+/// A row choosing the tube size a new refrigerant link starts with, or the built-in one.
+fn refrigerant_row(ui: &mut egui::Ui, label: &str, key: &str, current: Option<f64>, changes: &mut Map<String, Value>) {
+    let caption = ui.label(crate::i18n::t(label));
+    let same = |inches: &str| current.zip(cadcraft_doc::parse_refrigerant_size(inches)).is_some_and(|(a, b)| (a - b).abs() < 0.01);
+    let shown = match current {
+        None => crate::i18n::t("Built-in").to_string(),
+        Some(mm) => TUBE_SIZES.iter().find(|s| same(s)).map_or_else(|| format!("{mm} mm"), |s| format!("{s}\"")),
+    };
+    let combo = craft_ui::ComboBox::from_id_salt(("options_refrigerant", key)).selected_text(shown).show_ui(ui, |ui| {
+        if ui.selectable_label(current.is_none(), crate::i18n::t("Built-in")).clicked() && current.is_some() {
+            changes.insert(key.into(), Value::Null);
+        }
+        for s in TUBE_SIZES {
+            if ui.selectable_label(same(s), format!("{s}\"")).clicked() && !same(s) {
+                changes.insert(key.into(), json!(s));
+            }
+        }
+    });
+    combo.response.labelled_by(caption.id);
+}
+
 fn files(app: &CadApp, ui: &mut egui::Ui, changes: &mut Map<String, Value>) {
     grid(ui, "options_files", |ui| {
         save_format_row(ui, app, changes);
@@ -495,8 +549,11 @@ fn heading(ui: &mut egui::Ui, text: &str) -> egui::Response {
     ui.label(RichText::new(text).strong())
 }
 
-/// Visual Effect Settings: the selection area (window and crossing fills) and the objects the
-/// cursor never highlights (PREVIEWFILTER). Changes apply at once, as on the Options tabs.
+/// Visual Effect Settings: how the object under the cursor is highlighted (PREVIEWEFFECT: Dash,
+/// Thicken or Both, as AutoCAD offers it) and how selected objects are (SELECTIONEFFECT: dashed
+/// or redrawn in the selection colour), the selection area (window and crossing fills) and the
+/// objects the cursor never highlights (PREVIEWFILTER). Changes apply at once, as on the Options
+/// tabs.
 fn visual_effects(ctx: &egui::Context, st: &cadcraft_engine::Settings, open: &mut bool, changes: &mut Map<String, Value>) {
     let mut close = false;
     egui::Window::new(crate::tl!("Visual Effect Settings"))
@@ -509,6 +566,23 @@ fn visual_effects(ctx: &egui::Context, st: &cadcraft_engine::Settings, open: &mu
         .show(ctx, |ui| {
             ui.columns(2, |cols| {
                 let [left, right] = cols else { return };
+                heading(left, crate::tl!("Selection Preview Effect"));
+                left.horizontal(|ui| {
+                    for (v, label) in [(0u8, crate::tl!("Dash")), (1, crate::tl!("Thicken")), (2, crate::tl!("Both"))] {
+                        if ui.radio(st.previeweffect == v, label).clicked() {
+                            changes.insert("PREVIEWEFFECT".into(), json!(v));
+                        }
+                    }
+                });
+                heading(left, crate::tl!("Selected Objects Effect"));
+                left.horizontal(|ui| {
+                    for (v, label) in [(0u8, crate::tl!("Dashed")), (1, crate::tl!("Selection color"))] {
+                        if ui.radio(st.selectioneffect == v, label).clicked() {
+                            changes.insert("SELECTIONEFFECT".into(), json!(v));
+                        }
+                    }
+                });
+                left.add_space(6.0);
                 heading(left, crate::tl!("Selection Area Effect"));
                 let mut area = st.selectionarea;
                 if left.checkbox(&mut area, crate::tl!("Indicate selection area")).changed() {

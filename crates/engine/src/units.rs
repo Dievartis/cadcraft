@@ -16,7 +16,6 @@ pub fn format_distance(v: f64, lunits: i64, luprec: i64) -> String {
     match lunits {
         1 => scientific(v, prec),
         3 => {
-            let neg = v < 0.0;
             // Round at the displayed precision before splitting, so 11.999 carries to 1'-0.00".
             let scale = 10f64.powi(prec as i32);
             let rounded = (v.abs() * scale).round() / scale;
@@ -25,11 +24,11 @@ pub fn format_distance(v: f64, lunits: i64, luprec: i64) -> String {
             if ft >= I64_SAFE_MAX {
                 return format!("{:.*}", prec, v);
             }
-            let inch = a - ft * 12.0;
-            format!("{}{}'-{:.*}\"", if neg { "-" } else { "" }, ft as i64, prec, inch)
+            let inch = format!("{:.*}", prec, a - ft * 12.0);
+            let neg = v < 0.0 && (ft != 0.0 || has_nonzero_digit(&inch));
+            format!("{}{}'-{}\"", if neg { "-" } else { "" }, ft as i64, inch)
         }
         4 => {
-            let neg = v < 0.0;
             let a = v.abs();
             let denom = 1i64 << prec.min(8);
             let scaled = (a * denom as f64).round();
@@ -37,6 +36,7 @@ pub fn format_distance(v: f64, lunits: i64, luprec: i64) -> String {
                 return format!("{:.*}", prec, v);
             }
             let total = scaled as i64;
+            let neg = v < 0.0 && total != 0;
             let ft = total / (12 * denom);
             let rem = total - ft * 12 * denom;
             let inch = rem / denom;
@@ -50,7 +50,6 @@ pub fn format_distance(v: f64, lunits: i64, luprec: i64) -> String {
             format!("{}{}'-{}{}\"", if neg { "-" } else { "" }, ft, inch, fs)
         }
         5 => {
-            let neg = v < 0.0;
             let a = v.abs();
             let denom = 1i64 << prec.min(8);
             let scaled = (a * denom as f64).round();
@@ -58,6 +57,7 @@ pub fn format_distance(v: f64, lunits: i64, luprec: i64) -> String {
                 return format!("{:.*}", prec, v);
             }
             let total = scaled as i64;
+            let neg = v < 0.0 && total != 0;
             let whole = total / denom;
             let frac = total % denom;
             let fs = if frac == 0 {
@@ -70,6 +70,10 @@ pub fn format_distance(v: f64, lunits: i64, luprec: i64) -> String {
         }
         _ => fixed(v, prec),
     }
+}
+
+fn has_nonzero_digit(s: &str) -> bool {
+    s.chars().any(|c| ('1'..='9').contains(&c))
 }
 
 /// `v` with `prec` decimals, rounded as AutoCAD rounds a number it shows (RTOS, LUNITS): at 15
@@ -196,7 +200,8 @@ fn wrap_full_turn(v: f64, full: f64, prec: usize) -> f64 {
     if reached && format!("{v:.prec$}") == full_text { 0.0 } else { v }
 }
 
-/// Parse a distance typed by the user: decimal, `1'6"`, `1'-6 1/2"`, `6 1/2`, `3/4`, `1e3`.
+/// Parse a distance typed by the user: decimal, `1'6"`, `1'-6 1/2"`, `1'6-1/2"`, `6 1/2`,
+/// `6-1/2`, `3/4`, `1e3`.
 pub fn parse_distance(s: &str) -> Option<f64> {
     let t = s.trim();
     if t.is_empty() {
@@ -219,7 +224,11 @@ pub fn parse_distance(s: &str) -> Option<f64> {
         let ft: f64 = rest.get(..i)?.trim().parse().ok()?;
         total += ft * 12.0;
         parsed = true;
-        rest = rest.get(i + 1..)?.trim_start_matches('-').trim();
+        let after = rest.get(i + 1..)?;
+        rest = after.strip_prefix('-').unwrap_or(after).trim();
+        if rest.starts_with(['-', '+']) {
+            return None;
+        }
     }
     let rest = rest.trim_end_matches('"').trim();
     if !rest.is_empty() {
@@ -246,15 +255,25 @@ fn parse_mixed(s: &str) -> Option<f64> {
             p.parse().ok()
         }
     };
-    match parts.as_slice() {
-        [a] => frac(a),
-        [a, b] => {
-            let (n, d) = b.split_once('/')?;
-            if n.trim().starts_with(['-', '+']) || d.trim().starts_with(['-', '+']) {
-                return None;
-            }
-            Some(a.parse::<f64>().ok()? + frac(b)?)
+    // A whole number and a fraction of it: `6 1/2`, or `6-1/2` as typed at the command line,
+    // where a space would end the input (#2896). The fraction is unsigned: `6 -1/2` and
+    // `6--1/2` are refused, not read as 5 1/2.
+    let whole_and_fraction = |a: &str, b: &str| -> Option<f64> {
+        let (n, d) = b.split_once('/')?;
+        if n.trim().starts_with(['-', '+']) || d.trim().starts_with(['-', '+']) {
+            return None;
         }
+        Some(a.parse::<f64>().ok()? + frac(b)?)
+    };
+    match parts.as_slice() {
+        // A number or fraction as it stands (`6.5`, `1e-3`, `3/4`); else a hyphen after the first
+        // character joins a whole number to its fraction. One with no fraction after it (`6-1`)
+        // is no distance. A leading minus was taken off by the caller.
+        [a] => frac(a).or_else(|| {
+            let i = a.get(1..)?.find('-')? + 1;
+            whole_and_fraction(a.get(..i)?, a.get(i + 1..)?)
+        }),
+        [a, b] => whole_and_fraction(a, b),
         _ => None,
     }
 }
@@ -453,6 +472,14 @@ mod tests {
     }
 
     #[test]
+    fn parse_distance_allows_one_separator_minus_after_feet() {
+        assert_eq!(parse_distance("5'-6\""), Some(66.0));
+        for t in ["5'--3\"", "5'---3", "5'-+3"] {
+            assert_eq!(parse_distance(t), None, "{t}");
+        }
+    }
+
+    #[test]
     fn engineering_huge_distance_falls_back_to_decimal() {
         assert_eq!(format_distance(1e30, 3, 2), format!("{:.2}", 1e30));
         assert_eq!(format_distance(-1e300, 3, 8), format!("{:.8}", -1e300));
@@ -572,6 +599,26 @@ mod tests {
     }
 
     #[test]
+    fn negative_zero() {
+        assert_eq!(format_distance(-0.00001, 2, 4), "0.0000");
+        assert_eq!(format_distance(-0.0, 2, 2), "0.00");
+        assert_eq!(format_distance(-0.001, 4, 2), "0'-0\"");
+        assert_eq!(format_distance(-0.001, 5, 2), "0");
+        assert_eq!(format_distance(-0.001, 3, 2), "0'-0.00\"");
+        assert_eq!(format_distance(-0.0, 1, 2), "0.00E+00");
+        for lunits in 1..=5 {
+            for luprec in 0..=4 {
+                let s = format_distance(-1e-9, lunits, luprec);
+                assert!(!s.starts_with('-') || lunits == 1, "LUNITS {lunits} LUPREC {luprec}: {s}");
+            }
+        }
+        assert_eq!(format_distance(-1.5, 2, 2), "-1.50");
+        assert_eq!(format_distance(-1.5, 5, 2), "-1 1/2");
+        assert_eq!(format_distance(-18.5, 4, 4), "-1'-6 1/2\"");
+        assert_eq!(format_distance(-30.0, 3, 2), "-2'-6.00\"");
+    }
+
+    #[test]
     fn dms_display_precision() {
         let angle = (12.0 + 34.0 / 60.0 + 56.78912 / 3600.0_f64).to_radians();
         let expected = ["13d", "12d35'", "12d35'", "12d34'57\"", "12d34'57\"", "12d34'56.8\"", "12d34'56.79\"", "12d34'56.789\"", "12d34'56.7891\""];
@@ -662,6 +709,25 @@ mod tests {
         assert_eq!(parse_distance("1/0"), None);
         assert_eq!(parse_distance("abc"), None);
         assert_eq!(parse_distance(""), None);
+    }
+
+    /// #2896: the fraction joined to the whole inches by a hyphen, as typed at the command line
+    /// (a space there ends the input), in feet and inches or inches alone.
+    #[test]
+    fn parse_distance_takes_a_hyphenated_fraction() {
+        assert_eq!(parse_distance("6-1/2"), Some(6.5));
+        assert_eq!(parse_distance("1'6-1/2\""), Some(18.5));
+        assert_eq!(parse_distance("1'-6-1/2\""), Some(18.5));
+        assert_eq!(parse_distance("1'0-1/16\""), Some(12.0625));
+        assert_eq!(parse_distance("6-1/2\""), Some(6.5));
+        assert_eq!(parse_distance("-6-1/2"), Some(-6.5));
+        assert_eq!(parse_distance("-1'6-1/2\""), Some(-18.5));
+        // Still refused: no fraction after the hyphen, a signed or doubled one, a zero denominator.
+        for t in ["6-1", "6--1/2", "6-+1/2", "6-1/-2", "6-1/0", "6-", "6-/2", "6-1/2/3", "-6-"] {
+            assert_eq!(parse_distance(t), None, "{t}");
+        }
+        // A plain number with an exponent is still one number, in inches after feet too.
+        assert!(parse_distance("1'1e-3").is_some_and(|v| (v - 12.001).abs() < 1e-12));
     }
 
     #[test]

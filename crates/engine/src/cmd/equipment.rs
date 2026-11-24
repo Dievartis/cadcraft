@@ -304,7 +304,7 @@ fn spread(
     rotation: f64,
 ) -> Result<(Vec<cadcraft_doc::Handle>, String)> {
     const CMD: &str = "equipmentadd";
-    let outline = s.doc()?.catalogue_room_outline(space).ok_or_else(|| other("Select a space."))?;
+    let outline = s.doc()?.space_outline(space).ok_or_else(|| other("Select a space."))?.1;
     let points = distribute_in_polygon(&outline, how).map_err(doc_err)?;
     let first = params_from(s, p, CMD, last)?;
     if matches!(first.kind, EquipmentKind::Chiller | EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor) {
@@ -502,7 +502,7 @@ impl EquipAddM {
             (Ask::Space, _) => {
                 if let Input::Pick(hs) = &i {
                     let d = s.doc()?;
-                    match hs.iter().find(|h| d.catalogue_room_outline(**h).is_some()) {
+                    match hs.iter().find(|h| d.space_outline(**h).is_some()) {
                         Some(&h) => self.ask = Ask::Count(h),
                         None => s.echo("Select a space."),
                     }

@@ -123,6 +123,16 @@ sync_github_name = true
 [people.helenkwok]
 real_name = "Helen Kwok"
 
+[people.ashokram-si]
+real_name = "Ashok Ram"
+
+[people.withshalom]
+sync_github_name = true
+
+[people.ATARYS-LAB]
+display_name = "Julien - ATARYS"
+sync_github_name = false
+
 [people.V1dalTheAbidal]
 sync_github_name = true
 

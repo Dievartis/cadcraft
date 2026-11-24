@@ -182,7 +182,11 @@ fn write_tables(w: &mut W, plan: TableWritePlan<'_>) -> HashMap<String, String> 
             *t = Tag::s(345, h);
         }
     }
-    let apps = ["ACAD", dxf_ext::APP, "AcadAnnotative", dxf_ext::LAYER_TRANSPARENCY_APP, dxf_ext::LAYER_DESCRIPTION_APP];
+    let mut apps = vec!["ACAD", dxf_ext::APP, "AcadAnnotative", dxf_ext::LAYER_TRANSPARENCY_APP, dxf_ext::LAYER_DESCRIPTION_APP];
+    // Only a drawing whose underlays hide PDF layers uses it, so other files stay as they were.
+    if crate::dxf_underlay::hides_layers(d) {
+        apps.push(crate::dxf_underlay::LAYERS_APP);
+    }
     let th = table_head(w, "APPID", apps.len());
     for app in apps {
         record_head(w, "APPID", &th, "AcDbRegAppTableRecord");
@@ -366,6 +370,10 @@ fn write_classes(w: &mut W, cx: &Ctx, every: &[&Entity]) {
         classes.push(("IMAGEDEF", "AcDbRasterImageDef", 0, false));
         classes.push(("IMAGEDEF_REACTOR", "AcDbRasterImageDefReactor", 1, false));
         classes.push(("RASTERVARIABLES", "AcDbRasterVariables", 0, false));
+    }
+    if !cx.underlays.is_empty() {
+        classes.push(("PDFUNDERLAY", "AcDbPdfReference", 1, true));
+        classes.push(("PDFDEFINITION", "AcDbPdfDefinition", 1, false));
     }
     classes.push(("SCALE", "AcDbScale", 0, false));
     for (dxf_name, cpp, proxy, is_entity) in classes {
@@ -663,6 +671,10 @@ fn write_root_group_objects(
         w.s(3, "ACAD_IMAGE_VARS");
         w.s(350, cx.images.vars.clone());
     }
+    if !cx.underlays.is_empty() {
+        w.s(3, "ACAD_PDFDEFINITIONS");
+        w.s(350, cx.underlays.dict.clone());
+    }
     w.s(3, "ACAD_LAYOUT");
     w.s(350, layout_dict.clone());
     w.s(3, "ACAD_MLEADERSTYLE");
@@ -842,6 +854,8 @@ fn write_objects(w: &mut W, plan: ObjectWritePlan<'_>) {
     write_layout_objects(w, &plan);
     // Raster image definitions.
     w.t.extend(crate::dxf_image::objects(&plan.cx.images, plan.root_dict));
+    // PDF underlay definitions.
+    w.t.extend(crate::dxf_underlay::objects(&plan.cx.underlays, plan.root_dict));
     w.s(0, "ENDSEC");
 }
 
@@ -992,6 +1006,30 @@ fn plan_dimension_associations(d: &Drawing, all_spaces: &[&EntityStore], w: &mut
     }
 }
 
+/// The XRECORDs that keep CADCraft's own data of a drawing (what it models and DXF has no place for): the key and the text chunks of each, for those the
+/// drawing has.
+fn data_xrecords(d: &Drawing) -> Vec<(&'static str, Vec<String>)> {
+    let mut out: Vec<(&'static str, Vec<String>)> = Vec::new();
+    let mut keep = |key: &'static str, chunks: Option<Vec<String>>| {
+        if let Some(c) = chunks {
+            out.push((key, c));
+        }
+    };
+    keep(dxf_ext::CONSTRAINTS_KEY, dxf_ext::constraint_chunks(&d.constraints, &d.parametric));
+    keep(dxf_ext::LAYER_STATES_KEY, dxf_ext::layer_state_chunks(&crate::dxf_layer_states::own(&d.layer_states)));
+    keep(dxf_ext::WALL_STYLES_KEY, dxf_ext::wall_style_chunks(&d.wall_styles));
+    keep(dxf_ext::AIR_TERMINAL_MODELS_KEY, dxf_ext::air_terminal_model_chunks(&d.air_terminal_models));
+    keep(dxf_ext::COLOUR_CONVENTION_KEY, (!d.colour_convention.is_plan_default()).then(|| vec![d.colour_convention.name().to_string()]));
+    keep(dxf_ext::RASTERS_KEY, dxf_ext::raster_chunks(&d.rasters));
+    keep(dxf_ext::CABLE_TYPES_KEY, dxf_ext::cable_type_chunks(&d.cable_types));
+    keep(dxf_ext::EQUIPMENT_MODELS_KEY, dxf_ext::equipment_model_chunks(&d.equipment_models));
+    keep(dxf_ext::PART_MODELS_KEY, dxf_ext::part_model_chunks(&d.part_models));
+    keep(dxf_ext::NETWORK_STYLES_KEY, dxf_ext::network_style_chunks(&d.network_styles));
+    keep(dxf_ext::PLOT_STYLES_KEY, dxf_ext::plot_style_chunks(&d.plot_style_tables));
+    keep(dxf_ext::ANNOTATION_KEY, dxf_ext::anno_chunks(d));
+    out
+}
+
 /// The DWG bridge's DXF tags, declaring `version` in `$ACADVER`, with what `target` (the DWG
 /// version the bridge writes) has.
 /// `frozen_341`: see [`Ctx::frozen_341`].
@@ -1048,7 +1086,9 @@ pub(super) fn tags_kept_for(
         .collect();
     user_blocks.iter_mut().for_each(|b| b.1 = format!("{:X}", 0));
     let user_blocks: Vec<(String, String, &Block)> = user_blocks.into_iter().map(|(n, _, b)| (n, w.h(), b)).collect();
-    let mut cx = Ctx { paper_views: paper_views(d), target, frozen_341, ..Ctx::default() };
+    // FIELD objects exist from AutoCAD 2004 (R2004) on.
+    let fields = if target >= Version::R2004 { crate::dxf_field::plan(d) } else { crate::dxf_field::Plan::default() };
+    let mut cx = Ctx { paper_views: paper_views(d), target, fields: fields.fields, frozen_341, ..Ctx::default() };
     cx.block_records = user_blocks.iter().map(|(n, h, _)| (n.to_ascii_uppercase(), h.clone())).collect();
     let all_spaces: Vec<&EntityStore> = std::iter::once(&d.model).chain(d.layouts.iter().map(|l| &l.entities)).collect();
     let mut dim_defs = dimension_block_definitions(d, &all_spaces, &dim_plan, &mut w, &mut cx);
@@ -1062,6 +1102,7 @@ pub(super) fn tags_kept_for(
     let mut table_defs = table_block_definitions(d, &every, &mut w, &mut cx);
     // Image definitions (IMAGEDEF objects) of raster images anywhere in the drawing.
     cx.images = crate::dxf_image::plan(every.iter().copied(), || w.h());
+    cx.underlays = crate::dxf_underlay::plan(every.iter().copied(), || w.h());
     cx.mlines = crate::dxf_mline::plan(d, every.iter().copied(), || w.h());
     plan_dimension_associations(d, &all_spaces, &mut w, &mut cx);
     let default_table_style = [TableStyle::default()];
@@ -1086,25 +1127,10 @@ pub(super) fn tags_kept_for(
     if !ucs_name.is_empty() {
         xrecords.push((dxf_ext::UCS_NAME_KEY, w.h(), vec![ucs_name]));
     }
-    if let Some(chunks) = dxf_ext::constraint_chunks(&d.constraints, &d.parametric) {
-        xrecords.push((dxf_ext::CONSTRAINTS_KEY, w.h(), chunks));
-    }
     // Saved layer states: AutoCAD's dictionary holds those it can, CADCraft's record the others.
     cx.layer_states = crate::dxf_layer_states::Plan::new(&d.layer_states, || w.h());
-    if let Some(chunks) = dxf_ext::layer_state_chunks(&crate::dxf_layer_states::own(&d.layer_states)) {
-        xrecords.push((dxf_ext::LAYER_STATES_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::plot_style_chunks(&d.plot_style_tables) {
-        xrecords.push((dxf_ext::PLOT_STYLES_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::wall_style_chunks(&d.wall_styles) {
-        xrecords.push((dxf_ext::WALL_STYLES_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::equipment_model_chunks(&d.equipment_models) {
-        xrecords.push((dxf_ext::EQUIPMENT_MODELS_KEY, w.h(), chunks));
-    }
-    if let Some(chunks) = dxf_ext::anno_chunks(d) {
-        xrecords.push((dxf_ext::ANNOTATION_KEY, w.h(), chunks));
+    for (key, chunks) in data_xrecords(d) {
+        xrecords.push((key, w.h(), chunks));
     }
     // The annotation scale list: the ACAD_SCALELIST dictionary of SCALE objects.
     let scale_dict = w.h();
@@ -1283,7 +1309,9 @@ pub(super) fn tags_kept_for(
     // no data store, so a solid whose geometry is only there is left out of it.
     // The DWG bridge keeps proxies in the DWG's own layout.
     let strings = bridge || version >= Version::R2007;
-    let kept = crate::dxf_raw::finish(&mut w.t, d, &w.reactors, version >= Version::R2013, target >= Version::R2013, strings);
+    let kept =
+        crate::dxf_raw::finish(&mut w.t, d, &w.reactors, version >= Version::R2013, target >= Version::R2013, strings, fields.foreign.as_ref());
+    crate::dxf_field::fix_list(&mut w.t);
     // Kept constraint groups go in the order their reader expects: a DXF's own version. The
     // bridge's R2000 text is read as the version its kept groups came from when that is newer
     // (craft-dwg's `encode_kept_noted` declares it), so there they stay as read.

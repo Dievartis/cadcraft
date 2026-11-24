@@ -52,7 +52,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Option<
     let t = Tokens::get();
     let Ok(d) = app.session.doc() else {
         egui::Window::new("Block Attribute Manager").open(open).collapsible(false).resizable(false).show(ctx, |ui| {
-            ui.label("Open a drawing first.");
+            ui.label(crate::i18n::t("Open a drawing first."));
         });
         return None;
     };
@@ -98,11 +98,11 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Option<
     };
     egui::Window::new("Block Attribute Manager").open(open).default_width(460.0).resizable(false).show(ctx, |ui| {
         if blocks.is_empty() {
-            ui.label("This drawing has no blocks with attributes.");
+            ui.label(crate::i18n::t("This drawing has no blocks with attributes."));
             return;
         }
         ui.horizontal(|ui| {
-            ui.label("Block:");
+            ui.label(crate::i18n::t("Block:"));
             craft_ui::ComboBox::from_id_salt("battman_blocks").selected_text(block.as_str()).width(180.0).show_ui(ui, |ui| {
                 for b in &blocks {
                     if ui.selectable_label(*b == block, b).clicked() {
@@ -134,7 +134,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Option<
                 });
             });
             ui.horizontal(|ui| {
-                if ui.button("Sync").on_hover_text("Bring every reference in line with these definitions").clicked() {
+                if ui.button(crate::i18n::t("Sync")).on_hover_text(crate::i18n::t("Bring every reference in line with these definitions")).clicked() {
                     action = act(json!({ "name": block, "action": "sync" }), true);
                 }
                 let picked = sel.clone().unwrap_or_default();
@@ -155,40 +155,40 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Option<
             ui.label(RichText::new(format!("Edit attribute {}", r.tag)).strong());
             let edit = |key: &str, v: Value| json!({ "name": block, "action": "edit", "tag": r.tag, key: v });
             egui::Grid::new("battman_edit").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-                let label = ui.label("Tag");
+                let label = ui.label(crate::i18n::t("Tag"));
                 if let Some(v) = text_field(ui, egui::Id::unique(("battman_tag", &block, &r.tag)), &r.tag, label.id) {
                     action = act(edit("newTag", json!(v)), apply);
                     sel = Some(v.trim().to_ascii_uppercase());
                 }
                 ui.end_row();
-                let label = ui.label("Prompt");
+                let label = ui.label(crate::i18n::t("Prompt"));
                 if let Some(v) = text_field(ui, egui::Id::unique(("battman_prompt", &block, &r.tag)), &r.prompt, label.id) {
                     action = act(edit("prompt", json!(v)), apply);
                 }
                 ui.end_row();
-                let label = ui.label("Default");
+                let label = ui.label(crate::i18n::t("Default"));
                 if let Some(v) = text_field(ui, egui::Id::unique(("battman_default", &block, &r.tag)), &r.default, label.id) {
                     action = act(edit("default", json!(v)), apply);
                 }
                 ui.end_row();
-                ui.label("Mode");
+                ui.label(crate::i18n::t("Mode"));
                 ui.horizontal(|ui| {
                     let (mut inv, mut con) = (r.invisible, r.constant);
-                    if ui.checkbox(&mut inv, "Invisible").changed() {
+                    if ui.checkbox(&mut inv, crate::i18n::t("Invisible")).changed() {
                         action = act(edit("invisible", json!(inv)), apply);
                     }
-                    if ui.checkbox(&mut con, "Constant").changed() {
+                    if ui.checkbox(&mut con, crate::i18n::t("Constant")).changed() {
                         action = act(edit("constant", json!(con)), apply);
                     }
                 });
                 ui.end_row();
-                let label = ui.label("Height");
+                let label = ui.label(crate::i18n::t("Height"));
                 let height = text_field(ui, egui::Id::unique(("battman_height", &block, &r.tag)), &fmt_num(r.height), label.id);
                 if let Some(h) = height.and_then(|v| v.trim().parse::<f64>().ok()).filter(|h| h.is_finite() && *h > 0.0) {
                     action = act(edit("height", json!(h)), apply);
                 }
                 ui.end_row();
-                ui.label("Layer");
+                ui.label(crate::i18n::t("Layer"));
                 craft_ui::ComboBox::from_id_salt("battman_layer").selected_text(r.layer.as_str()).show_ui(ui, |ui| {
                     for l in &layers {
                         if ui.selectable_label(*l == r.layer, l).clicked() && *l != r.layer {
@@ -200,7 +200,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Option<
             });
         }
         ui.separator();
-        ui.checkbox(&mut apply, "Apply changes to existing references");
+        ui.checkbox(&mut apply, crate::i18n::t("Apply changes to existing references"));
     });
     set_temp(ctx, "battman_block", block);
     if let Some(s) = sel {

@@ -236,7 +236,7 @@ fn every_style_draws_and_fills_the_opening_with_its_own_joinery() {
 #[test]
 fn the_temporary_dimensions_run_from_the_faces_to_the_edges_and_say_millimetres() {
     let p = OpeningParams::new(OpeningKind::Door, WallUnits::default());
-    let texts = |pieces: &[crate::catalogue::HvacPiece]| -> Vec<String> {
+    let texts = |pieces: &[crate::ventilation::HvacPiece]| -> Vec<String> {
         pieces
             .iter()
             .filter_map(|x| match &x.kind {

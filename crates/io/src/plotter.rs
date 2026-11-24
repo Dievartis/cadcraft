@@ -95,7 +95,7 @@ fn png(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
     let ropts = cadcraft_render::Options { tolerance, lineweights, plot_style_table: table, transparency, ..cadcraft_render::Options::default() };
     let mut list = cadcraft_render::build_plot(d, space, &ropts);
     let half = Vec2::new(f64::from(width), f64::from(height)) / (2.0 * k);
-    let b = window.unwrap_or(list.bounds);
+    let b = window.unwrap_or_else(|| crate::underlay_plot::plotted_bounds(&list));
     let s = if fit { fit_scale(&b, &sheet, &o) } else { est };
     // Plot style ends, joins and fill patterns at the plot scale, as PDF draws them (a layout's
     // are already drawn).
@@ -111,10 +111,28 @@ fn png(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
     let view = raster::View { center, scale: k * s, width, height };
     let px_per_mm = if lineweights { (k / sheet.unit_mm) as f32 } else { 0.0 };
     let ro = raster::RasterOptions { background: Rgb(255, 255, 255), hairline: 1.0, px_per_mm, antialias: true };
-    let mut pm = raster::render(&list, &view, &ro).ok_or_else(|| IoError::Format("render failed".into()))?;
+    // PDF underlays' pages at the image's resolution.
+    let images = crate::underlay_plot::images(d, &list, o.document.as_deref(), view.scale, None);
+    let under: Vec<raster::Underlay> = images
+        .iter()
+        .map(|im| raster::Underlay {
+            at: im.at,
+            clip: &im.clip,
+            origin: im.origin,
+            u: im.u,
+            v: im.v,
+            width: im.width,
+            height: im.height,
+            rgb: &im.rgb,
+            alpha: &im.alpha,
+        })
+        .collect();
+    let mut pm = raster::render_over(&list, &view, &ro, &under).ok_or_else(|| IoError::Format("render failed".into()))?;
     if placed {
-        // PDF clips a placed plot to the printable area: blank the rest of the sheet.
-        raster::blank_outside_printable(&mut pm, &sheet.printable, k);
+        // PDF clips a placed plot to the printable area, and a window plot to the window (#3087):
+        // blank the rest of the sheet.
+        let area = pdf::plot_area(&sheet.printable, window.as_ref().map(|w| (w, from, s, to)));
+        raster::blank_outside_printable(&mut pm, &area, k);
     }
     raster::encode_png(&pm).ok_or_else(|| IoError::Format("render failed".into()))
 }
@@ -124,7 +142,7 @@ fn svg(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
     let Space::Model = space else {
         let (sheet, page) = sheet(d, space, &o)?;
         let transparency = o.plot_transparency.unwrap_or(page.plot_transparency);
-        return Ok(crate::svg::export_window_with(d, space, Some(sheet.bounds()), transparency).into_bytes());
+        return Ok(crate::svg::export_window_from(d, space, Some(sheet.bounds()), transparency, o.document.as_deref()).into_bytes());
     };
     // Model space as plotted: the plot style table, lineweights, and the table's ends, joins and
     // fills at the scale that fits the window (or the extents) on the device's paper.
@@ -139,9 +157,11 @@ fn svg(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
     let transparency = o.plot_transparency.unwrap_or(page.plot_transparency);
     let ropts = cadcraft_render::Options { tolerance, lineweights, plot_style_table: table, transparency, ..cadcraft_render::Options::default() };
     let mut list = cadcraft_render::build_plot(d, space, &ropts);
-    let s = fit_scale(&window.unwrap_or(list.bounds), &sheet, &o);
+    let s = fit_scale(&window.unwrap_or_else(|| crate::underlay_plot::plotted_bounds(&list)), &sheet, &o);
     cadcraft_render::pen::apply(&mut list, s * sheet.unit_mm);
-    Ok(crate::svg::export_list(&list, window).into_bytes())
+    // PDF underlays' pages at the plot resolution on paper.
+    let images = crate::underlay_plot::images(d, &list, o.document.as_deref(), s * sheet.unit_mm / 25.4 * crate::underlay_plot::DPI, None);
+    Ok(crate::svg::export_list_over(&list, window, &images).into_bytes())
 }
 
 #[cfg(test)]
@@ -320,6 +340,25 @@ mod tests {
         let png = plot(&d, &Space::Paper("L1".into()), &serde_json::from_str(LAYOUT_PNG).unwrap()).unwrap();
         // The line 3 units left of the window lands about 1.7 mm from the sheet edge, in the margin.
         assert!(!inked(&png, 0.0, 9.0, 105.0), "the margin stays blank");
+    }
+
+    /// A model-space window plot shows only what lies inside the window, even where the window's
+    /// shape leaves paper to spare beside it (#3087). The window (0,0)-(60,100) fitted on A4
+    /// landscape with 10 mm margins is 190 mm tall and 114 mm wide, from x = 91.5 to 205.5 mm; a
+    /// line 10 units left of it would land at x = 72.5 mm, inside the printable area.
+    #[test]
+    fn png_clips_a_model_window_plot_to_the_window() {
+        let mut d = Drawing::new_metric();
+        let mut line = |a: (f64, f64), b: (f64, f64)| {
+            d.add(&Space::Model, Common::default(), EntityKind::Line(Line { a: Vec3::new(a.0, a.1, 0.0), b: Vec3::new(b.0, b.1, 0.0) })).unwrap();
+        };
+        line((0.0, 50.0), (60.0, 50.0));
+        line((-10.0, 0.0), (-10.0, 100.0));
+        let o = json!({"output": "png", "resolution": 100, "width": 210, "height": 297, "landscape": true, "margins": [10, 10, 10, 10],
+            "window": [[0, 0], [60, 100]]});
+        let png = plot(&d, &Space::Model, &o).unwrap();
+        assert!(inked(&png, 100.0, 200.0, 105.0), "the line inside the window is drawn");
+        assert!(!inked(&png, 69.0, 76.0, 105.0), "the line outside the window is clipped away");
     }
 
     /// A layout with `window`/`scale` saved (any values, hostile ones included).

@@ -353,6 +353,10 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
         }
         let named = !table.is_color_dependent();
         ui.label(RichText::new(&table.description).color(t.text_dim));
+        if !named {
+            ui.checkbox(&mut only_used, crate::tl!("Show only colors used in the current drawing"))
+                .on_hover_text(crate::tl!("Hides the plot styles of colors no object uses. Their settings stay in the table."));
+        }
         if !in_drawing {
             ui.label(RichText::new(crate::tl!("A built-in table: editing it keeps an edited copy in the drawing.")).color(t.text_faint));
         }

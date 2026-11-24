@@ -30,9 +30,10 @@ pub(super) struct FileRef {
 }
 
 impl FileRef {
-    /// Whether to ask before redefining: a plain path whose block already exists.
+    /// Whether to ask before redefining: a plain path whose block already exists. EXPERT 2 or
+    /// more answers Yes without asking.
     pub fn ask_redefine(&self, s: &Session) -> bool {
-        !self.explicit && s.doc().is_ok_and(|d| d.block(&self.name).is_some())
+        !self.explicit && s.doc().is_ok_and(|d| d.block(&self.name).is_some() && d.header.i64("EXPERT", 0) < 2)
     }
 
     /// Read the file and (re)define its block. Returns the block's name.
@@ -98,6 +99,47 @@ fn read_file(_path: &str) -> Result<Vec<u8>> {
     }
     #[cfg(target_arch = "wasm32")]
     Err(bad("insert", "paths are not available on the web"))
+}
+
+/// Metres in one `$INSUNITS` unit (DXF Reference); `None` for 0 (unitless) and unknown codes.
+fn unit_metres(code: i64) -> Option<f64> {
+    Some(match code {
+        1 => 0.0254,
+        2 => 0.3048,
+        3 => 1609.344,
+        4 => 0.001,
+        5 => 0.01,
+        6 => 1.0,
+        7 => 1000.0,
+        8 => 2.54e-8,
+        9 => 2.54e-5,
+        10 => 0.9144,
+        11 => 1e-10,
+        12 => 1e-9,
+        13 => 1e-6,
+        14 => 0.1,
+        15 => 10.0,
+        16 => 100.0,
+        17 => 1e9,
+        18 => 1.495_978_707e11,
+        19 => 9.460_730_472_580_8e15,
+        20 => 3.085_677_581_491_4e16,
+        21 => 1200.0 / 3937.0,
+        22 => 1.0 / 39.37,
+        23 => 3600.0 / 3937.0,
+        24 => 6_336_000.0 / 3937.0,
+        _ => return None,
+    })
+}
+
+/// The scale that brings a block defined in `block_units` (its `Block::units`, an `$INSUNITS` code)
+/// into `target`'s units, as AutoCAD does (an inch block in a metre drawing: 0.0254). A block or a
+/// drawing without units is taken as is.
+pub(super) fn units_factor(block_units: u8, target: &Drawing) -> f64 {
+    match (unit_metres(i64::from(block_units)), unit_metres(target.header.i64("INSUNITS", 0))) {
+        (Some(from), Some(to)) => from / to,
+        _ => 1.0,
+    }
 }
 
 /// (Re)define block `name` from `src`'s model space with base point `$INSBASE`, adding the

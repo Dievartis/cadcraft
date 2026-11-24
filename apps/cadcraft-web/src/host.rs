@@ -67,8 +67,18 @@ impl Bridge {
     /// Hear drawings from the host; they arrive through the upload inbox.
     pub fn listen(&self, inbox: crate::upload::Inbox) {
         self.host.listen(move |message| {
-            if let Message::Open { name, data } = message {
-                receive_open(&name, &data, &inbox);
+            match message {
+                Message::Open { name, data } => receive_open(&name, &data, &inbox),
+                Message::AttachPdf { name, bytes, page, insertion, width, height } => {
+                    // Check the real typed-array length before copying untrusted host input.
+                    if u64::from(bytes.length()) > cadcraft_engine::cmd::MAX_PDF_BYTES as u64 {
+                        let e = format!("{name}: PDF exceeds the 64 MiB input limit");
+                        inbox.refuse(name, e);
+                    } else {
+                        inbox.attach_pdf(name, bytes.to_vec(), crate::upload::PdfPlacement { page, insertion, width, height });
+                    }
+                }
+                _ => {}
             }
         });
     }
@@ -82,6 +92,15 @@ impl Bridge {
 
     fn post_save(&self, name: &str, bytes: &[u8]) -> Result<(), String> {
         self.host.post_save(name, bytes, None, false)
+    }
+}
+
+/// Tell the parent page that a drawing it sent didn't open. Does nothing outside host mode.
+/// Adapts PR #2512 to the `craft-web-host` bridge: its `failed` message has no file name field,
+/// so the name leads the error text.
+pub fn post_open_failed(name: &str, error: &str) {
+    if let Some(bridge) = BRIDGE.with(|b| b.borrow().clone()) {
+        bridge.post_failed(&if name.is_empty() { error.to_string() } else { format!("{name}: {error}") });
     }
 }
 
@@ -99,12 +118,13 @@ pub fn deliver(name: &str, _mime: &str, bytes: &[u8]) -> Result<(), String> {
 fn receive_open(name: &str, data: &FileData, inbox: &crate::upload::Inbox) {
     let name = if name == "document" { DEFAULT_NAME } else { name }.to_string();
     let FileData::Bytes(array) = data else {
-        inbox.refuse(format!("Open: {name} came as a File; CADCraft reads bytes"));
+        let error = format!("Open: {name} came as a File; CADCraft reads bytes");
+        inbox.refuse(name, error);
         return;
     };
     // Refuse an oversized drawing before copying it into the app's memory (the data's own length).
-    if let Some(e) = CadApp::open_size_error(&name, data.size() as u64) {
-        inbox.refuse(e);
+    if let Some(e) = crate::upload::size_error(&name, data.size() as u64) {
+        inbox.refuse(name, e);
         return;
     }
     inbox.receive(name, array.to_vec());

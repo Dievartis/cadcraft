@@ -168,7 +168,7 @@ fn version_list() -> String {
 
 /// The `version` and `binary` parameters of a save: a version is a year (2018 or "2018"), "R2018"
 /// or an `$ACADVER` code ("AC1032").
-fn save_options(cmd: &str, p: &Value) -> Result<SaveAs> {
+pub(super) fn save_options(cmd: &str, p: &Value) -> Result<SaveAs> {
     let version = match p.get("version") {
         None | Some(Value::Null) => None,
         Some(v) => {
@@ -232,6 +232,10 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["File", "Open..."])
             .key("Cmd+O")
             .params("{path} | {data: base64, name} → {index, entities?, warnings: what reading left out}")
+            .enabled(always)
+            .noundo(),
+        CommandSpec::new("whohas", "Who Has", run_whohas)
+            .params("{path?: a drawing file (default: the current drawing's)} → {path, holder: {user, host, instance, opened} | null}")
             .enabled(always)
             .noundo(),
         CommandSpec::new("close", "Close", run_close).menu(&["File", "Close"]).key("Cmd+W").params("{index?}").noundo(),
@@ -368,6 +372,8 @@ pub fn finish_open(s: &mut Session, f: ReadFile) -> Result<Value> {
     let i = add_read(s, drawing, binary_dxf, &name, path);
     super::blocks::xref::after_open(s, i);
     super::image::after_open(s, i);
+    // The host's UI thread: the lines for object snaps are read on a worker.
+    super::underlay::after_open(s, i, true);
     Ok(opened(s, i, true))
 }
 
@@ -441,6 +447,7 @@ fn run_open(s: &mut Session, p: &Value) -> Result<Value> {
             let i = open_bytes(s, &bytes, path, Some(path.to_string()))?;
             super::blocks::xref::after_open(s, i);
             super::image::after_open(s, i);
+            super::underlay::after_open(s, i, false);
             return Ok(opened(s, i, true));
         }
         #[cfg(target_arch = "wasm32")]
@@ -452,7 +459,36 @@ fn run_open(s: &mut Session, p: &Value) -> Result<Value> {
     let i = open_bytes(s, &bytes, name, None)?;
     super::blocks::xref::after_open(s, i);
     super::image::after_open(s, i);
+    super::underlay::after_open(s, i, false);
     Ok(opened(s, i, false))
+}
+
+/// WHOHAS: who has a drawing open, from its lock file ([`crate::drawlock`]): the current
+/// drawing's, or the file `path`.
+fn run_whohas(s: &mut Session, p: &Value) -> Result<Value> {
+    // Left out (or null): the current drawing's file; anything but text is an error, not the
+    // current drawing asked about by mistake.
+    let path = match p.get("path") {
+        None | Some(Value::Null) => s.state()?.path.clone().ok_or_else(|| bad("whohas", "the drawing has no file yet; pass `path`"))?,
+        Some(Value::String(path)) => path.clone(),
+        Some(_) => return Err(bad("whohas", "`path` must be a file path")),
+    };
+    // The web has no lock files to look at: an error, not "nobody has it open".
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = path;
+        Err(bad("whohas", "drawing locks are not available on the web"))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let holder = crate::drawlock::holder(std::path::Path::new(&path));
+        let msg = match &holder {
+            Some(h) => format!("{} is open by {}.", file_name(&path), h.describe()),
+            None => format!("Nobody has {} open (no current lock).", file_name(&path)),
+        };
+        s.echo(msg);
+        Ok(json!({ "path": path, "holder": holder }))
+    }
 }
 
 /// `close [index]`: cancel the running command, remove the drawing (default: active), keep the active index valid, and bump the document epoch; an unknown index is an error.
@@ -496,6 +532,9 @@ fn save_as(s: &mut Session, cmd: &str, path: &str, opts: &SaveAs) -> Result<usiz
     if s.doc()?.refedit.is_some() {
         return Err(bad(cmd, "A block reference is being edited in place: finish with REFCLOSE (Save or Discard) before saving."));
     }
+    if is_drawing_file(path) {
+        keep_view(s)?;
+    }
     let bytes = write_bytes(s, cmd, path, opts)?;
     let n = commit_save(s, path, &bytes, store)?;
     if is_drawing_file(path) {
@@ -509,6 +548,35 @@ fn save_as(s: &mut Session, cmd: &str, path: &str, opts: &SaveAs) -> Result<usiz
         }
     }
     Ok(n)
+}
+
+/// The Model tab's view as it is on screen becomes the view the drawing is saved at
+/// (`$VIEWCTR`/`$VIEWSIZE`, which the writer repeats in the first `*Active` VPORT record), so the
+/// drawing opens there again (#1602). Saving used to write the view it was opened at, or the
+/// extents.
+///
+/// - In the Block Editor the view on screen is the block's: the drawing keeps the view it has.
+/// - From a layout, the Model tab's view as it was left, never the sheet's or a viewport's.
+/// - With tiled viewports, the first tile's: the first record is the one a reader takes the view
+///   from (and that tile opens current); the other tiles keep their records.
+///
+/// Keeping the view is no change: a drawing without unsaved changes stays without them, and there
+/// is no undo step.
+fn keep_view(s: &mut Session) -> Result<()> {
+    if s.state()?.block_edit.is_some() {
+        return Ok(());
+    }
+    let Some(v) = s.opening_view() else { return Ok(()) };
+    let st = s.state_mut()?;
+    if !crate::view::usable_view(&v) || st.drawing().header.saved_view() == Some((v.center, v.height)) {
+        return Ok(());
+    }
+    let clean = !st.is_dirty();
+    std::sync::Arc::make_mut(st.drawing_arc_mut()).header.set_saved_view(v.center, v.height);
+    if clean {
+        st.saved = st.drawing().clone();
+    }
+    Ok(())
 }
 
 /// Put saved bytes where the user gets them: natively the file at `path`; on the web, which has
@@ -855,6 +923,9 @@ fn run_bytes(s: &mut Session, p: &Value) -> Result<Value> {
     let opts = save_options("document.bytes", p)?;
     let version = opts.version.unwrap_or_else(|| drawing_version(s, &format!("drawing.{fmt}")));
     let lost = not_saved_as(s.doc()?, version);
+    // The writer saves the drawing itself (`state.drawing`), which waits in the Block Editor
+    // while `doc` is the editor's copy: the report reads the drawing the file will hold.
+    let dangling = if fmt.eq_ignore_ascii_case("dxf") { dangling_blocks(s.state()?.drawing()) } else { json!([]) };
     let bytes = write_bytes(s, "document.bytes", &format!("drawing.{fmt}"), &opts)?;
     let mut r = json!({ "data": base64_encode(&bytes), "bytes": bytes.len() });
     if drops_unknown(format!("drawing.{fmt}")) {
@@ -863,6 +934,7 @@ fn run_bytes(s: &mut Session, p: &Value) -> Result<Value> {
         let lost = host_dxf_lost(s, version);
         report_lost(s, &mut r, "drawing.dxf", version, &lost);
     }
+    report_dangling_blocks(s, &mut r, &dangling);
     Ok(r)
 }
 
@@ -980,10 +1052,10 @@ pub(crate) fn lost_writing(d: &Drawing, path: &str, version: Version) -> std::co
 }
 
 /// Report what the file `path`, just written from the active document (what EXPORT writes: the
-/// block while the Block Editor is open) at its own version, left out.
-pub(super) fn report_loss(s: &mut Session, r: &mut Value, path: &str) {
+/// block while the Block Editor is open) at version `asked` (else its own), left out.
+pub(super) fn report_loss(s: &mut Session, r: &mut Value, path: &str, asked: Option<Version>) {
     let Ok(d) = s.doc() else { return };
-    let version = own_version(d, path);
+    let version = asked.unwrap_or_else(|| own_version(d, path));
     let lost = lost_writing(d, path, version);
     report_lost(s, r, path, version, &lost);
 }
@@ -1080,6 +1152,48 @@ pub(super) fn report_not_saved(s: &mut Session, r: &mut Value, lost: &std::colle
     }
 }
 
+/// The block references a saved DXF would not resolve, as its writer reports them (a lower
+/// layer, which owns the block-liveness rules; installed by the app with [`set_io`]): a JSON
+/// array of `{code, handle, entity, block}` — an entity the file keeps names, by its group 2,
+/// a block the file won't define, so the file opens holding a dangling reference. The save
+/// still happens; SAVEAS says this in the result (`danglingBlockRefs`) and at the command line
+/// instead of writing the broken file silently.
+pub type DanglingBlocksHook = fn(&Drawing) -> Value;
+
+static DANGLING_BLOCKS: OnceLock<DanglingBlocksHook> = OnceLock::new();
+
+/// Install the DXF writer's dangling-block-reference report (see [`DanglingBlocksHook`]).
+pub fn set_dangling_blocks(h: DanglingBlocksHook) {
+    let _ = DANGLING_BLOCKS.set(h);
+}
+
+/// The dangling block references of `d`, as the installed writer hook reports them: an empty
+/// array when there is none, or no hook (a build whose files it writes cannot dangle).
+fn dangling_blocks(d: &Drawing) -> Value {
+    DANGLING_BLOCKS.get().map_or_else(|| json!([]), |h| h(d))
+}
+
+/// Say which block references the saved DXF doesn't resolve, and list them in the result's
+/// `danglingBlockRefs`: the file is still written, but it holds records that name blocks it
+/// doesn't define — the drawing keeps the blocks, so saving it again elsewhere repairs it. The
+/// caller decides whether that blocks its pipeline; the engine doesn't fail the save over it.
+fn report_dangling_blocks(s: &mut Session, r: &mut Value, refs: &Value) {
+    let Some(list) = refs.as_array().filter(|a| !a.is_empty()) else { return };
+    let names = list
+        .iter()
+        .map(|x| format!("{} {} -> {}", x["entity"].as_str().unwrap_or("?"), x["handle"].as_str().unwrap_or("?"), x["block"].as_str().unwrap_or("?")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    s.echo(format!(
+        "The saved DXF holds {} dangling block reference(s): {}. The drawing still has the blocks; the file does not.",
+        list.len(),
+        names
+    ));
+    if let Some(o) = r.as_object_mut() {
+        o.insert("danglingBlockRefs".into(), json!(list));
+    }
+}
+
 /// Save, then report the entities the file couldn't keep (nothing is dropped silently).
 fn save_reporting(s: &mut Session, p: &Value, run: fn(&mut Session, &Value) -> Result<Value>, asked: Option<Version>) -> Result<Value> {
     // What the file will hold depends on the version it is saved as (the data store from 2013).
@@ -1087,6 +1201,10 @@ fn save_reporting(s: &mut Session, p: &Value, run: fn(&mut Session, &Value) -> R
     let path = str_param(p, "path").map(str::to_string).or_else(|| s.state().ok().and_then(|st| st.path.clone())).unwrap_or_default();
     let version = asked.unwrap_or_else(|| drawing_version(s, &path));
     let lost = s.doc().map(|d| not_saved_as(d, version)).unwrap_or_default();
+    // A DXF's block references the file wouldn't resolve, said before the save runs, on the
+    // drawing the file will hold (`state.drawing`, not the Block Editor's copy the `doc` is
+    // while it is open): the save doesn't change which blocks the drawing's records name.
+    let dangling = if is_dxf_file(&path) { s.state().map(|st| dangling_blocks(st.drawing())).unwrap_or_else(|_| json!([])) } else { json!([]) };
     let folder = new_folder(&path);
     let mut r = run(s, p)?;
     report_new_folder(s, &mut r, folder);
@@ -1095,6 +1213,9 @@ fn save_reporting(s: &mut Session, p: &Value, run: fn(&mut Session, &Value) -> R
     } else if r.get("path").and_then(Value::as_str).is_some_and(is_dxf_file) {
         let lost = host_dxf_lost(s, version);
         report_lost(s, &mut r, "drawing.dxf", version, &lost);
+    }
+    if r.get("path").and_then(Value::as_str).is_some_and(is_dxf_file) {
+        report_dangling_blocks(s, &mut r, &dangling);
     }
     if r.get("path").and_then(Value::as_str).is_some_and(is_drawing_file) {
         report_fonts(s, &mut r);

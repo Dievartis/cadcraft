@@ -56,6 +56,18 @@ fn install_io() {
     });
     // ... and non-graphic objects (tables, dictionaries, layouts) as DXF records.
     cadcraft_engine::cmd::file::set_object_records(cadcraft_io::object_records);
+    cadcraft_engine::cmd::file::set_proxies_lost(cadcraft_io::proxies_lost);
+    // PDF underlays read their pages.
+    cadcraft_engine::cmd::underlay::set_pdf(cadcraft_engine::cmd::underlay::PdfHooks {
+        page: cadcraft_io::pdf_read::page_info,
+        render: cadcraft_io::pdf_read::render_page,
+        lines: cadcraft_io::pdf_read::page_lines,
+        region: cadcraft_io::pdf_read::render_page_region,
+        layers: cadcraft_io::pdf_layers::layer_list,
+        with_layers: cadcraft_io::pdf_layers::apply_layers,
+    });
+    // ... and non-graphic objects (tables, dictionaries, layouts) as DXF records.
+    cadcraft_engine::cmd::file::set_object_records(cadcraft_io::object_records);
     // What a DXF before 2007 leaves out for its proxies' string streams (#3229).
     cadcraft_engine::cmd::file::set_proxies_lost(cadcraft_io::proxies_lost);
 }

@@ -343,6 +343,11 @@ fn eq_variants(o: &TanObj) -> Vec<Eq3> {
 
 /// Circle tangent to three objects, nearest the pick points (Newton on all sign combinations).
 pub fn ttt(objs: [(TanObj, Vec2); 3]) -> Option<Circle> {
+    ttt_where(objs, |_| true)
+}
+
+/// [`ttt`] among the circles `ok` accepts.
+pub fn ttt_where(objs: [(TanObj, Vec2); 3], ok: impl Fn(&Circle) -> bool) -> Option<Circle> {
     let [(o1, p1), (o2, p2), (o3, p3)] = objs;
     let mut starts: Vec<[f64; 3]> = Vec::new();
     let cen = (p1 + p2 + p3) / 3.0;
@@ -379,6 +384,9 @@ pub fn ttt(objs: [(TanObj, Vec2); 3]) -> Option<Circle> {
                         continue;
                     }
                     let c = Circle::new(Vec2::new(x[0], x[1]), x[2]);
+                    if !ok(&c) {
+                        continue;
+                    }
                     let sc = score(&c, &objs);
                     if best.is_none_or(|(b, _)| sc < b - 1e-12) {
                         best = Some((sc, c));
@@ -582,24 +590,26 @@ pub fn seg_param(s: &Segment, p: Vec2) -> f64 {
 
 /// Distance from `p` to an entity's geometry (prims; text and blocks by insertion point).
 pub fn kind_distance(k: &EntityKind, p: Vec2) -> f64 {
-    k.prims()
-        .iter()
-        .map(|pr| match pr {
-            Prim::Seg(s) => s.closest(p).dist(p),
-            Prim::Circle(c) => c.closest(p).dist(p),
-            Prim::Ellipse(e) => e.closest(p).dist(p),
-            Prim::Spline(sp) => {
-                let pts = sp.tessellate(1e-3);
-                pts.windows(2).filter_map(|w| Some(Line::new(*w.first()?, *w.get(1)?).closest(p).dist(p))).fold(f64::INFINITY, f64::min)
-            }
-            Prim::Point(q) => q.dist(p),
-            Prim::Infinite { base, dir, .. } => Line::new(*base, *base + *dir).project(p).dist(p),
-            Prim::Fill(f) => {
-                let n = f.len();
-                (0..n).filter_map(|i| Some(Line::new(*f.get(i)?, *f.get((i + 1) % n)?).closest(p).dist(p))).fold(f64::INFINITY, f64::min)
-            }
-        })
-        .fold(f64::INFINITY, f64::min)
+    k.prims().iter().map(|pr| prim_distance(pr, p)).fold(f64::INFINITY, f64::min)
+}
+
+/// Distance from `p` to one primitive.
+pub fn prim_distance(pr: &Prim, p: Vec2) -> f64 {
+    match pr {
+        Prim::Seg(s) => s.closest(p).dist(p),
+        Prim::Circle(c) => c.closest(p).dist(p),
+        Prim::Ellipse(e) => e.closest(p).dist(p),
+        Prim::Spline(sp) => {
+            let pts = sp.tessellate(1e-3);
+            pts.windows(2).filter_map(|w| Some(Line::new(*w.first()?, *w.get(1)?).closest(p).dist(p))).fold(f64::INFINITY, f64::min)
+        }
+        Prim::Point(q) => q.dist(p),
+        Prim::Infinite { base, dir, .. } => Line::new(*base, *base + *dir).project(p).dist(p),
+        Prim::Fill(f) => {
+            let n = f.len();
+            (0..n).filter_map(|i| Some(Line::new(*f.get(i)?, *f.get((i + 1) % n)?).closest(p).dist(p))).fold(f64::INFINITY, f64::min)
+        }
+    }
 }
 
 // ---------------- splines ----------------

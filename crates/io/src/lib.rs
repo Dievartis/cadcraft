@@ -10,14 +10,20 @@ mod dxf_raw;
 /// XCLIP boundaries as SPATIAL_FILTER objects.
 mod dxf_clip;
 mod dxf_ext;
+mod dxf_field;
 mod dxf_image;
 mod dxf_layer_states;
 mod dxf_mleader;
 mod dxf_read;
 mod dxf_table;
+/// PDF underlays (PDFUNDERLAY, PDFDEFINITION).
+mod dxf_underlay;
 mod dxf_write;
 mod dxf_xref;
 pub mod pdf;
+/// PDF pages read for PDF underlays (PDFATTACH).
+pub mod pdf_layers;
+pub mod pdf_read;
 pub mod plotter;
 /// Raster image files (PNG, JPEG, BMP, TIFF) decoded to pixels.
 pub mod raster;
@@ -25,6 +31,8 @@ pub mod raster;
 pub mod roundtrip;
 pub mod svg;
 mod svg_read;
+/// PDF underlays drawn on plots.
+mod underlay_plot;
 
 /// Multilines and their styles (MLINE, MLINESTYLE).
 mod dxf_mline;
@@ -35,9 +43,10 @@ use std::path::{Path, PathBuf};
 
 pub use cadcraft_doc::Format;
 pub use craft_dxf::Version;
+
 pub use dxf_raw::{ObjectRecord, object_records};
 pub use dxf_read::entity_from_groups;
-pub use dxf_write::{entity_groups, proxies_lost};
+pub use dxf_write::{DanglingBlockRef, dangling_block_refs, entity_groups, proxies_lost};
 pub use pdf::{PdfOptions, pdf, plot};
 
 /// How a drawing is saved as DXF or DWG.
@@ -102,7 +111,7 @@ pub(crate) fn read_source(bytes: &[u8], name: &Path) -> Result<(Drawing, Option<
         let (dxf, notes) = craft_dwg::decode(bytes, craft_dwg::Limits::DEFAULT).map_err(dwg_error)?;
         // The decoder writes an elliptic hatch edge's angles in radians; DXF keeps degrees.
         let dxf = dwg_hatch::elliptic_edge_degrees(dxf);
-        let mut d = dxf_read::read(&dxf).map_err(|e| IoError::Format(format!("{e} (in the DXF converted from this DWG)")))?;
+        let mut d = read_dwg_rendition(&dxf)?;
         d.read_notes = notes.into_iter().map(|note| cadcraft_dwg_message(&note)).collect();
         return Ok((d, Some(dxf)));
     }
@@ -113,6 +122,54 @@ pub(crate) fn read_source(bytes: &[u8], name: &Path) -> Result<(Drawing, Option<
         (_, e) => Err(IoError::Unsupported(e.to_string())),
     }?;
     Ok((d, None))
+}
+
+/// A drawing from the DXF rendition the DWG reader made of a DWG: read, then with the reader's
+/// viewport numbering put right ([`sheet_viewport_first`]). Only DWG goes through here; a DXF
+/// file keeps its own ids.
+fn read_dwg_rendition(dxf: &[u8]) -> Result<Drawing> {
+    let mut d = dxf_read::read(dxf).map_err(|e| IoError::Format(format!("{e} (in the DXF converted from this DWG)")))?;
+    sheet_viewport_first(&mut d);
+    Ok(d)
+}
+
+/// Whether viewport `v` shows the sheet itself: its view is its own rectangle on paper (same
+/// centre and height), within a millionth of its height (at least of one paper unit).
+fn shows_itself(v: &cadcraft_doc::Viewport) -> bool {
+    let tol = 1e-6 * v.height.abs().max(1.0);
+    (v.view_center.x - v.center.x).abs() <= tol && (v.view_center.y - v.center.y).abs() <= tol && (v.view_height - v.height).abs() <= tol
+}
+
+/// A DWG stores no viewport ids, and the DWG reader numbers a layout's viewports itself: when the
+/// layout lists no viewports it takes the layout's last active viewport for the sheet (id 1),
+/// though that is the floating viewport a user last worked in. The sheet would then not be drawn,
+/// its model view would be skipped, and the sheet's own outline would be drawn and plotted as a
+/// viewport. AutoCAD's sheet viewport comes first in the layout and shows the sheet itself (its
+/// view is its own rectangle on paper): where the first viewport is such and the one numbered 1
+/// isn't, the two swap ids.
+fn sheet_viewport_first(d: &mut Drawing) {
+    for l in &mut d.layouts {
+        let vps: Vec<(cadcraft_doc::Handle, u32, bool)> = l
+            .entities
+            .iter()
+            .filter_map(|e| match &e.kind {
+                cadcraft_doc::EntityKind::Viewport(v) => Some((e.handle, v.id, shows_itself(v))),
+                _ => None,
+            })
+            .collect();
+        let Some(&(first, first_id, true)) = vps.first() else { continue };
+        let Some(&(one, _, false)) = vps.iter().find(|(_, id, _)| *id == 1) else { continue };
+        if first_id == 1 {
+            continue;
+        }
+        for (h, id) in [(first, 1), (one, first_id)] {
+            l.entities.modify(h, |e| {
+                if let cadcraft_doc::EntityKind::Viewport(v) = &mut e.kind {
+                    v.id = id;
+                }
+            });
+        }
+    }
 }
 
 /// Write a drawing in the format chosen by the name's extension. Images (PNG, SVG, PDF) show
@@ -163,9 +220,24 @@ pub fn write_noted(d: &Drawing, name: impl AsRef<Path>, opts: &SaveOptions) -> R
 /// there is one. The objects CADCraft keeps without modelling them are still in the groups of the
 /// file they came from (`Foreign::version`, not `$ACADVER`, which SAVEAS changes), and the bridge
 /// reads them as that version.
+///
+/// A drawing with field texts and no kept version (a new one, or one from a DXF without
+/// `$ACADVER`) or a kept version older than AutoCAD 2010 gets FIELD objects in the groups of
+/// AutoCAD 2010 ([`dxf_field::OBJECT_VERSION`]), and the bridge reads the drawing as that: read as
+/// R2000, acadrust drops a FIELD's flags, cached value and format (#551). The bridge's text is
+/// ASCII with `\U+XXXX` escapes, which this acadrust decodes for every version; a newer one that
+/// does not (acadrust#213, CADCraft #2851) would leave the escapes in non-ASCII field text.
 fn write_dwg(d: &Drawing, version: Version) -> Result<(Vec<u8>, craft_dwg::Unwritten)> {
     let bridge = dxf_write::dwg_bridge(d, version);
-    craft_dwg::encode_kept_noted(bridge.as_bytes(), version.code(), d.foreign.version.as_deref()).map_err(dwg_error)
+    // Field objects are written in the groups of AutoCAD 2010, so a drawing that has them is read
+    // as at least that. Kept groups from a newer file stay as that version; older ones are read
+    // as AutoCAD 2010 only when fields are written, which the other kept objects read the same.
+    let fields = version >= Version::R2004 && dxf_field::writes_fields(d);
+    let kept = match d.foreign.version.as_deref() {
+        Some(v) if !fields || Version::for_acadver(v).is_some_and(|k| k >= Version::R2010) => Some(v),
+        _ => fields.then_some(dxf_field::OBJECT_VERSION),
+    };
+    craft_dwg::encode_kept_noted(bridge.as_bytes(), version.code(), kept).map_err(dwg_error)
 }
 
 /// Like [`write`], but image formats (PNG, SVG, PDF) show `window` (a model-space rectangle in
@@ -191,6 +263,7 @@ pub fn write_framed(d: &Drawing, name: impl AsRef<Path>, window: Option<Bounds2>
         Some(Format::Svg) => Ok(svg::export_window(d, &Space::Model, window).into_bytes()),
         Some(Format::Png) => png_framed(d, &Space::Model, 2400, 1600, window),
         Some(Format::Pdf) => pdf::pdf(d, &Space::Model, &PdfOptions { compress: true, window, ..PdfOptions::default() }),
+        Some(Format::Ifc) => d.to_ifc(&name.to_string_lossy()).map(String::into_bytes).map_err(|e| IoError::Format(e.to_string())),
         _ => Err(IoError::Unsupported(ext(name))),
     }
 }
@@ -233,9 +306,25 @@ pub fn png(d: &Drawing, space: &Space, width: u32, height: u32) -> Result<Vec<u8
 /// screen.
 pub fn png_framed(d: &Drawing, space: &Space, width: u32, height: u32, window: Option<Bounds2>) -> Result<Vec<u8>> {
     let list = cadcraft_render::build(d, space, &cadcraft_render::Options { transparency: true, ..cadcraft_render::Options::default() });
-    let view = png_view(&list.bounds, width, height, window);
-    cadcraft_render::raster::render_png(&list, &view, &cadcraft_render::raster::RasterOptions::default())
-        .ok_or_else(|| IoError::Format("render failed".into()))
+    let view = png_view(&underlay_plot::plotted_bounds(&list), width, height, window);
+    let ro = cadcraft_render::raster::RasterOptions::default();
+    // PDF underlays' pages at the image's resolution, shown as on screen.
+    let images = underlay_plot::images(d, &list, None, view.scale, Some(ro.background));
+    let under: Vec<cadcraft_render::raster::Underlay> = images
+        .iter()
+        .map(|im| cadcraft_render::raster::Underlay {
+            at: im.at,
+            clip: &im.clip,
+            origin: im.origin,
+            u: im.u,
+            v: im.v,
+            width: im.width,
+            height: im.height,
+            rgb: &im.rgb,
+            alpha: &im.alpha,
+        })
+        .collect();
+    cadcraft_render::raster::render_png_over(&list, &view, &ro, &under).ok_or_else(|| IoError::Format("render failed".into()))
 }
 
 /// The raster view a PNG export uses.

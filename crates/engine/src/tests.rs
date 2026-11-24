@@ -684,6 +684,21 @@ fn copy_and_rotate_drag_as_a_transform_of_the_selection() {
     let EntityKind::Text(t) = &extra[1].kind else { panic!("expected the text") };
     assert!(t.insert.xy().near(Vec2::new(-2.0, 2.0), 1e-9) && t.rotation.abs() < 1e-9, "mirrored, still reading left to right");
 
+    // At "Erase source objects?" the copy stays mirrored in the picked line, wherever the cursor
+    // goes, and the rubber band is gone (#2667).
+    s.cmdline("0,1").unwrap();
+    assert!(s.prompt_text().contains("Erase source objects?"));
+    let (d, extra) = s.drag(Vec2::new(7.0, -3.0)).expect("MIRROR still shows the mirrored copy");
+    assert_eq!(d.handles.len(), 1);
+    assert!(d.matrix.apply(Vec2::new(1.0, 0.0)).near(Vec2::new(-1.0, 0.0), 1e-9), "mirrored in the line from 0,0 to 0,1");
+    assert_eq!(extra.len(), 1, "only the text, no line to the cursor");
+    let preview = s.preview(Vec2::new(7.0, -3.0));
+    assert!(
+        preview.iter().any(|e| matches!(&e.kind, EntityKind::Line(l) if l.b.xy().near(Vec2::new(-1.0, 0.0), 1e-9))),
+        "the preview without a GPU shows the mirrored line too"
+    );
+    assert_eq!(preview.len(), 2, "the line and the text, no rubber band");
+
     // PASTECLIP drags the clipboard.
     let mut s = Session::new();
     let l = s.execute("line", &json!({"points": [[0, 0], [1, 0]]})).unwrap();
@@ -891,6 +906,33 @@ fn setvar_at_command_line() {
     // `?` lists the variables.
     s.cmdline("SETVAR ?").unwrap();
     assert!(s.running.is_none());
+}
+
+/// #3273: GETVAR at the command line asks for a name and echoes its value, without changing it;
+/// it said only that `name` was required.
+#[test]
+fn getvar_at_command_line() {
+    let mut s = Session::new();
+    let dimscale = sysvars::get(&s, "DIMSCALE").unwrap();
+    // One line, as typed in the issue.
+    s.cmdline("GETVAR DIMSCALE").unwrap();
+    assert!(s.running.is_none());
+    assert!(s.log.last().is_some_and(|l| l.starts_with("DIMSCALE = ")), "{:?}", s.log.last());
+    assert_eq!(sysvars::get(&s, "DIMSCALE").unwrap(), dimscale, "reading changes nothing");
+    // Step by step, in any case.
+    s.cmdline("getvar").unwrap();
+    assert!(s.running.is_some());
+    s.cmdline("lunits").unwrap();
+    assert!(s.running.is_none());
+    assert!(s.log.last().is_some_and(|l| l.starts_with("LUNITS = ")), "{:?}", s.log.last());
+    // An unknown name says so, and Enter ends it.
+    s.cmdline("GETVAR NOSUCHVAR").unwrap();
+    assert_eq!(s.log.last().map(String::as_str), Some("Unknown variable NOSUCHVAR. Type SETVAR ? to list variables."));
+    s.cmdline("getvar").unwrap();
+    s.cmdline("").unwrap();
+    assert!(s.running.is_none());
+    // The command an agent runs is unchanged.
+    assert_eq!(s.execute("getvar", &json!({"name": "dimscale"})).unwrap(), json!({"name": "DIMSCALE", "value": dimscale}));
 }
 
 #[test]
@@ -1508,6 +1550,62 @@ fn pline_width_answers_taper_the_next_segment() {
     assert_eq!(widths(&p), (0.0, vec![(0.0, 0.0), (0.0, 0.0)]));
 }
 
+/// PLINE against what AutoCAD 2024 stores for the same typed input (black-box: synthetic input
+/// in accoreconsole, read back with `entget` and GETVAR).
+#[test]
+fn pline_undo_mode_and_plinewid_match_autocad() {
+    // Undo after an arc segment returns to line mode, where `_L` is Length (a point gives the
+    // length, along the last segment).
+    let p = typed_pline(
+        "pline -0.702422643378533,-28.46727901968281 -27.912058384977463,-34.74188138168937 -22.546524604415925,32.44142803067136 _U \
+         25.831317263304115,13.510616645626207 _A -33.2372517304228,12.083585785350365 _U _L -22.546524604415925,32.44142803067136",
+    );
+    let want = [
+        (-0.7024226433785329, -28.4672790196828),
+        (-27.91205838497746, -34.74188138168937),
+        (25.83131726330411, 13.5106166456262),
+        (64.48701958199356, 48.21692560701169),
+    ];
+    assert_eq!(p.vertices.len(), want.len(), "{p:?}");
+    for (v, (x, y)) in p.vertices.iter().zip(want) {
+        assert!(v.p.near(Vec2::new(x, y), 1e-9 * x.abs().max(y.abs())) && v.bulge == 0.0, "{p:?}");
+    }
+    // PLINEWID is the width a new polyline starts with…
+    let mut s = Session::new();
+    s.cmdline("(setvar \"PLINEWID\" 0.75)").unwrap();
+    s.cmdline("pline -21.06802233135781,9.943678105070298 -29.261665218975015,-28.460093326613574 7.898763272534772,6.73634194079888").unwrap();
+    s.cmdline("").unwrap();
+    assert!(matches!(&s.doc().unwrap().model.last().unwrap().kind, EntityKind::LwPolyline(p) if p.const_width == 0.75));
+    // …and the ending width of the last Width or Halfwidth answer (half-width 0.5: PLINEWID 1).
+    let mut s = Session::new();
+    s.cmdline("pline -9.151085154682761,12.9438035725412 _W 0.0934460985004879 1.547654372298795").unwrap();
+    assert_eq!(s.doc().unwrap().header.f64("PLINEWID", 0.0), 1.547654372298795);
+    s.cmdline("19.161590651864245,38.23079339857958 26.720225103092986,-9.028145532375504 _H 0.5 0.5 -24.7035288980598,-14.309723714209586").unwrap();
+    s.cmdline("").unwrap();
+    assert_eq!(s.doc().unwrap().header.f64("PLINEWID", 0.0), 1.0);
+    // PLINEWID is an ordinary system variable: 0 until set, typed at the command line or set
+    // with SETVAR, and that width is where the next polyline starts.
+    let mut s = Session::new();
+    let r = s.execute("getvar", &json!({"name": "PLINEWID"})).unwrap();
+    assert_eq!(r["value"].as_f64(), Some(0.0), "{r}");
+    s.cmdline("plinewid 0.5").unwrap();
+    assert_eq!(s.doc().unwrap().header.f64("PLINEWID", 0.0), 0.5);
+    s.cmdline("pline 0,0 10,0").unwrap();
+    s.cmdline("").unwrap();
+    assert!(matches!(&s.doc().unwrap().model.last().unwrap().kind, EntityKind::LwPolyline(p) if p.const_width == 0.5));
+    // The JSON form starts there too, unless it gives a width or its vertices give theirs.
+    let width = |s: &mut Session, p: serde_json::Value| {
+        s.execute("pline", &p).unwrap();
+        match &s.doc().unwrap().model.last().unwrap().kind {
+            EntityKind::LwPolyline(p) => p.const_width,
+            k => panic!("{k:?}"),
+        }
+    };
+    assert_eq!(width(&mut s, json!({"vertices": [[0, 0], [10, 0]]})), 0.5);
+    assert_eq!(width(&mut s, json!({"vertices": [[0, 0], [10, 0]], "width": 0})), 0.0);
+    assert_eq!(width(&mut s, json!({"vertices": [{"p": [0, 0], "startWidth": 1, "endWidth": 2}, [10, 0]]})), 0.0);
+}
+
 #[test]
 fn press_and_drag_selection_window() {
     let mut s = Session::new();
@@ -1589,6 +1687,97 @@ fn typed_ltscale_asks_for_the_scale() {
     s.cmdline("").unwrap();
     assert!(s.current_prompt().is_none());
     assert_eq!(s.doc().unwrap().header.f64("LTSCALE", 0.0), 0.1);
+}
+
+#[test]
+fn typed_limits_asks_for_the_corners() {
+    // Issue #3181: typing LIMITS failed with "'min' ([x, y]) is required" instead of asking.
+    let mut s = Session::new();
+    s.cmdline("limits").unwrap();
+    assert!(s.prompt_text().contains("Specify lower left corner <0.0000,0.0000>"), "{}", s.prompt_text());
+    // Text that is not a point is refused and asked again.
+    s.cmdline("abc").unwrap();
+    assert!(s.prompt_text().contains("Specify lower left corner"), "{}", s.prompt_text());
+    s.cmdline("-10,-5").unwrap();
+    assert!(s.prompt_text().contains("Specify upper right corner <12.0000,9.0000>"), "{}", s.prompt_text());
+    s.cmdline("100,50").unwrap();
+    assert!(s.current_prompt().is_none());
+    let h = &s.doc().unwrap().header;
+    assert_eq!(h.point("LIMMIN").map(|p| (p.x, p.y)), Some((-10.0, -5.0)));
+    assert_eq!(h.point("LIMMAX").map(|p| (p.x, p.y)), Some((100.0, 50.0)));
+    // Enter keeps each corner; the defaults show the current limits.
+    s.cmdline("limits").unwrap();
+    assert!(s.prompt_text().contains("<-10.0000,-5.0000>"), "{}", s.prompt_text());
+    s.cmdline("").unwrap();
+    assert!(s.prompt_text().contains("<100.0000,50.0000>"), "{}", s.prompt_text());
+    s.cmdline("").unwrap();
+    assert!(s.current_prompt().is_none());
+    let h = &s.doc().unwrap().header;
+    assert_eq!(h.point("LIMMIN").map(|p| (p.x, p.y)), Some((-10.0, -5.0)));
+    assert_eq!(h.point("LIMMAX").map(|p| (p.x, p.y)), Some((100.0, 50.0)));
+    // Both corners on one line, as in a script.
+    s.cmdline("limits 0,0 420,297").unwrap();
+    assert!(s.current_prompt().is_none());
+    let h = &s.doc().unwrap().header;
+    assert_eq!(h.point("LIMMIN").map(|p| (p.x, p.y)), Some((0.0, 0.0)));
+    assert_eq!(h.point("LIMMAX").map(|p| (p.x, p.y)), Some((420.0, 297.0)));
+}
+
+#[test]
+fn typed_limits_enter_sets_the_last_point_and_ortho_does_not_flatten_the_corner() {
+    let mut s = Session::new();
+    s.execute("limits", &json!({"min": [0, 0], "max": [420, 297]})).unwrap();
+    // Enter accepts the lower left corner, and it becomes the last point, so a relative upper
+    // corner resolves from it rather than from whatever was last picked.
+    s.last_point = Vec2::new(200.0, 200.0);
+    s.cmdline("limits").unwrap();
+    s.cmdline("").unwrap();
+    assert!(s.prompt_text().contains("Specify upper right corner"), "{}", s.prompt_text());
+    assert_eq!(s.last_point, Vec2::new(0.0, 0.0));
+    s.cmdline("@10,10").unwrap();
+    let h = &s.doc().unwrap().header;
+    assert_eq!(h.point("LIMMAX").map(|p| (p.x, p.y)), Some((10.0, 10.0)));
+    // ORTHOMODE does not bend a distance typed at the opposite corner onto an axis: the upper
+    // corner stays off the lower corner's horizontal and vertical.
+    s.settings.orthomode = true;
+    s.cursor = Vec2::new(10.0, 10.0);
+    s.cmdline("limits 0,0").unwrap();
+    s.cmdline("10").unwrap();
+    assert!(s.current_prompt().is_none());
+    let max = s.doc().unwrap().header.point("LIMMAX").unwrap();
+    assert!(max.x > 1e-6 && max.y > 1e-6, "the corner was flattened: {max:?}");
+}
+
+#[test]
+fn a_non_finite_point_never_becomes_the_last_point() {
+    // Every point used to be stored as the last point before the running command judged it, so a
+    // point the command refused still answered a later `@` with itself, for the rest of the session.
+    let mut s = Session::new();
+    s.execute("limits", &json!({"min": [0, 0], "max": [420, 297]})).unwrap();
+    s.last_point = Vec2::new(1.0, 2.0);
+    s.cmdline("limits").unwrap();
+    s.input(Input::Point(Vec2::new(f64::INFINITY, 0.0))).unwrap();
+    assert!(s.prompt_text().contains("Specify lower left corner"), "the point was refused: {}", s.prompt_text());
+    assert_eq!(s.last_point, Vec2::new(1.0, 2.0), "a refused point must not become the last point");
+    // `@` alone answers with the last point the command took, which is still a point.
+    s.cmdline("@").unwrap();
+    assert!(s.prompt_text().contains("Specify upper right corner"), "{}", s.prompt_text());
+}
+
+#[test]
+fn a_limits_corner_stored_as_non_finite_reads_as_the_default() {
+    // A file may store $LIMMIN as a non-finite number: Enter must not keep it as the last point.
+    let mut s = Session::new();
+    s.doc_mut().unwrap().header.set("LIMMIN", cadcraft_doc::HVal::Point(cadcraft_geom::Vec3::new(f64::INFINITY, 0.0, 0.0)));
+    s.cmdline("limits").unwrap();
+    assert!(s.prompt_text().contains("Specify lower left corner <0.0000,0.0000>"), "{}", s.prompt_text());
+    s.cmdline("").unwrap();
+    assert_eq!(s.last_point, Vec2::ZERO);
+    assert!(s.prompt_text().contains("Specify upper right corner <12.0000,9.0000>"), "{}", s.prompt_text());
+    s.cmdline("").unwrap();
+    let h = &s.doc().unwrap().header;
+    assert_eq!(h.point("LIMMIN").map(|p| (p.x, p.y)), Some((0.0, 0.0)));
+    assert_eq!(h.point("LIMMAX").map(|p| (p.x, p.y)), Some((12.0, 9.0)));
 }
 
 #[test]

@@ -13,8 +13,6 @@ use serde_json::{Value, json};
 use crate::CadApp;
 use crate::menus::{Entry, activate};
 
-/// How many recent commands the command line menu lists.
-const RECENT: usize = 8;
 /// The command line history heights offered (lines).
 const LINES: &[usize] = &[0, 1, 3, 5, 8, 12];
 
@@ -46,13 +44,7 @@ fn push(groups: &mut Vec<Vec<Entry>>, group: Vec<Entry>) {
 /// Copy History and Clear.
 pub fn command_line_entries(app: &CadApp) -> Vec<Vec<Entry>> {
     let mut groups = Vec::new();
-    let recent: Vec<Entry> = app
-        .session
-        .recent_commands(RECENT)
-        .iter()
-        .filter_map(|id| find_command(id))
-        .map(|c| Entry::Item { label: c.id.to_ascii_uppercase(), id: c.id.to_string(), shortcut: None, enabled: (c.enabled)(&app.session).is_ok() })
-        .collect();
+    let recent = crate::context_menu::recent_entries(app);
     if !recent.is_empty() {
         groups.push(vec![Entry::Sub { label: "Recent Commands".into(), children: recent }]);
     }
@@ -90,7 +82,7 @@ pub fn drawing_tab_entries(app: &CadApp, index: usize) -> Vec<Vec<Entry>> {
 }
 
 /// A layout tab's menu (`name` is the layout, "Model" the model tab): New Layout, From Template,
-/// Delete, Rename and Copy (layouts only), Page Setup Manager and Print. Delete, Rename and Copy
+/// Delete, Rename and Copy (layouts only), Page Setup Manager and Plot. Delete, Rename and Copy
 /// go through LAYOUT's prompts, so Rename and Copy ask for the new name on the command line.
 pub fn layout_tab_entries(app: &CadApp, name: &str) -> Vec<Vec<Entry>> {
     let model = name == "Model";
@@ -104,7 +96,7 @@ pub fn layout_tab_entries(app: &CadApp, name: &str) -> Vec<Vec<Entry>> {
         }
     }
     push(&mut groups, new);
-    let out: Vec<Entry> = [("pagesetup", "Page Setup Manager..."), ("plot", "Print...")]
+    let out: Vec<Entry> = [("pagesetup", "Page Setup Manager..."), ("plot", "Plot...")]
         .iter()
         .filter(|(id, _)| find_command(id).is_some())
         .map(|(id, label)| layout(id, label))

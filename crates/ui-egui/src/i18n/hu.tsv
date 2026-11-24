@@ -618,6 +618,7 @@
 	Match Layer	Réteg egyeztetése
 	Match Properties	Tulajdonságok átvitele
 	Measure	Kimérés
+	Quick Measure	Gyors mérés
 	Measure Distance	Távolságmérés
 	Measure Geometry	Geometria mérése
 	Merge Cells	Cellák egyesítése
@@ -762,6 +763,7 @@
 	Perpendicular	Merőleges
 	Pickbox size	Kijelölőnégyzet mérete
 	Plot	Nyomtatás
+	Plot...	Nyomtatás...
 	Plot (click: do not plot)	Nyomtatandó (kattintás: nem nyomtatandó)
 	Plot Preview	Nyomtatási előnézet
 	Plot Style Manager	Nyomtatásistílus-kezelő
@@ -1346,6 +1348,8 @@ menu	View	Nézet
 	Check for Updates…	Frissítések keresése…
 	CADCraft is up to date.	A CADCraft naprakész.
 	Could not check for updates.	A frissítések keresése nem sikerült.
+	Check for Updates	Frissítések keresése
+	Release updates are disabled for this development build.	A kiadási frissítések ki vannak kapcsolva ebben a fejlesztői buildben.
 	Add a drawing file as a block library	Rajzfájl hozzáadása blokkkönyvtárként
 	Add a folder of drawings or a drawing file to use its blocks.	Adj hozzá egy rajzokat tartalmazó mappát vagy egy rajzfájlt, hogy használhasd a blokkjait.
 	Block Libraries	Blokkkönyvtárak
@@ -1388,6 +1392,17 @@ menu	View	Nézet
 	Ctrl+Enter to apply	Ctrl+Enter to apply
 	Edit Text	Edit Text
 	The drawing changed. Close the window and open it again.	A rajz megváltozott. Zárja be az ablakot, és nyissa meg újra.
+	Layer state name	Rétegállapot neve
+	Switches layers on and off, frozen and locked	Be- és kikapcsolja, fagyasztja és zárolja a rétegeket
+	Rename	Átnevezés
+	Objects on locked layers can't be selected	A zárolt rétegeken lévő objektumok nem jelölhetők ki
+	They are still shown and snapped to, like a blueprint.	Továbbra is megjelennek, és illeszthetők hozzájuk, mint egy háttérrajzhoz.
+# Layers palette: move the selection to a new layer, delete empty layers.
+	Move to New Layer	Áthelyezés új rétegre
+	Move Selection to New Layer	A kijelölés áthelyezése új rétegre
+	New layer name	Az új réteg neve
+	Delete Empty Layers	Üres rétegek törlése
+	Deletes every layer that has no objects on it	Törli az összes réteget, amelyen nincs objektum
 
 # ArtCraft feature naming
 	Additional Tools	További eszközök

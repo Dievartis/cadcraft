@@ -93,6 +93,16 @@ fn clipboard_events_run_the_clipboard_commands() {
     frame(&mut app, vec![egui::Event::Paste("text from another program".into())]);
     assert_eq!(app.session.running.as_ref().map(|r| r.id.as_str()), Some("pasteclip"));
     assert!(app.session.prompt_text().contains("insertion point"));
+
+    // #2793: another program put an image on the system clipboard (a screenshot), so Ctrl+V
+    // arrives as `PasteImage`, not `Paste`. It pastes the drawing clipboard, as the shortcut
+    // menu's Paste does, instead of doing nothing.
+    app.session.cancel();
+    assert!(app.session.running.is_none());
+    let image = std::sync::Arc::new(egui::ColorImage::filled([2, 2], egui::Color32::WHITE));
+    frame(&mut app, vec![egui::Event::PasteImage(image)]);
+    assert_eq!(app.session.running.as_ref().map(|r| r.id.as_str()), Some("pasteclip"));
+    assert!(app.session.prompt_text().contains("insertion point"));
 }
 
 /// (label, id, enabled) of the object snap menu's items (#393).
@@ -157,15 +167,12 @@ fn snap_menu_types_point_modifiers_and_snap_overrides() {
     assert!(app.session.prompt_text().ends_with("Specify temporary OTRACK point:"), "{}", app.session.prompt_text());
 }
 
-/// The text painted in one frame.
-fn painted(app: &mut CadApp, ctx: &egui::Context, mut events: Vec<egui::Event>, modifiers: egui::Modifiers) -> String {
-    fn collect(shape: &egui::Shape, text: &mut String) {
+/// The texts painted in one frame and where each was painted, so a test can click one.
+fn painted_texts(app: &mut CadApp, ctx: &egui::Context, mut events: Vec<egui::Event>, modifiers: egui::Modifiers) -> Vec<(String, egui::Rect)> {
+    fn collect(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
         match shape {
-            egui::Shape::Text(s) => {
-                text.push_str(s.galley.text());
-                text.push('\n');
-            }
-            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect(s, text)),
+            egui::Shape::Text(s) => out.push((s.galley.text().to_string(), s.visual_bounding_rect())),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect(s, out)),
             _ => {}
         }
     }
@@ -174,11 +181,16 @@ fn painted(app: &mut CadApp, ctx: &egui::Context, mut events: Vec<egui::Event>, 
         egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0))), events, ..Default::default() };
     let mut output = ctx.run_ui(input, |ui| app.ui(ui));
     output.textures_delta.clear();
-    let mut text = String::new();
+    let mut texts = Vec::new();
     for s in &output.shapes {
-        collect(&s.shape, &mut text);
+        collect(&s.shape, &mut texts);
     }
-    text
+    texts
+}
+
+/// The text painted in one frame, one painted text per line.
+fn painted(app: &mut CadApp, ctx: &egui::Context, events: Vec<egui::Event>, modifiers: egui::Modifiers) -> String {
+    painted_texts(app, ctx, events, modifiers).into_iter().map(|(text, _)| text + "\n").collect()
 }
 
 /// Shift+right-click on the canvas during a command opens the snap menu instead of acting as Enter.

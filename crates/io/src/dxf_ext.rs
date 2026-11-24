@@ -12,7 +12,9 @@
 use std::collections::HashMap;
 
 use cadcraft_color::Color;
-use cadcraft_doc::{ArrayParams, AssocSnap, Constraint, DimAssoc, DimStyle, Handle, LayerState, Parametric, PlotStyleTable};
+use cadcraft_doc::{
+    ArrayParams, AssocSnap, Constraint, DimAssoc, DimStyle, Handle, LayerState, Parametric, PlotStyleTable, TerminalModel, WallStyle,
+};
 use cadcraft_render::Arrowhead;
 use craft_dxf::{Tag, Version};
 use serde::{Deserialize, Serialize};
@@ -35,6 +37,99 @@ pub(crate) const PLOT_STYLE_NAMES_KEY: &str = "ACAD_PLOTSTYLENAME";
 pub(crate) const HANDSEED_KEY: &str = "CADCRAFT_HANDSEED";
 /// Named-object-dictionary key of the XRECORD holding the current multileader style.
 pub(crate) const MLEADER_STYLE_KEY: &str = "CADCRAFT_MLEADERSTYLE";
+/// Named-object-dictionary key of the drawing's wall styles XRECORD.
+pub(crate) const WALL_STYLES_KEY: &str = "CADCRAFT_WALLSTYLES";
+/// Most wall styles read from a file.
+pub(crate) const MAX_WALL_STYLES: usize = 10_000;
+/// Named-object-dictionary key of the drawing's air terminal models XRECORD.
+pub(crate) const AIR_TERMINAL_MODELS_KEY: &str = "CADCRAFT_AIRTERMINALMODELS";
+/// Most air terminal models read from a file.
+pub(crate) const MAX_AIR_TERMINAL_MODELS: usize = 10_000;
+/// Named-object-dictionary key of the XRECORD that says which colours the pipes and ducts are drawn in (written when they are not the plan's).
+pub(crate) const COLOUR_CONVENTION_KEY: &str = "CADCRAFT_COLOURCONV";
+/// Named-object-dictionary key of the XRECORD that keeps the pages of PDFs attached in a browser.
+pub(crate) const RASTERS_KEY: &str = "CADCRAFT_RASTERS";
+/// The paths of the rasters made in memory from a PDF page attached without a file (the web): the only ones the drawing has to keep, since the
+/// others are read again from their files.
+pub(crate) const PDF_PAGE_PREFIX: &str = "pdf-underlay:";
+/// Whether the pixels at `path` are kept in the file: a PDF page attached without a file, or a picture of a title block.
+fn kept_raster(path: &str) -> bool {
+    path.starts_with(PDF_PAGE_PREFIX) || path.starts_with(cadcraft_doc::TITLEBLOCK_IMAGE_PREFIX)
+}
+
+/// Most pages kept, and most base64 text for all of them (a page is at most 4096 pixels wide).
+const MAX_KEPT_PAGES: usize = 64;
+const MAX_KEPT_TEXT: usize = 40 << 20;
+
+#[derive(Serialize, Deserialize)]
+struct KeptPage {
+    path: String,
+    /// The page as a PNG file, in base64.
+    png: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RastersPayload {
+    version: u32,
+    #[serde(default)]
+    pages: Vec<KeptPage>,
+}
+
+/// JSON chunks for the pages of PDFs attached without a file, or `None` when the drawing has none.
+pub(crate) fn raster_chunks(rasters: &cadcraft_doc::Rasters) -> Option<Vec<String>> {
+    use base64::Engine as _;
+    let mut pages = Vec::new();
+    let mut total = 0usize;
+    for (path, raster) in rasters.iter().filter(|(p, _)| kept_raster(p)).take(MAX_KEPT_PAGES) {
+        let Ok(png) = crate::raster::encode_png(raster) else { continue };
+        let png = base64::engine::general_purpose::STANDARD.encode(png);
+        total = total.saturating_add(png.len());
+        if total > MAX_KEPT_TEXT {
+            break;
+        }
+        pages.push(KeptPage { path: path.to_string(), png });
+    }
+    if pages.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&RastersPayload { version: 1, pages }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// The pages kept in the rasters XRECORD text; `None` when it is not a payload we understand. A page that does not decode is left out.
+pub(crate) fn parse_rasters(text: &str) -> Option<Vec<(String, cadcraft_doc::Raster)>> {
+    use base64::Engine as _;
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: RastersPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 {
+        return None;
+    }
+    let mut out = Vec::new();
+    for page in p.pages.into_iter().take(MAX_KEPT_PAGES) {
+        if !kept_raster(&page.path) {
+            continue;
+        }
+        let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(page.png.as_bytes()) else { continue };
+        if let Ok(raster) = crate::raster::decode(&bytes) {
+            out.push((page.path, raster));
+        }
+    }
+    Some(out)
+}
+
+/// Named-object-dictionary key of the drawing's cable types XRECORD.
+pub(crate) const CABLE_TYPES_KEY: &str = "CADCRAFT_CABLETYPES";
+/// Named-object-dictionary key of the drawing's pipework part models XRECORD.
+pub(crate) const PART_MODELS_KEY: &str = "CADCRAFT_PARTMODELS";
+/// Most pipework part models read from a file.
+pub(crate) const MAX_PART_MODELS: usize = cadcraft_doc::MAX_USER_PART_MODELS;
+/// Named-object-dictionary key of the drawing's pipe network styles XRECORD.
+pub(crate) const NETWORK_STYLES_KEY: &str = "CADCRAFT_NETWORKSTYLES";
+/// Most pipe network styles read from a file.
+pub(crate) const MAX_NETWORK_STYLES: usize = cadcraft_doc::MAX_NETWORKS;
+
 /// Named-object-dictionary key of the XRECORD holding model space's current UCS name ($UCSNAME,
 /// which the DWG bridge drops).
 pub(crate) const UCS_NAME_KEY: &str = "CADCRAFT_UCSNAME";
@@ -622,6 +717,41 @@ pub(crate) fn read_layer_colors(tags: &[Tag]) -> Vec<(String, Color)> {
     names.as_chunks::<2>().0.iter().filter_map(|[name, color]| Some((name.clone(), Color::parse(color)?))).collect()
 }
 
+/// A viewport's named and base UCS as CADCraft xdata: `1000 VPUCS`, `1002 {`, `1000 named`,
+/// `1000 base` (empty for none), `1002 }`. Groups 345 and 346 say the same, but the DWG bridge
+/// drops them.
+pub(crate) fn ucs_xdata(named: Option<&str>, base: Option<&str>) -> Vec<Tag> {
+    vec![Tag::s(1000, "VPUCS"), Tag::s(1002, "{"), Tag::s(1000, named.unwrap_or_default()), Tag::s(1000, base.unwrap_or_default()), Tag::s(1002, "}")]
+}
+
+/// The named and base UCS written by [`ucs_xdata`]; `(None, None)` for files from other writers.
+pub(crate) fn read_ucs_names(tags: &[Tag]) -> (Option<String>, Option<String>) {
+    let list = xdata_list(xdata(tags, APP), "VPUCS");
+    let mut names = list.iter().filter(|t| t.code == 1000).map(Tag::str).map(|s| Some(s).filter(|s| !s.trim().is_empty()));
+    (names.next().flatten(), names.next().flatten())
+}
+
+/// A copy of a viewport's unmodelled groups ([`cadcraft_doc::Viewport::extra`]) that aren't
+/// references, as CADCraft xdata: `1000 VPEXTRA`, `1002 {`, then per group `1000 code` and
+/// `1000 value`, `1002 }`. The groups themselves are in the record; the DWG bridge drops some
+/// of them (the plot style sheet, shade plot and lighting), and this copy brings them back.
+pub(crate) fn extra_xdata(extra: &[cadcraft_doc::RawTag]) -> Vec<Tag> {
+    let mut v = vec![Tag::s(1000, "VPEXTRA"), Tag::s(1002, "{")];
+    for t in extra.iter().filter(|t| !crate::dxf_raw::is_pointer(t.code)) {
+        v.push(Tag::s(1000, t.code.to_string()));
+        v.push(Tag::s(1000, t.value.clone()));
+    }
+    v.push(Tag::s(1002, "}"));
+    v
+}
+
+/// The groups written by [`extra_xdata`]; empty for files from other writers, bad pairs skipped.
+pub(crate) fn read_extra(tags: &[Tag]) -> Vec<(i32, String)> {
+    let list = xdata_list(xdata(tags, APP), "VPEXTRA");
+    let items: Vec<String> = list.iter().take(MAX_XDATA_ITEMS * 2).filter(|t| t.code == 1000).map(Tag::str).collect();
+    items.as_chunks::<2>().0.iter().filter_map(|[code, value]| Some((code.trim().parse::<i32>().ok()?, value.clone()))).collect()
+}
+
 const POINT_NAMES: [&str; 5] = ["defpt", "p13", "p14", "p15", "p16"];
 
 /// Associativity links from CADCraft xdata; malformed links are skipped.
@@ -764,6 +894,236 @@ pub(crate) fn layer_state_chunks(states: &[LayerState]) -> Option<Vec<String>> {
     }
     let json = serde_json::to_string(&LayerStatesPayload { version: 1, states: states.to_vec() }).ok()?;
     Some(json_chunks(&json))
+}
+
+/// The drawing's wall styles stored in the `CADCRAFT_WALLSTYLES` XRECORD.
+#[derive(Serialize, Deserialize)]
+struct WallStylesPayload {
+    version: u32,
+    #[serde(default)]
+    styles: Vec<WallStyle>,
+}
+
+/// JSON chunks for the wall styles XRECORD, or `None` when the drawing defines no wall style.
+pub(crate) fn wall_style_chunks(styles: &[WallStyle]) -> Option<Vec<String>> {
+    if styles.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&WallStylesPayload { version: 1, styles: styles.to_vec() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// Parse the wall styles XRECORD text: the valid styles, names trimmed, the first of each name
+/// (case-insensitive); `None` when it is not a payload we understand.
+pub(crate) fn parse_wall_styles(text: &str) -> Option<Vec<WallStyle>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: WallStylesPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 || p.styles.len() > MAX_WALL_STYLES {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<WallStyle> = Vec::with_capacity(p.styles.len());
+    for mut s in p.styles {
+        s.name = s.name.trim().to_string();
+        if s.validate().is_ok() && seen.insert(s.name.to_lowercase()) {
+            out.push(s);
+        }
+    }
+    Some(out)
+}
+
+/// The drawing's air terminal models stored in the `CADCRAFT_AIRTERMINALMODELS` XRECORD.
+#[derive(Serialize, Deserialize)]
+struct AirTerminalModelsPayload {
+    version: u32,
+    #[serde(default)]
+    models: Vec<TerminalModel>,
+}
+
+/// JSON chunks for the air terminal models XRECORD, or `None` when the drawing defines none.
+pub(crate) fn air_terminal_model_chunks(models: &[TerminalModel]) -> Option<Vec<String>> {
+    if models.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&AirTerminalModelsPayload { version: 1, models: models.to_vec() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// Parse the air terminal models XRECORD text: the valid models, names trimmed, the first of
+/// each name (case-insensitive); `None` when it is not a payload we understand.
+pub(crate) fn parse_air_terminal_models(text: &str) -> Option<Vec<TerminalModel>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: AirTerminalModelsPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 || p.models.len() > MAX_AIR_TERMINAL_MODELS {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<TerminalModel> = Vec::with_capacity(p.models.len());
+    for mut m in p.models {
+        m.name = m.name.trim().to_string();
+        if m.validate().is_ok() && seen.insert(m.name.to_lowercase()) {
+            out.push(m);
+        }
+    }
+    Some(out)
+}
+
+/// Named-object-dictionary key of the drawing's own equipment models XRECORD.
+pub(crate) const EQUIPMENT_MODELS_KEY: &str = "CADCRAFT_EQUIPMODELS";
+
+#[derive(Serialize, Deserialize)]
+struct EquipmentModelsPayload {
+    version: u32,
+    #[serde(default)]
+    models: Vec<cadcraft_doc::EquipmentModel>,
+}
+
+/// JSON chunks for the equipment models XRECORD, or `None` when the drawing keeps none of its own.
+pub(crate) fn equipment_model_chunks(models: &[cadcraft_doc::EquipmentModel]) -> Option<Vec<String>> {
+    if models.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&EquipmentModelsPayload { version: 1, models: models.to_vec() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// The valid models of the equipment models XRECORD text, the first of each name; `None` when it is not a payload we understand.
+pub(crate) fn parse_equipment_models(text: &str) -> Option<Vec<cadcraft_doc::EquipmentModel>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: EquipmentModelsPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 || p.models.len() > cadcraft_doc::MAX_EQUIPMENT_MODELS {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(p.models.len());
+    for mut m in p.models {
+        m.name = m.name.trim().to_string();
+        if m.validate() && seen.insert(m.name.to_lowercase()) {
+            out.push(m);
+        }
+    }
+    Some(out)
+}
+
+/// The drawing's cable types stored in the `CADCRAFT_CABLETYPES` XRECORD.
+#[derive(Serialize, Deserialize)]
+struct CableTypesPayload {
+    version: u32,
+    #[serde(default)]
+    types: Vec<cadcraft_doc::CableType>,
+}
+
+/// JSON chunks for the cable types XRECORD, or `None` when the drawing defines none.
+pub(crate) fn cable_type_chunks(types: &[cadcraft_doc::CableType]) -> Option<Vec<String>> {
+    if types.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&CableTypesPayload { version: 1, types: types.to_vec() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// Parse the cable types XRECORD text: the valid types, names trimmed, the first of each name (case-insensitive); `None` when it is not a payload we understand.
+pub(crate) fn parse_cable_types(text: &str) -> Option<Vec<cadcraft_doc::CableType>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: CableTypesPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 || p.types.len() > cadcraft_doc::MAX_CABLE_TYPES {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(p.types.len());
+    for mut t in p.types {
+        t.name = t.name.trim().to_string();
+        if t.validate() && seen.insert(t.name.to_lowercase()) {
+            out.push(t);
+        }
+    }
+    Some(out)
+}
+
+/// The drawing's pipework part models stored in the `CADCRAFT_PARTMODELS` XRECORD.
+#[derive(Serialize, Deserialize)]
+struct PartModelsPayload {
+    version: u32,
+    #[serde(default)]
+    models: Vec<cadcraft_doc::PartTemplate>,
+}
+
+/// JSON chunks for the part models XRECORD, or `None` when the drawing defines none.
+pub(crate) fn part_model_chunks(models: &[cadcraft_doc::PartTemplate]) -> Option<Vec<String>> {
+    if models.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&PartModelsPayload { version: 1, models: models.to_vec() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// Parse the part models XRECORD text: the valid models, names trimmed, the first of each name (case-insensitive); `None`
+/// when it is not a payload we understand.
+pub(crate) fn parse_part_models(text: &str) -> Option<Vec<cadcraft_doc::PartTemplate>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: PartModelsPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 || p.models.len() > MAX_PART_MODELS {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(p.models.len());
+    for mut m in p.models {
+        m.name = m.name.trim().to_string();
+        if !m.name.is_empty() && m.params.validate().is_ok() && seen.insert(m.name.to_lowercase()) {
+            out.push(m);
+        }
+    }
+    Some(out)
+}
+
+/// The drawing's pipe network styles stored in the `CADCRAFT_NETWORKSTYLES` XRECORD.
+#[derive(Serialize, Deserialize)]
+struct NetworkStylesPayload {
+    version: u32,
+    #[serde(default)]
+    styles: Vec<cadcraft_doc::NetworkStyle>,
+}
+
+/// JSON chunks for the network styles XRECORD, or `None` when the drawing has none.
+pub(crate) fn network_style_chunks(styles: &[cadcraft_doc::NetworkStyle]) -> Option<Vec<String>> {
+    if styles.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&NetworkStylesPayload { version: 1, styles: styles.to_vec() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+/// Parse the network styles XRECORD text: the styles with a usable name, the first of each name (case-insensitive); `None` when it is not
+/// a payload we understand.
+pub(crate) fn parse_network_styles(text: &str) -> Option<Vec<cadcraft_doc::NetworkStyle>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: NetworkStylesPayload = serde_json::from_str(text).ok()?;
+    if p.version != 1 || p.styles.len() > MAX_NETWORK_STYLES {
+        return None;
+    }
+    let mut out: Vec<cadcraft_doc::NetworkStyle> = Vec::with_capacity(p.styles.len());
+    for mut st in p.styles {
+        st.name = st.name.trim().to_string();
+        if !st.name.is_empty()
+            && st.name.chars().count() <= cadcraft_doc::MAX_NETWORK_NAME_CHARS
+            && !out.iter().any(|o| cadcraft_doc::same_network(&o.name, &st.name))
+        {
+            out.push(st);
+        }
+    }
+    Some(out)
 }
 
 /// Parse the layer states XRECORD text; `None` when it is not a payload we understand.

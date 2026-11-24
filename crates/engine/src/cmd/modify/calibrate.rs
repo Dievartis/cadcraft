@@ -83,10 +83,22 @@ fn all_in_space(s: &Session) -> Vec<Handle> {
     d.space(&s.space()).map(|st| st.iter().map(|e| e.handle).collect()).unwrap_or_default()
 }
 
-/// Underlays (PDF, raster, DWF, DGN) are not modelled yet: CALIBRATE's underlay target says so
-/// instead of pretending to scale one.
-fn no_underlay() -> EngineError {
-    EngineError::Other("The underlay target is not available; choose Selection to calibrate an attached raster image.".into())
+/// The PDF underlays and the raster images of the active space (CALIBRATE's "underlay" target): the backdrop of a plan, scaled alone to a
+/// known distance. Locked layers are left out, as for the other targets, and none at all (or only locked ones) is a clear error.
+fn underlays_in_space(s: &Session) -> Result<Vec<Handle>> {
+    let d = s.doc()?;
+    let all: Vec<Handle> = d
+        .space(&s.space())
+        .map(|st| st.iter().filter(|e| matches!(e.kind, EntityKind::PdfUnderlay(_) | EntityKind::Image(_))).map(|e| e.handle).collect())
+        .unwrap_or_default();
+    if all.is_empty() {
+        return Err(EngineError::Other("There is no PDF underlay or raster image to scale".into()));
+    }
+    let free: Vec<Handle> = all.into_iter().filter(|h| !super::super::curves::is_locked(s, *h)).collect();
+    if free.is_empty() {
+        return Err(EngineError::Other("The PDF underlays and raster images are on locked layers".into()));
+    }
+    Ok(free)
 }
 
 /// Report a calibration on the command line, with lengths in the drawing's units and precision.
@@ -119,7 +131,7 @@ pub(super) fn run_calibrate(s: &mut Session, p: &Value) -> Result<Value> {
             }
             hs
         }
-        CalibrateTo::Underlay => return Err(no_underlay()),
+        CalibrateTo::Underlay => underlays_in_space(s)?,
     };
     let scaled = transform_entities(s, &hs, &Mat3::scale_about(p1, factor), false)?.len();
     report_calibration(s, measured, length, factor, scaled);
@@ -251,7 +263,11 @@ impl Interactive for CalibrateM {
                     self.scale(s, &selected)
                 }
             }
-            CalibrateTo::Underlay => Err(no_underlay()),
+            // An error here leaves the command at its prompt, so another target can be chosen.
+            CalibrateTo::Underlay => {
+                let hs = underlays_in_space(s)?;
+                self.scale(s, &hs)
+            }
         }
     }
     /// Rubber-band the first calibration point to the cursor while the second point is picked;

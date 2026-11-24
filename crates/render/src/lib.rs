@@ -453,7 +453,9 @@ fn image_clip(i: &cadcraft_doc::Image, place: impl Fn(Vec2) -> Vec2) -> Option<V
 }
 
 mod table;
-pub use table::{MAX_LAYOUT_CELLS, TableFill, TableGeom, TableLine, TableText, table_covered, table_geometry, table_style_of};
+pub use table::{
+    EditableCellText, MAX_LAYOUT_CELLS, TableFill, TableGeom, TableLine, TableText, table_cell_text, table_covered, table_geometry, table_style_of,
+};
 
 mod blocks;
 mod dim_draw;
@@ -465,7 +467,9 @@ mod text_entity;
 mod viewports;
 
 pub use dim_draw::{dim_text, dimension_in};
-pub use display::{DImage, DPrim, DisplayList, Kind, MAX_TRANSPARENCY, NO_LAYER, PlotText, VIEWPORT_CONTENT, alpha};
+pub use display::{
+    DImage, DPrim, DisplayList, Kind, ListUnderlay, MAX_TRANSPARENCY, NO_LAYER, PageClip, PlotText, VIEWPORT_CONTENT, alpha, pdf_underlay,
+};
 pub use pipeline::{Options, build, build_entities, build_plot};
 use props::{default_lineweight, resolve_common};
 use text_entity::text_style;

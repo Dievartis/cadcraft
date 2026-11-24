@@ -1,5 +1,5 @@
-//! EXPORT, IMPORT, PUBLISH and PREVIEW from a menu, the tool bar or the command line: the first
-//! three ask for a file, PREVIEW shows the plot in a window. Calls with parameters (scripts, the
+//! EXPORT, IMPORT, PDFATTACH, PUBLISH and PREVIEW from a menu, the tool bar or the command line:
+//! the first four ask for a file, PREVIEW shows the plot in a window. Calls with parameters (scripts, the
 //! control channel, MCP) never get here and never open a dialog: they run the engine commands.
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -12,6 +12,17 @@ use crate::{CadApp, Pick};
 /// Bumped each time PREVIEW is started, so the window renders the drawing as it is now.
 static PREVIEW_GEN: AtomicU32 = AtomicU32::new(0);
 
+/// Whether a typed or menu-invoked `id` is handled here. DXFIN and DXFOUT ask with a file dialog
+/// only while FILEDIA is 1 and there is one; otherwise they ask for the file name at the command
+/// line, as AutoCAD does with FILEDIA 0 (the engine's prompt).
+pub fn wants_dialog(app: &CadApp, id: &str) -> bool {
+    match id {
+        "dxfin" => app.session.settings.filedia && app.services.pick_open.is_some(),
+        "dxfout" => app.session.settings.filedia && app.services.pick_save.is_some(),
+        _ => true,
+    }
+}
+
 /// Handle a typed or menu-invoked file exchange command (`id` may be an alias).
 pub fn route(app: &mut CadApp, id: &str) -> Result<Value, String> {
     let title = app.session.state().map(|s| s.title.clone()).unwrap_or_default();
@@ -23,15 +34,51 @@ pub fn route(app: &mut CadApp, id: &str) -> Result<Value, String> {
             app.ui.dialog = Some("preview".into());
             Ok(Value::Null)
         }
-        "import" | "imp" => app
-            .pick_then(Pick::Open, |app, path| app.run("import", json!({ "path": path })))
-            .unwrap_or_else(|| no_picker(app, "IMPORT", r#"import {"path": "parts.dxf"}"#)),
+        "import" | "imp" | "dxfin" => {
+            let command = if id == "dxfin" { "dxfin" } else { "import" };
+            app.pick_then(Pick::Open, move |app, path| app.run(command, json!({ "path": path })))
+                .unwrap_or_else(|| no_picker(app, "IMPORT", r#"import {"path": "parts.dxf"}"#))
+        }
+        "dxfout" => app
+            .pick_then(Pick::Save(format!("{stem}.dxf")), |app, path| {
+                // DXFOUT adds .dxf to a name without it. A dialog that doesn't add it (GTK) asked
+                // about replacing the name as typed, not that file: never replace it unasked.
+                let is_dxf = std::path::Path::new(&path).extension().is_some_and(|e| e.eq_ignore_ascii_case("dxf"));
+                if !is_dxf && std::path::Path::new(&format!("{path}.dxf")).exists() {
+                    let msg = format!("DXFOUT: {path}.dxf already exists; choose it in the dialog to replace it");
+                    app.session.echo(msg.clone());
+                    return Err(msg);
+                }
+                app.run("dxfout", json!({ "path": path }))
+            })
+            .unwrap_or_else(|| no_picker(app, "DXFOUT", r#"dxfout {"path": "plan.dxf"}"#)),
+        // The file chosen, the PDF Underlay dialog shows its pages and the placement.
+        "pdfattach" => app
+            .pick_then(Pick::Pdf, |app, path| {
+                app.ui.dialog = Some(format!("pdfattach:{path}"));
+                Ok(Value::Null)
+            })
+            .unwrap_or_else(|| no_picker(app, "PDFATTACH", r#"pdfattach {"path": "plan.pdf"}"#)),
         "publish" => app
             .pick_then(Pick::Save(format!("{stem}.pdf")), |app, path| app.run("publish", json!({ "path": path })))
             .unwrap_or_else(|| no_picker(app, "PUBLISH", "publish {}")),
         _ => app
-            .pick_then(Pick::Save(format!("{stem}.svg")), |app, path| app.run("export", json!({ "path": path })))
+            .pick_then(Pick::Save(format!("{stem}.svg")), |app, path| {
+                let params = export_params(&app.ui, &path);
+                app.run("export", params)
+            })
             .unwrap_or_else(|| no_picker(app, "EXPORT", r#"export {"format": "svg"}"#)),
+    }
+}
+
+/// EXPORT parameters for a path picked in the Export dialog: a DXF or DWG file is written in the
+/// version chosen under File ▸ Default Save Format (#3213), whatever version the drawing was read
+/// in; other formats have no version.
+fn export_params(ui: &crate::UiState, path: &str) -> Value {
+    let drawing_file = matches!(cadcraft_doc::Format::from_path(path), Some(cadcraft_doc::Format::Dxf | cadcraft_doc::Format::Dwg));
+    match crate::SaveVersion::parse(&ui.save_version) {
+        Some(v) if drawing_file => json!({ "path": path, "version": v.year() }),
+        _ => json!({ "path": path }),
     }
 }
 
@@ -56,7 +103,7 @@ struct FromPlot {
 
 const FROM_PLOT: &str = "cc_plot_preview_from_plot";
 
-/// Show the Plot dialog's settings as they plot (PLOT with `params`, a PNG); Print... and Close
+/// Show the Plot dialog's settings as they plot (PLOT with `params`, a PNG); Plot... and Close
 /// return to the dialog.
 pub(crate) fn preview_plot(app: &mut CadApp, ctx: &egui::Context, params: Value, info: String) {
     PREVIEW_GEN.fetch_add(1, Ordering::Relaxed);
@@ -105,8 +152,8 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             p
         }
     };
-    let (mut close, mut print) = (false, false);
-    egui::Window::new("Plot Preview").open(open).collapsible(false).resizable(false).show(ctx, |ui| {
+    let (mut close, mut plot) = (false, false);
+    egui::Window::new(crate::tl!("Plot Preview")).id(id).open(open).collapsible(false).resizable(false).show(ctx, |ui| {
         match &preview.shown {
             Ok((tex, info)) => {
                 ui.label(info);
@@ -120,14 +167,14 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
         }
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            print = ui.button("Print...").clicked();
-            close = ui.button("Close").clicked();
+            plot = ui.button(crate::tl!("Plot...")).clicked();
+            close = ui.button(crate::tl!("Close")).clicked();
         });
     });
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         close = true;
     }
-    if close || print {
+    if close || plot {
         *open = false;
     }
     let from_plot = ctx.data(|d| d.get_temp::<FromPlot>(egui::Id::unique(FROM_PLOT))).is_some();
@@ -138,10 +185,10 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
         });
     }
     if from_plot && !*open {
-        // Back to the Plot dialog with its settings; Print... plots them.
-        crate::managers::set_flag(ctx, crate::managers::PLOT_NOW, print);
+        // Back to the Plot dialog with its settings; Plot... plots them.
+        crate::managers::set_flag(ctx, crate::managers::PLOT_NOW, plot);
         app.ui.dialog = Some("plot".into());
-    } else if print {
+    } else if plot {
         app.start("plot");
     }
 }
@@ -159,7 +206,7 @@ mod tests {
     /// An app whose file dialogs record what they were asked and cancel.
     fn app() -> (CadApp, Rc<RefCell<Vec<String>>>) {
         let asked = Rc::new(RefCell::new(Vec::new()));
-        let (a, b) = (asked.clone(), asked.clone());
+        let (a, b, c) = (asked.clone(), asked.clone(), asked.clone());
         let services = Services {
             pick_open: Some(Box::new(move || {
                 a.borrow_mut().push("open".into());
@@ -167,6 +214,10 @@ mod tests {
             })),
             pick_save: Some(Box::new(move |name: &str| {
                 b.borrow_mut().push(name.to_string());
+                None
+            })),
+            pick_pdf: Some(Box::new(move || {
+                c.borrow_mut().push("pdf".into());
                 None
             })),
             ..Services::default()
@@ -190,7 +241,8 @@ mod tests {
         app.start("export");
         app.cmdline("PUBLISH");
         app.start("imp");
-        assert_eq!(*asked.borrow(), ["Drawing1.svg", "Drawing1.pdf", "open"]);
+        app.cmdline("PDFATTACH");
+        assert_eq!(*asked.borrow(), ["Drawing1.svg", "Drawing1.pdf", "open", "pdf"]);
         assert!(app.ui.dialog.is_none());
         app.cmdline("pre");
         assert_eq!(app.ui.dialog.as_deref(), Some("preview"));
@@ -202,9 +254,10 @@ mod tests {
         let _ = app.run("export", json!({ "format": "svg" }));
         let _ = app.run("import", json!({}));
         let _ = app.run("publish", json!({ "layouts": [] }));
+        let _ = app.run("pdfattach", json!({}));
         let r = app.run("preview", json!({ "width": 64 })).unwrap();
         assert!(r["data"].is_string());
-        assert_eq!(asked.borrow().len(), 3, "JSON calls never open a file dialog");
+        assert_eq!(asked.borrow().len(), 4, "JSON calls never open a file dialog");
         assert!(app.ui.dialog.is_none(), "nor the preview window");
 
         let e = app.run("share", json!({})).unwrap_err();
@@ -223,6 +276,7 @@ mod tests {
             pick_open: Some(Box::new(|| None)),
             pick_save: Some(Box::new(|_: &str| None)),
             pick_lisp: Some(Box::new(|_: &str| None)),
+            pick_pdf: Some(Box::new(|| None)),
             start_pick: Some(Box::new(move |pick, done| {
                 log.borrow_mut().push(pick);
                 *slot.borrow_mut() = Some(done);
@@ -230,6 +284,17 @@ mod tests {
             ..Services::default()
         };
         (CadApp::new(Session::new(), services), asked, answer)
+    }
+
+    #[test]
+    fn export_writes_drawing_files_in_the_default_save_version() {
+        // #3213: File ▸ Default Save Format ▸ 2000 makes Export write an R2000 DXF or DWG.
+        let ui = crate::UiState { save_version: "2000".into(), ..crate::UiState::default() };
+        assert_eq!(super::export_params(&ui, "/tmp/plan.dxf"), json!({ "path": "/tmp/plan.dxf", "version": "2000" }));
+        assert_eq!(super::export_params(&ui, "/tmp/plan.DWG"), json!({ "path": "/tmp/plan.DWG", "version": "2000" }));
+        // Images and PDF have no version.
+        assert_eq!(super::export_params(&ui, "/tmp/plan.svg"), json!({ "path": "/tmp/plan.svg" }));
+        assert_eq!(super::export_params(&ui, "/tmp/plan.pdf"), json!({ "path": "/tmp/plan.pdf" }));
     }
 
     fn status(app: &CadApp) -> &str {
@@ -270,6 +335,20 @@ mod tests {
         app.finish_pick(&ctx);
         assert!(app.pending_pick.is_none());
         assert!(app.status.is_some(), "IMPORT ran with the picked file and reported its error");
+    }
+
+    /// PDFATTACH's PDF picker is shown without waiting too (macOS, #1527): the PDF Underlay
+    /// dialog opens on the file once the answer arrives.
+    #[test]
+    fn pdfattach_waits_for_its_pdf_dialog() {
+        let (mut app, asked, answer) = deferred_app();
+        let ctx = egui::Context::default();
+        app.cmdline("PDFATTACH");
+        assert_eq!(*asked.borrow(), [Pick::Pdf]);
+        assert!(app.pending_pick.is_some() && app.ui.dialog.is_none(), "nothing opens before the answer");
+        answer.borrow_mut().take().unwrap()(Some("plan.pdf".into()));
+        app.finish_pick(&ctx);
+        assert_eq!(app.ui.dialog.as_deref(), Some("pdfattach:plan.pdf"));
     }
 
     /// A dialog's answer acts on the drawing that asked for it, even when another drawing was
