@@ -2552,6 +2552,28 @@ fn the_grip_at_the_end_of_a_reducers_cone_sets_its_length() {
 }
 
 #[test]
+fn the_line_closing_a_cone_joins_its_far_corners_wherever_they_were_dragged() {
+    let mut d = Drawing::new_metric();
+    let h = add_duct(&mut d, (0.0, 0.0), (2000.0, 0.0));
+    let mut p = duct_of(d.entity(h).unwrap()).unwrap();
+    p.reducer = Some(DuctReducer { from_mm: 400.0, at_end: false });
+    d.regenerate_duct(h, &p).unwrap();
+    // The far corner above the axis, pulled up and along.
+    assert!(d.stretch_duct_grip(h, 6, Vec2::new(900.0, 400.0)).unwrap());
+    let p = duct_of(d.entity(h).unwrap()).unwrap();
+    let [_, _, top, bottom] = p.reducer_corners().unwrap();
+    assert!(top.y > bottom.y.abs(), "the corner did move across");
+    let closes = p.generate(false).unwrap().iter().any(|x| match &x.kind {
+        EntityKind::Line(l) => {
+            let (a, b) = (Vec2::new(l.a.x, l.a.y), Vec2::new(l.b.x, l.b.y));
+            (a.near(top, 1e-6) && b.near(bottom, 1e-6)) || (a.near(bottom, 1e-6) && b.near(top, 1e-6))
+        }
+        _ => false,
+    });
+    assert!(closes, "a line runs from one far corner to the other");
+}
+
+#[test]
 fn the_labels_of_two_runs_laid_over_each_other_do_not_cover_each_other() {
     let mut d = Drawing::new_metric();
     let a = add_duct(&mut d, (0.0, 0.0), (4000.0, 0.0));

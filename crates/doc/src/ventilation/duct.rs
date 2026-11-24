@@ -1549,9 +1549,9 @@ impl DuctParams {
             }
         }
         // A line across where the cone meets the straight run.
-        if let Some((_, len, at_end)) = cone {
-            let x = if at_end { self.length - trim1 - len } else { trim0 + len };
-            pieces.push(HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(Vec2::new(x, -r)), b: v3(Vec2::new(x, r)) }) });
+        // It joins the cone's two far corners, wherever the grips put them.
+        if let Some([_, _, top, bottom]) = self.reducer_corners() {
+            pieces.push(HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(bottom), b: v3(top) }) });
         }
         let text = self.label_text();
         let h = self.units.to_units(self.label_height_mm);
