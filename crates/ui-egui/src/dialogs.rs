@@ -45,13 +45,13 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
 
 fn tool_settings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
     let groups: &[(&str, &[(&str, &str)])] = &[
-        ("Tools", &[("Command Aliases", "aliasedit"), ("Keyboard Shortcuts...", "ui.shortcuts")]),
+        ("Commands and Keyboard", &[("Command Aliases", "aliasedit"), ("Keyboard Shortcuts...", "ui.shortcuts")]),
         (
             "Drawing",
             &[("Units...", "units"), ("Linetype...", "linetype"), ("Point Style...", "ddptype"), ("Constraint Settings", "constraintsettings")],
         ),
         (
-            "Dimension",
+            "Annotation Styles",
             &[
                 ("Text Style...", "style"),
                 ("Dimension Style...", "dimstyle"),
@@ -59,28 +59,35 @@ fn tool_settings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                 ("Table Style...", "tablestyle"),
             ],
         ),
-        ("Layout", &[("Layer Properties Manager", "layer"), ("Plot Style Manager...", "stylesmanager"), ("Page Setup Manager...", "pagesetup")]),
+        (
+            "Layers and Plotting",
+            &[("Layer Properties Manager", "layer"), ("Plot Style Manager...", "stylesmanager"), ("Page Setup Manager...", "pagesetup")],
+        ),
     ];
     let mut target = None;
-    egui::Window::new(crate::tl!("Tool Settings...")).id(egui::Id::unique("tool-settings")).open(open).collapsible(false).show(ctx, |ui| {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("tool-settings-groups").num_columns(2).show(ui, |ui| {
+    egui::Window::new(crate::tl!("Tool Settings..."))
+        .id(egui::Id::unique("tool-settings-launcher"))
+        .default_width(460.0)
+        .open(open)
+        .collapsible(false)
+        .show(ctx, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
                 for (index, (heading, links)) in groups.iter().enumerate() {
-                    ui.vertical(|ui| {
-                        ui.heading(crate::i18n::t(heading));
+                    if index > 0 {
+                        ui.separator();
+                    }
+                    ui.heading(crate::i18n::t(heading));
+                    ui.horizontal_wrapped(|ui| {
                         for &(label, command) in *links {
-                            if ui.button(crate::i18n::t(label)).clicked() {
+                            let button = egui::Button::new(crate::i18n::t(label)).wrap_mode(egui::TextWrapMode::Extend);
+                            if ui.add(button).clicked() {
                                 target = Some(command);
                             }
                         }
                     });
-                    if index % 2 == 1 {
-                        ui.end_row();
-                    }
                 }
             });
         });
-    });
     if let Some(command) = target {
         *open = false;
         crate::menus::activate(app, command);
