@@ -144,6 +144,9 @@ pub struct AccessoryParams {
     /// A hood's size and air were set by hand: it stops following the duct or collar it covers (see [`crate::Drawing::refresh_hoods`]).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub fixed: bool,
+    /// How far a hood's casing sticks out on each side of its opening, mm; none (0) draws it as wide as the opening.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overhang_mm: Option<f64>,
 }
 
 impl AccessoryParams {
@@ -168,6 +171,9 @@ impl AccessoryParams {
         if self.height_mm.is_some_and(|h| !(h.is_finite() && (super::DUCT_DIAMETER_MM.0..=super::DUCT_DIAMETER_MM.1).contains(&h))) {
             return Err(invalid("An accessory's height is 20 to 5000 mm."));
         }
+        if self.overhang_mm.is_some_and(|o| !(o.is_finite() && (0.0..=2000.0).contains(&o))) {
+            return Err(invalid("A hood's overhang is 0 to 2000 mm."));
+        }
         if self.zeta.is_some_and(|z| !(z.is_finite() && (0.0..=MAX_ACCESSORY_ZETA).contains(&z))) {
             return Err(invalid(format!("An accessory's loss coefficient is 0 to {MAX_ACCESSORY_ZETA}.")));
         }
@@ -189,9 +195,14 @@ impl AccessoryParams {
     /// Half the accessory's length and half the width drawn across the duct, drawing units.
     pub(super) fn half(&self) -> Vec2 {
         let r = self.units.to_units(self.diameter_mm) / 2.0;
+        if self.kind == AccessoryKind::Hood {
+            // As wide as the opening it covers, plus the overhang asked for.
+            let out = self.units.to_units(self.overhang_mm.unwrap_or(0.0));
+            return Vec2::new(self.units.to_units(self.length_mm) / 2.0, r + out);
+        }
         let overhang = (0.2 * r).max(self.units.to_units(20.0));
-        // A silencer and a hood are wider than their duct.
-        let width = if matches!(self.kind, AccessoryKind::Silencer | AccessoryKind::Hood) { 1.3 * r } else { r } + overhang;
+        // A silencer is wider than its duct.
+        let width = if self.kind == AccessoryKind::Silencer { 1.3 * r } else { r } + overhang;
         Vec2::new(self.units.to_units(self.length_mm) / 2.0, width)
     }
 

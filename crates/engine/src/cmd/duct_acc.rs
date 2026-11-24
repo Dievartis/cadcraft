@@ -20,7 +20,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
             .interactive(|s| Ok(Box::new(AccessoryAddM::new(s)))),
         CommandSpec::new("ductaccessoryedit", "Edit Duct Accessory", run_edit)
-            .params("{handle | handles, type?, length? (mm), width? (mm), height? (mm, 0 or null: round), air? (supply|extract|fresh|exhaust, or null; for a hood: its colour and the takeoff), follow? (bool: a hood follows the size and air of the duct or collar it covers until one of those is set by hand), zeta? (number, or null for the default), pressureDrop? (Pa, or null)} → {changed}"),
+            .params("{handle | handles, type?, length? (mm), width? (mm), height? (mm, 0 or null: round), overhang? (mm, a hood's casing beyond its opening; 0 or null: none), air? (supply|extract|fresh|exhaust, or null; for a hood: its colour and the takeoff), follow? (bool: a hood follows the size and air of the duct or collar it covers until one of those is set by hand), zeta? (number, or null for the default), pressureDrop? (Pa, or null)} → {changed}"),
     ]
 }
 
@@ -90,6 +90,7 @@ fn on_duct(
         air,
         height_mm: height,
         fixed: false,
+        overhang_mm: None,
     };
     p.validate().map_err(doc_err)?;
     Ok((p, duct, foot, angle))
@@ -124,6 +125,7 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     // A hood's size and air: `width`, `height` (0 or null: round), `air` (null: none).
     let width = number(CMD, p, "width")?;
     let height = number(CMD, p, "height")?;
+    let overhang = number(CMD, p, "overhang")?;
     let air = match p.get("air") {
         None => None,
         Some(Value::Null) => Some(None),
@@ -148,6 +150,9 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if let Some(x) = air {
             a.air = x;
+        }
+        if p.get("overhang").is_some() {
+            a.overhang_mm = overhang.filter(|o| *o > 0.0);
         }
         // Set by hand, a hood stops following its opening; `follow: true` makes it follow again (at the next sizing or duct change).
         if width.is_some() || p.get("height").is_some() || air.is_some() {

@@ -2411,6 +2411,13 @@ fn accessory_section(ui: &mut egui::Ui, sel: &[Handle], accs: &[AccessoryParams]
                 action = Some(("ductaccessoryedit", json!({ "handles": ids, "height": h })));
             }
         });
+        let over = shared(&accs.iter().map(|a| a.overhang_mm.map_or_else(|| "0".to_string(), |o| format!("{o:.0}"))).collect::<Vec<_>>())
+            .unwrap_or_else(|| VARIES.into());
+        prop_row(ui, "Hood overhang (mm)", |ui| {
+            if let Some(o) = number(edit_field(ui, ui.scope_id().with(("acc_overhang", &ids)), over), bad) {
+                action = Some(("ductaccessoryedit", json!({ "handles": ids, "overhang": o })));
+            }
+        });
         let follows = shared(&accs.iter().map(|a| !a.fixed).collect::<Vec<_>>());
         prop_row(ui, "Follows its opening", |ui| {
             let shown = follows.map_or(VARIES, |f| if f { "Yes" } else { "No" });

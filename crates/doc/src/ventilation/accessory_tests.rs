@@ -17,6 +17,7 @@ fn accessory(kind: AccessoryKind) -> AccessoryParams {
         air: None,
         height_mm: None,
         fixed: false,
+        overhang_mm: None,
     }
 }
 
@@ -213,7 +214,11 @@ fn a_hood_is_drawn_outwards_from_its_origin_with_a_mesh_at_the_far_end() {
         .collect();
     assert!(xs.iter().all(|x| *x >= -1e-9), "nothing behind the end of the duct");
     assert!(xs.iter().any(|x| (x - 600.0).abs() < 1e-9), "the face is at the hood's length");
-    assert!(accessory(AccessoryKind::Hood).half().y > 1.3 * 125.0, "wider than its duct");
+    // As wide as its opening unless an overhang is asked for.
+    let mut hood = accessory(AccessoryKind::Hood);
+    assert!((hood.half().y - 125.0).abs() < 1e-9, "as wide as the opening it covers");
+    hood.overhang_mm = Some(50.0);
+    assert!(hood.half().y > 125.0, "wider with an overhang");
 }
 
 #[test]

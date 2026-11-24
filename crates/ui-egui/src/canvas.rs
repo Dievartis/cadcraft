@@ -940,6 +940,14 @@ fn handle_presses(app: &mut CadApp, ui: &egui::Ui, context: &PressContext) -> bo
                         } else if let Some(g) = grip_at(app, &xf, Some(at)) {
                             click_grip(app, g, m.shift);
                         }
+                    } else if grip_clicks && let Some((at, m)) = p.grip_drag(pos) {
+                        // Dragged from a grip: it is hot where it went down and the point is where the button came up.
+                        if let Some(g) = grip_at(app, &xf, Some(at)) {
+                            click_grip(app, g, false);
+                            if app.session.prompting() {
+                                press_at(app, &xf, ui.ctx(), pos, m);
+                            }
+                        }
                     }
                     continue;
                 }
