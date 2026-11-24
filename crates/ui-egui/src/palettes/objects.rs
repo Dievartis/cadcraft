@@ -2271,7 +2271,9 @@ fn duct_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[DuctParams], len: &dyn 
         });
     }
     // The ends cut on the slant (whistles), degrees: 0 or empty is square.
-    for (label, key, id, at_end) in [("Start cut (degrees)", "cutStart", "duct_cut_start", false), ("End cut (degrees)", "cutEnd", "duct_cut_end", true)] {
+    for (label, key, id, at_end) in
+        [("Start cut (degrees)", "cutStart", "duct_cut_start", false), ("End cut (degrees)", "cutEnd", "duct_cut_end", true)]
+    {
         let cut = shared(&ds.iter().map(|p| format!("{}", p.cut_deg[usize::from(at_end)])).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
         prop_row(ui, label, |ui| {
             if let Some(t) = edit_field(ui, ui.scope_id().with((id, &ids)), cut).filter(|t| t != VARIES) {
@@ -2360,7 +2362,13 @@ fn accessory_section(ui: &mut egui::Ui, sel: &[Handle], accs: &[AccessoryParams]
             AccessoryKind::FlexConnector => "Flexible connector",
             AccessoryKind::Hood => "Covered outlet",
         };
-        let items = [("damper", "Damper"), ("fireDamper", "Fire damper"), ("silencer", "Silencer"), ("flexConnector", "Flexible connector"), ("hood", "Covered outlet")];
+        let items = [
+            ("damper", "Damper"),
+            ("fireDamper", "Fire damper"),
+            ("silencer", "Silencer"),
+            ("flexConnector", "Flexible connector"),
+            ("hood", "Covered outlet"),
+        ];
         if let Some(k) = choice(ui, kind.map_or(VARIES, label), &items) {
             action = Some(("ductaccessoryedit", json!({ "handles": ids, "type": k })));
         }
@@ -2388,7 +2396,37 @@ fn accessory_section(ui: &mut egui::Ui, sel: &[Handle], accs: &[AccessoryParams]
             action = Some(("ductaccessoryedit", json!({ "handles": ids, "pressureDrop": p })));
         }
     });
-    if let [a] = accs {
+    if accs.iter().all(|a| a.kind == AccessoryKind::Hood) {
+        // A hood's opening and its air (which sets its colour).
+        let width = shared(&accs.iter().map(|a| format!("{:.0}", a.diameter_mm)).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+        prop_row(ui, "Width (mm)", |ui| {
+            if let Some(w) = number(edit_field(ui, ui.scope_id().with(("acc_width", &ids)), width), bad) {
+                action = Some(("ductaccessoryedit", json!({ "handles": ids, "width": w })));
+            }
+        });
+        let height = shared(&accs.iter().map(|a| a.height_mm.map_or_else(String::new, |h| format!("{h:.0}"))).collect::<Vec<_>>())
+            .unwrap_or_else(|| VARIES.into());
+        prop_row(ui, "Height (mm), empty if round", |ui| {
+            if let Some(h) = number(edit_field(ui, ui.scope_id().with(("acc_height", &ids)), height), bad) {
+                action = Some(("ductaccessoryedit", json!({ "handles": ids, "height": h })));
+            }
+        });
+        let air = shared(&accs.iter().map(|a| a.air).collect::<Vec<_>>());
+        prop_row(ui, "Air", |ui| {
+            let shown = air.map_or(VARIES, |a| match a {
+                None => "Not set",
+                Some(AirDirection::Supply) => "Supply",
+                Some(AirDirection::Extract) => "Extract",
+                Some(AirDirection::Fresh) => "Fresh air",
+                Some(AirDirection::Exhaust) => "Exhaust air",
+            });
+            let items = [("none", "Not set"), ("supply", "Supply"), ("extract", "Extract"), ("fresh", "Fresh air"), ("exhaust", "Exhaust air")];
+            if let Some(k) = choice(ui, shown, &items) {
+                let v = if k == "none" { Value::Null } else { json!(k) };
+                action = Some(("ductaccessoryedit", json!({ "handles": ids, "air": v })));
+            }
+        });
+    } else if let [a] = accs {
         prop_row(ui, "Duct", |ui| read_only(ui, &format!("Ø {:.0} mm", a.diameter_mm)));
     }
     altitude_row(ui, "ductaccessoryedit", &ids, accs.iter().map(|a| a.bottom_mm).collect(), bad, &mut action);

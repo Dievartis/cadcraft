@@ -931,7 +931,9 @@ fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
         match p.get(key) {
             None => Ok(None),
             Some(Value::Null) => Ok(Some(0.0)),
-            Some(v) => Ok(Some(v.as_f64().filter(|x| x.is_finite()).ok_or_else(|| bad(CMD, format!("`{key}` must be a number of degrees or null")))?)),
+            Some(v) => {
+                Ok(Some(v.as_f64().filter(|x| x.is_finite()).ok_or_else(|| bad(CMD, format!("`{key}` must be a number of degrees or null")))?))
+            }
         }
     };
     let (cut_start, cut_end) = (cut("cutStart")?, cut("cutEnd")?);

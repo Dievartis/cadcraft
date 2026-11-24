@@ -6,7 +6,7 @@
 use cadcraft_geom::{PolyVertex, Vec2};
 use serde::{Deserialize, Serialize};
 
-use super::{HvacPiece, HvacUnits, check_label_height, invalid, label, v3, xdata};
+use super::{AirDirection, HvacPiece, HvacUnits, check_label_height, invalid, label, v3, xdata};
 use crate::{EntityKind, Line, LwPolyline, RawTag, Result};
 
 /// The registered application name of an accessory's extended data.
@@ -135,9 +135,23 @@ pub struct AccessoryParams {
     pub bottom_mm: Option<f64>,
     #[serde(default)]
     pub units: HvacUnits,
+    /// A hood's air (air neuf, rejet…): it is then drawn on the layer, and so in the colour, of the ducts of that air.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub air: Option<AirDirection>,
+    /// A hood's height, mm, when its opening is a rectangle (`diameter_mm` is then its width); none for a round one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height_mm: Option<f64>,
 }
 
 impl AccessoryParams {
+    /// The size as written: "Ø250" or "400×250".
+    pub fn size_text(&self) -> String {
+        match self.height_mm {
+            Some(h) => format!("{:.0}×{h:.0}", self.diameter_mm),
+            None => format!("Ø{:.0}", self.diameter_mm),
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         check_label_height(self.label_height_mm)?;
         super::check_altitude(self.bottom_mm)?;
@@ -147,6 +161,9 @@ impl AccessoryParams {
         }
         if !(self.diameter_mm.is_finite() && (super::DUCT_DIAMETER_MM.0..=super::DUCT_DIAMETER_MM.1).contains(&self.diameter_mm)) {
             return Err(invalid("An accessory sits on a duct of 20 to 5000 mm."));
+        }
+        if self.height_mm.is_some_and(|h| !(h.is_finite() && (super::DUCT_DIAMETER_MM.0..=super::DUCT_DIAMETER_MM.1).contains(&h))) {
+            return Err(invalid("An accessory's height is 20 to 5000 mm."));
         }
         if self.zeta.is_some_and(|z| !(z.is_finite() && (0.0..=MAX_ACCESSORY_ZETA).contains(&z))) {
             return Err(invalid(format!("An accessory's loss coefficient is 0 to {MAX_ACCESSORY_ZETA}.")));
@@ -177,7 +194,15 @@ impl AccessoryParams {
 
     /// The layer of the accessory: its own for a fire damper, the accessories' for the others.
     pub fn layer(&self) -> &'static str {
-        if self.kind == AccessoryKind::FireDamper { ACCESSORY_FIRE_LAYER } else { ACCESSORY_LAYER }
+        match (self.kind, self.air) {
+            (AccessoryKind::FireDamper, _) => ACCESSORY_FIRE_LAYER,
+            // A hood with an air is drawn like the ducts of that air.
+            (AccessoryKind::Hood, Some(AirDirection::Supply)) => super::DUCT_LAYER,
+            (AccessoryKind::Hood, Some(AirDirection::Extract)) => super::DUCT_EXTRACT_LAYER,
+            (AccessoryKind::Hood, Some(AirDirection::Fresh)) => super::DUCT_FRESH_LAYER,
+            (AccessoryKind::Hood, Some(AirDirection::Exhaust)) => super::DUCT_EXHAUST_LAYER,
+            _ => ACCESSORY_LAYER,
+        }
     }
 
     pub fn generate(&self) -> Result<Vec<HvacPiece>> {
@@ -254,6 +279,11 @@ impl AccessoryParams {
         let h = self.units.to_units(self.label_height_mm);
         let text = match self.loss() {
             Loss::Pascals(p) if self.kind == AccessoryKind::Silencer => format!("{} {p:.0} Pa", self.kind.code()),
+            // A hood's size and length, then its air: "CAP 400×250 L600 R".
+            _ if self.kind == AccessoryKind::Hood => {
+                let air = self.air.map_or(String::new(), |a| format!(" {}", a.tag()));
+                format!("{} {} L{:.0}{air}", self.kind.code(), self.size_text(), self.length_mm)
+            }
             _ => format!("{} Ø{:.0}", self.kind.code(), self.diameter_mm),
         };
         let text = match super::altitude_tag(self.bottom_mm) {
@@ -299,6 +329,10 @@ pub struct HoodAnchor {
     pub width_mm: f64,
     /// The duct it covers the end of, when it is on one: its loss is then in that duct's network.
     pub duct: Option<crate::Handle>,
+    /// The height of a rectangular opening, mm.
+    pub height_mm: Option<f64>,
+    /// The air of the duct or collar, when it is known.
+    pub air: Option<AirDirection>,
 }
 
 /// The width of a collar whose size is not given, mm.
@@ -319,7 +353,15 @@ impl crate::Drawing {
         {
             let towards_b = at.dist(b) <= at.dist(a);
             let (end, outward) = if towards_b { (b, (b - a).normalized()) } else { (a, (a - b).normalized()) };
-            return Some(HoodAnchor { origin: end - outward * units.to_units(HOOD_NUDGE_MM), angle: outward.angle(), width_mm: p.plan_width_mm(), duct: Some(h) });
+            let height_mm = (p.shape == super::DuctShape::Rectangular).then_some(p.height_mm);
+            return Some(HoodAnchor {
+                origin: end - outward * units.to_units(HOOD_NUDGE_MM),
+                angle: outward.angle(),
+                width_mm: p.plan_width_mm(),
+                duct: Some(h),
+                height_mm,
+                air: Some(p.air),
+            });
         }
         let reach = units.to_units(COLLAR_REACH_MM);
         let mut best: Option<(f64, HoodAnchor)> = None;
@@ -332,8 +374,14 @@ impl crate::Drawing {
                 let world = base + turn(tip);
                 let d = world.dist(at);
                 if d <= reach && best.as_ref().is_none_or(|b| d < b.0) {
-                    let width = p.port_sizes.get(idx).copied().flatten().map_or(DEFAULT_COLLAR_MM, |z| z.width_mm());
-                    best = Some((d, HoodAnchor { origin: world, angle: turn(normal).angle(), width_mm: width, duct: None }));
+                    let size = p.port_sizes.get(idx).copied().flatten();
+                    let width = size.map_or(DEFAULT_COLLAR_MM, |z| z.width_mm());
+                    let height_mm = match size {
+                        Some(super::RiserSize::Rectangular { height_mm, .. }) => Some(height_mm),
+                        _ => None,
+                    };
+                    let air = p.roles().get(idx).copied();
+                    best = Some((d, HoodAnchor { origin: world, angle: turn(normal).angle(), width_mm: width, duct: None, height_mm, air }));
                 }
             }
         }

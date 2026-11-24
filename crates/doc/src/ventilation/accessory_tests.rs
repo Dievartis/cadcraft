@@ -14,6 +14,8 @@ fn accessory(kind: AccessoryKind) -> AccessoryParams {
         label_height_mm: 100.0,
         bottom_mm: None,
         units: HvacUnits::default(),
+        air: None,
+        height_mm: None,
     }
 }
 
@@ -199,7 +201,7 @@ fn the_duct_under_a_point_is_found_with_its_direction() {
 #[test]
 fn a_hood_is_drawn_outwards_from_its_origin_with_a_mesh_at_the_far_end() {
     let pieces = accessory(AccessoryKind::Hood).generate().unwrap();
-    assert_eq!(texts(&pieces), ["CAP Ø250"]);
+    assert_eq!(texts(&pieces), ["CAP Ø250 L600"]);
     let xs: Vec<f64> = pieces
         .iter()
         .flat_map(|p| match &p.kind {
@@ -236,4 +238,28 @@ fn a_free_hood_is_not_reported_as_on_no_duct() {
     let (d, h) = ducted(Some((AccessoryKind::Hood, 3000.0, 2000.0)));
     let net = d.duct_networks().unwrap().remove(0);
     assert!(h.is_some() && net.unplaced.is_empty() && net.accessories.is_empty());
+}
+
+#[test]
+fn a_hood_takes_the_layer_and_so_the_colour_of_its_air_and_writes_its_size_length_and_air() {
+    let hood = AccessoryParams { air: Some(AirDirection::Exhaust), height_mm: Some(250.0), diameter_mm: 400.0, ..accessory(AccessoryKind::Hood) };
+    assert_eq!(hood.layer(), super::DUCT_EXHAUST_LAYER);
+    assert_eq!(texts(&hood.generate().unwrap()), ["CAP 400×250 L600 R"]);
+    assert_eq!(AccessoryParams { air: Some(AirDirection::Fresh), ..hood.clone() }.layer(), super::DUCT_FRESH_LAYER);
+    assert_eq!(AccessoryParams { air: None, ..hood.clone() }.layer(), ACCESSORY_LAYER);
+    assert_eq!(AccessoryParams::from_xdata(&hood.to_xdata().unwrap()), Some(hood.clone()), "air and height survive");
+    // Only a hood changes layer with its air.
+    assert_eq!(AccessoryParams { air: Some(AirDirection::Fresh), ..accessory(AccessoryKind::Damper) }.layer(), ACCESSORY_LAYER);
+    assert!(AccessoryParams { height_mm: Some(5.0), ..hood }.validate().is_err());
+}
+
+#[test]
+fn a_hood_on_a_duct_takes_the_air_of_the_duct_and_the_takeoff_counts_it_by_size_length_and_air() {
+    let (mut d, _) = ducted(None);
+    let a = d.hood_anchor(Vec2::new(5900.0, 0.0)).unwrap();
+    assert_eq!(a.air, Some(AirDirection::Supply));
+    let hood = AccessoryParams { air: a.air, ..accessory(AccessoryKind::Hood) };
+    d.add_accessory(&Space::Model, Common::default(), &hood, a.origin, a.angle).unwrap();
+    let t = d.takeoff("").unwrap();
+    assert_eq!(t.accessories.iter().map(|c| (c.name.as_str(), c.size.as_str())).collect::<Vec<_>>(), [("hood", "Ø250 L600 S")]);
 }

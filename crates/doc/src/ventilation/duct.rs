@@ -966,7 +966,10 @@ impl DuctParams {
         check_label_height(self.label_height_mm)?;
         self.units.validate()?;
         if !self.cut_deg.iter().all(|c| c.is_finite() && c.abs() <= MAX_CUT_DEG)
-            || self.cut_deg.iter().any(|c| 2.0 * (self.plan_width_mm() / 2.0) * c.abs().to_radians().tan() > self.length / self.units.to_units(1.0) / 2.0 && *c != 0.0)
+            || self
+                .cut_deg
+                .iter()
+                .any(|c| 2.0 * (self.plan_width_mm() / 2.0) * c.abs().to_radians().tan() > self.length / self.units.to_units(1.0) / 2.0 && *c != 0.0)
         {
             return Err(invalid(format!("An end cut is at most {MAX_CUT_DEG} degrees, and the slant must be shorter than half the run.")));
         }

@@ -78,7 +78,18 @@ pub fn open(app: &mut CadApp, edit: Option<Handle>) {
         )
     });
     let edit = edit.filter(|_| titleblock_ok(app, edit));
-    app.title_dlg = Some(TitleBlockDlg { edit, tb, tab: Tab::Project, party: 0, picks: BTreeMap::new(), data: BTreeMap::new(), waiting: None, message: None, error: false, raise: true });
+    app.title_dlg = Some(TitleBlockDlg {
+        edit,
+        tb,
+        tab: Tab::Project,
+        party: 0,
+        picks: BTreeMap::new(),
+        data: BTreeMap::new(),
+        waiting: None,
+        message: None,
+        error: false,
+        raise: true,
+    });
     app.ui.dialog = Some("titleblock".into());
 }
 

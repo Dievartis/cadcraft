@@ -2538,7 +2538,10 @@ fn the_grip_at_the_end_of_a_reducers_cone_sets_its_length() {
     assert_eq!(before.len(), 4);
     assert!(d.stretch_duct_grip(h, 3, Vec2::new(900.0, 50.0)).unwrap());
     let after = grips(&d);
-    assert!(after[3].x > before[3].x && (after[3].x - 900.0).abs() < 1e-6 && after[3].y.abs() < 1e-9, "the cone ends where it was dragged, on the run's axis");
+    assert!(
+        after[3].x > before[3].x && (after[3].x - 900.0).abs() < 1e-6 && after[3].y.abs() < 1e-9,
+        "the cone ends where it was dragged, on the run's axis"
+    );
     assert_eq!((after[0], after[2]), (before[0], before[2]), "the run itself stays");
     // The cone never outgrows the run, and a duct without a cone has no such grip.
     assert!(d.stretch_duct_grip(h, 3, Vec2::new(99999.0, 0.0)).unwrap());

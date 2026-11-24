@@ -1680,3 +1680,19 @@ fn ductaccessoryadd_hood_covers_the_end_of_a_duct_and_goes_free_elsewhere() {
     let (x, y, _) = at(&s, &r);
     assert_eq!((x, y), (5000.0, 5000.0), "free, where it was put");
 }
+
+#[test]
+fn ductaccessoryedit_sets_a_hoods_size_and_air_and_moves_it_to_the_layer_of_that_air() {
+    let mut s = metric();
+    s.execute("ductadd", &json!({"points": [[0, 0], [0, 4000]], "diameter": 315})).unwrap();
+    let r = s.execute("ductaccessoryadd", &json!({"at": [0, 3800], "type": "hood"})).unwrap();
+    s.execute("ductaccessoryedit", &json!({"handle": r["handle"], "width": 500, "height": 300, "air": "fresh"})).unwrap();
+    let a = &accessories(&s)[0].1;
+    assert_eq!((a.diameter_mm, a.height_mm, a.air), (500.0, Some(300.0), Some(cadcraft_doc::AirDirection::Fresh)));
+    let e = s.doc().unwrap().entity(hd(&r["handle"])).unwrap();
+    assert_eq!(e.common.layer, a.layer(), "drawn in the colour of its air");
+    s.execute("ductaccessoryedit", &json!({"handle": r["handle"], "height": 0, "air": null})).unwrap();
+    let a = &accessories(&s)[0].1;
+    assert_eq!((a.height_mm, a.air), (None, None));
+    assert!(s.execute("ductaccessoryedit", &json!({"handle": r["handle"], "air": "steam"})).is_err());
+}

@@ -20,7 +20,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
             .interactive(|s| Ok(Box::new(AccessoryAddM::new(s)))),
         CommandSpec::new("ductaccessoryedit", "Edit Duct Accessory", run_edit)
-            .params("{handle | handles, type?, length? (mm), zeta? (number, or null for the default), pressureDrop? (Pa, or null)} → {changed}"),
+            .params("{handle | handles, type?, length? (mm), width? (mm), height? (mm, 0 or null: round), air? (supply|extract|fresh|exhaust, or null; for a hood: its colour and the takeoff), zeta? (number, or null for the default), pressureDrop? (Pa, or null)} → {changed}"),
     ]
 }
 
@@ -67,16 +67,16 @@ fn on_duct(
 ) -> Result<(AccessoryParams, Option<Handle>, Vec2, f64)> {
     let (length, zeta, pa, label_mm) = loss;
     let d = s.doc()?;
-    let (duct, foot, angle, width) = if kind == AccessoryKind::Hood {
+    let (duct, foot, angle, width, height, air) = if kind == AccessoryKind::Hood {
         // On the end of a duct or a unit's collar, pointing out; else free at `at` (turn it afterwards).
         match d.hood_anchor(at) {
-            Some(a) => (a.duct, a.origin, a.angle, a.width_mm),
-            None => (None, at, 0.0, 400.0),
+            Some(a) => (a.duct, a.origin, a.angle, a.width_mm, a.height_mm, a.air),
+            None => (None, at, 0.0, 400.0, None, None),
         }
     } else {
         let (duct, foot, angle) = d.duct_under(at).ok_or_else(|| other("Place the accessory on a duct."))?;
         let (dp, ..) = d.duct_ends(duct).ok_or_else(|| other("Place the accessory on a duct."))?;
-        (Some(duct), foot, angle, dp.plan_width_mm())
+        (Some(duct), foot, angle, dp.plan_width_mm(), None, None)
     };
     let p = AccessoryParams {
         kind,
@@ -87,6 +87,8 @@ fn on_duct(
         label_height_mm: label_mm,
         bottom_mm: None,
         units: HvacUnits::of(d),
+        air,
+        height_mm: height,
     };
     p.validate().map_err(doc_err)?;
     Ok((p, duct, foot, angle))
@@ -118,6 +120,16 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let kind = kind_param(CMD, p)?;
     let length = number(CMD, p, "length")?;
+    // A hood's size and air: `width`, `height` (0 or null: round), `air` (null: none).
+    let width = number(CMD, p, "width")?;
+    let height = number(CMD, p, "height")?;
+    let air = match p.get("air") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(v) => Some(Some(
+            v.as_str().and_then(cadcraft_doc::AirDirection::parse).ok_or_else(|| bad(CMD, "`air` must be supply, extract, fresh or exhaust"))?,
+        )),
+    };
     // A key given as null clears the value, so the kind's default applies again.
     let (zeta, pa) = (number(CMD, p, "zeta")?, number(CMD, p, "pressureDrop")?);
     let (clear_zeta, clear_pa) = (p.get("zeta").is_some_and(Value::is_null), p.get("pressureDrop").is_some_and(Value::is_null));
@@ -127,6 +139,15 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         let mut a = d.entity(*h).and_then(|e| cadcraft_doc::accessory_of(e)).ok_or_else(|| other("Select duct accessories only."))?;
         a.kind = kind.unwrap_or(a.kind);
         a.length_mm = length.unwrap_or(a.length_mm);
+        if let Some(w) = width {
+            a.diameter_mm = w;
+        }
+        if p.get("height").is_some() {
+            a.height_mm = height.filter(|h| *h > 0.0);
+        }
+        if let Some(x) = air {
+            a.air = x;
+        }
         if let Some(z) = zeta {
             a.zeta = Some(z);
         }
