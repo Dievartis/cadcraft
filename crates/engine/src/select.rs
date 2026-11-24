@@ -313,11 +313,6 @@ pub(crate) fn selectable(d: &Drawing, e: &Entity, frozen: &[String]) -> bool {
     d.is_visible(e) && !on_frozen_layer(frozen, e) && !locked_against_selection(d, e)
 }
 
-/// Whether the optional locked-layer selection rule excludes this object (not its snaps).
-pub fn locked_against_selection(d: &Drawing, e: &Entity) -> bool {
-    d.locked_unselectable && d.layer(&e.common.layer).is_some_and(|l| l.locked)
-}
-
 /// Entities to test, in the order to test them, each with its bounds when already known.
 pub(crate) type Cands<'a> = Box<dyn Iterator<Item = (&'a Entity, Option<Bounds2>)> + 'a>;
 

@@ -62,7 +62,6 @@ pub mod xrefs;
 mod architecture;
 pub mod blocks_palette;
 mod catalogue;
-mod wallstyledlg;
 
 pub mod dyngrips;
 pub mod dyninput;
@@ -258,7 +257,6 @@ impl Default for UiState {
 #[derive(Default)]
 pub struct Services {
     pub pick_open: Option<Box<dyn Fn() -> Option<String>>>,
-    pub pick_image: Option<Box<dyn Fn() -> Option<String>>>,
     /// Select a native CADCraft plot-style JSON file.
     pub pick_plot_style_open: Option<Box<dyn Fn() -> Option<String>>>,
     /// Save a native CADCraft plot-style JSON file.
@@ -291,7 +289,6 @@ pub struct Services {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pick {
     Open,
-    Image,
     Save(String),
     PlotStyleOpen,
     PlotStyleSave(String),
@@ -323,7 +320,6 @@ struct PendingPick {
 }
 
 pub struct CadApp {
-    wall_style_dlg: Option<wallstyledlg::WallStyleDlgState>,
     pub system_languages: Vec<String>,
     /// Whether the operating system shows animations, as the host reads it; `None` when the OS
     /// states nothing or the host cannot ask ([`animation`]).
@@ -523,7 +519,6 @@ impl CadApp {
             textstyles::initialize_fonts();
         }
         CadApp {
-            wall_style_dlg: None,
             system_languages: Vec::new(),
             system_animations: None,
             system_cursor_default: false,
@@ -637,7 +632,6 @@ impl CadApp {
             Pick::Lisp(_) => self.services.pick_lisp.is_some(),
             Pick::Pgp(_) => self.services.pick_pgp.is_some(),
             Pick::Pdf => self.services.pick_pdf.is_some(),
-            Pick::Image => self.services.pick_image.is_some(),
         };
         if !available {
             return None;
@@ -674,7 +668,6 @@ impl CadApp {
             Pick::Lisp(dir) => self.services.pick_lisp.as_ref().and_then(|f| f(dir)),
             Pick::Pgp(dir) => self.services.pick_pgp.as_ref().and_then(|f| f(Some(dir.as_str()).filter(|d| !d.is_empty()))),
             Pick::Pdf => self.services.pick_pdf.as_ref().and_then(|f| f()),
-            Pick::Image => self.services.pick_image.as_ref().and_then(|f| f()),
         };
         Some(match path {
             Some(path) => then(self, path),

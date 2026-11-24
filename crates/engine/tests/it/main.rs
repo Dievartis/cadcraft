@@ -233,6 +233,4 @@ mod zoom_keywords;
 mod zoom_viewport;
 mod zoom_window_ortho;
 
-mod calibrate;
 mod layer_new_from_selection;
-mod locked_unselectable;

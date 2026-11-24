@@ -190,6 +190,7 @@ pub(crate) fn resized_width(ui: &mut egui::Ui, rect: egui::Rect, id: egui::Id, w
 
 #[derive(Clone, Default)]
 struct TableUiState {
+    only_used: bool,
     table: String,
     selected: BTreeSet<String>,
     sort: Option<(usize, bool)>,
@@ -354,7 +355,7 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
         let named = !table.is_color_dependent();
         ui.label(RichText::new(&table.description).color(t.text_dim));
         if !named {
-            ui.checkbox(&mut only_used, crate::tl!("Show only colors used in the current drawing"))
+            ui.checkbox(&mut state.only_used, crate::tl!("Show only colors used in the current drawing"))
                 .on_hover_text(crate::tl!("Hides the plot styles of colors no object uses. Their settings stay in the table."));
         }
         if !in_drawing {
@@ -363,6 +364,9 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
         let used_colors = if table.is_color_dependent() { used_aci_colors(d) } else { BTreeSet::new() };
         // Selection is keyed by style name, never by its displayed row position.
         let mut rows: Vec<_> = table.styles.iter().collect();
+        if !named && state.only_used {
+            rows.retain(|style| style_aci(&style.name).is_some_and(|index| used_colors.contains(&index)));
+        }
         macro_rules! sort_key {
             ($style:expr, $col:expr) => {
                 match $col {

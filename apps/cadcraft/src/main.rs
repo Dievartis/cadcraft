@@ -273,7 +273,6 @@ fn services() -> Services {
             with_system_cursor(|| file_dialog(&Pick::Pgp(dir.unwrap_or_default().into())).pick_file().map(|p| p.to_string_lossy().to_string()))
         })),
         pick_pdf: Some(Box::new(|| file_dialog(&Pick::Pdf).pick_file().map(|p| p.to_string_lossy().to_string()))),
-        pick_image: Some(Box::new(|| file_dialog(&Pick::Image).pick_file().map(|p| p.to_string_lossy().to_string()))),
     }
 }
 
@@ -297,9 +296,6 @@ fn filters(pick: &Pick) -> Vec<(&'static str, Vec<&'static str>)> {
         Pick::Lisp(_) => vec![(i18n::t("AutoLISP (LSP)"), vec!["lsp"]), (i18n::t("All files"), vec!["*"])],
         Pick::Pgp(_) => vec![(i18n::t("Alias files (PGP)"), vec!["pgp"])],
         Pick::Pdf => vec![(i18n::t("PDF files"), vec!["pdf"]), (i18n::t("All files"), vec!["*"])],
-        Pick::Image => {
-            vec![(i18n::t("Pictures (PNG, JPEG, BMP, TIFF)"), vec!["png", "jpg", "jpeg", "bmp", "tif", "tiff"]), (i18n::t("All files"), vec!["*"])]
-        }
     }
 }
 

@@ -7,12 +7,6 @@ use super::cmd;
 /// stay authoritative.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LastUsed {
-    /// Parametric catalogue model and placement rotation.
-    pub furniture: cmd::FurnitureLastUsed,
-    pub equipment: cmd::EquipmentLastUsed,
-    pub wall_style: String,
-    pub wall_justification: crate::doc::WallJustification,
-    pub opening: cmd::OpeningLastUsed,
     /// HATCH/GRADIENT starts at "Select objects" instead of "Pick internal point".
     pub hatch_select: bool,
     /// POLYGON: circumscribed about the circle (the `C` option) instead of inscribed.
@@ -75,11 +69,6 @@ pub struct LastUsed {
 impl Default for LastUsed {
     fn default() -> Self {
         LastUsed {
-            furniture: cmd::FurnitureLastUsed::default(),
-            equipment: cmd::EquipmentLastUsed::default(),
-            wall_style: String::new(),
-            wall_justification: crate::doc::WallJustification::default(),
-            opening: cmd::OpeningLastUsed::default(),
             hatch_select: false,
             polygon_circumscribed: false,
             rotate_angle: 0.0,

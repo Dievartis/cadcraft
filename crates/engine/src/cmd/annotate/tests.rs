@@ -122,6 +122,7 @@ fn linear_and_aligned_multiple_keep_the_command_active() {
         s.cmdline("").unwrap();
         assert!(s.running.is_none(), "Enter ends {command} Multiple");
     }
+}
 
 #[test]
 fn interactive_dimlinear_select_object_measures_the_picked_polyline_segment() {
