@@ -1709,3 +1709,33 @@ fn a_hood_set_by_hand_stops_following_its_duct_and_follows_again_when_told() {
     let a = &accessories(&s)[0].1;
     assert!(!a.fixed && a.diameter_mm == 315.0, "back to the duct's width: {a:?}");
 }
+
+#[test]
+fn a_reducers_cone_has_a_grip_at_each_corner_and_takes_any_shape_until_told_to_go_back() {
+    let mut s = metric();
+    let r = s.execute("ductadd", &json!({"points": [[0, 0], [3000, 0], [6000, 0]], "diameter": 500})).unwrap();
+    let last = r["handles"].as_array().unwrap().last().unwrap().clone();
+    s.execute("ductedit", &json!({"handles": [last.clone()], "shape": "rectangular", "width": 900, "height": 720})).unwrap();
+    let params = |s: &Session| duct_of(s.doc().unwrap().entity(hd(&last)).unwrap()).unwrap();
+    let grips = |s: &Session| {
+        let d = s.doc().unwrap();
+        d.entity_grips(d.entity(hd(&last)).unwrap())
+    };
+    let before = grips(&s);
+    assert_eq!(before.len(), 8, "three for the run, one for the cone's length, one at each corner of the cone");
+    // The corners are across the run from each other (near the junction: the round duct's width; at the far end: the run's).
+    assert!(before[4].y > before[5].y && before[6].y > before[7].y && (before[6].y - before[7].y) > (before[4].y - before[5].y));
+    // The far corner above goes on along the run: the cone gets longer on that side only.
+    s.execute("grip.stretch", &json!({"handle": last.clone(), "index": 6, "to": [before[6].x + 700.0, before[6].y]})).unwrap();
+    let after = grips(&s);
+    assert!(after[6].x > before[6].x + 600.0 && (after[7].x - before[7].x).abs() < 1e-6, "one side only");
+    assert!((after[6].y - before[6].y).abs() < 1e-6, "it stays on the side of the run");
+    // A corner on the junction slides along the run: the junction is slanted.
+    s.execute("grip.stretch", &json!({"handle": last.clone(), "index": 5, "to": [before[5].x + 300.0, before[5].y]})).unwrap();
+    assert!(grips(&s)[5].x > before[5].x + 200.0 && (grips(&s)[4].x - before[4].x).abs() < 1e-6);
+    assert!(params(&s).reducer_shape.is_some());
+    // It goes back to the symmetric cone when asked.
+    s.execute("ductedit", &json!({"handles": [last.clone()], "coneAuto": true})).unwrap();
+    assert!(params(&s).reducer_shape.is_none() && params(&s).reducer.is_some());
+    assert_eq!(grips(&s).len(), 8);
+}

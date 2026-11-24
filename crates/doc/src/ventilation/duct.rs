@@ -821,6 +821,9 @@ pub struct DuctParams {
     /// The length of the reducer's cone, mm, when it was set by hand (its grip); the cone follows its 15 degrees otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reducer_len_mm: Option<f64>,
+    /// The four corners of the reducer's cone, when they were set by hand (their grips); it wins over `reducer_len_mm`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reducer_shape: Option<ReducerShape>,
     /// How far the label is moved along and across the run, mm, so that it does not write over another run's label (set by `space_duct_labels`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_shift_mm: Option<[f64; 2]>,
@@ -927,6 +930,16 @@ fn is_square(c: &[f64; 2]) -> bool {
 /// The most a run's end can be cut on the slant, degrees.
 pub const MAX_CUT_DEG: f64 = 75.0;
 
+/// The corners of a reducer's cone set by hand: how far each is from the junction, mm along the run (the first of each pair is the side across the
+/// run above its axis, the second the side below). A near corner is on the end of the run it joins (negative: inside that run, so the junction is
+/// slanted); a far corner is where the cone's side meets the run's own straight side. Without it the cone is the symmetric 15 degree one.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReducerShape {
+    pub near_mm: [f64; 2],
+    pub far_mm: [f64; 2],
+}
+
 /// The cone where a duct run joins a larger or smaller one.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -965,6 +978,9 @@ impl DuctParams {
     pub fn validate(&self) -> Result<()> {
         check_label_height(self.label_height_mm)?;
         self.units.validate()?;
+        if self.reducer_shape.is_some_and(|s| !s.near_mm.iter().chain(&s.far_mm).all(|v| v.is_finite() && v.abs() <= 1.0e6)) {
+            return Err(invalid("The corners of a reducer are numbers of millimetres."));
+        }
         if !self.cut_deg.iter().all(|c| c.is_finite() && c.abs() <= MAX_CUT_DEG)
             || self
                 .cut_deg
@@ -1098,12 +1114,37 @@ impl DuctParams {
         self.reducer.map(|red| {
             let r0 = self.units.to_units(red.from_mm) / 2.0;
             let room = (self.length - trim0 - trim1).max(0.0);
-            let len = match self.reducer_len_mm {
-                Some(mm) => self.units.to_units(mm).min(room),
-                None => ((r0 - r).abs() / REDUCER_HALF_ANGLE_DEG.to_radians().tan()).min(0.4 * room),
+            let len = match (self.reducer_shape, self.reducer_len_mm) {
+                (Some(sh), _) => self.units.to_units(sh.far_mm[0].max(sh.far_mm[1])).clamp(0.0, room),
+                (None, Some(mm)) => self.units.to_units(mm).min(room),
+                (None, None) => ((r0 - r).abs() / REDUCER_HALF_ANGLE_DEG.to_radians().tan()).min(0.4 * room),
             };
             (r0, len, red.at_end)
         })
+    }
+
+    /// Where the cone's corners on the side across the run at `sign` (+1 above the axis, -1 below) are, drawing units from the junction: the near one, and the
+    /// far one when the shape was set by hand (the cone is otherwise as long as `cone` says, at both sides).
+    fn cone_corners(&self, sign: f64) -> (f64, Option<f64>) {
+        let k = usize::from(sign < 0.0);
+        match self.reducer_shape {
+            Some(sh) => (self.units.to_units(sh.near_mm[k]), Some(self.units.to_units(sh.far_mm[k]).max(0.0))),
+            None => (0.0, None),
+        }
+    }
+
+    /// The four corners of the reducer's cone in the run's block coordinates, drawing units: the near ones on the junction (above, below the axis), then the
+    /// far ones; `None` when the run has no reducer.
+    pub fn reducer_corners(&self) -> Option<[Vec2; 4]> {
+        let r = self.units.to_units(self.plan_width_mm()) / 2.0;
+        let (r0, len, at_end) = self.cone(r)?;
+        let (trim0, trim1) = (self.units.to_units(self.trim_start_mm), self.units.to_units(self.trim_end_mm));
+        let corner = |sign: f64, far: bool| {
+            let (near, f) = self.cone_corners(sign);
+            let u = if far { f.unwrap_or(len) } else { near };
+            Vec2::new(if at_end { self.length - trim1 - u } else { trim0 + u }, sign * if far { r } else { r0 })
+        };
+        Some([corner(1.0, false), corner(-1.0, false), corner(1.0, true), corner(-1.0, true)])
     }
 
     /// The stretch of the run, drawing units from its start, whose sides are drawn straight: between what an elbow takes at each
@@ -1397,7 +1438,11 @@ impl DuctParams {
             for (k, (s, e)) in solid.iter().copied().enumerate() {
                 let mut pts = Vec::new();
                 if let (Some((r0, _, false)), 0) = (cone, k) {
-                    pts.push(Vec2::new(trim0, sign * r0));
+                    let (near, far) = self.cone_corners(sign);
+                    pts.push(Vec2::new(trim0 + near, sign * r0));
+                    if let Some(far) = far {
+                        pts.push(Vec2::new(trim0 + far, sign * r));
+                    }
                 }
                 let (mut s, mut e) = (s, e);
                 if k == 0 {
@@ -1408,7 +1453,11 @@ impl DuctParams {
                 }
                 pts.extend(self.side_points(s, e.max(s), sign * r));
                 if let (Some((r0, _, true)), true) = (cone, k + 1 == solid.len()) {
-                    pts.push(Vec2::new(self.length - trim1, sign * r0));
+                    let (near, far) = self.cone_corners(sign);
+                    if let Some(far) = far {
+                        pts.push(Vec2::new(self.length - trim1 - far, sign * r));
+                    }
+                    pts.push(Vec2::new(self.length - trim1 - near, sign * r0));
                 }
                 pieces.push(HvacPiece {
                     layer,
@@ -1802,6 +1851,11 @@ impl crate::Drawing {
             if let Some(red) = p.reducer {
                 let (x0, x1) = p.straight_range();
                 grips.push(a + Vec2::from_angle(i.rotation) * ((if red.at_end { x1 } else { x0 }) * i.scale.x));
+                // Then one at each corner of the cone's trapezoid: the two on the junction, the two at the far end.
+                let (along, up) = (Vec2::from_angle(i.rotation), Vec2::from_angle(i.rotation + std::f64::consts::FRAC_PI_2));
+                for c in p.reducer_corners().unwrap_or_default() {
+                    grips.push(a + along * (c.x * i.scale.x) + up * (c.y * i.scale.y));
+                }
             }
             return grips;
         }
@@ -1826,24 +1880,43 @@ impl crate::Drawing {
     /// longer fit the run are dropped.
     pub fn stretch_duct_grip(&mut self, h: crate::Handle, index: usize, to: Vec2) -> Result<bool> {
         let Some((mut p, a, b)) = self.duct_ends(h) else { return Ok(false) };
-        if !to.is_finite() || index > 3 || (index == 3 && p.reducer.is_none()) {
+        if !to.is_finite() || index > 7 || (index >= 3 && p.reducer.is_none()) {
             return Ok(false);
         }
         let Some(EntityKind::Insert(i)) = self.entity(h).map(|e| e.kind.clone()) else { return Ok(false) };
-        if index == 3 {
-            // The end of the reducer's cone: its length is how far it is from the junction, along the run.
+        if index >= 3 {
+            // The reducer's cone: grip 3 is where it ends on the axis (its length), 4 and 5 the corners on the junction (above, below the axis), 6 and
+            // 7 the corners at its far end. A corner is how far it is from the junction, along the run; across the run it stays on the sides.
             let Some(red) = p.reducer else { return Ok(false) };
             if i.scale.x <= 0.0 {
                 return Ok(false);
             }
             let x = (to - a).dot(Vec2::from_angle(i.rotation)) / i.scale.x;
             let (trim0, trim1) = (p.units.to_units(p.trim_start_mm), p.units.to_units(p.trim_end_mm));
-            let len_mm = p.units.mm_per_unit * if red.at_end { p.length - trim1 - x } else { x - trim0 };
+            let u_mm = p.units.mm_per_unit * if red.at_end { p.length - trim1 - x } else { x - trim0 };
             let room_mm = p.units.mm_per_unit * (p.length - trim0 - trim1);
-            if !len_mm.is_finite() || room_mm < 2.0 {
+            if !u_mm.is_finite() || room_mm < 2.0 {
                 return Ok(false);
             }
-            p.reducer_len_mm = Some(len_mm.clamp(1.0, room_mm));
+            let r = p.units.to_units(p.plan_width_mm()) / 2.0;
+            let now_mm = p.cone(r).map_or(0.0, |c| c.1 * p.units.mm_per_unit);
+            let mut shape = p.reducer_shape.unwrap_or(ReducerShape { near_mm: [0.0; 2], far_mm: [now_mm; 2] });
+            match index {
+                3 if p.reducer_shape.is_none() => p.reducer_len_mm = Some(u_mm.clamp(1.0, room_mm)),
+                3 => {
+                    let by = u_mm.clamp(1.0, room_mm) - shape.far_mm[0].max(shape.far_mm[1]);
+                    shape.far_mm = shape.far_mm.map(|f| (f + by).clamp(1.0, room_mm));
+                    p.reducer_shape = Some(shape);
+                }
+                4 | 5 => {
+                    shape.near_mm[index - 4] = u_mm.clamp(-room_mm, room_mm);
+                    p.reducer_shape = Some(shape);
+                }
+                _ => {
+                    shape.far_mm[index - 6] = u_mm.clamp(1.0, room_mm);
+                    p.reducer_shape = Some(shape);
+                }
+            }
             self.regenerate_duct(h, &p)?;
             return Ok(true);
         }

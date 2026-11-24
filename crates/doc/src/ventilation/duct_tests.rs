@@ -53,6 +53,7 @@ fn duct(diameter_mm: f64) -> DuctParams {
         flexible: false,
         reducer: None,
         reducer_len_mm: None,
+        reducer_shape: None,
         label_shift_mm: None,
         cut_deg: [0.0, 0.0],
         elbow: None,
@@ -2535,7 +2536,7 @@ fn the_grip_at_the_end_of_a_reducers_cone_sets_its_length() {
     d.regenerate_duct(h, &p).unwrap();
     let grips = |d: &Drawing| d.entity_grips(d.entity(h).unwrap());
     let before = grips(&d);
-    assert_eq!(before.len(), 4);
+    assert_eq!(before.len(), 8, "the run's three, the cone's length and its four corners");
     assert!(d.stretch_duct_grip(h, 3, Vec2::new(900.0, 50.0)).unwrap());
     let after = grips(&d);
     assert!(

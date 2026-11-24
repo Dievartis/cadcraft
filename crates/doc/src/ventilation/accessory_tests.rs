@@ -125,6 +125,7 @@ fn ducted(accessory_at: Option<(AccessoryKind, f64, f64)>) -> (Drawing, Option<H
         flexible: false,
         reducer: None,
         reducer_len_mm: None,
+        reducer_shape: None,
         label_shift_mm: None,
         cut_deg: [0.0, 0.0],
         elbow: None,

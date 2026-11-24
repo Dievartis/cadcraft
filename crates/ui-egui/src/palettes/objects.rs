@@ -2285,6 +2285,14 @@ fn duct_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[DuctParams], len: &dyn 
             }
         });
     }
+    // A reducer whose cone was shaped by its grips: this gives back the symmetric 15 degree one.
+    if ds.iter().any(|p| p.reducer.is_some() && (p.reducer_shape.is_some() || p.reducer_len_mm.is_some())) {
+        prop_row(ui, "Reducer cone", |ui| {
+            if ui.button(crate::i18n::t("Back to automatic")).clicked() {
+                action = edit("coneAuto", json!(true));
+            }
+        });
+    }
     // The altitude of the underside, metres: empty gives it back to the height zone. Where two joined runs
     // differ, sizing makes the step between them and, where two cross, the lower passes under.
     let altitude = shared(&ds.iter().map(|p| p.level_mm.map(|b| format!("{}", b / 1000.0)).unwrap_or_default()).collect::<Vec<_>>())
