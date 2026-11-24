@@ -21,6 +21,7 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         "qselect" => crate::quick::qselect_dialog(app, ctx, &mut open),
         "parameters" => crate::parametric::parameters_dialog(app, ctx, &mut open),
         "dsettings" => dsettings(app, ctx, &mut open),
+        "tool-settings" => tool_settings(app, ctx, &mut open),
         "units" => units(app, ctx, &mut open),
         "wallstyles" => crate::wallstyledlg::dialog(app, ctx, &mut open),
         "hatch" => crate::hatchdlg::dialog(app, ctx, &mut open),
@@ -39,6 +40,50 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     // A dialog that closed by opening another (Plot Preview back to Plot) keeps the new one.
     if !open && app.ui.dialog.as_deref() == Some(d.as_str()) {
         app.ui.dialog = None;
+    }
+}
+
+fn tool_settings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
+    let groups: &[(&str, &[(&str, &str)])] = &[
+        ("Tools", &[("Command Aliases", "aliasedit"), ("Keyboard Shortcuts...", "ui.shortcuts")]),
+        (
+            "Drawing",
+            &[("Units...", "units"), ("Linetype...", "linetype"), ("Point Style...", "ddptype"), ("Constraint Settings", "constraintsettings")],
+        ),
+        (
+            "Dimension",
+            &[
+                ("Text Style...", "style"),
+                ("Dimension Style...", "dimstyle"),
+                ("Multileader Style...", "mleaderstyle"),
+                ("Table Style...", "tablestyle"),
+            ],
+        ),
+        ("Layout", &[("Layer Properties Manager", "layer"), ("Plot Style Manager...", "stylesmanager"), ("Page Setup Manager...", "pagesetup")]),
+    ];
+    let mut target = None;
+    egui::Window::new(crate::tl!("Tool Settings...")).id(egui::Id::unique("tool-settings")).open(open).collapsible(false).show(ctx, |ui| {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("tool-settings-groups").num_columns(2).show(ui, |ui| {
+                for (index, (heading, links)) in groups.iter().enumerate() {
+                    ui.vertical(|ui| {
+                        ui.heading(crate::i18n::t(heading));
+                        for &(label, command) in *links {
+                            if ui.button(crate::i18n::t(label)).clicked() {
+                                target = Some(command);
+                            }
+                        }
+                    });
+                    if index % 2 == 1 {
+                        ui.end_row();
+                    }
+                }
+            });
+        });
+    });
+    if let Some(command) = target {
+        *open = false;
+        crate::menus::activate(app, command);
     }
 }
 

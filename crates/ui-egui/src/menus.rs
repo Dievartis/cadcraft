@@ -128,7 +128,7 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.dialog.blocks", "Blocks", &["Window", "Blocks"], None),
     ("ui.dialog.qselect", "Quick Select...", &[], None),
     ("ui.dialog.parameters", "Parameters Manager", &["Window", "Parameters Manager"], None),
-    ("ui.dialog.dsettings", "Drafting Settings...", &[], None),
+    ("ui.dialog.dsettings", "Drafting Settings...", &["Edit", "Drafting Settings..."], None),
     #[cfg(not(target_arch = "wasm32"))]
     ("ui.updates.check", "Check for Updates…", &["Help", "Check for Updates…"], None),
     ("ui.dialog.about", "About CADCraft", &["Help", "About CADCraft"], None),
@@ -137,8 +137,7 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.cmdline.lines", "Command Line History Lines", &[], None),
     ("ui.cmdline.clear", "Clear Command History", &[], None),
     ("ui.dialog.language", "Interface Language", &["Edit", "Interface Language"], None),
-    ("ui.options.workflow", "Drawing Setup...", &["Edit", "Drawing Setup..."], None),
-    ("ui.options.drafting", "Tool Settings...", &["Edit", "Tool Settings..."], None),
+    ("ui.dialog.tool-settings", "Tool Settings...", &["Edit", "Tool Settings..."], None),
     ("ui.dialog.find", "Find and Replace", &[], Some("Cmd+F")),
     ("ui.shortcuts", "Keyboard Shortcuts...", &["Tools", "Customize", "Keyboard Shortcuts..."], None),
     ("ui.language", "Language", &[], None),
@@ -561,6 +560,7 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
         "ui.dialog.language"
         | "ui.dialog.layers"
         | "ui.dialog.dsettings"
+        | "ui.dialog.tool-settings"
         | "ui.dialog.about"
         | "ui.dialog.commands"
         | "ui.dialog.qselect"
