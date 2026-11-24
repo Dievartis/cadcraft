@@ -143,7 +143,7 @@ fn params(st: &TitleBlockDlg) -> Value {
         })
         .collect();
     json!({
-        "name": t.name, "lang": t.lang, "paper": t.paper, "landscape": t.landscape, "width": t.width_mm,
+        "name": t.name, "lang": t.lang, "paper": t.paper, "landscape": t.landscape, "width": t.width_mm, "height": t.height_override_mm,
         "project": t.project, "description": t.description, "address": t.address, "title": t.title,
         "parties": parties, "image": pic_json(st, IMAGE_SLOT, t.image.as_ref()),
         "revisions": t.revisions.iter().map(|r| json!({ "index": r.index, "date": r.date, "nature": r.nature, "by": r.by, "checked": r.checked })).collect::<Vec<_>>(),
@@ -268,6 +268,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open_flag: &mut bool) {
                             if ui.selectable_label(st.tb.paper == name, name).clicked() && st.tb.paper != name {
                                 st.tb.paper = name.to_string();
                                 st.tb.width_mm = cadcraft_doc::default_width_mm(name);
+                                st.tb.height_override_mm = None;
                             }
                         }
                     });

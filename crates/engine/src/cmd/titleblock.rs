@@ -19,7 +19,7 @@ const MAX_PIC_SIDE: u32 = 1600;
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("titleblockadd", "Title Block", run_add).menu(&["Insert", "Title Block"]).alias(&["ttlb"]).params(
-            "{at? ([x, y]: the lower left corner of the column in the space's units; default 0,0), atMm? ([x, y]: the same in millimetres on paper), paper?: A4|A3|A2|A1|A0 (default A3), landscape? (default true), width? (mm), lang? (fr|en: the words of the block, default fr), \
+            "{at? ([x, y]: the lower left corner of the column in the space's units; default 0,0), atMm? ([x, y]: the same in millimetres on paper), paper?: A4|A3|A2|A1|A0 (default A3), landscape? (default true), width? (mm), height? (mm, 100 to 3000; null: the sheet's), lang? (fr|en: the words of the block, default fr), \
              name?, project?, description?, address?, title?, parties? ([{role, name, address?, phone?, email?, afterImage? (under the picture), \
              logo? ({path | data: base64} a new picture, {key} one already kept, null for none)}]), image? (as a logo: the picture of the project), \
              revisions? ([{index, date, nature, by?, checked?}], the oldest first), revisionRows? (lines shown, default 4), codes? ([{label, value}]), \
@@ -165,6 +165,10 @@ fn apply(s: &mut Session, cmd: &str, p: &Value, t: &mut TitleBlockParams) -> Res
     if let Some(v) = number(cmd, p, "width")? {
         t.width_mm = v;
     }
+    // `height` (mm) sets the column's height; null gives it back the sheet's.
+    if p.get("height").is_some() {
+        t.height_override_mm = number(cmd, p, "height")?;
+    }
     if let Some(v) = text(cmd, p, "lang")? {
         t.lang = if v == "en" { "en".into() } else { "fr".into() };
     }
@@ -280,6 +284,9 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
     apply(s, CMD, p, &mut t)?;
     if t.paper != before && number(CMD, p, "width")?.is_none() {
         t.width_mm = cadcraft_doc::default_width_mm(&t.paper);
+    }
+    if t.paper != before && p.get("height").is_none() {
+        t.height_override_mm = None;
     }
     t.validate().map_err(|e| bad(CMD, e.to_string()))?;
     s.doc_mut()?.regenerate_titleblock(h, &t).map_err(doc_err)?;

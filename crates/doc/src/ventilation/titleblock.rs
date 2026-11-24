@@ -98,6 +98,9 @@ pub struct TitleBlockParams {
     pub landscape: bool,
     /// The width of the column, mm; its height is the sheet's less its margins.
     pub width_mm: f64,
+    /// The height of the column, mm, when it was set by hand (the grips); none: the sheet's height less its margins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height_override_mm: Option<f64>,
     pub project: String,
     #[serde(default)]
     pub description: String,
@@ -174,6 +177,7 @@ impl TitleBlockParams {
             paper: paper.to_string(),
             landscape,
             width_mm: default_width_mm(paper),
+            height_override_mm: None,
             project: String::new(),
             description: String::new(),
             address: String::new(),
@@ -206,13 +210,16 @@ impl TitleBlockParams {
         Some(if self.landscape { (*h, *w) } else { (*w, *h) })
     }
 
-    /// The height of the column, mm: the sheet's height less the two margins.
+    /// The height of the column, mm: the one set by hand, else the sheet's height less the two margins.
     pub fn height_mm(&self) -> f64 {
-        self.sheet_mm().map_or(0.0, |(_, h)| h - 2.0 * SHEET_MARGIN_MM)
+        self.height_override_mm.unwrap_or_else(|| self.sheet_mm().map_or(0.0, |(_, h)| h - 2.0 * SHEET_MARGIN_MM))
     }
 
+    /// The scale of the rows and texts: the width over the reference width, and less when the column was made shorter than its sheet's height.
     fn scale(&self) -> f64 {
-        self.width_mm / REFERENCE_WIDTH_MM
+        let full = self.sheet_mm().map_or(0.0, |(_, h)| h - 2.0 * SHEET_MARGIN_MM);
+        let shorter = if full > 0.0 { (self.height_mm() / full).min(1.0) } else { 1.0 };
+        self.width_mm / REFERENCE_WIDTH_MM * shorter
     }
 
     fn above(&self) -> Vec<&Party> {
@@ -260,6 +267,9 @@ impl TitleBlockParams {
         }
         if !(self.width_mm.is_finite() && (60.0..=400.0).contains(&self.width_mm) && self.width_mm < self.sheet_mm().map_or(0.0, |(w, _)| w)) {
             return Err(invalid("A title block is 60 to 400 mm wide, and narrower than its sheet."));
+        }
+        if self.height_override_mm.is_some_and(|h| !(h.is_finite() && (100.0..=3000.0).contains(&h))) {
+            return Err(invalid("A title block is 100 to 3000 mm tall."));
         }
         if self.parties.len() > MAX_PARTIES
             || self.revisions.len() > MAX_REVISIONS
@@ -571,33 +581,37 @@ impl crate::Drawing {
         Some([(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)].iter().map(|c| at + Vec2::new(c.0 * i.scale.x, c.1 * i.scale.y).rotate(i.rotation)).collect())
     }
 
-    /// Drags corner `index` of title block `h` to `to`: the column gets the width that puts that corner there, the opposite side staying where it is.
-    /// Its height is its sheet's, so only the horizontal part of the drag counts. `Ok(false)` when `h` is not a title block, the corner does not exist or the
-    /// width would be refused (60 to 400 mm, narrower than the sheet).
+    /// Drags corner `index` of title block `h` to `to`: the column gets the width and the height that put that corner there, the opposite corner staying
+    /// where it is (the picture takes what the fixed rows leave of the height). `Ok(false)` when `h` is not a title block, the corner does not exist or the
+    /// size would be refused (60 to 400 mm wide and narrower than the sheet; 100 to 3000 mm tall and tall enough for its rows).
     pub fn stretch_titleblock_grip(&mut self, h: crate::Handle, index: usize, to: Vec2) -> Result<bool> {
         let Some(e) = self.entity(h) else { return Ok(false) };
         let (EntityKind::Insert(i), Some(mut p)) = (&e.kind, titleblock_of(e)) else { return Ok(false) };
-        if index > 3 || !to.is_finite() || i.scale.x <= 0.0 {
+        if index > 3 || !to.is_finite() || i.scale.x <= 0.0 || i.scale.y <= 0.0 {
             return Ok(false);
         }
         let at = Vec2::new(i.insert.x, i.insert.y);
         let along = Vec2::from_angle(i.rotation);
         // The corner's distance along the column's bottom edge, in drawing units, and where the left edge is.
+        let up = Vec2::from_angle(i.rotation + std::f64::consts::FRAC_PI_2);
         let x = (to - at).dot(along) / i.scale.x;
-        let w = p.units.to_units(p.width_mm);
+        let y = (to - at).dot(up) / i.scale.y;
+        let (w, tall) = (p.units.to_units(p.width_mm), p.units.to_units(p.height_mm()));
         let (left, right) = if index == 1 || index == 2 { (0.0, x) } else { (x, w) };
-        let width_mm = (right - left) * p.units.mm_per_unit;
-        if !width_mm.is_finite() {
+        let (bottom, top) = if index == 2 || index == 3 { (0.0, y) } else { (y, tall) };
+        let (width_mm, height_mm) = ((right - left) * p.units.mm_per_unit, (top - bottom) * p.units.mm_per_unit);
+        if !(width_mm.is_finite() && height_mm.is_finite()) {
             return Ok(false);
         }
         p.width_mm = width_mm;
+        p.height_override_mm = Some(height_mm);
         if p.validate().is_err() {
             return Ok(false);
         }
         self.regenerate_titleblock(h, &p)?;
         self.modify_entity(h, |e| {
             if let EntityKind::Insert(ins) = &mut e.kind {
-                let moved = at + along * (left * ins.scale.x);
+                let moved = at + along * (left * ins.scale.x) + up * (bottom * ins.scale.y);
                 (ins.insert.x, ins.insert.y) = (moved.x, moved.y);
             }
         })?;
@@ -731,6 +745,19 @@ mod tests {
     }
 
     #[test]
+    fn a_shorter_column_has_smaller_texts() {
+        let tallest = |p: &TitleBlockParams| {
+            p.generate().unwrap().iter().filter_map(|x| if let EntityKind::Text(t) = &x.kind { Some(t.height) } else { None }).fold(0.0, f64::max)
+        };
+        let mut p = sample();
+        let full = tallest(&p);
+        p.height_override_mm = Some(0.5 * p.height_mm());
+        assert!(tallest(&p) < full, "texts shrink with the height");
+        p.height_override_mm = Some(2.0 * p.height_mm());
+        assert!((tallest(&p) - full).abs() < 1e-9, "a taller column keeps its texts");
+    }
+
+    #[test]
     fn dragging_a_corner_widens_the_column_and_keeps_the_opposite_side() {
         let mut d = Drawing::new_metric();
         let h = d.add_titleblock(&Space::Model, Common::default(), Vec2::new(100.0, 50.0), sample()).unwrap();
@@ -740,7 +767,15 @@ mod tests {
         // The right corners keep the left edge; the left ones keep the right edge.
         assert!(d.stretch_titleblock_grip(h, 2, before[2] + Vec2::new(30.0, 77.0)).unwrap());
         let after = grips(&d);
-        assert!(after[1].x > before[1].x && (after[0] - before[0]).len() < 1e-9 && (after[3].y - before[3].y).abs() < 1e-9);
+        assert!(after[1].x > before[1].x && (after[0] - before[0]).len() < 1e-9 && after[3].y > before[3].y, "wider and taller");
+        // A top corner dragged down shortens the column and keeps the bottom; a bottom corner dragged up keeps the top.
+        assert!(d.stretch_titleblock_grip(h, 2, after[2] + Vec2::new(0.0, -60.0)).unwrap());
+        let short = grips(&d);
+        assert!(short[3].y < after[3].y && (short[0] - after[0]).len() < 1e-9, "the bottom stays");
+        assert!(d.stretch_titleblock_grip(h, 0, short[0] + Vec2::new(0.0, 40.0)).unwrap());
+        let low = grips(&d);
+        assert!(low[0].y > short[0].y && (low[3] - short[3]).len() < 1e-9, "the top stays");
+        let after = low;
         assert!(d.stretch_titleblock_grip(h, 3, after[3] + Vec2::new(-20.0, 0.0)).unwrap());
         let last = grips(&d);
         assert!(last[0].x < after[0].x && (last[1] - after[1]).len() < 1e-9);
