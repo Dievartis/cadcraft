@@ -219,7 +219,8 @@ fn a_hood_covers_the_nearer_end_of_a_duct_and_its_loss_counts() {
     let far = d.hood_anchor(Vec2::new(5900.0, 0.0)).unwrap();
     assert!(far.angle.abs() < 1e-9 && (far.origin.x - 6000.0).abs() < 5.0 && far.duct.is_some());
     let near = d.hood_anchor(Vec2::new(600.0, 0.0)).unwrap();
-    assert!((near.angle.abs() - std::f64::consts::PI).abs() < 1e-9 && (near.origin.x - 500.0).abs() < 5.0);
+    assert!((near.angle - std::f64::consts::PI).abs() < 1e-9, "angle {near:?}");
+    assert!((near.origin.x - 500.0).abs() < 5.0, "origin {near:?}");
     assert!(d.hood_anchor(Vec2::new(3000.0, 4000.0)).is_none(), "nothing there: the hood goes free");
 
     let (base, _) = required(&d);
