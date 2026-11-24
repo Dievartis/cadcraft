@@ -938,6 +938,12 @@ pub const MAX_CUT_DEG: f64 = 75.0;
 pub struct ReducerShape {
     pub near_mm: [f64; 2],
     pub far_mm: [f64; 2],
+    /// How far each corner is moved across the run from where its side would be, mm (positive: toward the side above the axis), so that a corner can sit
+    /// on the corner of a duct that is not in line with this one, or a side can be left straight.
+    #[serde(default)]
+    pub near_across_mm: [f64; 2],
+    #[serde(default)]
+    pub far_across_mm: [f64; 2],
 }
 
 /// The cone where a duct run joins a larger or smaller one.
@@ -1123,13 +1129,14 @@ impl DuctParams {
         })
     }
 
-    /// Where the cone's corners on the side across the run at `sign` (+1 above the axis, -1 below) are, drawing units from the junction: the near one, and the
-    /// far one when the shape was set by hand (the cone is otherwise as long as `cone` says, at both sides).
-    fn cone_corners(&self, sign: f64) -> (f64, Option<f64>) {
+    /// Where the cone's corners on the side across the run at `sign` (+1 above the axis, -1 below) are, drawing units: the near one as (from the junction, moved
+    /// across), and the far one when the shape was set by hand (the cone is otherwise as long as `cone` says, at both sides, and square to the run).
+    fn cone_corners(&self, sign: f64) -> ((f64, f64), Option<(f64, f64)>) {
         let k = usize::from(sign < 0.0);
+        let u = |mm: f64| self.units.to_units(mm);
         match self.reducer_shape {
-            Some(sh) => (self.units.to_units(sh.near_mm[k]), Some(self.units.to_units(sh.far_mm[k]).max(0.0))),
-            None => (0.0, None),
+            Some(sh) => ((u(sh.near_mm[k]), u(sh.near_across_mm[k])), Some((u(sh.far_mm[k]).max(0.0), u(sh.far_across_mm[k])))),
+            None => ((0.0, 0.0), None),
         }
     }
 
@@ -1141,8 +1148,8 @@ impl DuctParams {
         let (trim0, trim1) = (self.units.to_units(self.trim_start_mm), self.units.to_units(self.trim_end_mm));
         let corner = |sign: f64, far: bool| {
             let (near, f) = self.cone_corners(sign);
-            let u = if far { f.unwrap_or(len) } else { near };
-            Vec2::new(if at_end { self.length - trim1 - u } else { trim0 + u }, sign * if far { r } else { r0 })
+            let (u, across) = if far { f.unwrap_or((len, 0.0)) } else { near };
+            Vec2::new(if at_end { self.length - trim1 - u } else { trim0 + u }, sign * if far { r } else { r0 } + across)
         };
         Some([corner(1.0, false), corner(-1.0, false), corner(1.0, true), corner(-1.0, true)])
     }
@@ -1439,9 +1446,9 @@ impl DuctParams {
                 let mut pts = Vec::new();
                 if let (Some((r0, _, false)), 0) = (cone, k) {
                     let (near, far) = self.cone_corners(sign);
-                    pts.push(Vec2::new(trim0 + near, sign * r0));
+                    pts.push(Vec2::new(trim0 + near.0, sign * r0 + near.1));
                     if let Some(far) = far {
-                        pts.push(Vec2::new(trim0 + far, sign * r));
+                        pts.push(Vec2::new(trim0 + far.0, sign * r + far.1));
                     }
                 }
                 let (mut s, mut e) = (s, e);
@@ -1455,9 +1462,9 @@ impl DuctParams {
                 if let (Some((r0, _, true)), true) = (cone, k + 1 == solid.len()) {
                     let (near, far) = self.cone_corners(sign);
                     if let Some(far) = far {
-                        pts.push(Vec2::new(self.length - trim1 - far, sign * r));
+                        pts.push(Vec2::new(self.length - trim1 - far.0, sign * r + far.1));
                     }
-                    pts.push(Vec2::new(self.length - trim1 - near, sign * r0));
+                    pts.push(Vec2::new(self.length - trim1 - near.0, sign * r0 + near.1));
                 }
                 pieces.push(HvacPiece {
                     layer,
@@ -1886,7 +1893,7 @@ impl crate::Drawing {
         let Some(EntityKind::Insert(i)) = self.entity(h).map(|e| e.kind.clone()) else { return Ok(false) };
         if index >= 3 {
             // The reducer's cone: grip 3 is where it ends on the axis (its length), 4 and 5 the corners on the junction (above, below the axis), 6 and
-            // 7 the corners at its far end. A corner is how far it is from the junction, along the run; across the run it stays on the sides.
+            // 7 the corners at its far end. A corner goes where it is dragged, along the run and across it.
             let Some(red) = p.reducer else { return Ok(false) };
             if i.scale.x <= 0.0 {
                 return Ok(false);
@@ -1900,7 +1907,14 @@ impl crate::Drawing {
             }
             let r = p.units.to_units(p.plan_width_mm()) / 2.0;
             let now_mm = p.cone(r).map_or(0.0, |c| c.1 * p.units.mm_per_unit);
-            let mut shape = p.reducer_shape.unwrap_or(ReducerShape { near_mm: [0.0; 2], far_mm: [now_mm; 2] });
+            let mut shape =
+                p.reducer_shape.unwrap_or(ReducerShape { near_mm: [0.0; 2], far_mm: [now_mm; 2], near_across_mm: [0.0; 2], far_across_mm: [0.0; 2] });
+            // Where the pointer is across the run (mm from the axis, above it as the run reads), and where the corner's side is: a corner takes the difference.
+            let up = Vec2::from_angle(i.rotation + std::f64::consts::FRAC_PI_2);
+            let y_mm = p.units.mm_per_unit * (to - a).dot(up) / i.scale.y;
+            let (r_mm, r0_mm) = (r * p.units.mm_per_unit, p.cone(r).map_or(0.0, |c| c.0 * p.units.mm_per_unit));
+            let side = if index.is_multiple_of(2) { 1.0 } else { -1.0 };
+            let across = |side_mm: f64| (y_mm - side * side_mm).clamp(-1.0e5, 1.0e5);
             match index {
                 3 if p.reducer_shape.is_none() => p.reducer_len_mm = Some(u_mm.clamp(1.0, room_mm)),
                 3 => {
@@ -1910,10 +1924,12 @@ impl crate::Drawing {
                 }
                 4 | 5 => {
                     shape.near_mm[index - 4] = u_mm.clamp(-room_mm, room_mm);
+                    shape.near_across_mm[index - 4] = across(r0_mm);
                     p.reducer_shape = Some(shape);
                 }
                 _ => {
                     shape.far_mm[index - 6] = u_mm.clamp(1.0, room_mm);
+                    shape.far_across_mm[index - 6] = across(r_mm);
                     p.reducer_shape = Some(shape);
                 }
             }

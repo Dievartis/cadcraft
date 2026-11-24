@@ -1729,7 +1729,12 @@ fn a_reducers_cone_has_a_grip_at_each_corner_and_takes_any_shape_until_told_to_g
     s.execute("grip.stretch", &json!({"handle": last.clone(), "index": 6, "to": [before[6].x + 700.0, before[6].y]})).unwrap();
     let after = grips(&s);
     assert!(after[6].x > before[6].x + 600.0 && (after[7].x - before[7].x).abs() < 1e-6, "one side only");
-    assert!((after[6].y - before[6].y).abs() < 1e-6, "it stays on the side of the run");
+    assert!((after[6].y - before[6].y).abs() < 1e-6, "dragged along the run only, it stays where its side is");
+    // Dragged across as well it goes where it is dragged: onto the corner of a duct that is not in line, say.
+    s.execute("grip.stretch", &json!({"handle": last.clone(), "index": 7, "to": [before[7].x + 100.0, before[7].y - 150.0]})).unwrap();
+    let moved = grips(&s);
+    assert!((moved[7].y - (before[7].y - 150.0)).abs() < 1e-6 && (moved[7].x - (before[7].x + 100.0)).abs() < 1e-6, "{:?}", moved[7]);
+    assert!((moved[6].y - before[6].y).abs() < 1e-6, "the other corners stay");
     // A corner on the junction slides along the run: the junction is slanted.
     s.execute("grip.stretch", &json!({"handle": last.clone(), "index": 5, "to": [before[5].x + 300.0, before[5].y]})).unwrap();
     assert!(grips(&s)[5].x > before[5].x + 200.0 && (grips(&s)[4].x - before[4].x).abs() < 1e-6);
