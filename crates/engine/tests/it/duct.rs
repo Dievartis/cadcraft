@@ -359,7 +359,7 @@ fn the_unit_the_duct_and_the_accessory_are_seen_before_they_are_placed() {
     assert!(!s.preview(cadcraft_geom::Vec2::new(0.0, 0.0)).is_empty(), "the unit");
     s.cmdline("").unwrap();
     s.cmdline("ductadd").unwrap();
-    assert!(s.preview(cadcraft_geom::Vec2::new(1000.0, 0.0)).is_empty(), "no start point yet");
+    assert!(!s.preview(cadcraft_geom::Vec2::new(1000.0, 0.0)).is_empty(), "a stretch of duct hangs on the cursor before the first point");
     s.cmdline("0,0").unwrap();
     let p = s.preview(cadcraft_geom::Vec2::new(4000.0, 0.0));
     assert!(p.iter().filter(|e| matches!(e.kind, cadcraft_doc::EntityKind::LwPolyline(_))).count() >= 2, "the two sides of the duct");
@@ -1760,4 +1760,43 @@ fn a_run_laid_over_the_end_of_another_on_the_same_line_does_not_give_that_one_a_
     let t = s.execute("ductadd", &json!({"points": [[4000, 2000], [4000, 0]], "diameter": 200})).unwrap();
     let branch = duct_of(s.doc().unwrap().entity(hd(&t["handles"][0])).unwrap()).unwrap().reducer;
     assert!(branch.is_some_and(|b| b.from_mm > 800.0), "{branch:?}");
+}
+
+#[test]
+fn tab_chooses_which_edge_of_the_duct_follows_the_points_clicked_and_the_corners_stay_joined() {
+    let mut s = metric();
+    let ends = |s: &Session| -> Vec<(cadcraft_geom::Vec2, cadcraft_geom::Vec2)> {
+        let d = s.doc().unwrap();
+        d.model.iter().filter_map(|e| d.duct_ends(e.handle)).map(|(_, a, b)| (a, b)).collect()
+    };
+    // Middle at first: the points are the axis. Tab: the bottom edge follows them, the duct (200 wide) is above; Tab again: the top edge.
+    s.cmdline("ductadd").unwrap();
+    s.cmdline("0,0").unwrap();
+    s.cmdline("3000,0").unwrap();
+    assert!(s.cycle_alignment());
+    s.cmdline("3000,3000").unwrap();
+    let r = ends(&s);
+    assert_eq!(r.len(), 2);
+    assert!(r[0].0.y.abs() < 1e-6 && r[0].1.y.abs() < 1e-6, "the first run kept the axis: {r:?}");
+    s.cmdline("").unwrap();
+    // The bottom edge: the axis lies above the line clicked, and a corner joins two runs that follow the same edge.
+    s.cmdline("ductadd").unwrap();
+    assert!(s.cycle_alignment(), "the choice is kept for the next duct: now the top edge");
+    s.cmdline("").unwrap();
+    s.cmdline("ductadd").unwrap();
+    s.cmdline("0,5000").unwrap();
+    s.cmdline("3000,5000").unwrap();
+    s.cmdline("3000,8000").unwrap();
+    s.cmdline("").unwrap();
+    let r = ends(&s);
+    // The second duct: the top edge follows the line at y = 5000, so the duct hangs below it, and the two runs meet at one corner.
+    let second: Vec<_> = r.iter().filter(|(a, b)| a.y > 4000.0 && b.y > 4000.0).collect();
+    assert_eq!(second.len(), 2, "{r:?}");
+    let flat = second.iter().find(|(a, b)| (a.y - b.y).abs() < 1e-6).unwrap();
+    let up = second.iter().find(|(a, b)| (a.x - b.x).abs() < 1e-6).unwrap();
+    assert!(flat.0.y < 5000.0, "the duct hangs below the line followed: {flat:?}");
+    assert!(flat.1.near(up.0, 1e-6), "the runs meet at the corner: {flat:?} {up:?}");
+    // A command with nothing to change does not take it.
+    s.cmdline("line").unwrap();
+    assert!(!s.cycle_alignment());
 }

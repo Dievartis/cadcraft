@@ -79,6 +79,43 @@ pub struct DuctLastUsed {
     /// `None`: not fixed, sizing takes it from the terminals the duct serves.
     pub air: Option<AirDirection>,
     pub flexible: bool,
+    /// Which edge of the duct the points clicked follow.
+    pub justification: DuctJust,
+}
+
+/// Which edge of a duct the points clicked follow (Tab while DUCTADD asks for a point): the middle (its axis), the bottom edge (the duct is above
+/// the clicked line, as the line runs to the right) or the top one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DuctJust {
+    #[default]
+    Middle,
+    Bottom,
+    Top,
+}
+
+impl DuctJust {
+    fn next(self) -> DuctJust {
+        match self {
+            DuctJust::Middle => DuctJust::Bottom,
+            DuctJust::Bottom => DuctJust::Top,
+            DuctJust::Top => DuctJust::Middle,
+        }
+    }
+    fn name(self) -> &'static str {
+        match self {
+            DuctJust::Middle => "Middle",
+            DuctJust::Bottom => "Bottom",
+            DuctJust::Top => "Top",
+        }
+    }
+    /// Which side of the clicked line the axis is on: +1 to its left (as it runs), -1 to its right, 0 on it.
+    fn side(self) -> f64 {
+        match self {
+            DuctJust::Middle => 0.0,
+            DuctJust::Bottom => 1.0,
+            DuctJust::Top => -1.0,
+        }
+    }
 }
 
 /// A size the user gives a duct: a diameter, or width and height.
@@ -117,7 +154,7 @@ impl Imposed {
 
 impl Default for DuctLastUsed {
     fn default() -> Self {
-        DuctLastUsed { diameter_mm: 200.0, kind: DuctKind::Auto, air: None, flexible: false }
+        DuctLastUsed { diameter_mm: 200.0, kind: DuctKind::Auto, air: None, flexible: false, justification: DuctJust::Middle }
     }
 }
 
@@ -683,14 +720,51 @@ struct DuctAddM {
     last: DuctLastUsed,
     /// The size the user typed, if any: sizing then leaves it.
     imposed: Option<Imposed>,
+    /// The points clicked: the line the duct follows, by its middle or by one of its edges.
     pts: Vec<Vec2>,
+    /// How far each run's axis lies to the left of that line (drawing units, negative to its right), one per run.
+    offs: Vec<f64>,
     handles: Vec<Handle>,
     ask: DuctAsk,
 }
 
+/// The axis of run `k` along the clicked line `pts`, each run moved sideways by its offset; where two runs meet with the same offset their axes meet at the
+/// corner of the offset lines.
+fn shifted(pts: &[Vec2], offs: &[f64], k: usize) -> (Vec2, Vec2) {
+    let n = |i: usize| (pts[i + 1] - pts[i]).normalized().perp();
+    let same = |i: usize, j: usize| (offs[i] - offs[j]).abs() < 1e-9;
+    let (nk, o) = (n(k), offs[k]);
+    let corner = |at: Vec2, other: Vec2| {
+        let d = 1.0 + nk.dot(other);
+        // A turn back on itself has no corner: the run is just moved.
+        if d < 0.2 { at + nk * o } else { at + (nk + other) * (o / d) }
+    };
+    let a = if k > 0 && same(k - 1, k) { corner(pts[k], n(k - 1)) } else { pts[k] + nk * o };
+    let b = if k + 1 < offs.len() && same(k, k + 1) { corner(pts[k + 1], n(k + 1)) } else { pts[k + 1] + nk * o };
+    (a, b)
+}
+
 impl DuctAddM {
     fn new(s: &Session) -> Self {
-        DuctAddM { last: s.last_used.duct.clone(), imposed: None, pts: Vec::new(), handles: Vec::new(), ask: DuctAsk::Point }
+        DuctAddM { last: s.last_used.duct.clone(), imposed: None, pts: Vec::new(), offs: Vec::new(), handles: Vec::new(), ask: DuctAsk::Point }
+    }
+    /// How far the axis of a run laid now lies to the left of the line clicked.
+    fn offset(&self, s: &Session) -> f64 {
+        self.params(s).map_or(0.0, |p| p.units.to_units(p.plan_width_mm()) / 2.0 * self.last.justification.side())
+    }
+    /// Lays run `k` again (or for the first time) from the clicked line, in place of the one there was.
+    fn lay(&mut self, s: &mut Session, k: usize) -> Result<()> {
+        let (a, b) = shifted(&self.pts, &self.offs, k);
+        let params = self.params(s)?;
+        if let Some(old) = self.handles.get(k).copied() {
+            s.doc_mut()?.remove_entity(old);
+        }
+        let h = add_run(s, &params, a, b)?;
+        match self.handles.get_mut(k) {
+            Some(slot) => *slot = h,
+            None => self.handles.push(h),
+        }
+        Ok(())
     }
     fn settings(&self, s: &mut Session) {
         let d = self.imposed_text();
@@ -721,16 +795,24 @@ impl DuctAddM {
             if last.near(p, 1e-9) {
                 return Ok(Step::Continue);
             }
-            match self.params(s).and_then(|params| add_run(s, &params, last, p)) {
-                Ok(h) => {
-                    self.handles.push(h);
-                    s.last_used.duct = self.last.clone();
-                }
+            let off = self.offset(s);
+            let k = self.offs.len();
+            self.pts.push(p);
+            self.offs.push(off);
+            // The run before takes the corner it now shares with this one.
+            let laid =
+                self.lay(s, k).and_then(|()| if k > 0 && off != 0.0 && (self.offs[k - 1] - off).abs() < 1e-9 { self.lay(s, k - 1) } else { Ok(()) });
+            match laid {
+                Ok(()) => s.last_used.duct = self.last.clone(),
                 Err(e) => {
+                    self.pts.pop();
+                    self.offs.pop();
                     s.echo(e.to_string());
                     return Ok(Step::Continue);
                 }
             }
+            s.last_point = p;
+            return Ok(Step::Continue);
         }
         self.pts.push(p);
         s.last_point = p;
@@ -747,8 +829,16 @@ impl DuctAddM {
                     && let Some(h) = self.handles.pop()
                 {
                     s.doc_mut()?.remove_entity(h);
+                    self.offs.pop();
                 }
                 self.pts.pop();
+                // The run before gives back the corner it shared.
+                if let Some(k) = self.offs.len().checked_sub(1)
+                    && self.offs[k] != 0.0
+                    && let Err(e) = self.lay(s, k)
+                {
+                    s.echo(e.to_string());
+                }
             }
             _ => {}
         }
@@ -796,6 +886,14 @@ impl Interactive for DuctAddM {
         self.settings(s);
         Ok(Step::Continue)
     }
+    fn cycle_alignment(&mut self, s: &mut Session) -> Option<String> {
+        if self.ask != DuctAsk::Point {
+            return None;
+        }
+        self.last.justification = self.last.justification.next();
+        s.last_used.duct.justification = self.last.justification;
+        Some(format!("Justification = {}", self.last.justification.name()))
+    }
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.ask {
             DuctAsk::Diameter => Prompt::new("Enter duct diameter (mm), width x height (mm) or [Auto]", Accept::TEXT).default(self.imposed_text()),
@@ -831,9 +929,22 @@ impl Interactive for DuctAddM {
         self.pts.last().map(|l| vec![EntityKind::Line(cadcraft_doc::Line { a: l.to3(0.0), b: c.to3(0.0) })]).unwrap_or_default()
     }
     fn preview_objects(&self, s: &Session, c: Vec2) -> Vec<cadcraft_doc::Entity> {
-        // The run under way, as wide as it will be.
-        match (self.ask, self.pts.last().copied(), self.params(s)) {
-            (DuctAsk::Point, Some(last), Ok(p)) if !last.near(c, 1e-9) => p.preview(last, c),
+        // The run under way, as wide as it will be, with the edge Tab chose on the line followed.
+        let (DuctAsk::Point, Ok(p)) = (self.ask, self.params(s)) else { return Vec::new() };
+        let off = self.offset(s);
+        match self.pts.last().copied() {
+            // Before the first point: a stretch of duct on the cursor, to choose where it hangs.
+            None => {
+                let at = c + Vec2::new(0.0, off);
+                p.preview(at, at + Vec2::new(4.0 * p.units.to_units(p.plan_width_mm()), 0.0))
+            }
+            Some(last) if !last.near(c, 1e-9) => {
+                let (mut pts, mut offs) = (self.pts.clone(), self.offs.clone());
+                pts.push(c);
+                offs.push(off);
+                let (a, b) = shifted(&pts, &offs, offs.len() - 1);
+                p.preview(a, b)
+            }
             _ => Vec::new(),
         }
     }
