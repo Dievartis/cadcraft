@@ -139,61 +139,103 @@ fn function_label(f: ComponentFunction) -> &'static str {
     FUNCTIONS.iter().find(|x| x.0 == f).map_or("Structure", |x| x.1)
 }
 
-/// The layers of the style as a table; true when a layer was added, moved or removed.
+/// Draw the editable components with the same clipped cells and resize handles as plot styles.
 fn layers(ui: &mut egui::Ui, style: &mut WallStyle, patterns: &[&'static str]) {
     let mut remove = None;
     let mut swap = None;
     let n = style.components.len();
+    let id = ui.scope_id().with("wall_component_widths");
+    let headers = ["", "Component", "Thickness (mm)", "Function", "Hatch", "Scale", "Angle", "Priority", ""];
+    let mut fitted: [f32; 9] = [64.0, 150.0, 65.0, 125.0, 125.0, 65.0, 65.0, 65.0, 32.0];
+    let measure = |label: &str| ui.painter().layout_no_wrap(label.to_owned(), crate::theme::body(), egui::Color32::WHITE).size().x;
+    for (width, label) in fitted.iter_mut().zip(headers) {
+        *width = width.max(measure(crate::i18n::t(label)) + 22.0);
+    }
+    for component in &style.components {
+        fitted[1] = fitted[1].max(measure(&component.name) + 24.0);
+    }
+    let mut manual = ui.ctx().data_mut(|d| d.get_persisted::<[Option<f32>; 9]>(id)).unwrap_or_default();
+    if ui.button(crate::tl!("Fit columns")).clicked() {
+        manual.fill(None);
+    }
+    let widths = std::array::from_fn::<_, 9, _>(|i| manual[i].unwrap_or(fitted[i]));
     egui::ScrollArea::both().max_height(300.0).auto_shrink([false, true]).show(ui, |ui| {
-        egui::Grid::new("wallstyle_layers").striped(true).num_columns(10).show(ui, |ui| {
-            let mut head = Vec::new();
-            for h in ["", "Layer", "Thickness (mm)", "Function", "Hatch", "Scale", "Angle", "Priority", "", ""] {
-                head.push(ui.strong(if h.is_empty() { "" } else { crate::i18n::t(h) }).id);
-            }
-            ui.end_row();
-            for (i, c) in style.components.iter_mut().enumerate() {
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(i > 0, egui::Button::new("^").small()).on_hover_text(crate::i18n::t("Move up")).clicked() {
-                        swap = Some((i, i - 1));
-                    }
-                    if ui.add_enabled(i + 1 < n, egui::Button::new("v").small()).on_hover_text(crate::i18n::t("Move down")).clicked() {
-                        swap = Some((i, i + 1));
-                    }
+        let mut head = [egui::Id::NULL; 9];
+        ui.horizontal(|ui| {
+            for (i, label) in headers.into_iter().enumerate() {
+                let rect = crate::plotstyles::cell(ui, widths[i], |ui| {
+                    head[i] = ui.strong(crate::i18n::t(label)).id;
                 });
-                ui.add(egui::TextEdit::singleline(&mut c.name).desired_width(150.0)).labelled_by(head[1]);
-                let membrane = c.function == ComponentFunction::Membrane;
-                if membrane {
-                    c.thickness = 0.0;
+                if let Some(width) = crate::plotstyles::resized_width(ui, rect, id.with(i), widths[i], fitted[i]) {
+                    manual[i] = Some(width);
                 }
-                ui.add_enabled(!membrane, egui::DragValue::new(&mut c.thickness).speed(1.0).range(0.0..=5000.0)).labelled_by(head[2]);
-                let combo = craft_ui::ComboBox::from_id_salt(("wallstyle_function", i))
-                    .selected_text(crate::i18n::t(function_label(c.function)))
-                    .width(110.0)
-                    .show_ui(ui, |ui| {
-                        for (f, label) in FUNCTIONS {
-                            ui.selectable_value(&mut c.function, f, crate::i18n::t(label));
-                        }
-                    });
-                combo.response.labelled_by(head[3]);
-                let shown = if c.pattern.is_empty() { crate::i18n::t("None").to_string() } else { c.pattern.clone() };
-                let combo = craft_ui::ComboBox::from_id_salt(("wallstyle_pattern", i)).selected_text(shown).width(110.0).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut c.pattern, String::new(), crate::i18n::t("None"));
-                    ui.selectable_value(&mut c.pattern, "SOLID".to_string(), "SOLID");
-                    for p in patterns {
-                        ui.selectable_value(&mut c.pattern, (*p).to_string(), *p);
-                    }
-                });
-                combo.response.labelled_by(head[4]);
-                ui.add(egui::DragValue::new(&mut c.pattern_scale).speed(0.1).range(0.01..=1000.0)).labelled_by(head[5]);
-                ui.add(egui::DragValue::new(&mut c.pattern_angle).speed(1.0).range(-360.0..=360.0)).labelled_by(head[6]);
-                ui.add(egui::DragValue::new(&mut c.priority).speed(1.0).range(0..=1000)).labelled_by(head[7]);
-                if ui.small_button("x").on_hover_text(crate::i18n::t("Remove layer")).clicked() {
-                    remove = Some(i);
-                }
-                ui.end_row();
             }
         });
+        for (i, c) in style.components.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                crate::plotstyles::cell(ui, widths[0], |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(i > 0, egui::Button::new("^").small()).on_hover_text(crate::i18n::t("Move up")).clicked() {
+                            swap = Some((i, i - 1));
+                        }
+                        if ui.add_enabled(i + 1 < n, egui::Button::new("v").small()).on_hover_text(crate::i18n::t("Move down")).clicked() {
+                            swap = Some((i, i + 1));
+                        }
+                    });
+                });
+                crate::plotstyles::cell(ui, widths[1], |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut c.name).desired_width(ui.available_width())).labelled_by(head[1]);
+                });
+                crate::plotstyles::cell(ui, widths[2], |ui| {
+                    let membrane = c.function == ComponentFunction::Membrane;
+                    if membrane {
+                        c.thickness = 0.0;
+                    }
+                    ui.add_enabled(!membrane, egui::DragValue::new(&mut c.thickness).speed(1.0).range(0.0..=5000.0)).labelled_by(head[2]);
+                });
+                crate::plotstyles::cell(ui, widths[3], |ui| {
+                    let combo = craft_ui::ComboBox::from_id_salt(("wallstyle_function", i))
+                        .selected_text(crate::i18n::t(function_label(c.function)))
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for (f, label) in FUNCTIONS {
+                                ui.selectable_value(&mut c.function, f, crate::i18n::t(label));
+                            }
+                        });
+                    combo.response.labelled_by(head[3]);
+                });
+                crate::plotstyles::cell(ui, widths[4], |ui| {
+                    let shown = if c.pattern.is_empty() { crate::i18n::t("None").to_string() } else { c.pattern.clone() };
+                    let combo = craft_ui::ComboBox::from_id_salt(("wallstyle_pattern", i)).selected_text(shown).width(ui.available_width()).show_ui(
+                        ui,
+                        |ui| {
+                            ui.selectable_value(&mut c.pattern, String::new(), crate::i18n::t("None"));
+                            ui.selectable_value(&mut c.pattern, "SOLID".to_string(), "SOLID");
+                            for p in patterns {
+                                ui.selectable_value(&mut c.pattern, (*p).to_string(), *p);
+                            }
+                        },
+                    );
+                    combo.response.labelled_by(head[4]);
+                });
+                crate::plotstyles::cell(ui, widths[5], |ui| {
+                    ui.add(egui::DragValue::new(&mut c.pattern_scale).speed(0.1).range(0.01..=1000.0)).labelled_by(head[5]);
+                });
+                crate::plotstyles::cell(ui, widths[6], |ui| {
+                    ui.add(egui::DragValue::new(&mut c.pattern_angle).speed(1.0).range(-360.0..=360.0)).labelled_by(head[6]);
+                });
+                crate::plotstyles::cell(ui, widths[7], |ui| {
+                    ui.add(egui::DragValue::new(&mut c.priority).speed(1.0).range(0..=1000)).labelled_by(head[7]);
+                });
+                crate::plotstyles::cell(ui, widths[8], |ui| {
+                    if ui.small_button("x").on_hover_text(crate::i18n::t("Remove layer")).clicked() {
+                        remove = Some(i);
+                    }
+                });
+            });
+        }
     });
+    ui.ctx().data_mut(|d| d.insert_persisted(id, manual));
     if let Some((a, b)) = swap {
         style.components.swap(a, b);
     }

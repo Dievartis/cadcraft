@@ -21,6 +21,7 @@ struct LpmState {
     selected: Option<String>,
     /// (layer, buffer) while renaming.
     renaming: Option<(String, String)>,
+    select_new_name: bool,
     /// (layer, buffer) while editing the description.
     describing: Option<(String, String)>,
     sort_desc: bool,
@@ -267,6 +268,9 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                     let name = format!("Layer{n}");
                     actions.push(("layer.new", json!({ "name": name })));
                     st.renaming = Some((name.clone(), name.clone()));
+                    st.select_new_name = true;
+                    st.filter = 0;
+                    st.search.clear();
                     st.selected = Some(name);
                 }
                 if icons::button(ui, Icon::Close, 24.0, "Delete Layer", false).clicked()
@@ -685,9 +689,19 @@ fn layer_identity(
     // Name (double-click or F2-style rename).
     match st.renaming.clone() {
         Some((n, mut buf)) if n.eq_ignore_ascii_case(&name) => {
-            let r = ui
-                .add(egui::TextEdit::singleline(&mut buf).desired_width(150.0).id(egui::Id::unique(("lpm_rename", &name))))
-                .accessible_name(crate::tl!("Name"));
+            let id = egui::Id::unique(("lpm_rename", &name));
+            let select_all = std::mem::take(&mut st.select_new_name);
+            if select_all {
+                let mut state = egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
+                let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(buf.chars().count()));
+                state.cursor.set_char_range(Some(all));
+                state.store(ui.ctx(), id);
+                ui.memory_mut(|m| m.request_focus(id));
+            }
+            let r = ui.add(egui::TextEdit::singleline(&mut buf).desired_width(150.0).id(id)).accessible_name(crate::tl!("Name"));
+            if select_all {
+                r.scroll_to_me(None);
+            }
             if !r.has_focus() && !r.lost_focus() {
                 r.request_focus();
             }

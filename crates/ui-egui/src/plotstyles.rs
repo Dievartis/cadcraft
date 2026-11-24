@@ -152,7 +152,7 @@ fn style_aci(name: &str) -> Option<u8> {
 }
 
 // Clip content to the cell: even a 25-pixel column must not displace its neighbour.
-fn cell(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) -> egui::Rect {
+pub(crate) fn cell(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) -> egui::Rect {
     // Reserve the exact footprint in the parent before laying out any controls.
     // A child widget may request more space, but cannot move subsequent columns.
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 24.0), egui::Sense::hover());
@@ -165,20 +165,26 @@ fn cell(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) -> egui:
 
 // Draw the handle on the actual right border, not after the heading text.
 fn resize_handle(ui: &mut egui::Ui, rect: egui::Rect, index: usize, width: f32, columns: &mut ColumnWidths, fit: f32) {
+    if let Some(next) = resized_width(ui, rect, ui.scope_id().with(("pstyle_resize", index)), width, fit) {
+        columns.widths[index] = next;
+        columns.manual[index] = true;
+    }
+}
+
+pub(crate) fn resized_width(ui: &mut egui::Ui, rect: egui::Rect, id: egui::Id, width: f32, fit: f32) -> Option<f32> {
     let x = rect.right();
     let hit = egui::Rect::from_min_max(egui::pos2(x - 4.0, rect.top()), egui::pos2(x + 4.0, rect.bottom()));
     let response = ui
-        .interact(hit, ui.scope_id().with(("pstyle_resize", index)), egui::Sense::click_and_drag())
+        .interact(hit, id, egui::Sense::click_and_drag())
         .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
         .on_hover_text(crate::tl!("Drag to resize; double-click to fit"));
     ui.painter().vline(x, rect.y_range(), egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color));
-    if response.dragged() {
-        columns.widths[index] = (width + response.drag_delta().x).max(MIN_WIDTH);
-        columns.manual[index] = true;
-    }
     if response.double_clicked() {
-        columns.widths[index] = fit.max(MIN_WIDTH);
-        columns.manual[index] = true;
+        Some(fit.max(MIN_WIDTH))
+    } else if response.dragged() {
+        Some((width + response.drag_delta().x).max(MIN_WIDTH))
+    } else {
+        None
     }
 }
 
