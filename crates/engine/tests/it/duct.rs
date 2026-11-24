@@ -1739,3 +1739,20 @@ fn a_reducers_cone_has_a_grip_at_each_corner_and_takes_any_shape_until_told_to_g
     assert!(params(&s).reducer_shape.is_none() && params(&s).reducer.is_some());
     assert_eq!(grips(&s).len(), 8);
 }
+
+#[test]
+fn a_run_laid_over_the_end_of_another_on_the_same_line_does_not_give_that_one_a_reducer() {
+    let mut s = metric();
+    let r = s.execute("ductadd", &json!({"points": [[0, 0], [3000, 0], [6000, 0]], "diameter": 500})).unwrap();
+    let hs = r["handles"].as_array().unwrap().clone();
+    s.execute("ductedit", &json!({"handles": [hs[1].clone()], "shape": "rectangular", "width": 900, "height": 720})).unwrap();
+    let first = |s: &Session| duct_of(s.doc().unwrap().entity(hd(&hs[0])).unwrap()).unwrap().reducer;
+    assert!(first(&s).is_none());
+    // The wider run's start dragged back over the round one: it is no trunk the round run branches from.
+    s.execute("grip.stretch", &json!({"handle": hs[1].clone(), "index": 0, "to": [2000, 0]})).unwrap();
+    assert!(first(&s).is_none(), "{:?}", first(&s));
+    // A run that really ends on the side of another still takes the cone from it.
+    let t = s.execute("ductadd", &json!({"points": [[4000, 2000], [4000, 0]], "diameter": 200})).unwrap();
+    let branch = duct_of(s.doc().unwrap().entity(hd(&t["handles"][0])).unwrap()).unwrap().reducer;
+    assert!(branch.is_some_and(|b| b.from_mm > 800.0), "{branch:?}");
+}

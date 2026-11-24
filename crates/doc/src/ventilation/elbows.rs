@@ -282,11 +282,16 @@ fn reducers<P: RunParams>(
                 }
                 continue;
             }
+            // A run laid over this one on the same line is not one this end branches from: its body lies along this run, it is not a trunk it meets.
+            let overlaps = |o: &Run<P>| o.a.dist(p) > tol && o.b.dist(p) > tol && (o.b - o.a).normalized().dot(r.away(at_end)).abs() > 0.97;
             let others: Vec<usize> = runs
                 .iter()
                 .enumerate()
                 .filter(|(i, o)| {
-                    *i != k && r.params.same_network(&o.params) && (near_segment(p, o.a, o.b, tol) || o.a.dist(p) <= tol || o.b.dist(p) <= tol)
+                    *i != k
+                        && r.params.same_network(&o.params)
+                        && !overlaps(o)
+                        && (near_segment(p, o.a, o.b, tol) || o.a.dist(p) <= tol || o.b.dist(p) <= tol)
                 })
                 .map(|(i, _)| i)
                 .collect();
