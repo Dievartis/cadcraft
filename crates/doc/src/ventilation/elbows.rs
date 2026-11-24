@@ -614,6 +614,7 @@ impl crate::Drawing {
             (p.elbow, p.trim_start_mm, p.trim_end_mm) = (elbow, trim_start, trim_end);
             (p.cap_start, p.cap_end) = (cap_start, cap_end);
             p.reducer = reducers.get(k).copied().flatten();
+            p.reducer_len_mm = p.reducer.and(p.reducer_len_mm);
             if let Some(st) = steps.get(k) {
                 p.steps.clone_from(st);
             }

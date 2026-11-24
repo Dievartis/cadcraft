@@ -290,6 +290,7 @@ fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], del
             let points = match kind {
                 RunKind::Wall => d.wall_grip_points(h, i),
                 RunKind::TitleBlock => Vec::new(),
+                RunKind::Duct if i == 3 => Vec::new(),
                 _ if i == 1 => Vec::new(),
                 _ => vec![from],
             };

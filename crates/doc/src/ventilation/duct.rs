@@ -818,6 +818,9 @@ pub struct DuctParams {
     /// A reducer where the run joins the one before it, drawn by sizing when the diameters differ.
     #[serde(default)]
     pub reducer: Option<DuctReducer>,
+    /// The length of the reducer's cone, mm, when it was set by hand (its grip); the cone follows its 15 degrees otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reducer_len_mm: Option<f64>,
     /// The elbow where the run joins the one before it, drawn by sizing: curved arcs across the run's
     /// width, the two runs being drawn shorter by the length it takes.
     #[serde(default)]
@@ -1074,7 +1077,10 @@ impl DuctParams {
         self.reducer.map(|red| {
             let r0 = self.units.to_units(red.from_mm) / 2.0;
             let room = (self.length - trim0 - trim1).max(0.0);
-            let len = ((r0 - r).abs() / REDUCER_HALF_ANGLE_DEG.to_radians().tan()).min(0.4 * room);
+            let len = match self.reducer_len_mm {
+                Some(mm) => self.units.to_units(mm).min(room),
+                None => ((r0 - r).abs() / REDUCER_HALF_ANGLE_DEG.to_radians().tan()).min(0.4 * room),
+            };
             (r0, len, red.at_end)
         })
     }
@@ -1722,7 +1728,13 @@ impl crate::Drawing {
         {
             let a = Vec2::new(i.insert.x, i.insert.y);
             let b = a + Vec2::from_angle(i.rotation) * (p.length * i.scale.x);
-            return vec![a, a.mid(b), b];
+            let mut grips = vec![a, a.mid(b), b];
+            // A reducer has a grip where its cone ends: drag it along the run to change the cone's length.
+            if let Some(red) = p.reducer {
+                let (x0, x1) = p.straight_range();
+                grips.push(a + Vec2::from_angle(i.rotation) * ((if red.at_end { x1 } else { x0 }) * i.scale.x));
+            }
+            return grips;
         }
         if let Some((_, a, b)) = self.pipe_ends(e.handle) {
             return vec![a, a.mid(b), b];
@@ -1745,10 +1757,27 @@ impl crate::Drawing {
     /// longer fit the run are dropped.
     pub fn stretch_duct_grip(&mut self, h: crate::Handle, index: usize, to: Vec2) -> Result<bool> {
         let Some((mut p, a, b)) = self.duct_ends(h) else { return Ok(false) };
-        if !to.is_finite() || index > 2 {
+        if !to.is_finite() || index > 3 || (index == 3 && p.reducer.is_none()) {
             return Ok(false);
         }
         let Some(EntityKind::Insert(i)) = self.entity(h).map(|e| e.kind.clone()) else { return Ok(false) };
+        if index == 3 {
+            // The end of the reducer's cone: its length is how far it is from the junction, along the run.
+            let Some(red) = p.reducer else { return Ok(false) };
+            if i.scale.x <= 0.0 {
+                return Ok(false);
+            }
+            let x = (to - a).dot(Vec2::from_angle(i.rotation)) / i.scale.x;
+            let (trim0, trim1) = (p.units.to_units(p.trim_start_mm), p.units.to_units(p.trim_end_mm));
+            let len_mm = p.units.mm_per_unit * if red.at_end { p.length - trim1 - x } else { x - trim0 };
+            let room_mm = p.units.mm_per_unit * (p.length - trim0 - trim1);
+            if !len_mm.is_finite() || room_mm < 2.0 {
+                return Ok(false);
+            }
+            p.reducer_len_mm = Some(len_mm.clamp(1.0, room_mm));
+            self.regenerate_duct(h, &p)?;
+            return Ok(true);
+        }
         let d = to - a.mid(b);
         let (na, nb) = match index {
             0 => (to, b),

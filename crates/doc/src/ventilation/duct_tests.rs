@@ -52,6 +52,7 @@ fn duct(diameter_mm: f64) -> DuctParams {
         height_mm: 0.0,
         flexible: false,
         reducer: None,
+        reducer_len_mm: None,
         elbow: None,
         trim_start_mm: 0.0,
         trim_end_mm: 0.0,
@@ -2520,4 +2521,26 @@ fn a_sloping_duct_loses_pressure_over_its_true_length_and_says_where_it_ends() {
     assert!(DuctParams { end_level_mm: Some(f64::NAN), ..p.clone() }.validate().is_err());
     p.end_level_mm = None;
     assert!((p.length_m() - 4.0).abs() < 1e-9);
+}
+
+#[test]
+fn the_grip_at_the_end_of_a_reducers_cone_sets_its_length() {
+    let mut d = Drawing::new_metric();
+    let h = add_duct(&mut d, (0.0, 0.0), (2000.0, 0.0));
+    let mut p = duct_of(d.entity(h).unwrap()).unwrap();
+    assert_eq!(d.entity_grips(d.entity(h).unwrap()).len(), 3, "no cone, no grip for it");
+    p.reducer = Some(DuctReducer { from_mm: 400.0, at_end: false });
+    d.regenerate_duct(h, &p).unwrap();
+    let grips = |d: &Drawing| d.entity_grips(d.entity(h).unwrap());
+    let before = grips(&d);
+    assert_eq!(before.len(), 4);
+    assert!(d.stretch_duct_grip(h, 3, Vec2::new(900.0, 50.0)).unwrap());
+    let after = grips(&d);
+    assert!(after[3].x > before[3].x && (after[3].x - 900.0).abs() < 1e-6 && after[3].y.abs() < 1e-9, "the cone ends where it was dragged, on the run's axis");
+    assert_eq!((after[0], after[2]), (before[0], before[2]), "the run itself stays");
+    // The cone never outgrows the run, and a duct without a cone has no such grip.
+    assert!(d.stretch_duct_grip(h, 3, Vec2::new(99999.0, 0.0)).unwrap());
+    assert!(grips(&d)[3].x <= 2000.0 + 1e-6);
+    let other = add_duct(&mut d, (0.0, 500.0), (2000.0, 500.0));
+    assert!(!d.stretch_duct_grip(other, 3, Vec2::new(900.0, 500.0)).unwrap());
 }
