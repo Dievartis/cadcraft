@@ -1476,6 +1476,15 @@ fn typed_open_path(line: &str) -> Option<String> {
     (!path.trim().is_empty()).then_some(path)
 }
 
+/// The version shown in the start page and About: the package's, and the commit it was built from when the build gave one (`CADCRAFT_COMMIT`, set by the
+/// update scripts), so that two builds of the same version can be told apart.
+pub fn version_text() -> String {
+    match option_env!("CADCRAFT_COMMIT").map(str::trim).filter(|c| !c.is_empty()) {
+        Some(commit) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
+        None => env!("CARGO_PKG_VERSION").to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

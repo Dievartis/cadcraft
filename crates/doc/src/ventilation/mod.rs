@@ -158,12 +158,11 @@ pub fn preview_entities(pieces: Vec<HvacPiece>, at: Vec2, rotation: f64) -> Vec<
     pieces
         .into_iter()
         .map(|p| {
-            let color = hvac_layer_color(p.layer).unwrap_or(cadcraft_color::Color::ByLayer);
-            let mut e = crate::Entity {
-                handle: crate::Handle(0),
-                common: crate::Common { layer: p.layer.into(), color, ..Default::default() },
-                kind: p.kind,
-            };
+            // The layer's name is before a bar (`layer|linetype|colour`).
+            let layer = p.layer.split('|').next().unwrap_or(p.layer);
+            let color = hvac_layer_color(layer).unwrap_or(cadcraft_color::Color::ByLayer);
+            let mut e =
+                crate::Entity { handle: crate::Handle(0), common: crate::Common { layer: layer.into(), color, ..Default::default() }, kind: p.kind };
             e.kind.transform(&m);
             e
         })
@@ -363,9 +362,10 @@ impl crate::Drawing {
             let (linetype, colour_of) = rest.split_once('|').map_or((rest, None), |(l, c)| (l, Some(c)));
             self.ensure_hvac_layer(layer);
             let mut common = crate::Common { layer: layer.into(), linetype: linetype.into(), ..Default::default() };
-            // A colour of its own is written "#rrggbb"; else it is the colour of the layer named.
+            // A colour of its own is written "#rrggbb", ByBlock takes the colour given to the object; else it is the colour of the layer named.
             if let Some(c) = colour_of.and_then(|n| match riser::parse_hex_colour(n) {
                 Some((r, g, b)) => Some(cadcraft_color::Color::True(cadcraft_color::Rgb(r, g, b))),
+                None if n == "ByBlock" => Some(cadcraft_color::Color::ByBlock),
                 None => self.hvac_colour(n),
             }) {
                 common.color = c;

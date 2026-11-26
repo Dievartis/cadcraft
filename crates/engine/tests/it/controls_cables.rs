@@ -266,3 +266,25 @@ fn a_new_cable_puts_its_layer_in_the_drawing_with_the_colour_of_its_use() {
         assert_ne!(layer.color, cadcraft_color::Color::Index(7), "{usage}: the layer has a colour");
     }
 }
+
+#[test]
+fn an_equipment_takes_the_colour_given_to_it_and_keeps_it_when_changed() {
+    let mut s = metric();
+    let a = s.execute("equipmentadd", &json!({"at": [0, 0], "kind": "cassette", "name": "UI1"})).unwrap();
+    let h = hd(&a["handle"]);
+    // Its drawing on the equipment layer follows the colour of the equipment (ByLayer at first: the layer's).
+    let pieces_by_block = |s: &Session| {
+        let d = s.doc().unwrap();
+        let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!() };
+        let b = d.block(&i.block).unwrap();
+        let on_layer: Vec<_> = b.entities.iter().filter(|e| e.common.layer == cadcraft_doc::EQUIPMENT_LAYER).collect();
+        !on_layer.is_empty() && on_layer.iter().all(|e| e.common.color == cadcraft_color::Color::ByBlock)
+    };
+    assert!(pieces_by_block(&s));
+    assert_eq!(s.doc().unwrap().entity(h).unwrap().common.color, cadcraft_color::Color::ByLayer);
+    // A colour of its own, kept when the equipment is changed and redrawn.
+    s.execute("properties.set", &json!({"handles": [a["handle"]], "color": "red"})).unwrap();
+    s.execute("equipmentedit", &json!({"handle": a["handle"], "name": "UI2"})).unwrap();
+    assert_eq!(s.doc().unwrap().entity(h).unwrap().common.color, cadcraft_color::Color::Index(1));
+    assert!(pieces_by_block(&s));
+}

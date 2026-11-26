@@ -575,3 +575,36 @@ fn pdf_bytes_without_a_width_are_placed_at_their_size_on_paper() {
     let both = s.execute("pdfattach", &json!({"data": data, "width": 400, "height": 90})).unwrap();
     assert_eq!(both["size"], json!([400.0, 90.0]));
 }
+
+#[test]
+fn a_pdf_page_attached_from_bytes_is_put_back_where_it_was_when_attached_again_after_the_drawing_is_reopened() {
+    // The web app's way: the page is attached from bytes and placed, the drawing saved (the pixels are not in the file) and opened again in a new page of
+    // the browser, then the same PDF attached again.
+    hooks();
+    cadcraft_io::dwg_worker::allow_in_process();
+    let data = base64_encode(&pdf());
+    for ext in ["plan.dxf", "plan.dwg"] {
+        let mut s = Session::new();
+        let first = s.execute("pdfattach", &json!({"data": data, "name": "sheet.pdf", "insertion": [100, 50, 0], "width": 40})).unwrap();
+        assert!(first["message"].as_str().is_some_and(|m| m.contains("sheet.pdf")), "{first}");
+        let placed = images(&s)[0].clone();
+        let bytes = cadcraft_io::write(s.doc().unwrap(), ext).unwrap();
+        let mut s = Session::new();
+        s.execute("open", &json!({ "data": base64_encode(&bytes), "name": ext })).unwrap();
+        // A new page of the browser has none of the pixels.
+        let path = images(&s)[0].path.clone();
+        s.doc_mut().unwrap().rasters.remove(&path);
+        assert_eq!(drawn_images(&s), 0, "{ext}: the page is not drawn");
+        let again = s.execute("pdfattach", &json!({"data": data, "name": "sheet.pdf"})).unwrap();
+        assert_eq!(again["relinked"], json!(true), "{ext}: {again}");
+        assert!(again["message"].as_str().is_some_and(|m| m.contains("where it was")), "{again}");
+        let back = images(&s);
+        assert_eq!((back.len(), drawn_images(&s)), (1, 1), "{ext}: the same page, drawn again");
+        let corner = |i: &Image| (i.insert, i.u * i.size.x, i.v * i.size.y);
+        let (a, b) = (corner(&placed), corner(&back[0]));
+        assert!((a.0 - b.0).len() < 1e-6 && (a.1 - b.1).len() < 1e-6 && (a.2 - b.2).len() < 1e-6, "{ext}: where and as large as it was");
+        // Another PDF is a new page.
+        s.execute("pdfattach", &json!({"data": data, "name": "other.pdf"})).unwrap();
+        assert_eq!(images(&s).len(), 2);
+    }
+}
