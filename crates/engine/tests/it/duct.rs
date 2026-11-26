@@ -1841,3 +1841,37 @@ fn the_labels_of_objects_turned_any_way_never_read_upside_down() {
         }
     }
 }
+
+#[test]
+fn the_duct_joined_to_a_dragged_end_follows_it_unless_asked_to_stay() {
+    let start = |s: &Session, h: Handle| s.doc().unwrap().duct_ends(h).unwrap().1;
+    let laid = || {
+        let mut s = metric();
+        let r = s.execute("ductadd", &json!({"points": [[0, 0], [4000, 0], [4000, 3000]], "diameter": 315})).unwrap();
+        let hs: Vec<Handle> = r["handles"].as_array().unwrap().iter().map(hd).collect();
+        // Only the first run is selected.
+        s.set_selection(vec![hs[0]]);
+        (s, hs)
+    };
+    let corner = cadcraft_geom::Vec2::new(4000.0, 0.0);
+    let to = cadcraft_geom::Vec2::new(4500.0, 500.0);
+    // Dragged by its grip: the run joined at that end follows it.
+    let (mut s, hs) = laid();
+    s.start_grip_edit(&[(hs[0], 2)]).unwrap();
+    s.cmdline("4500,500").unwrap();
+    assert!(start(&s, hs[1]).dist(to) < 1e-6, "the joined run follows");
+    // With the Alone option, it stays.
+    let (mut s, hs) = laid();
+    s.start_grip_edit(&[(hs[0], 2)]).unwrap();
+    s.cmdline("Alone").unwrap();
+    s.cmdline("4500,500").unwrap();
+    assert!(start(&s, hs[1]).dist(corner) < 1e-6, "Alone: the joined run stays");
+    assert!(s.doc().unwrap().duct_ends(hs[0]).unwrap().2.dist(to) < 1e-6, "the dragged end moved");
+    // The same in JSON: `follow: false`.
+    let (mut s, hs) = laid();
+    s.execute("grip.stretch", &json!({"handle": hs[0].hex(), "index": 2, "to": [4500, 500], "follow": false})).unwrap();
+    assert!(start(&s, hs[1]).dist(corner) < 1e-6);
+    s.execute("grip.stretch", &json!({"handle": hs[0].hex(), "index": 2, "to": [4000, 0]})).unwrap();
+    s.execute("grip.stretch", &json!({"handle": hs[0].hex(), "index": 2, "to": [4500, 500]})).unwrap();
+    assert!(start(&s, hs[1]).dist(to) < 1e-6);
+}

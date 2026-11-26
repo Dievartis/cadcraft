@@ -49,6 +49,8 @@ pub(crate) struct GripEdit {
     base: Vec2,
     mode: GripMode,
     copy: bool,
+    /// The ducts joined to a dragged end of a duct stay where they are (the Alone option): otherwise their end follows it.
+    alone: bool,
     ask: Ask,
     /// The drawing before each edit made in Copy mode (Undo).
     undo: Vec<Arc<Drawing>>,
@@ -78,6 +80,11 @@ fn shown(s: &Session, h: Handle) -> bool {
 }
 
 impl GripEdit {
+    /// Whether a hot grip is an end of a duct run (its grip 0 or 2).
+    fn stretches_a_duct_end(&self, s: &Session) -> bool {
+        s.doc().is_ok_and(|d| self.hot.iter().any(|(h, i)| matches!(i, 0 | 2) && d.entity(*h).is_some_and(|e| cadcraft_doc::duct_of(e).is_some())))
+    }
+
     fn new(s: &Session, hot: Vec<(Handle, usize)>) -> Result<Self> {
         let mut g = GripEdit {
             hot: Vec::new(),
@@ -86,6 +93,7 @@ impl GripEdit {
             base: Vec2::ZERO,
             mode: GripMode::Stretch,
             copy: false,
+            alone: false,
             ask: Ask::Mode,
             undo: Vec::new(),
         };
@@ -224,7 +232,7 @@ impl GripEdit {
     fn edit(&mut self, s: &mut Session, to: Vec2, m: Option<Mat3>) -> Result<Step> {
         let before = s.state()?.doc.clone();
         let changed = match (self.mode, m) {
-            (GripMode::Stretch, _) => !stretch_grips(s, &self.hot, &self.targets, to - self.base, self.copy)?.is_empty(),
+            (GripMode::Stretch, _) => !stretch_grips(s, &self.hot, &self.targets, to - self.base, self.copy, !self.alone)?.is_empty(),
             (_, Some(m)) => !transform_entities(s, &self.targets, &m, self.copy)?.is_empty(),
             (_, None) => return Err(other("Invalid point.")),
         };
@@ -249,6 +257,11 @@ impl GripEdit {
                 }
                 "Copy" => {
                     self.copy = true;
+                    Ok(Step::Continue)
+                }
+                "Alone" if self.mode == GripMode::Stretch && self.stretches_a_duct_end(s) => {
+                    self.alone = true;
+                    s.echo("The ducts joined to the end stay where they are");
                     Ok(Step::Continue)
                 }
                 "Undo" => match self.undo.pop() {
@@ -390,6 +403,10 @@ impl Interactive for GripEdit {
                     GripMode::Mirror => ("** MIRROR ** Specify second point", Accept::POINT, &["Base point", "Copy", "Undo", "eXit"]),
                 };
                 let mut p = Prompt::new(msg, accept).kw(kw).base(base);
+                // The end of a duct being stretched: the ducts joined to it follow, unless Alone.
+                if self.mode == GripMode::Stretch && self.stretches_a_duct_end(s) {
+                    p.keywords.insert(2, "Alone".to_string());
+                }
                 // A single hot grip's multifunctional options (Add vertex, Lengthen…) before eXit.
                 let at = p.keywords.len().saturating_sub(1);
                 for (n, a) in self.actions(s).into_iter().enumerate() {

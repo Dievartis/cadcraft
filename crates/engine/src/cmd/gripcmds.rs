@@ -50,7 +50,7 @@ fn stretch(s: &mut Session, cmd: &str, p: &Value) -> Result<Value> {
         let d = s.doc()?;
         let from = d.entity(h).and_then(|e| d.entity_grips(e).get(i).copied()).ok_or_else(|| bad(cmd, "no such grip"))?;
         let others = targets(s, p)?;
-        let done = stretch_runs(s, &[(h, i)], &others, to - from)?;
+        let done = stretch_runs(s, &[(h, i)], &others, to - from, bool_or(p, "follow", true))?;
         if done.is_empty() {
             return Err(bad(cmd, "no such grip, or the result would be degenerate"));
         }
@@ -137,7 +137,7 @@ fn run_grip_stretch(s: &mut Session, p: &Value) -> Result<Value> {
         }
     };
     let others = if p.get("handles").is_some() { targets(s, p)? } else { s.selection() };
-    let hs = stretch_grips(s, &hot, &others, delta, bool_or(p, "copy", false))?;
+    let hs = stretch_grips(s, &hot, &others, delta, bool_or(p, "copy", false), bool_or(p, "follow", true))?;
     if hs.is_empty() {
         return Err(bad(cmd, "no grip could be stretched (locked, missing, or the result would be degenerate)"));
     }
@@ -274,8 +274,8 @@ fn follower_grips(kind: RunKind, grips: &[Vec2]) -> Vec<usize> {
 
 /// The duct, pipe, cable and wall runs of the hot grips moved by `delta`: each hot grip of a run stretches it, and the runs of the same kind in `others`
 /// whose end is on a point the grip moves follow (the middle grip of a duct, a pipe or a cable moves the run alone; that of a wall segment moves the segment,
-/// and the walls that meet its ends follow). Returns the runs redrawn.
-fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], delta: Vec2) -> Result<Vec<Handle>> {
+/// and the walls that meet its ends follow). With `follow`, the ducts that meet a dragged end of a duct follow it too, selected or not. Returns the runs redrawn.
+fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], delta: Vec2, follow: bool) -> Result<Vec<Handle>> {
     let mut moves: Vec<(RunKind, Handle, usize, Vec2)> = Vec::new();
     {
         let d = s.doc()?;
@@ -294,9 +294,22 @@ fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], del
                 _ if i == 1 => Vec::new(),
                 _ => vec![from],
             };
+            // The ducts of the drawing that meet the dragged end: they follow it, unless asked not to.
+            let joined: Vec<Handle> = if follow && kind == RunKind::Duct && !points.is_empty() {
+                d.space_of(h)
+                    .and_then(|sp| d.space(&sp))
+                    .into_iter()
+                    .flat_map(|st| st.iter())
+                    .filter(|e| e.handle != h && cadcraft_doc::duct_of(e).is_some())
+                    .map(|e| e.handle)
+                    .take(MAX_GRIPS)
+                    .collect()
+            } else {
+                Vec::new()
+            };
             for at in points {
                 let tol = 1e-9 * (1.0 + at.len());
-                for &o in others.iter().take(MAX_GRIPS) {
+                for &o in others.iter().take(MAX_GRIPS).chain(&joined) {
                     let Some(oe) = d.entity(o).filter(|oe| o != h && run_kind(oe) == Some(kind)) else { continue };
                     let gs = d.entity_grips(oe);
                     if let Some(j) = follower_grips(kind, &gs).into_iter().find(|j| gs.get(*j).is_some_and(|g| g.near(at, tol)))
@@ -329,9 +342,16 @@ fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], del
     Ok(out)
 }
 
-pub(super) fn stretch_grips(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], delta: Vec2, copy: bool) -> Result<Vec<Handle>> {
+pub(super) fn stretch_grips(
+    s: &mut Session,
+    hot: &[(Handle, usize)],
+    others: &[Handle],
+    delta: Vec2,
+    copy: bool,
+    follow: bool,
+) -> Result<Vec<Handle>> {
     let edits = stretched(s, hot, others, delta);
-    let mut out = if copy { Vec::new() } else { stretch_runs(s, hot, others, delta)? };
+    let mut out = if copy { Vec::new() } else { stretch_runs(s, hot, others, delta, follow)? };
     let d = s.doc_mut()?;
     for (h, k) in edits {
         if copy {

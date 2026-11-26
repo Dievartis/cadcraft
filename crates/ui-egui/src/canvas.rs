@@ -1118,9 +1118,13 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         && let Some(p) = app.canvas.cursor
     {
         if app.session.prompting() {
-            // Ctrl held while picking the point of a grip edit makes copies (the Copy option).
+            // Ctrl held while picking the point of a grip edit makes copies (the Copy option); Alt leaves the ducts joined to the end where they are
+            // (the Alone option).
             if mods.ctrl && app.session.running.as_ref().is_some_and(|r| r.id == "grip") {
                 let _ = app.session.input(Input::Keyword("Copy".into()));
+            }
+            if mods.alt && app.session.running.as_ref().is_some_and(|r| r.id == "grip") {
+                let _ = app.session.input(Input::Keyword("Alone".into()));
             }
             // Clicking places the point; a value typed into the Dynamic Input boxes is used up.
             if let Some(f) = dyn_frame
@@ -1259,9 +1263,12 @@ fn press_at(app: &mut CadApp, xf: &Xf, ctx: &egui::Context, pos: Pos2, mods: egu
     track_cursor(app, Some(raw), xf, ctx, dyn_frame);
     let Some(p) = app.canvas.cursor else { return false };
     if app.session.prompting() {
-        // Ctrl held while picking the point of a grip edit makes copies (the Copy option).
+        // Ctrl held while picking the point of a grip edit makes copies (the Copy option); Alt, the Alone option.
         if mods.ctrl && app.session.running.as_ref().is_some_and(|r| r.id == "grip") {
             let _ = app.session.input(Input::Keyword("Copy".into()));
+        }
+        if mods.alt && app.session.running.as_ref().is_some_and(|r| r.id == "grip") {
+            let _ = app.session.input(Input::Keyword("Alone".into()));
         }
         // Clicking places the point; a value typed into the Dynamic Input boxes is used up.
         if let Some(f) = dyn_frame
