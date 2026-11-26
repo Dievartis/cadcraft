@@ -35,7 +35,7 @@ fn every_accessory_is_drawn_across_its_duct_with_its_code() {
     ] {
         let pieces = accessory(kind).generate().unwrap();
         assert_eq!(texts(&pieces), [label], "{kind:?}");
-        assert!(pieces.iter().all(|p| p.layer == if kind == AccessoryKind::FireDamper { ACCESSORY_FIRE_LAYER } else { ACCESSORY_LAYER }));
+        assert!(pieces.iter().all(|p| p.layer.split('|').next().unwrap() == if kind == AccessoryKind::FireDamper { ACCESSORY_FIRE_LAYER } else { ACCESSORY_LAYER }));
         assert!(pieces.len() >= 3);
     }
     // A silencer is wider than its duct; the others only overhang it a little.

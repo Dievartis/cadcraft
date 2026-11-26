@@ -1800,3 +1800,44 @@ fn tab_chooses_which_edge_of_the_duct_follows_the_points_clicked_and_the_corners
     s.cmdline("line").unwrap();
     assert!(!s.cycle_alignment());
 }
+
+#[test]
+fn the_labels_of_objects_turned_any_way_never_read_upside_down() {
+    let mut s = metric();
+    s.execute("ductadd", &json!({"points": [[0, 0], [4000, 0]]})).unwrap();
+    let objects: Vec<Value> = [
+        ("ahuadd", json!({"at": [-3000, 3000]})),
+        ("airterminaladd", json!({"at": [5000, 3000], "flow": 100})),
+        ("ductaccessoryadd", json!({"at": [2000, 0]})),
+        ("equipmentadd", json!({"at": [9000, 3000], "kind": "cassette", "name": "UI1"})),
+    ]
+    .into_iter()
+    .map(|(add, p)| {
+        let r = s.execute(add, &p).unwrap();
+        r.get("handle").unwrap_or(&r["handles"][0]).clone()
+    })
+    .collect();
+    // Every text of an object, as it reads in the drawing: its angle, and whether it is upside down.
+    let upside_down = |s: &Session, h: &Value| {
+        let d = s.doc().unwrap();
+        let EntityKind::Insert(i) = &d.entity(hd(h)).unwrap().kind else { panic!("{h}") };
+        let texts: Vec<f64> = d
+            .block(&i.block)
+            .unwrap()
+            .entities
+            .iter()
+            .filter_map(|e| match &e.kind {
+                EntityKind::Text(t) => Some((i.rotation + t.rotation).rem_euclid(std::f64::consts::TAU)),
+                _ => None,
+            })
+            .collect();
+        assert!(!texts.is_empty(), "{h}: has a label");
+        texts.iter().any(|a| *a > std::f64::consts::FRAC_PI_2 + 1e-6 && *a < 3.0 * std::f64::consts::FRAC_PI_2 - 1e-6)
+    };
+    for angle in [90, 180, 225, 270] {
+        for h in &objects {
+            s.execute("rotate", &json!({ "handles": [h], "base": [0, 0], "angle": angle })).unwrap();
+            assert!(!upside_down(&s, h), "{h} turned {angle}°: its label reads upside down");
+        }
+    }
+}

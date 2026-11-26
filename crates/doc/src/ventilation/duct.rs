@@ -6,7 +6,7 @@
 use cadcraft_geom::{PolyVertex, Vec2};
 use serde::{Deserialize, Serialize};
 
-use super::{AirDirection, HvacPiece, HvacUnits, check_label_height, check_name, invalid, label, v3, xdata};
+use super::{AirDirection, HvacPiece, HvacUnits, by_block, check_label_height, check_name, invalid, label, v3, xdata};
 use crate::{EntityKind, Line, LwPolyline, RawTag, Result};
 
 /// The registered application name of an air handling unit's extended data.
@@ -545,13 +545,13 @@ impl AhuParams {
             AhuKind::VmcBox => Vec2::new(0.0, half.y + 1.6 * h),
             _ => Vec2::new(0.0, half.y * 0.8),
         };
-        pieces.push(HvacPiece { layer: AHU_LAYER, kind: label(code_at, h, self.kind.code().into()) });
-        pieces.push(HvacPiece { layer: AHU_LAYER, kind: label(Vec2::new(0.0, -half.y - 1.2 * h), h, text) });
+        pieces.push(HvacPiece { layer: by_block(AHU_LAYER), kind: label(code_at, h, self.kind.code().into()) });
+        pieces.push(HvacPiece { layer: by_block(AHU_LAYER), kind: label(Vec2::new(0.0, -half.y - 1.2 * h), h, text) });
         pieces.extend(self.port_marks(h));
         // The spec block to the right, beyond the collars' arrows, its lines under one another.
         let x = half.x + 0.9 * half.x.min(half.y) + 3.0 * h;
         for (i, line) in self.spec_lines().into_iter().enumerate() {
-            pieces.push(HvacPiece { layer: AHU_LAYER, kind: super::label_left(Vec2::new(x, half.y - (i as f64) * 1.6 * h - h), h, line) });
+            pieces.push(HvacPiece { layer: by_block(AHU_LAYER), kind: super::label_left(Vec2::new(x, half.y - (i as f64) * 1.6 * h - h), h, line) });
         }
         Ok(pieces)
     }
@@ -592,7 +592,7 @@ impl AhuParams {
         let rect = |cx: f64, cy: f64, w: f64, d: f64| {
             let corners = [(cx - w, cy - d), (cx + w, cy - d), (cx + w, cy + d), (cx - w, cy + d)];
             HvacPiece {
-                layer: AHU_LAYER,
+                layer: by_block(AHU_LAYER),
                 kind: EntityKind::LwPolyline(LwPolyline {
                     vertices: corners.iter().map(|&(x, y)| PolyVertex { p: Vec2::new(x, y), bulge: 0.0, start_width: 0.0, end_width: 0.0 }).collect(),
                     closed: true,
@@ -602,10 +602,10 @@ impl AhuParams {
                 }),
             }
         };
-        let line = |a: Vec2, b: Vec2| HvacPiece { layer: AHU_LAYER, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
+        let line = |a: Vec2, b: Vec2| HvacPiece { layer: by_block(AHU_LAYER), kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
         // A fan: its housing and three blades.
         let fan = |c: Vec2, r: f64| {
-            let mut v = vec![HvacPiece { layer: AHU_LAYER, kind: EntityKind::Circle(crate::Circle { center: v3(c), radius: r }) }];
+            let mut v = vec![HvacPiece { layer: by_block(AHU_LAYER), kind: EntityKind::Circle(crate::Circle { center: v3(c), radius: r }) }];
             for k in 0..3 {
                 let a = f64::from(k) * std::f64::consts::TAU / 3.0;
                 v.push(line(c, c + Vec2::from_angle(a) * (0.9 * r)));
@@ -954,6 +954,14 @@ pub struct DuctReducer {
     pub from_mm: f64,
     /// Whether the junction is at the run's far end (`false`: at its start, the block's origin).
     pub at_end: bool,
+    /// How far the axis of the run it joins is from this one's, mm across the run (positive: toward the side above the axis): an eccentric reducer, one side
+    /// straight, when the two runs are laid along one side.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub across_mm: f64,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
 }
 
 /// The elbow where a run turns away from the one it continues.
@@ -1123,7 +1131,9 @@ impl DuctParams {
             let len = match (self.reducer_shape, self.reducer_len_mm) {
                 (Some(sh), _) => self.units.to_units(sh.far_mm[0].max(sh.far_mm[1])).clamp(0.0, room),
                 (None, Some(mm)) => self.units.to_units(mm).min(room),
-                (None, None) => ((r0 - r).abs() / REDUCER_HALF_ANGLE_DEG.to_radians().tan()).min(0.4 * room),
+                (None, None) => {
+                    { ((r0 - r).abs() + self.units.to_units(red.across_mm).abs()) / REDUCER_HALF_ANGLE_DEG.to_radians().tan() }.min(0.4 * room)
+                }
             };
             (r0, len, red.at_end)
         })
@@ -1136,7 +1146,8 @@ impl DuctParams {
         let u = |mm: f64| self.units.to_units(mm);
         match self.reducer_shape {
             Some(sh) => ((u(sh.near_mm[k]), u(sh.near_across_mm[k])), Some((u(sh.far_mm[k]).max(0.0), u(sh.far_across_mm[k])))),
-            None => ((0.0, 0.0), None),
+            // An eccentric reducer: the near corners where the sides of the run it joins are.
+            None => ((0.0, self.reducer.map_or(0.0, |r| u(r.across_mm))), None),
         }
     }
 
@@ -1907,8 +1918,12 @@ impl crate::Drawing {
             }
             let r = p.units.to_units(p.plan_width_mm()) / 2.0;
             let now_mm = p.cone(r).map_or(0.0, |c| c.1 * p.units.mm_per_unit);
-            let mut shape =
-                p.reducer_shape.unwrap_or(ReducerShape { near_mm: [0.0; 2], far_mm: [now_mm; 2], near_across_mm: [0.0; 2], far_across_mm: [0.0; 2] });
+            let mut shape = p.reducer_shape.unwrap_or(ReducerShape {
+                near_mm: [0.0; 2],
+                far_mm: [now_mm; 2],
+                near_across_mm: [red.across_mm; 2],
+                far_across_mm: [0.0; 2],
+            });
             // Where the pointer is across the run (mm from the axis, above it as the run reads), and where the corner's side is: a corner takes the difference.
             let up = Vec2::from_angle(i.rotation + std::f64::consts::FRAC_PI_2);
             let y_mm = p.units.mm_per_unit * (to - a).dot(up) / i.scale.y;

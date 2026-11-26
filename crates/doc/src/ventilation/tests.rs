@@ -135,7 +135,7 @@ fn every_kind_of_terminal_is_drawn_to_scale_with_its_label() {
         let pieces = t.generate().unwrap();
         assert_eq!(texts(&pieces), [format!("{name} 50 m³/h")]);
         assert!(
-            pieces.iter().all(|p| p.layer == AIR_TERMINAL_LAYER || p.layer == AIR_SUPPLY_LAYER),
+            pieces.iter().all(|p| p.layer == by_block(AIR_TERMINAL_LAYER) || p.layer == AIR_SUPPLY_LAYER),
             "{name}: the face, and supply arrows on their own layer"
         );
     }

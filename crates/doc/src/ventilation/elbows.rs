@@ -35,6 +35,10 @@ trait RunParams {
     fn length_mm(&self) -> f64;
     fn elbow(&self) -> Option<DuctElbow>;
     fn reducer(&self) -> Option<DuctReducer>;
+    /// Drawing units per mm, and whether a narrower run laid along one side of a wider one (their axes apart, a side in line) joins it with a cone
+    /// that is flat on that side (an eccentric reducer): ducts only.
+    fn units_per_mm(&self) -> f64;
+    const ECCENTRIC: bool = false;
     /// A flexible run takes no elbow and no cone.
     fn flexible(&self) -> bool {
         false
@@ -56,6 +60,10 @@ impl RunParams for DuctParams {
     }
 
     const ELBOW_RADIUS_PER_WIDTH: f64 = 1.0;
+    const ECCENTRIC: bool = true;
+    fn units_per_mm(&self) -> f64 {
+        1.0 / self.units.mm_per_unit
+    }
     fn width_mm(&self) -> f64 {
         self.plan_width_mm()
     }
@@ -79,6 +87,9 @@ impl RunParams for DuctParams {
 impl RunParams for super::PipeParams {
     // A short-radius pipe elbow.
     const ELBOW_RADIUS_PER_WIDTH: f64 = 1.5;
+    fn units_per_mm(&self) -> f64 {
+        1.0 / self.units.mm_per_unit
+    }
     fn width_mm(&self) -> f64 {
         self.plan_width_mm()
     }
@@ -138,6 +149,16 @@ fn near_segment(p: Vec2, a: Vec2, b: Vec2, tol: f64) -> bool {
     p.dist(a + ab * t) <= tol
 }
 
+/// How far `o`'s end `o_end` is across `r`'s axis from `r`'s end `at_end`, drawing units, when the two runs go on from each other in line but their axes
+/// are apart, the narrower run inside the width of the wider one (laid along one of its sides): an eccentric reducer joins them. `None` otherwise.
+fn eccentric_offset<P: RunParams>(r: &Run<P>, at_end: bool, o: &Run<P>, o_end: bool, tol: f64) -> Option<f64> {
+    let (p, q, dir) = (r.end(at_end), o.end(o_end), r.away(at_end));
+    let d = q - p;
+    let across = d.cross(dir);
+    let room = (r.params.width_mm() - o.params.width_mm()).abs() / 2.0 * r.params.units_per_mm();
+    (o.away(o_end).dot(dir) < -0.999 && d.dot(dir).abs() <= tol && across.abs() > tol && across.abs() <= room + tol).then_some(across)
+}
+
 /// The joints where exactly two runs of one network meet end to end: (run, at its end?) of each. A run of another network (an extract duct stacked under a
 /// supply one, starting at the same point of a unit; a run of another air going through) is not part of the joint.
 fn joints<P: RunParams>(runs: &[Run<P>], tol: f64) -> Vec<[(usize, bool); 2]> {
@@ -151,7 +172,10 @@ fn joints<P: RunParams>(runs: &[Run<P>], tol: f64) -> Vec<[(usize, bool); 2]> {
                 if k == i || !r.params.same_network(&o.params) {
                     continue;
                 }
-                let ends = [false, true].into_iter().filter(|e| o.end(*e).dist(p) <= tol).collect::<Vec<_>>();
+                let mut ends = [false, true].into_iter().filter(|e| o.end(*e).dist(p) <= tol).collect::<Vec<_>>();
+                if ends.is_empty() && P::ECCENTRIC {
+                    ends.extend([false, true].into_iter().filter(|e| eccentric_offset(r, at_end, o, *e, tol).is_some()));
+                }
                 if ends.is_empty() {
                     // A run going through the point makes a tee.
                     crossing |= near_segment(p, o.a, o.b, tol);
@@ -244,9 +268,16 @@ fn reducers<P: RunParams>(
     }
     fn set(out: &mut [Option<DuctReducer>], k: usize, at_end: bool, from_mm: f64, differs: bool) {
         if let Some(slot) = out.get_mut(k) {
-            *slot = differs.then_some(DuctReducer { from_mm, at_end });
+            *slot = differs.then_some(DuctReducer { from_mm, at_end, across_mm: 0.0 });
         }
     }
+    // How far the axis of the run `other` joins is from `holder`'s, mm across its block (positive to the left of its start to its end): an eccentric reducer.
+    let across = |(h, he): (usize, bool), (o, oe): (usize, bool)| {
+        let (Some(hr), Some(or)) = (runs.get(h), runs.get(o)) else { return 0.0 };
+        let d = or.end(oe) - hr.end(he);
+        let x = (hr.b - hr.a).normalized();
+        if d.dot(x).abs() > tol { 0.0 } else { d.dot(x.perp()) / hr.params.units_per_mm() }
+    };
     // Two runs end to end: the one that has a reducer there keeps it, else the later one takes it.
     for j in joints {
         let [(a, ae), (b, be)] = *j;
@@ -263,6 +294,9 @@ fn reducers<P: RunParams>(
         };
         if can_hold(&out, holder.0, holder.1) {
             set(&mut out, holder.0, holder.1, width(other.0), differs);
+            if let Some(Some(red)) = out.get_mut(holder.0) {
+                red.across_mm = across(holder, other);
+            }
             if has(&out, other.0, other.1) {
                 set(&mut out, other.0, other.1, 0.0, false);
             }
@@ -602,6 +636,13 @@ impl crate::Drawing {
         };
         let caps = free_ends(&runs, tol, &blocked);
         let all_joints = joints(&runs, tol);
+        // An end at a joint is not a free end (the narrower run of an eccentric reducer ends inside the wider one, apart from its end).
+        let mut caps = caps;
+        for (k, at_end) in all_joints.iter().flatten() {
+            if let Some(c) = caps.get_mut(*k) {
+                c[usize::from(*at_end)] = false;
+            }
+        }
         let joints: Vec<[(usize, bool); 2]> =
             all_joints.iter().copied().filter(|j| j.iter().all(|(k, _)| runs.get(*k).is_some_and(|r| !r.params.flexible))).collect();
         let next = plan_elbows(&runs, &joints);

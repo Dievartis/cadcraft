@@ -51,6 +51,7 @@ mod takeoff;
 mod takeoff_cost;
 mod terminal;
 mod titleblock;
+mod upright;
 pub(crate) mod xdata;
 mod xlsx;
 mod zone;
@@ -374,6 +375,25 @@ impl crate::Drawing {
         }
         self.blocks.insert(name.clone(), std::sync::Arc::new(b));
         name
+    }
+}
+
+/// The piece layer of an object drawn on `layer` whose pieces take the colour given to the object (ByBlock): the layer's while it is ByLayer.
+pub(crate) fn by_block(layer: &'static str) -> &'static str {
+    match layer {
+        AHU_LAYER => "M-HVAC-AHU|ByLayer|ByBlock",
+        AIR_TERMINAL_LAYER => "M-HVAC-DIFF|ByLayer|ByBlock",
+        ACCESSORY_LAYER => "M-HVAC-ACC|ByLayer|ByBlock",
+        ACCESSORY_FIRE_LAYER => "M-HVAC-FIRE|ByLayer|ByBlock",
+        DUCT_LAYER => "M-HVAC-DUCT-SUP|ByLayer|ByBlock",
+        DUCT_EXTRACT_LAYER => "M-HVAC-DUCT-EXTR|ByLayer|ByBlock",
+        DUCT_FRESH_LAYER => "M-HVAC-DUCT-FRESH|ByLayer|ByBlock",
+        DUCT_EXHAUST_LAYER => "M-HVAC-DUCT-EXH|ByLayer|ByBlock",
+        DEVICE_LAYER => "E-DEVICE|ByLayer|ByBlock",
+        LIGHT_LAYER => "E-LIGHT|ByLayer|ByBlock",
+        PANEL_LAYER => "E-PANEL|ByLayer|ByBlock",
+        SAFETY_LAYER => "E-SAFETY|ByLayer|ByBlock",
+        other => other,
     }
 }
 

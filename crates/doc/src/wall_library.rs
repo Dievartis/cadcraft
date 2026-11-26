@@ -14,8 +14,16 @@ fn c(name: &str, thickness: f64, function: ComponentFunction) -> WallComponent {
 }
 
 fn style(name: &str, description: &str, components: Vec<WallComponent>) -> WallStyle {
-    WallStyle { name: name.into(), description: description.into(), components, default_height: 2500.0 }
+    WallStyle { name: name.into(), description: description.into(), components, default_height: 2500.0, glazed_above_mm: None }
 }
+
+/// `style`, glass from `mm` above its foot.
+fn glazed_from(mm: f64, style: WallStyle) -> WallStyle {
+    WallStyle { glazed_above_mm: Some(mm), ..style }
+}
+
+/// The height of the sill of a glazed partition, mm.
+const GLAZED_SILL_MM: f64 = 1000.0;
 
 /// Plasterboard (12.5 mm), wrapping into openings.
 fn plasterboard() -> WallComponent {
@@ -77,23 +85,29 @@ pub fn standard_wall_styles() -> Vec<WallStyle> {
         ),
         // Demountable glazed partitions, 72 mm: glass in an aluminium frame, full height or on a plasterboard sill. A style is the same over the whole height,
         // so one on a sill is drawn as its lower part is (plasterboard, studs and the line of the glazing above); its glass is not counted apart.
-        style(
-            "Glazed partition 72, full height, single glazing",
-            "Demountable partition: one 10 mm glass in a 72 mm aluminium frame, floor to ceiling",
-            vec![
-                partition_core(c("Aluminium frame", 31.0, AirGap)),
-                partition_core(c("Glass 10", 10.0, Structure)),
-                partition_core(c("Aluminium frame", 31.0, AirGap)),
-            ],
+        glazed_from(
+            0.0,
+            style(
+                "Glazed partition 72, full height, single glazing",
+                "Demountable partition: one 10 mm glass in a 72 mm aluminium frame, floor to ceiling",
+                vec![
+                    partition_core(c("Aluminium frame", 31.0, AirGap)),
+                    partition_core(c("Glass 10", 10.0, Structure)),
+                    partition_core(c("Aluminium frame", 31.0, AirGap)),
+                ],
+            ),
         ),
-        style(
-            "Glazed partition 72, full height, double glazing",
-            "Demountable partition: two 6 mm glasses 60 mm apart in a 72 mm aluminium frame, floor to ceiling",
-            vec![
-                partition_core(c("Glass 6", 6.0, Structure)),
-                partition_core(c("Aluminium frame", 60.0, AirGap)),
-                partition_core(c("Glass 6", 6.0, Structure)),
-            ],
+        glazed_from(
+            0.0,
+            style(
+                "Glazed partition 72, full height, double glazing",
+                "Demountable partition: two 6 mm glasses 60 mm apart in a 72 mm aluminium frame, floor to ceiling",
+                vec![
+                    partition_core(c("Glass 6", 6.0, Structure)),
+                    partition_core(c("Aluminium frame", 60.0, AirGap)),
+                    partition_core(c("Glass 6", 6.0, Structure)),
+                ],
+            ),
         ),
         glazed_on_sill("single", "one 10 mm glass"),
         glazed_on_sill("double", "two 6 mm glasses"),
@@ -105,10 +119,13 @@ pub fn standard_wall_styles() -> Vec<WallStyle> {
 /// A demountable partition of 72 mm on a plasterboard sill, glazed above it with `glazing` (single or double): drawn as its lower part, with the line of the glazing in the middle.
 fn glazed_on_sill(glazing: &str, glass: &str) -> WallStyle {
     let studs = || partition_core(c("Studs + mineral wool", 23.5, Insulation).hatched("ZIGZAG", 4.0));
-    style(
-        &format!("Glazed partition 72 on a sill, {glazing} glazing"),
-        &format!("Demountable partition: plasterboard sill on metal studs, {glass} in an aluminium frame above it"),
-        vec![plasterboard(), studs(), c("Glazing above the sill", 0.0, Membrane), studs(), plasterboard()],
+    glazed_from(
+        GLAZED_SILL_MM,
+        style(
+            &format!("Glazed partition 72 on a sill, {glazing} glazing"),
+            &format!("Demountable partition: plasterboard sill on metal studs, {glass} in an aluminium frame above it"),
+            vec![plasterboard(), studs(), c("Glazing above the sill", 0.0, Membrane), studs(), plasterboard()],
+        ),
     )
 }
 

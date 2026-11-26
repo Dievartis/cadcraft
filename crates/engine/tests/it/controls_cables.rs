@@ -268,6 +268,58 @@ fn a_new_cable_puts_its_layer_in_the_drawing_with_the_colour_of_its_use() {
 }
 
 #[test]
+fn a_drawing_whose_cable_layers_were_left_white_gets_their_colour_back_when_opened() {
+    let mut s = metric();
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "usage": "bus", "circuit": "BUS1"})).unwrap();
+    let layer = s.doc().unwrap().entity(hd(&r["handles"][0])).unwrap().common.layer.clone();
+    let colour = s.doc().unwrap().layer(&layer).unwrap().color;
+    // As a few versions left it, and a layer of the user's that is white stays so.
+    s.doc_mut().unwrap().layers.iter_mut().find(|l| l.name == layer).unwrap().color = cadcraft_color::Color::WHITE;
+    s.execute("layer.new", &json!({"name": "MINE"})).unwrap();
+    cadcraft_engine::cmd::file::set_io(cadcraft_engine::cmd::file::IoHooks {
+        read: |bytes, name| cadcraft_io::read(bytes, name).map_err(|e| e.to_string()),
+        write: |d, name| cadcraft_io::write(d, name).map_err(|e| e.to_string()),
+        plot: None,
+    });
+    let bytes = cadcraft_io::write(s.doc().unwrap(), "plan.dxf").unwrap();
+    let mut s = Session::new();
+    s.execute("open", &json!({ "data": cadcraft_engine::cmd::file::base64_encode(&bytes), "name": "plan.dxf" })).unwrap();
+    let d = s.doc().unwrap();
+    assert_eq!(d.layer(&layer).unwrap().color, colour, "the cable layer has its colour again");
+    assert_eq!(d.layer("MINE").unwrap().color, cadcraft_color::Color::WHITE);
+}
+
+#[test]
+fn units_terminals_accessories_and_devices_take_the_colour_given_to_them_and_keep_it_when_changed() {
+    let mut s = metric();
+    s.execute("ductadd", &json!({"points": [[0, 0], [4000, 0]]})).unwrap();
+    let cases = [
+        ("ahuadd", json!({"at": [-3000, 3000]}), "ahuedit", json!({"name": "CTA2"}), cadcraft_doc::AHU_LAYER),
+        ("airterminaladd", json!({"at": [5000, 3000], "flow": 100}), "airterminaledit", json!({"flow": 120}), cadcraft_doc::AIR_TERMINAL_LAYER),
+        ("ductaccessoryadd", json!({"at": [2000, 0]}), "ductaccessoryedit", json!({"length": 400}), cadcraft_doc::ACCESSORY_LAYER),
+        ("elecdeviceadd", json!({"at": [8000, 3000], "kind": "socket"}), "elecedit", json!({"address": "A1"}), cadcraft_doc::DEVICE_LAYER),
+    ];
+    for (add, p, edit, change, layer) in cases {
+        let a = s.execute(add, &p).unwrap();
+        let handle = a.get("handle").unwrap_or(&a["handles"][0]).clone();
+        let h = hd(&handle);
+        let by_block = |s: &Session| {
+            let d = s.doc().unwrap();
+            let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!("{add}") };
+            let on_layer: Vec<_> = d.block(&i.block).unwrap().entities.iter().filter(|e| e.common.layer == layer).collect();
+            !on_layer.is_empty() && on_layer.iter().all(|e| e.common.color == cadcraft_color::Color::ByBlock)
+        };
+        assert!(by_block(&s), "{add}: drawn in the colour of the object");
+        s.execute("properties.set", &json!({"handles": [handle], "color": "red"})).unwrap();
+        let mut change = change;
+        change["handle"] = handle.clone();
+        s.execute(edit, &change).unwrap();
+        assert_eq!(s.doc().unwrap().entity(h).unwrap().common.color, cadcraft_color::Color::Index(1), "{add}: its colour kept by {edit}");
+        assert!(by_block(&s), "{add}: still drawn in it");
+    }
+}
+
+#[test]
 fn an_equipment_takes_the_colour_given_to_it_and_keeps_it_when_changed() {
     let mut s = metric();
     let a = s.execute("equipmentadd", &json!({"at": [0, 0], "kind": "cassette", "name": "UI1"})).unwrap();

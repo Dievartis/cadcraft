@@ -63,7 +63,7 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     let risers: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::any_riser_of(e))).collect();
     if !risers.is_empty() && risers.len() == sel.len() {
         if risers.iter().all(RiserParams::is_cable) {
-            return cable_riser_section(ui, sel, &risers, bad);
+            return cable_riser_section(ui, d, sel, &risers, bad);
         }
         return riser_section(ui, sel, &risers, bad);
     }
@@ -557,8 +557,21 @@ fn cable_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], cs: &[cadcraft_
         }
     });
     // The library: a cable type gives its cable (and its use); the cable of this one can be kept under a name for other cables.
+    // Typed in: the name of a cable type of the library gives that type, anything else is the cable as written (as in the section's box).
     prop_row(ui, "Cable type", |ui| {
-        ui.menu_button(crate::i18n::t("Choose a cable type"), |ui| {
+        let shown = written.clone().unwrap_or_else(|| VARIES.into());
+        let field = ui.scope_id().with(("cable_type_typed", &ids));
+        ui.scope(|ui| {
+            ui.set_max_width((ui.available_width() - 30.0).max(60.0));
+            if let Some(t) = edit_field(ui, field, shown).map(|t| t.trim().to_string()).filter(|t| t != VARIES) {
+                let known = d.available_cable_types().into_iter().find(|c| c.name.eq_ignore_ascii_case(&t)).map(|c| c.name);
+                action = Some(match known {
+                    Some(name) => ("elecedit", json!({ "handles": ids, "cableType": name })),
+                    None => ("elecedit", json!({ "handles": ids, "section": if t.is_empty() { Value::Null } else { json!(t) } })),
+                });
+            }
+        });
+        ui.menu_button("▾", |ui| {
             let types = d.available_cable_types();
             for usage in cadcraft_doc::CableUsage::ALL {
                 let of_use: Vec<_> = types.iter().filter(|t| t.usage == Some(usage)).collect();
@@ -1706,7 +1719,7 @@ fn equipment_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], items: &[ca
 
 /// The Properties group of risers of cables or of a bus: name, direction, shaft and height, and the lines each holds (its use, its circuit or bus, its
 /// section and its loads); lines are added and removed.
-fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams], bad: &mut Option<String>) -> Action {
+fn cable_riser_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], risers: &[RiserParams], bad: &mut Option<String>) -> Action {
     let ids = handles(sel);
     let mut action: Action = None;
     let edit = |key: &str, value: Value| Some(("riseredit", json!({ "handles": ids, key: value })));
@@ -1813,7 +1826,11 @@ fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams]
                     ui,
                     id,
                     cadcraft_color::Color::ByLayer,
-                    cadcraft_color::Rgb(128, 128, 128),
+                    // The colour of the layer of its circuit's cables, as the line is drawn.
+                    d.layers
+                        .iter()
+                        .find(|l| l.name.eq_ignore_ascii_case(line.piece_layer()))
+                        .map_or(cadcraft_color::Rgb(255, 255, 255), |l| l.color.resolve(cadcraft_color::Color::WHITE, cadcraft_color::Color::WHITE)),
                     "Circuit colour",
                     false,
                     width,

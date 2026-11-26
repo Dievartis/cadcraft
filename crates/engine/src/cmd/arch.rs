@@ -125,6 +125,14 @@ pub(crate) fn after_command(s: &mut Session, before: Option<&std::sync::Arc<Draw
     if st.doc.controls_touched_since(b, &space) && st.doc.model.iter().any(|e| cadcraft_doc::control_schema_of(e).is_some()) {
         std::sync::Arc::make_mut(&mut st.doc).refresh_control_schemas();
     }
+    // Every label of an object added, changed or turned reads left to right or from the bottom up, never upside down.
+    let upside_down = st.doc.upside_down_labels_since(b, &space);
+    if !upside_down.is_empty() {
+        let d = std::sync::Arc::make_mut(&mut st.doc);
+        for h in upside_down {
+            d.upright_labels(h);
+        }
+    }
 }
 
 /// Joins the walls of `space` where they meet; a drawing with too many walls to join at once
@@ -437,6 +445,7 @@ fn fallback_style() -> WallStyle {
         description: String::new(),
         components: vec![WallComponent::new("Wall", 200.0, Default::default())],
         default_height: 2500.0,
+        glazed_above_mm: None,
     }
 }
 
@@ -637,7 +646,7 @@ fn run_wallstyleedit(s: &mut Session, p: &Value) -> Result<Value> {
         (Some(st), None) => st,
         (None, Some(from)) => WallStyle { name: name.to_string(), ..style_named(d, from)? },
         (None, None) if p.get("components").is_some() => {
-            WallStyle { name: name.to_string(), description: String::new(), components: Vec::new(), default_height: 2500.0 }
+            WallStyle { name: name.to_string(), description: String::new(), components: Vec::new(), default_height: 2500.0, glazed_above_mm: None }
         }
         (None, None) => return Err(other(format!("Cannot find wall style \"{name}\"; give `components` or `copyFrom` to create it."))),
     };

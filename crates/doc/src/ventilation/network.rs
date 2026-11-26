@@ -424,9 +424,11 @@ impl crate::Drawing {
             let parent = net.network.segments.get(i).and_then(|s| s.parent).and_then(|k| report.segments.get(k));
             // The first run of a unit's collar with a size joins it the same way.
             let from_mm = parent.map(|q| q.width_mm).or_else(|| net.collar_widths_mm.get(i).copied().flatten());
-            p.reducer = from_mm
-                .filter(|w| (w - r.width_mm).abs() > 0.5)
-                .map(|w| DuctReducer { from_mm: w, at_end: net.entered_at_end.get(i).copied().unwrap_or(false) });
+            p.reducer = from_mm.filter(|w| (w - r.width_mm).abs() > 0.5).map(|w| DuctReducer {
+                from_mm: w,
+                at_end: net.entered_at_end.get(i).copied().unwrap_or(false),
+                across_mm: 0.0,
+            });
             (p.elbow, p.trim_start_mm, p.trim_end_mm) = (None, 0.0, 0.0);
             p.bottom_mm = net.bottoms_mm.get(i).copied().flatten();
             // Supply and exhaust air leave the unit, extract and fresh air come to it: with the way the

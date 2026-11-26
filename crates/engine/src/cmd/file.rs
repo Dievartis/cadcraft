@@ -366,12 +366,25 @@ pub fn read_file(path: &std::path::Path) -> std::result::Result<ReadFile, String
     }
 }
 
+/// The layers of cables a few versions left white get their colour back, said on the command line.
+fn restore_cable_colours(s: &mut Session, i: usize) {
+    let Some(st) = s.docs.get_mut(i) else { return };
+    if !st.doc.layers.iter().any(|l| l.name.to_ascii_uppercase().starts_with("E-CABLE") && l.color == cadcraft_color::Color::WHITE) {
+        return;
+    }
+    let fixed = std::sync::Arc::make_mut(&mut st.doc).restore_cable_layer_colours();
+    if !fixed.is_empty() {
+        s.echo(format!("Cable layers given their colour again: {}", fixed.join(", ")));
+    }
+}
+
 /// Add a [`read_file`] result to the session as the active drawing: the fast half of OPEN.
 pub fn finish_open(s: &mut Session, f: ReadFile) -> Result<Value> {
     let ReadFile { drawing, binary_dxf, name, path } = f;
     let i = add_read(s, drawing, binary_dxf, &name, path);
     super::blocks::xref::after_open(s, i);
     super::image::after_open(s, i);
+    restore_cable_colours(s, i);
     // The host's UI thread: the lines for object snaps are read on a worker.
     super::underlay::after_open(s, i, true);
     Ok(opened(s, i, true))
@@ -447,6 +460,7 @@ fn run_open(s: &mut Session, p: &Value) -> Result<Value> {
             let i = open_bytes(s, &bytes, path, Some(path.to_string()))?;
             super::blocks::xref::after_open(s, i);
             super::image::after_open(s, i);
+            restore_cable_colours(s, i);
             super::underlay::after_open(s, i, false);
             return Ok(opened(s, i, true));
         }
@@ -459,6 +473,7 @@ fn run_open(s: &mut Session, p: &Value) -> Result<Value> {
     let i = open_bytes(s, &bytes, name, None)?;
     super::blocks::xref::after_open(s, i);
     super::image::after_open(s, i);
+    restore_cable_colours(s, i);
     super::underlay::after_open(s, i, false);
     Ok(opened(s, i, false))
 }

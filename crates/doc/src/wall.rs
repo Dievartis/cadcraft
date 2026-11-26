@@ -169,6 +169,10 @@ pub struct WallStyle {
     /// The height of new walls, in millimetres.
     #[serde(default = "default_height")]
     pub default_height: f64,
+    /// Where the wall is glass from, mm above its foot, for a glazed partition: 0 for glass to the floor, the height of its sill for one on a sill. The
+    /// elevations and the sections draw the glass from there; `None` for a wall that is not glazed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glazed_above_mm: Option<f64>,
 }
 
 impl WallStyle {

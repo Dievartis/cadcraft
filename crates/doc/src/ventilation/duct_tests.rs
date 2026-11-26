@@ -172,19 +172,19 @@ fn a_flexible_duct_is_drawn_as_bellows_above_which_its_label_sits() {
 
 #[test]
 fn a_reducer_is_drawn_as_a_cone_where_the_run_joins_one_of_another_diameter() {
-    let at_start = DuctParams { length: 1000.0, reducer: Some(DuctReducer { from_mm: 250.0, at_end: false }), ..duct(160.0) };
+    let at_start = DuctParams { length: 1000.0, reducer: Some(DuctReducer { from_mm: 250.0, at_end: false, across_mm: 0.0 }), ..duct(160.0) };
     let sides = polylines(&at_start.generate(false).unwrap());
     // From the larger radius at the start to the run's own, 15° cone: (125 - 80) / tan 15° = 168 mm long.
     assert_eq!(sides[0][0], Vec2::new(0.0, 125.0));
     assert!((sides[0][1].x - 45.0 / 15f64.to_radians().tan()).abs() < 1e-6 && (sides[0][1].y - 80.0).abs() < 1e-9);
     assert_eq!(sides[0].last().copied(), Some(Vec2::new(1000.0, 80.0)));
     // At the far end it is the other way round.
-    let at_end = DuctParams { reducer: Some(DuctReducer { from_mm: 250.0, at_end: true }), ..at_start.clone() };
+    let at_end = DuctParams { reducer: Some(DuctReducer { from_mm: 250.0, at_end: true, across_mm: 0.0 }), ..at_start.clone() };
     let sides = polylines(&at_end.generate(false).unwrap());
     assert_eq!(sides[0].first().copied(), Some(Vec2::new(0.0, 80.0)));
     assert_eq!(sides[0].last().copied(), Some(Vec2::new(1000.0, 125.0)));
     // A short run keeps room for itself: the cone is at most 40 % of it.
-    let short = DuctParams { length: 100.0, reducer: Some(DuctReducer { from_mm: 630.0, at_end: false }), ..duct(160.0) };
+    let short = DuctParams { length: 100.0, reducer: Some(DuctReducer { from_mm: 630.0, at_end: false, across_mm: 0.0 }), ..duct(160.0) };
     assert!(polylines(&short.generate(false).unwrap())[0][1].x <= 40.0 + 1e-9);
 }
 
@@ -896,7 +896,7 @@ fn each_kind_of_unit_is_drawn_with_its_own_parts_and_collars() {
     for (kind, polylines, fans) in expect {
         let pieces = unit_of(kind).generate().unwrap();
         assert_eq!((polys(&pieces), circles(&pieces)), (polylines, fans), "{kind:?}");
-        assert!(pieces.iter().filter(|p| p.layer == AHU_LAYER).count() > 0);
+        assert!(pieces.iter().filter(|p| p.layer == by_block(AHU_LAYER)).count() > 0);
         assert!(text_of(&pieces).value.starts_with(kind.code()), "the code is written on the unit: {kind:?}");
     }
     // Each kind starts at its own size, and the parse takes the names a command gives and the French ones.
@@ -1047,7 +1047,7 @@ fn a_louvre_is_drawn_with_arrows_of_its_direction_and_comes_in_standard_sizes() 
     for (air, layer) in [(AirDirection::Fresh, AIR_FRESH_LAYER), (AirDirection::Exhaust, AIR_EXHAUST_LAYER)] {
         let pieces = t(air).generate().unwrap();
         assert_eq!(pieces.iter().filter(|p| p.layer == layer).count(), 3, "one arrow: its shaft and two sides of the head");
-        assert!(pieces.iter().all(|p| p.layer == AIR_TERMINAL_LAYER || p.layer == layer));
+        assert!(pieces.iter().all(|p| p.layer == by_block(AIR_TERMINAL_LAYER) || p.layer == layer));
     }
     // Fresh air comes toward the face, exhaust goes away from it: the head is at the face for the first.
     let heads = |air: AirDirection| -> f64 {
@@ -1596,7 +1596,7 @@ fn the_takeoff_counts_fittings_accessories_risers_and_units_of_the_level() {
     assert_eq!(q.units[0].name, "CTA1");
     // A reducer is counted with the sizes it joins; an accessory by kind and diameter.
     let (mut p, ..) = d.duct_ends(d.model.iter().filter_map(|e| d.duct_ends(e.handle).map(|_| e.handle)).nth(1).unwrap()).unwrap();
-    p.reducer = Some(DuctReducer { from_mm: 315.0, at_end: false });
+    p.reducer = Some(DuctReducer { from_mm: 315.0, at_end: false, across_mm: 0.0 });
     let h = d.model.iter().filter_map(|e| d.duct_ends(e.handle).map(|_| e.handle)).nth(1).unwrap();
     d.regenerate_duct(h, &p).unwrap();
     let q = d.takeoff("").unwrap();
@@ -1836,7 +1836,7 @@ fn the_dashes_stop_where_a_cone_begins_and_a_run_under_another_keeps_its_bend() 
         over_straight_mm: [0.0, 0.0],
     }];
     // A cone of 1000 mm at the start: the dashes start where the straight sides do.
-    p.reducer = Some(DuctReducer { from_mm: 900.0, at_end: false });
+    p.reducer = Some(DuctReducer { from_mm: 900.0, at_end: false, across_mm: 0.0 });
     let pieces = p.generate(false).unwrap();
     let xs: Vec<f64> = pieces
         .iter()
@@ -2192,17 +2192,17 @@ fn a_reducer_is_drawn_where_two_runs_of_another_width_meet_and_follows_their_siz
     };
     // The later run is made Ø315: it joins the first by a cone from Ø200, at its start.
     resize(&mut d, second, 315.0);
-    assert_eq!(reducer(&d, second), Some(DuctReducer { from_mm: 200.0, at_end: false }));
+    assert_eq!(reducer(&d, second), Some(DuctReducer { from_mm: 200.0, at_end: false, across_mm: 0.0 }));
     assert_eq!(reducer(&d, first), None);
     // The first one is made Ø400: the cone is from 400 now.
     resize(&mut d, first, 400.0);
-    assert_eq!(reducer(&d, second), Some(DuctReducer { from_mm: 400.0, at_end: false }));
+    assert_eq!(reducer(&d, second), Some(DuctReducer { from_mm: 400.0, at_end: false, across_mm: 0.0 }));
     // Rectangular, 600 wide (width in plan 600): from 600.
     let mut p = duct_of(d.entity(first).unwrap()).unwrap();
     (p.shape, p.width_mm, p.height_mm) = (DuctShape::Rectangular, 600.0, 300.0);
     d.regenerate_duct(first, &p).unwrap();
     d.draw_duct_elbows(&Space::Model).unwrap();
-    assert_eq!(reducer(&d, second), Some(DuctReducer { from_mm: 600.0, at_end: false }));
+    assert_eq!(reducer(&d, second), Some(DuctReducer { from_mm: 600.0, at_end: false, across_mm: 0.0 }));
     // The same widths again: the cone goes.
     resize(&mut d, second, 600.0);
     let mut p = duct_of(d.entity(second).unwrap()).unwrap();
@@ -2223,7 +2223,7 @@ fn a_run_ending_on_the_side_of_another_of_another_width_gets_a_reducer_and_an_el
     d.regenerate_duct(trunk, &p).unwrap();
     d.draw_duct_elbows(&Space::Model).unwrap();
     let got = duct_of(d.entity(branch).unwrap()).unwrap().reducer;
-    assert_eq!(got, Some(DuctReducer { from_mm: 400.0, at_end: true }), "the branch ends on the trunk");
+    assert_eq!(got, Some(DuctReducer { from_mm: 400.0, at_end: true, across_mm: 0.0 }), "the branch ends on the trunk");
     assert_eq!(duct_of(d.entity(trunk).unwrap()).unwrap().reducer, None);
     // Two runs turning where they meet have an elbow, not a cone.
     let mut d = Drawing::new_metric();
@@ -2237,7 +2237,7 @@ fn a_run_ending_on_the_side_of_another_of_another_width_gets_a_reducer_and_an_el
     assert_eq!(duct_of(d.entity(b).unwrap()).unwrap().reducer, None);
     // The other run takes the cone, from the elbow's width, just before the bend.
     let first = duct_of(d.entity(a).unwrap()).unwrap();
-    assert_eq!(first.reducer, Some(DuctReducer { from_mm: 315.0, at_end: true }));
+    assert_eq!(first.reducer, Some(DuctReducer { from_mm: 315.0, at_end: true, across_mm: 0.0 }));
     assert!(first.straight_range().1 < first.length - first.trim_end_mm, "the cone takes a stretch before the bend");
     // The sides end at the bend with the width of the elbow, and the straight stretch stops short of the bend by the cone.
     let sides: Vec<Vec2> = polylines(&first.generate(false).unwrap()).into_iter().flatten().collect();
@@ -2260,7 +2260,7 @@ fn a_run_that_starts_on_a_collar_that_was_given_a_size_gets_the_cone_from_it_wit
     let reducer = |d: &Drawing| duct_of(d.entity(run).unwrap()).unwrap().reducer;
     assert_eq!(reducer(&d), None);
     d.draw_duct_elbows(&Space::Model).unwrap();
-    assert_eq!(reducer(&d), Some(DuctReducer { from_mm: 1500.0, at_end: false }), "from the width of the collar");
+    assert_eq!(reducer(&d), Some(DuctReducer { from_mm: 1500.0, at_end: false, across_mm: 0.0 }), "from the width of the collar");
     // A duct as wide as the collar needs none.
     let mut p = duct_of(d.entity(run).unwrap()).unwrap();
     (p.shape, p.width_mm, p.height_mm) = (DuctShape::Rectangular, 1500.0, 250.0);
@@ -2271,7 +2271,7 @@ fn a_run_that_starts_on_a_collar_that_was_given_a_size_gets_the_cone_from_it_wit
     unit.port_sizes[2] = Some(super::RiserSize::Rectangular { width_mm: 1000.0, height_mm: 300.0 });
     d.regenerate_ahu(u, &unit).unwrap();
     d.draw_duct_elbows(&Space::Model).unwrap();
-    assert_eq!(reducer(&d), Some(DuctReducer { from_mm: 1000.0, at_end: false }));
+    assert_eq!(reducer(&d), Some(DuctReducer { from_mm: 1000.0, at_end: false, across_mm: 0.0 }));
 }
 
 #[test]
@@ -2532,7 +2532,7 @@ fn the_grip_at_the_end_of_a_reducers_cone_sets_its_length() {
     let h = add_duct(&mut d, (0.0, 0.0), (2000.0, 0.0));
     let mut p = duct_of(d.entity(h).unwrap()).unwrap();
     assert_eq!(d.entity_grips(d.entity(h).unwrap()).len(), 3, "no cone, no grip for it");
-    p.reducer = Some(DuctReducer { from_mm: 400.0, at_end: false });
+    p.reducer = Some(DuctReducer { from_mm: 400.0, at_end: false, across_mm: 0.0 });
     d.regenerate_duct(h, &p).unwrap();
     let grips = |d: &Drawing| d.entity_grips(d.entity(h).unwrap());
     let before = grips(&d);
@@ -2556,7 +2556,7 @@ fn the_line_closing_a_cone_joins_its_far_corners_wherever_they_were_dragged() {
     let mut d = Drawing::new_metric();
     let h = add_duct(&mut d, (0.0, 0.0), (2000.0, 0.0));
     let mut p = duct_of(d.entity(h).unwrap()).unwrap();
-    p.reducer = Some(DuctReducer { from_mm: 400.0, at_end: false });
+    p.reducer = Some(DuctReducer { from_mm: 400.0, at_end: false, across_mm: 0.0 });
     d.regenerate_duct(h, &p).unwrap();
     // The far corner above the axis, pulled up and along.
     assert!(d.stretch_duct_grip(h, 6, Vec2::new(900.0, 400.0)).unwrap());
@@ -2604,7 +2604,34 @@ fn a_whistle_cuts_the_end_on_the_slant_and_only_where_the_end_is_free() {
     let line = cut.generate(false).unwrap().into_iter().any(|x| matches!(x.kind, EntityKind::Line(l) if (l.a.x - l.b.x).abs() > 100.0));
     assert!(line, "the end line is drawn across the slant");
     // A cone at that end keeps the end square, and a cut too steep is refused.
-    let coned = DuctParams { reducer: Some(DuctReducer { from_mm: 300.0, at_end: true }), ..cut.clone() };
+    let coned = DuctParams { reducer: Some(DuctReducer { from_mm: 300.0, at_end: true, across_mm: 0.0 }), ..cut.clone() };
     assert!((least(&sides(&coned)) - reach(&sides(&coned))).abs() < 1e-6);
     assert!(DuctParams { cut_deg: [0.0, 80.0], ..square }.validate().is_err());
+}
+
+#[test]
+fn a_narrower_run_laid_along_one_side_of_a_wider_one_joins_it_with_a_cone_flat_on_that_side() {
+    let mut d = Drawing::new_metric();
+    // Ø400 from 0 to 3000 on y = 0, then Ø200 on y = 100: the sides above are both at y = 200.
+    let (first, second) = (add_duct(&mut d, (0.0, 0.0), (3000.0, 0.0)), add_duct(&mut d, (3000.0, 100.0), (6000.0, 100.0)));
+    let mut p = duct_of(d.entity(first).unwrap()).unwrap();
+    p.diameter_mm = 400.0;
+    d.regenerate_duct(first, &p).unwrap();
+    d.draw_duct_elbows(&Space::Model).unwrap();
+    let (a, b) = (duct_of(d.entity(first).unwrap()).unwrap(), duct_of(d.entity(second).unwrap()).unwrap());
+    let red = a.reducer.or(b.reducer).expect("the two runs are joined by a reducer");
+    assert!(red.across_mm.abs() > 50.0, "{red:?}: its narrow end is off the axis");
+    // The cone's corners are on the sides of the two runs (Ø400: ±200, Ø200: 0 and 200), and one side of the cone is straight: on the line both runs' sides share.
+    let (h, run) = if a.reducer.is_some() { (first, &a) } else { (second, &b) };
+    let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!() };
+    let world = |c: Vec2| super::slab::block_to_world(i, c);
+    let [near_up, near_down, far_up, far_down] = run.reducer_corners().unwrap().map(world);
+    let ys = [near_up.y, near_down.y, far_up.y, far_down.y];
+    for side in [-200.0, 0.0, 200.0] {
+        assert!(ys.iter().any(|y| (y - side).abs() < 1.0), "a corner on the side at {side}: {ys:?}");
+    }
+    let straight = [(near_up, far_up), (near_down, far_down)].iter().any(|(n, f)| (n.y - f.y).abs() < 1.0);
+    assert!(straight, "one side of the cone is straight");
+    // No cap is drawn where the narrow run ends inside the wide one.
+    assert!(!(b.cap_start || a.cap_end), "the joint is not a free end");
 }

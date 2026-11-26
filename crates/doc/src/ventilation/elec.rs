@@ -627,7 +627,7 @@ impl DeviceParams {
     pub fn generate(&self) -> Result<Vec<HvacPiece>> {
         self.validate()?;
         let u = |mm: f64| self.units.to_units(mm);
-        let layer = self.layer();
+        let layer = super::by_block(self.layer());
         let mut shapes: Vec<EntityKind> = Vec::new();
         let mut half_height = 150.0;
         match self.kind {
@@ -872,6 +872,29 @@ impl crate::Drawing {
         self.ensure_layer(layer);
         self.modify_entity(h, |e| e.common.layer = layer.into())?;
         Ok(())
+    }
+}
+
+impl crate::Drawing {
+    /// Gives back their colour to the layers of cables left white (a few versions made them white), as a new cable's layer gets it: the colour of its
+    /// use, or of its circuit's network. Returns the layers given their colour.
+    pub fn restore_cable_layer_colours(&mut self) -> Vec<String> {
+        use cadcraft_color::Color;
+        let fixes: Vec<(String, Color)> = self
+            .layers
+            .iter()
+            .filter(|l| l.name.to_ascii_uppercase().starts_with("E-CABLE") && l.color == Color::WHITE)
+            .filter_map(|l| {
+                let c = self.network_look(&l.name).map(|(c, _)| c).or_else(|| self.hvac_colour(&l.name))?;
+                (c != Color::WHITE).then(|| (l.name.clone(), c))
+            })
+            .collect();
+        for (name, c) in &fixes {
+            if let Some(l) = self.layers.iter_mut().find(|l| l.name == *name) {
+                l.color = *c;
+            }
+        }
+        fixes.into_iter().map(|(n, _)| n).collect()
     }
 }
 

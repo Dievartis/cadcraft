@@ -113,6 +113,15 @@ fn pieces_of(
         HvacPiece { layer, kind: EntityKind::Text(t) }
     };
     let mut out = vec![rect(ELEVATION_LAYER, 0.0, 0.0, length, height)];
+    // A glazed partition: its glass from its sill (or the floor) to its head, crossed as a window's, with the height of the sill.
+    if let Some(glass) = wall.style.glazed_above_mm.map(u).filter(|g| *g < height) {
+        out.push(rect(ELEVATION_WINDOW_LAYER, 0.0, glass, length, height));
+        out.push(line(ELEVATION_WINDOW_LAYER, Vec2::new(0.0, glass), Vec2::new(length, height)));
+        out.push(line(ELEVATION_WINDOW_LAYER, Vec2::new(0.0, height), Vec2::new(length, glass)));
+        if glass > 1e-9 {
+            out.push(text(ELEVATION_DIM_LAYER, Vec2::new(-u(300.0), glass / 2.0), format!("{:.0}", glass * mm)));
+        }
+    }
     let mut edges = vec![0.0, length];
     for &(kind, centre, w, sill, h) in openings {
         let layer = if kind == OpeningKind::Window { ELEVATION_WINDOW_LAYER } else { ELEVATION_DOOR_LAYER };

@@ -571,7 +571,16 @@ fn section_wall(pic: &mut Picture, cut: &Cut, i: &Insert, wall: &WallParams, ope
                         pic.line(SECTION_DIM_LAYER, Vec2::new(x0, mid_y), Vec2::new(x1, mid_y));
                     }
                 }
-                None => pic.rect(x0, x1, 0.0, height, true),
+                // A glazed partition: solid up to its sill, its glass above (a line in the middle of the wall).
+                None => match wall.style.glazed_above_mm.filter(|g| *g < height) {
+                    Some(sill) => {
+                        pic.rect(x0, x1, 0.0, sill, true);
+                        pic.rect(x0, x1, sill, height, false);
+                        let x = (x0 + x1) / 2.0;
+                        pic.line(SECTION_LAYER, Vec2::new(x, pic.u(sill)), Vec2::new(x, pic.u(height)));
+                    }
+                    None => pic.rect(x0, x1, 0.0, height, true),
+                },
             }
         }
     }

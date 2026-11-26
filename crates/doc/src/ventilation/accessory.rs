@@ -223,7 +223,7 @@ impl AccessoryParams {
         self.validate()?;
         let half = self.half();
         let r = self.units.to_units(self.diameter_mm) / 2.0;
-        let layer = self.layer();
+        let layer = super::by_block(self.layer());
         let line = |a: Vec2, b: Vec2| HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
         let poly = |pts: Vec<Vec2>, closed: bool| HvacPiece {
             layer,
