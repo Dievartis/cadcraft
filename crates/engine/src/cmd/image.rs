@@ -411,10 +411,45 @@ pub(super) fn attach_pdf_bytes(s: &mut Session, p: &Value) -> Result<Value> {
         .map(|n| format!("pdf-underlay:{name}:{page}:{n}"))
         .find(|path| d.rasters.get(path).is_none() && !images(d).any(|i| i.path == *path))
         .ok_or_else(|| bad(PDF, "too many PDF pages attached with this name"))?;
-    let name = def_name(d, &path, &stem(name));
+    let wanted = stem(name);
+    // With `replace`, the drawing's one PDF page, when it has one and no placement is asked for: the new page takes its place (where it is, as wide, turned the
+    // same way, on its layer and in its place in the draw order), so a revised plan replaces the old one and CALIBRATE can adjust it after.
+    let replace = p.get("replace").and_then(Value::as_bool).unwrap_or(false);
+    if replace
+        && !placed
+        && let Some((h, old)) = lone_pdf_page(d)
+    {
+        let k = old.u.len() * old.size.x / f64::from(raster.width());
+        if k.is_normal() && old.v.len().is_normal() {
+            let (u, v) = (old.u * (k / old.u.len()), old.v * (k / old.v.len()));
+            let name = if wanted.eq_ignore_ascii_case(&old.name) { old.name.clone() } else { def_name(d, &path, &wanted) };
+            let size = Vec2::new(f64::from(raster.width()), f64::from(raster.height()));
+            let doc = s.doc_mut()?;
+            doc.modify_entity(h, |e| {
+                if let EntityKind::Image(im) = &mut e.kind {
+                    (im.u, im.v, im.size, im.path, im.name) = (u, v, size, path.clone(), name.clone());
+                }
+            })?;
+            doc.rasters.remove(&old.path);
+            doc.rasters.insert(&path, Arc::new(raster));
+            let message = told(&format!("put in place of {}, as wide as it was", old.name));
+            return Ok(json!({ "path": path, "handle": h.hex(), "replaced": true, "message": message }));
+        }
+    }
+    let name = def_name(d, &path, &wanted);
     let mut r = attach_raster(s, path, name, Arc::new(raster), Vec3::new(xyz[0], xyz[1], xyz[2]), Vec3::new(u, 0.0, 0.0), Vec3::new(0.0, v, 0.0))?;
     r["message"] = json!(format!("{} at {:.2},{:.2}, {width:.3} × {height:.3} drawing units", told("attached"), xyz[0], xyz[1]));
     Ok(r)
+}
+
+/// The model-space image of a PDF page attached without a file, when the drawing has exactly one.
+fn lone_pdf_page(d: &Drawing) -> Option<(cadcraft_doc::Handle, Image)> {
+    let mut pages = d.model.iter().filter_map(|e| match &e.kind {
+        EntityKind::Image(i) if i.path.starts_with("pdf-underlay:") => Some((e.handle, i.clone())),
+        _ => None,
+    });
+    let one = pages.next()?;
+    pages.next().is_none().then_some(one)
 }
 
 /// The path of a model-space image of the PDF page `prefix` (`pdf-underlay:<name>:<page>:`) that has no pixels, made ready for `raster`: when the

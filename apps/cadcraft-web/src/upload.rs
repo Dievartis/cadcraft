@@ -268,6 +268,10 @@ fn attach_pdf(app: &mut CadApp, name: &str, bytes: &[u8], placement: Option<PdfP
         return Err(e);
     }
     let mut params = serde_json::json!({ "name": name, "data": cadcraft_engine::cmd::file::base64_encode(bytes) });
+    // Chosen in the browser without a placement, the PDF takes the place of the drawing's one PDF page (a revised plan).
+    if placement.is_none() {
+        params["replace"] = true.into();
+    }
     if let Some(p) = placement {
         params["page"] = p.page.into();
         params["insertion"] = serde_json::json!(p.insertion);

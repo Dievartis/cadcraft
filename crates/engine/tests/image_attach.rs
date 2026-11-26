@@ -603,8 +603,18 @@ fn a_pdf_page_attached_from_bytes_is_put_back_where_it_was_when_attached_again_a
         let corner = |i: &Image| (i.insert, i.u * i.size.x, i.v * i.size.y);
         let (a, b) = (corner(&placed), corner(&back[0]));
         assert!((a.0 - b.0).len() < 1e-6 && (a.1 - b.1).len() < 1e-6 && (a.2 - b.2).len() < 1e-6, "{ext}: where and as large as it was");
-        // Another PDF is a new page.
-        s.execute("pdfattach", &json!({"data": data, "name": "other.pdf"})).unwrap();
-        assert_eq!(images(&s).len(), 2);
+        // Another PDF takes the place of the drawing's one page: where it is, as wide and turned the same way; undo brings the old one back.
+        let h = s.doc().unwrap().model.iter().find(|e| matches!(e.kind, EntityKind::Image(_))).unwrap().handle.hex();
+        s.execute("rotate", &json!({ "handles": [h], "base": [100, 50], "angle": 30 })).unwrap();
+        let turned = images(&s)[0].clone();
+        let other = s.execute("pdfattach", &json!({"data": data, "name": "other.pdf", "replace": true})).unwrap();
+        assert_eq!(other["replaced"], json!(true), "{ext}: {other}");
+        let now = images(&s);
+        assert_eq!((now.len(), drawn_images(&s)), (1, 1), "{ext}: one page, the new one drawn");
+        assert!(now[0].path.contains("other.pdf") && (now[0].insert - turned.insert).len() < 1e-6, "{ext}: in the old one's place");
+        let width = |i: &Image| i.u * i.size.x;
+        assert!((width(&now[0]) - width(&turned)).len() < 1e-6, "{ext}: as wide and turned the same way");
+        s.undo().unwrap();
+        assert_eq!(images(&s)[0].path, turned.path, "{ext}: undo brings the old page back");
     }
 }
