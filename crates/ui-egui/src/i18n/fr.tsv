@@ -3794,6 +3794,10 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	Line {n}: colour (#rrggbb)	Ligne {n} : couleur (#rrggbb)
 	Line {n}: colour	Ligne {n} : couleur
 	Circuit colour	Couleur du circuit
+	Line {n}: direction	Ligne {n} : sens
+	As the riser	Comme la colonne
+	Passes through, going up	Traverse en montant
+	Passes through, going down	Traverse en descendant
 	Back to the circuit colour	Revenir à la couleur du circuit
 	Connection altitudes (m, one per collar)	Altitudes des raccords (m, un par raccord)
 	Requires altitudes in metres, separated by commas.	Il faut des altitudes en mètres, séparées par des virgules.

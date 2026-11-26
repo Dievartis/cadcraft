@@ -310,3 +310,27 @@ fn a_riser_of_cables_holds_several_lines_each_counted_in_its_own_circuit() {
         .is_err()
     );
 }
+
+#[test]
+fn each_line_of_a_riser_of_cables_can_go_its_own_way_or_pass_through() {
+    let mut s = metric();
+    let r = s
+        .execute("elecriser", &json!({"at": [0, 0], "width": 600, "depth": 600, "lines": [{"circuit": "A"}, {"circuit": "B"}, {"circuit": "C"}]}))
+        .unwrap();
+    let h = hd(&r["handle"]);
+    let riser = |s: &Session| cadcraft_doc::any_riser_of(s.doc().unwrap().entity(h).unwrap()).unwrap();
+    // The riser goes up; line 2 goes down, line 3 passes through going down.
+    s.execute("riseredit", &json!({"handle": r["handle"], "line": {"index": 2, "way": "down"}})).unwrap();
+    s.execute("riseredit", &json!({"handle": r["handle"], "line": {"index": 3, "way": "throughDown"}})).unwrap();
+    let p = riser(&s);
+    let up = p.up;
+    let ways: Vec<(bool, bool)> = p.cable.lines.iter().map(|l| (l.flows_up(up), l.passes_through())).collect();
+    assert_eq!(ways, [(up, false), (false, false), (false, true)]);
+    // Back to the riser's way; a bad way is refused.
+    s.execute("riseredit", &json!({"handle": r["handle"], "line": {"index": 2, "way": "auto"}})).unwrap();
+    assert_eq!(riser(&s).cable.lines[1].way, None);
+    assert!(s.execute("riseredit", &json!({"handle": r["handle"], "line": {"index": 2, "way": "sideways"}})).is_err());
+    // The riser's own direction does not touch the lines' ways.
+    s.execute("riseredit", &json!({"handle": r["handle"], "direction": "down", "load": 3})).unwrap();
+    assert_eq!(riser(&s).cable.lines[0].way, None);
+}

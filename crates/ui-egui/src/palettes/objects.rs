@@ -1770,6 +1770,22 @@ fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams]
                 action = line_edit("section", if t.trim().is_empty() { Value::Null } else { json!(t.trim()) });
             }
         });
+        // The way of the line at this level: the riser's, or its own (up, down, or passing through going up or down).
+        let way_label = crate::tf!("Line {n}: direction", n = n);
+        prop_row(ui, &way_label, |ui| {
+            let items = [
+                ("auto", "As the riser"),
+                ("up", "Goes up"),
+                ("down", "Goes down"),
+                ("throughUp", "Passes through, going up"),
+                ("throughDown", "Passes through, going down"),
+            ];
+            let key = line.way.map_or("auto", cadcraft_doc::LineWay::name);
+            let shown = items.iter().find(|(k, _)| *k == key).map_or("As the riser", |(_, w)| w);
+            if let Some(k) = choice(ui, shown, &items) {
+                action = line_edit("way", json!(k));
+            }
+        });
         // A colour of its own for the line, chosen as a layer's is (kept as "#rrggbb"); none: the colour of its circuit's wire.
         let colour_label = crate::tf!("Line {n}: colour", n = n);
         prop_row(ui, &colour_label, |ui| {
