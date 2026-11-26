@@ -49,7 +49,7 @@ pub(crate) struct GripEdit {
     base: Vec2,
     mode: GripMode,
     copy: bool,
-    /// The ducts joined to a dragged end of a duct stay where they are (the Alone option): otherwise their end follows it.
+    /// The ducts, pipes or cables joined to a dragged end of one stay where they are (the Alone option): otherwise their end follows it.
     alone: bool,
     ask: Ask,
     /// The drawing before each edit made in Copy mode (Undo).
@@ -80,9 +80,16 @@ fn shown(s: &Session, h: Handle) -> bool {
 }
 
 impl GripEdit {
-    /// Whether a hot grip is an end of a duct run (its grip 0 or 2).
+    /// Whether a hot grip is an end of a duct, a pipe or a cable (its grip 0 or 2).
     fn stretches_a_duct_end(&self, s: &Session) -> bool {
-        s.doc().is_ok_and(|d| self.hot.iter().any(|(h, i)| matches!(i, 0 | 2) && d.entity(*h).is_some_and(|e| cadcraft_doc::duct_of(e).is_some())))
+        s.doc().is_ok_and(|d| {
+            self.hot.iter().any(|(h, i)| {
+                matches!(i, 0 | 2)
+                    && d.entity(*h).is_some_and(|e| {
+                        cadcraft_doc::duct_of(e).is_some() || cadcraft_doc::pipe_of(e).is_some() || cadcraft_doc::cable_of(e).is_some()
+                    })
+            })
+        })
     }
 
     fn new(s: &Session, hot: Vec<(Handle, usize)>) -> Result<Self> {
@@ -261,7 +268,7 @@ impl GripEdit {
                 }
                 "Alone" if self.mode == GripMode::Stretch && self.stretches_a_duct_end(s) => {
                     self.alone = true;
-                    s.echo("The ducts joined to the end stay where they are");
+                    s.echo("The runs joined to the end stay where they are");
                     Ok(Step::Continue)
                 }
                 "Undo" => match self.undo.pop() {

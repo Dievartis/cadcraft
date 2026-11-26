@@ -116,6 +116,7 @@ fn ducted() -> Drawing {
         reducer_len_mm: None,
         reducer_shape: None,
         label_shift_mm: None,
+        kept_edge: None,
         cut_deg: [0.0, 0.0],
         elbow: None,
         trim_start_mm: 0.0,

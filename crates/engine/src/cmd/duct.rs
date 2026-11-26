@@ -650,6 +650,7 @@ fn duct_params(s: &Session, last: &DuctLastUsed, label_mm: f64) -> Result<DuctPa
         reducer_len_mm: None,
         reducer_shape: None,
         label_shift_mm: None,
+        kept_edge: None,
         cut_deg: [0.0, 0.0],
         elbow: None,
         trim_start_mm: 0.0,
@@ -755,7 +756,9 @@ impl DuctAddM {
     /// Lays run `k` again (or for the first time) from the clicked line, in place of the one there was.
     fn lay(&mut self, s: &mut Session, k: usize) -> Result<()> {
         let (a, b) = shifted(&self.pts, &self.offs, k);
-        let params = self.params(s)?;
+        let mut params = self.params(s)?;
+        // Laid by an edge: the run keeps that edge on the line when its width changes later (sizing, Properties).
+        params.kept_edge = self.offs.get(k).copied().filter(|o| *o != 0.0).map(f64::signum);
         if let Some(old) = self.handles.get(k).copied() {
             s.doc_mut()?.remove_entity(old);
         }
@@ -1215,6 +1218,7 @@ fn run_ductconnect(s: &mut Session, p: &Value) -> Result<Value> {
             reducer_len_mm: None,
             reducer_shape: None,
             label_shift_mm: None,
+            kept_edge: None,
             cut_deg: [0.0, 0.0],
             elbow: None,
             trim_start_mm: 0.0,

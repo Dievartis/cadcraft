@@ -111,6 +111,8 @@ pub(crate) fn after_command(s: &mut Session, before: Option<&std::sync::Arc<Draw
     }
     // The elbows of the duct runs are drawn where two runs meet and turn, as soon as they are laid (sizing draws the same ones later).
     if st.doc.ducts_touched_since(b, &space) {
+        // A run laid by an edge whose width changed keeps that edge where it was laid, before its elbows are drawn again.
+        let _ = std::sync::Arc::make_mut(&mut st.doc).keep_duct_edges_since(b, &space);
         // The height zones first (the ducts under a beam are cut, made flat and given the altitude of the zone), then the bends, cones and steps that follow.
         let _ = std::sync::Arc::make_mut(&mut st.doc).draw_height_zones(&space);
         let _ = std::sync::Arc::make_mut(&mut st.doc).draw_duct_elbows(&space);

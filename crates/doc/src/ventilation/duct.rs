@@ -827,6 +827,10 @@ pub struct DuctParams {
     /// How far the label is moved along and across the run, mm, so that it does not write over another run's label (set by `space_duct_labels`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_shift_mm: Option<[f64; 2]>,
+    /// The side whose edge was laid on the line clicked (+1: the edge on the right of the run as it goes, its axis to the left of the line; -1: the
+    /// other); `None` for a run laid on its axis. When the run's width changes its axis moves, so that this edge stays on the line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_edge: Option<f64>,
     /// The end cut on the slant (a whistle), degrees, at the start and at the far end: 0 is square. Drawn only at an end with no elbow or cone.
     #[serde(default, skip_serializing_if = "is_square")]
     pub cut_deg: [f64; 2],

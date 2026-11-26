@@ -1118,7 +1118,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         && let Some(p) = app.canvas.cursor
     {
         if app.session.prompting() {
-            // Ctrl held while picking the point of a grip edit makes copies (the Copy option); Alt leaves the ducts joined to the end where they are
+            // Ctrl held while picking the point of a grip edit makes copies (the Copy option); Alt leaves the runs joined to the end where they are
             // (the Alone option).
             if mods.ctrl && app.session.running.as_ref().is_some_and(|r| r.id == "grip") {
                 let _ = app.session.input(Input::Keyword("Copy".into()));

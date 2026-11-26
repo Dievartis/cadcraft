@@ -274,7 +274,8 @@ fn follower_grips(kind: RunKind, grips: &[Vec2]) -> Vec<usize> {
 
 /// The duct, pipe, cable and wall runs of the hot grips moved by `delta`: each hot grip of a run stretches it, and the runs of the same kind in `others`
 /// whose end is on a point the grip moves follow (the middle grip of a duct, a pipe or a cable moves the run alone; that of a wall segment moves the segment,
-/// and the walls that meet its ends follow). With `follow`, the ducts that meet a dragged end of a duct follow it too, selected or not. Returns the runs redrawn.
+/// and the walls that meet its ends follow). With `follow`, the ducts, pipes or cables that meet a dragged end of one of their kind follow it too, selected
+/// or not. Returns the runs redrawn.
 fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], delta: Vec2, follow: bool) -> Result<Vec<Handle>> {
     let mut moves: Vec<(RunKind, Handle, usize, Vec2)> = Vec::new();
     {
@@ -294,13 +295,13 @@ fn stretch_runs(s: &mut Session, hot: &[(Handle, usize)], others: &[Handle], del
                 _ if i == 1 => Vec::new(),
                 _ => vec![from],
             };
-            // The ducts of the drawing that meet the dragged end: they follow it, unless asked not to.
-            let joined: Vec<Handle> = if follow && kind == RunKind::Duct && !points.is_empty() {
+            // The runs of the same kind in the drawing that meet the dragged end: they follow it, unless asked not to.
+            let joined: Vec<Handle> = if follow && matches!(kind, RunKind::Duct | RunKind::Pipe | RunKind::Cable) && !points.is_empty() {
                 d.space_of(h)
                     .and_then(|sp| d.space(&sp))
                     .into_iter()
                     .flat_map(|st| st.iter())
-                    .filter(|e| e.handle != h && cadcraft_doc::duct_of(e).is_some())
+                    .filter(|e| e.handle != h && run_kind(e) == Some(kind))
                     .map(|e| e.handle)
                     .take(MAX_GRIPS)
                     .collect()

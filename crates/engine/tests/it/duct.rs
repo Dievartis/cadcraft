@@ -1875,3 +1875,66 @@ fn the_duct_joined_to_a_dragged_end_follows_it_unless_asked_to_stay() {
     s.execute("grip.stretch", &json!({"handle": hs[0].hex(), "index": 2, "to": [4500, 500]})).unwrap();
     assert!(start(&s, hs[1]).dist(to) < 1e-6);
 }
+
+#[test]
+fn a_duct_laid_by_an_edge_keeps_that_edge_on_the_line_when_it_is_made_wider() {
+    let mut s = metric();
+    // Laid by the bottom edge (Tab once): an L along y = 0 then up x = 3000; the duct hangs to the left of the line, Ø200.
+    s.cmdline("ductadd").unwrap();
+    assert!(s.cycle_alignment());
+    for t in ["0,0", "3000,0", "3000,3000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    let runs = |s: &Session| -> Vec<(Handle, f64, cadcraft_geom::Vec2, cadcraft_geom::Vec2)> {
+        let d = s.doc().unwrap();
+        d.model.iter().filter_map(|e| d.duct_ends(e.handle).map(|(p, a, b)| (e.handle, p.plan_width_mm(), a, b))).collect()
+    };
+    let before = runs(&s);
+    assert_eq!(before.len(), 2);
+    let r0 = before[0].1 / 2.0;
+    let flat = |r: &[(Handle, f64, cadcraft_geom::Vec2, cadcraft_geom::Vec2)]| *r.iter().find(|x| (x.2.y - x.3.y).abs() < 1e-6).unwrap();
+    let up = |r: &[(Handle, f64, cadcraft_geom::Vec2, cadcraft_geom::Vec2)]| *r.iter().find(|x| (x.2.x - x.3.x).abs() < 1e-6).unwrap();
+    assert!((flat(&before).2.y - r0).abs() < 1e-6, "the bottom edge on y = 0");
+    // Both made Ø400: the edges stay on the lines clicked, and the corner stays joined.
+    let hs: Vec<String> = before.iter().map(|x| x.0.hex()).collect();
+    s.execute("ductedit", &json!({"handles": hs, "diameter": 400})).unwrap();
+    let after = runs(&s);
+    let (f, u) = (flat(&after), up(&after));
+    assert!((f.1 - 400.0).abs() < 1e-6);
+    assert!((f.2.y - 200.0).abs() < 1e-6, "the bottom edge still on y = 0: {f:?}");
+    assert!((u.2.x - 2800.0).abs() < 1e-6, "the right edge still on x = 3000: {u:?}");
+    let corner = cadcraft_geom::Vec2::new(2800.0, 200.0);
+    assert!([f.2, f.3].iter().any(|p| p.dist(corner) < 1e-6) && [u.2, u.3].iter().any(|p| p.dist(corner) < 1e-6), "{f:?} {u:?}");
+}
+
+#[test]
+fn the_pipe_or_cable_joined_to_a_dragged_end_follows_it_unless_asked_to_stay() {
+    for (add, p) in [
+        ("pipeadd", json!({"points": [[0, 0], [4000, 0], [4000, 3000]], "service": "chilledWater", "dn": 50})),
+        ("cableadd", json!({"points": [[0, 0], [4000, 0], [4000, 3000]], "circuit": "TD1-C1", "usage": "power"})),
+    ] {
+        let start = |s: &Session, h: Handle| {
+            let d = s.doc().unwrap();
+            d.pipe_ends(h).map(|(_, a, _)| a).or_else(|| d.cable_ends(h).map(|(_, a, _)| a)).unwrap()
+        };
+        let laid = || {
+            let mut s = metric();
+            let r = s.execute(add, &p).unwrap();
+            let hs: Vec<Handle> = r["handles"].as_array().unwrap().iter().map(hd).collect();
+            let first_end = |s: &Session, h| start(s, h).dist(cadcraft_geom::Vec2::ZERO) < 1e-6;
+            // The run from 0,0 first.
+            let (a, b) = if first_end(&s, hs[0]) { (hs[0], hs[1]) } else { (hs[1], hs[0]) };
+            s.set_selection(vec![a]);
+            (s, a, b)
+        };
+        let (mut s, a, b) = laid();
+        s.start_grip_edit(&[(a, 2)]).unwrap();
+        s.cmdline("4500,500").unwrap();
+        assert!(start(&s, b).dist(cadcraft_geom::Vec2::new(4500.0, 500.0)) < 1e-6, "{add}: the joined run follows");
+        let (mut s, a, b) = laid();
+        s.start_grip_edit(&[(a, 2)]).unwrap();
+        s.cmdline("Alone").unwrap();
+        s.cmdline("4500,500").unwrap();
+        assert!(start(&s, b).dist(cadcraft_geom::Vec2::new(4000.0, 0.0)) < 1e-6, "{add}: Alone, the joined run stays");
+    }
+}

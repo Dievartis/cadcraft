@@ -463,6 +463,77 @@ impl crate::Drawing {
             || then.iter().any(|e| now.get(e.handle).is_none() && relevant(e))
     }
 
+    /// The ducts of `space` laid by an edge (`kept_edge`) whose width changed since `before` (an older state of this drawing): each axis moves across by
+    /// how much the half width changed, so that the edge stays on the line it was laid on. Where runs meet end to end the shared point moves to where
+    /// the moved axes cross (a run whose width did not change keeps its axis, the point slides along it). Returns how many runs were moved.
+    pub fn keep_duct_edges_since(&mut self, before: &crate::Drawing, space: &Space) -> Result<usize> {
+        let Some(now) = self.space(space) else { return Ok(0) };
+        let moved: Vec<(Handle, f64)> = now
+            .iter()
+            .filter(|e| before.space(space).and_then(|t| t.get(e.handle)).is_some_and(|old| !std::sync::Arc::ptr_eq(old, e)))
+            .filter_map(|e| {
+                let p = duct_of(e)?;
+                let side = p.kept_edge?;
+                let old = before.duct_ends(e.handle)?.0;
+                let d = side * p.units.to_units(p.plan_width_mm() - old.plan_width_mm()) / 2.0;
+                (d.abs() > 1e-9).then_some((e.handle, d))
+            })
+            .collect();
+        if moved.is_empty() {
+            return Ok(0);
+        }
+        let units = HvacUnits::of(self);
+        let tol = units.to_units(MEET_MM);
+        // Every run of the space: its ends, the unit normal to its left, and how far its axis moves along it.
+        let runs: Vec<(Handle, Vec2, Vec2, Vec2, f64)> = now
+            .iter()
+            .filter_map(|e| {
+                let (_, a, b) = self.duct_ends(e.handle)?;
+                let d = moved.iter().find(|m| m.0 == e.handle).map_or(0.0, |m| m.1);
+                Some((e.handle, a, b, (b - a).normalized().perp(), d))
+            })
+            .collect();
+        // Where a point `p` of the moved runs goes: alone, across by its run's move; shared, where the moved axes of two runs through it cross.
+        let shift = |p: Vec2, own: (Vec2, f64)| -> Vec2 {
+            let others: Vec<(Vec2, f64)> = runs
+                .iter()
+                .filter(|r| r.1.dist(p) <= tol || r.2.dist(p) <= tol)
+                .map(|r| (r.3, r.4))
+                .filter(|(n, _)| n.cross(own.0).abs() > 0.2)
+                .collect();
+            match others.first() {
+                Some(&(m, e)) => {
+                    let (n, d) = own;
+                    let det = n.x * m.y - n.y * m.x;
+                    p + Vec2::new(d * m.y - e * n.y, n.x * e - m.x * d) / det
+                }
+                None => p + own.0 * own.1,
+            }
+        };
+        let mut ends: Vec<(Handle, usize, Vec2)> = Vec::new();
+        for r in runs.iter().filter(|r| r.4 != 0.0) {
+            for (grip, p) in [(0, r.1), (2, r.2)] {
+                let to = shift(p, (r.3, r.4));
+                ends.push((r.0, grip, to));
+                // The runs that end there follow the shared point (those that did not move slide along their own axis).
+                for o in runs.iter().filter(|o| o.0 != r.0 && o.4 == 0.0) {
+                    for (g, q) in [(0, o.1), (2, o.2)] {
+                        if q.dist(p) <= tol && !ends.iter().any(|x| x.0 == o.0 && x.1 == g) {
+                            ends.push((o.0, g, to));
+                        }
+                    }
+                }
+            }
+        }
+        let mut done = Vec::new();
+        for (h, grip, to) in ends {
+            if self.stretch_duct_grip(h, grip, to)? && !done.contains(&h) {
+                done.push(h);
+            }
+        }
+        Ok(done.len())
+    }
+
     /// Whether a pipe of `space` was added, changed or removed since `before` (an older state of this drawing).
     pub fn pipes_touched_since(&self, before: &crate::Drawing, space: &Space) -> bool {
         let (Some(now), Some(then)) = (self.space(space), before.space(space)) else { return false };
