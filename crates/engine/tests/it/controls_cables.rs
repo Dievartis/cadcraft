@@ -250,3 +250,19 @@ fn a_cable_written_as_text_keeps_it_in_its_label_and_is_not_sized_and_its_label_
     assert!(y(&s) < 0.0);
     assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "labelSide": "left"})).is_err());
 }
+
+#[test]
+fn a_new_cable_puts_its_layer_in_the_drawing_with_the_colour_of_its_use() {
+    let mut s = metric();
+    for (usage, circuit) in [("bus", "BUS1"), ("remote", "TC1"), ("power", "")] {
+        let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "usage": usage, "circuit": circuit})).unwrap();
+        let c = cable(&s, &r["handles"][0]);
+        let d = s.doc().unwrap();
+        let layer = d.layer(&d.entity(hd(&r["handles"][0])).unwrap().common.layer).unwrap();
+        // The layer of a circuit takes its style's colour, else the colour of its use; never the white of a bare new layer.
+        let want = d.layer(c.layer()).map(|l| l.color);
+        assert_eq!(Some(layer.color), want);
+        assert_ne!(layer.color, cadcraft_color::Color::WHITE, "{usage}: the layer has a colour");
+        assert_ne!(layer.color, cadcraft_color::Color::Index(7), "{usage}: the layer has a colour");
+    }
+}

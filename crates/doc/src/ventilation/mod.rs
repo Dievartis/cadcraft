@@ -329,6 +329,28 @@ impl crate::Drawing {
         }
     }
 
+    /// Makes `layer` when it is missing, with its own colour, or for a network the colour and the line type of its style.
+    pub(crate) fn ensure_hvac_layer(&mut self, layer: &str) {
+        if !self.ensure_layer(layer) {
+            return;
+        }
+        let own = self.hvac_colour(layer);
+        let look = self.network_look(layer);
+        if let Some(ref lt) = look.as_ref().map(|(_, lt)| lt.clone()) {
+            self.ensure_network_linetype(lt);
+        }
+        if let Some(l) = self.layers.iter_mut().find(|l| l.name == layer) {
+            match look {
+                Some((c, lt)) => (l.color, l.linetype) = (c, lt),
+                None => {
+                    if let Some(c) = own {
+                        l.color = c;
+                    }
+                }
+            }
+        }
+    }
+
     /// A new anonymous block holding `pieces`, at the block's origin; returns its name.
     pub(crate) fn hvac_block(&mut self, pieces: Vec<HvacPiece>) -> String {
         let name = self.anonymous_block_name("*U");
@@ -339,24 +361,7 @@ impl crate::Drawing {
             // `layer|linetype|colour layer`.
             let (layer, rest) = piece.layer.split_once('|').unwrap_or((piece.layer, "ByLayer"));
             let (linetype, colour_of) = rest.split_once('|').map_or((rest, None), |(l, c)| (l, Some(c)));
-            if self.ensure_layer(layer) {
-                let own = self.hvac_colour(layer);
-                // A new layer takes its own colour; one made for a network, the colour and the line type of its style.
-                let look = self.network_look(layer);
-                if let Some(ref lt) = look.as_ref().map(|(_, lt)| lt.clone()) {
-                    self.ensure_network_linetype(lt);
-                }
-                if let Some(l) = self.layers.iter_mut().find(|l| l.name == layer) {
-                    match look {
-                        Some((c, lt)) => (l.color, l.linetype) = (c, lt),
-                        None => {
-                            if let Some(c) = own {
-                                l.color = c;
-                            }
-                        }
-                    }
-                }
-            }
+            self.ensure_hvac_layer(layer);
             let mut common = crate::Common { layer: layer.into(), linetype: linetype.into(), ..Default::default() };
             // A colour of its own is written "#rrggbb"; else it is the colour of the layer named.
             if let Some(c) = colour_of.and_then(|n| match riser::parse_hex_colour(n) {

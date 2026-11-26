@@ -1437,6 +1437,10 @@
 	Timber frame 145	Ossature bois 145
 	Partition 72/48	Cloison 72/48
 	Partition 98/48	Cloison 98/48
+	Glazed partition 72, full height, single glazing	Cloison vitrée amovible 72 toute hauteur, simple vitrage
+	Glazed partition 72, full height, double glazing	Cloison vitrée amovible 72 toute hauteur, double vitrage
+	Glazed partition 72 on a sill, single glazing	Cloison vitrée amovible 72 sur allège, simple vitrage
+	Glazed partition 72 on a sill, double glazing	Cloison vitrée amovible 72 sur allège, double vitrage
 	Rendered masonry + lining	Maçonnerie enduit + doublage
 	Rendered concrete + lining	Voile béton enduit + doublage
 	Rendered brick + lining	Brique enduit + doublage

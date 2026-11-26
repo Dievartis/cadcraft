@@ -773,7 +773,8 @@ impl crate::Drawing {
         common.xdata = xdata::replace(CABLE_APP, &common.xdata, p.to_xdata()?);
         common.layer = p.layer().into();
         let block = self.hvac_block(pieces);
-        self.ensure_layer(p.layer());
+        // Its pieces are on layer 0: the cable's layer is made here, with its colour.
+        self.ensure_hvac_layer(p.layer());
         let insert = crate::Insert { block, insert: v3(a), rotation, ..Default::default() };
         self.add(space, common, EntityKind::Insert(insert))
     }
@@ -793,7 +794,7 @@ impl crate::Drawing {
         let tags = xdata::replace(CABLE_APP, &e.common.xdata, p.to_xdata()?);
         self.regenerate_hvac(h, pieces, tags)?;
         let layer = p.layer();
-        self.ensure_layer(layer);
+        self.ensure_hvac_layer(layer);
         if on_its_own_layer {
             self.modify_entity(h, |e| e.common.layer = layer.into())?;
         }

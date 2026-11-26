@@ -182,14 +182,14 @@ fn wallstyleedit_lists_the_drawing_s_styles_then_the_standard_ones() {
     let mut s = metric();
     let r = s.execute("wallstyleedit", &json!({})).unwrap();
     let styles = r["styles"].as_array().unwrap();
-    assert_eq!(styles.len(), 23);
+    assert_eq!(styles.len(), 27);
     assert!(styles.iter().all(|st| st["standard"] == json!(true)));
     assert_eq!(styles[1]["thickness"], json!(332.5));
     s.execute("wallstyleedit", &json!({"name": "Mine", "copyFrom": "Concrete 200", "description": "A copy"})).unwrap();
     let r = s.execute("wallstyleedit", &json!({})).unwrap();
     let names: Vec<&str> = r["styles"].as_array().unwrap().iter().map(|st| st["name"].as_str().unwrap()).collect();
     assert_eq!(names.first(), Some(&"Mine"));
-    assert_eq!(names.len(), 24);
+    assert_eq!(names.len(), 28);
 }
 
 #[test]
