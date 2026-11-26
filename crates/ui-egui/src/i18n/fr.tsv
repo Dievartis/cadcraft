@@ -3794,6 +3794,8 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	Line {n}: colour (#rrggbb)	Ligne {n} : couleur (#rrggbb)
 	Line {n}: colour	Ligne {n} : couleur
 	Circuit colour	Couleur du circuit
+	Show the label	Afficher l'étiquette
+	Draw the label of the cables?	Dessiner l'étiquette des câbles ?
 	Line {n}: direction	Ligne {n} : sens
 	As the riser	Comme la colonne
 	Passes through, going up	Traverse en montant

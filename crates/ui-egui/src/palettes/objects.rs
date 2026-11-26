@@ -515,6 +515,14 @@ fn cable_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], cs: &[cadcraft_
     let mut action: Action = None;
     group(ui, "Cable");
     elec_text(ui, "elecedit", "Circuit", "circuit", &ids, cs.iter().map(|c| c.circuit.clone()).collect(), &mut action);
+    // Unticked: the cables are drawn without their label (ticked only when all of them show it).
+    let shown = cs.iter().all(|c| !c.hide_label);
+    prop_row(ui, "Show the label", |ui| {
+        let mut on = shown;
+        if ui.checkbox(&mut on, "").changed() {
+            action = Some(("elecedit", json!({ "handles": ids, "label": on })));
+        }
+    });
     let usage = shared(&cs.iter().map(|c| c.usage.name().to_string()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
     prop_row(ui, "Use", |ui| {
         if let Some(u) = pick_menu(ui, crate::i18n::t(&usage), cadcraft_doc::CableUsage::ALL.iter().map(|u| u.name().to_string())) {

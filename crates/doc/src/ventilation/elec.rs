@@ -210,6 +210,9 @@ pub struct CableParams {
     pub extra_m: f64,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
+    /// The label is not drawn (the cable keeps its circuit, section and sums).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_label: bool,
     #[serde(default)]
     pub units: HvacUnits,
 }
@@ -234,6 +237,7 @@ impl CableParams {
             grouped: 1,
             extra_m: 0.0,
             label_height_mm: default_label_mm(),
+            hide_label: false,
             units,
         }
     }
@@ -302,13 +306,14 @@ impl CableParams {
         [self.circuit.trim().to_string(), self.size_text()].iter().filter(|t| !t.is_empty()).cloned().collect::<Vec<_>>().join(" ")
     }
 
-    /// The run drawn to scale: its centre line and a label.
+    /// The run drawn to scale: its centre line and a label. They are on layer 0, so they take the layer of the cable (its circuit's, or the one it was
+    /// put on) and its colour.
     pub fn generate(&self, flip_label: bool) -> Result<Vec<HvacPiece>> {
         self.validate()?;
-        let layer = self.layer();
+        let layer = "0";
         let mut pieces = vec![HvacPiece { layer, kind: line((0.0, 0.0), (self.length, 0.0)) }];
         let text = self.label_text();
-        if !text.is_empty() {
+        if !text.is_empty() && !self.hide_label {
             let h = self.units.to_units(self.label_height_mm);
             let up = if flip_label { -1.0 } else { 1.0 };
             let mut t = label(Vec2::new(self.length / 2.0, 1.2 * h * up), h, text);
@@ -759,6 +764,8 @@ impl crate::Drawing {
         let e = self.entity(h).ok_or(crate::DocError::NoEntity(h))?;
         let EntityKind::Insert(i) = &e.kind else { return Err(invalid("The object is not a cable.")) };
         let flip = super::duct::reads_upside_down(i.rotation);
+        // A cable put on a layer of the user's keeps it; one on its circuit's layer follows its circuit.
+        let on_its_own_layer = cable_of(e).is_none_or(|old| e.common.layer == old.layer());
         if !p.circuit.trim().is_empty() && self.network_style(&p.circuit).is_none() {
             self.set_network_style(&p.circuit, None, None)?;
         }
@@ -768,7 +775,9 @@ impl crate::Drawing {
         self.regenerate_hvac(h, pieces, tags)?;
         let layer = p.layer();
         self.ensure_layer(layer);
-        self.modify_entity(h, |e| e.common.layer = layer.into())?;
+        if on_its_own_layer {
+            self.modify_entity(h, |e| e.common.layer = layer.into())?;
+        }
         Ok(())
     }
 

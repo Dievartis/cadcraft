@@ -158,3 +158,50 @@ fn a_riser_line_takes_its_cable_as_written_and_a_colour_of_its_own() {
     assert!(s.execute("riseredit", &json!({"handle": h.hex(), "line": {"index": 1, "colour": "orange"}})).is_err());
     assert!(s.execute("riseredit", &json!({"handle": h.hex(), "line": {"index": 1, "section": "abc"}})).is_err());
 }
+
+#[test]
+fn a_cables_label_can_be_left_off_and_put_back_and_the_choice_holds_for_the_next_cables() {
+    let mut s = metric();
+    // Without its label: no text, and the cable keeps its circuit and section.
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "circuit": "TD1-C1", "section": "3G1.5", "label": false})).unwrap();
+    let h = hd(&r["handles"][0]);
+    assert!(texts(&s, h).is_empty());
+    assert_eq!(cable(&s, &r["handles"][0]).size_text(), "3G1.5");
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "label": true})).unwrap();
+    assert!(!texts(&s, h).is_empty(), "the label is back");
+    assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "label": "no"})).is_err());
+    // At the command line: Label No is kept for the cables drawn after it.
+    for t in ["cableadd", "l", "n", "0,1000", "5000,1000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    for t in ["cableadd", "0,2000", "5000,2000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    let d = s.doc().unwrap();
+    let drawn: Vec<Handle> = d.model.iter().filter(|e| cable_of(e).is_some()).map(|e| e.handle).filter(|x| *x != h).collect();
+    assert_eq!(drawn.len(), 2);
+    assert!(drawn.iter().all(|x| texts(&s, *x).is_empty()), "both drawn without their label");
+}
+
+#[test]
+fn a_cable_put_on_a_layer_takes_its_colour_and_keeps_it_when_edited() {
+    let mut s = metric();
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "circuit": "TD1-C1"})).unwrap();
+    let h = hd(&r["handles"][0]);
+    // Its pieces are on layer 0: they take the layer the cable is on, and so its colour.
+    let d = s.doc().unwrap();
+    let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!() };
+    let block = d.blocks.values().find(|b| b.name == i.block).unwrap();
+    assert!(block.entities.iter().all(|e| e.common.layer == "0"), "the pieces follow the cable's layer");
+    // Put on a layer of the user's, it stays there when the cable is changed.
+    s.execute("layer.new", &json!({"name": "MY-CABLES", "color": 3})).unwrap();
+    s.execute("properties.set", &json!({"handles": [r["handles"][0]], "layer": "MY-CABLES"})).unwrap();
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "3G2.5"})).unwrap();
+    assert_eq!(s.doc().unwrap().entity(h).unwrap().common.layer, "MY-CABLES");
+    // One on its circuit's layer follows its circuit.
+    let r2 = s.execute("cableadd", &json!({"points": [[0, 1000], [5000, 1000]], "circuit": "TD1-C1"})).unwrap();
+    let h2 = hd(&r2["handles"][0]);
+    let before = s.doc().unwrap().entity(h2).unwrap().common.layer.clone();
+    s.execute("elecedit", &json!({"handle": r2["handles"][0], "circuit": "TD1-C2"})).unwrap();
+    assert_ne!(s.doc().unwrap().entity(h2).unwrap().common.layer, before);
+}
