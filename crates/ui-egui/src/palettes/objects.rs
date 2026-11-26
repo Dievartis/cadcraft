@@ -523,6 +523,13 @@ fn cable_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], cs: &[cadcraft_
             action = Some(("elecedit", json!({ "handles": ids, "label": on })));
         }
     });
+    let below = shared(&cs.iter().map(|c| c.label_below).collect::<Vec<_>>());
+    prop_row(ui, "Label position", |ui| {
+        let shown = below.map_or(VARIES, |b| if b { "Below the cable" } else { "Above the cable" });
+        if let Some(k) = choice(ui, shown, &[("above", "Above the cable"), ("below", "Below the cable")]) {
+            action = Some(("elecedit", json!({ "handles": ids, "labelSide": k })));
+        }
+    });
     let usage = shared(&cs.iter().map(|c| c.usage.name().to_string()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
     prop_row(ui, "Use", |ui| {
         if let Some(u) = pick_menu(ui, crate::i18n::t(&usage), cadcraft_doc::CableUsage::ALL.iter().map(|u| u.name().to_string())) {

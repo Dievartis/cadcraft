@@ -92,10 +92,14 @@ fn a_cable_is_given_by_its_conductors_and_section_as_it_is_written_and_by_a_cabl
     assert_eq!(cable(&s, &r["handles"][0]).size_text(), "4x1.5 blindé");
     s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "auto"})).unwrap();
     assert_eq!(cable(&s, &r["handles"][0]).size_text(), "");
-    // Refused.
-    for bad in ["3G", "abc", "0x1.5", "3G700"] {
-        assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "section": bad})).is_err(), "{bad}");
+    // Any other text is kept as it is written, with no section (the circuit check says it is not checked); too long, or not a text, is refused.
+    for text in ["3G", "abc", "0x1.5", "3G700"] {
+        s.execute("elecedit", &json!({"handle": r["handles"][0], "section": text})).unwrap();
+        let c = cable(&s, &r["handles"][0]);
+        assert_eq!((c.written.as_deref(), c.section_mm2), (Some(text), None));
     }
+    assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "x".repeat(81)})).is_err());
+    assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "section": true})).is_err());
     // A cable type of the starting list gives its cable and its use.
     let t = s
         .execute("cableadd", &json!({"points": [[0, 1500], [5000, 1500]], "circuit": "TC1", "cableType": "Remote control 2x0.75 shielded"}))
@@ -204,4 +208,45 @@ fn a_cable_put_on_a_layer_takes_its_colour_and_keeps_it_when_edited() {
     let before = s.doc().unwrap().entity(h2).unwrap().common.layer.clone();
     s.execute("elecedit", &json!({"handle": r2["handles"][0], "circuit": "TD1-C2"})).unwrap();
     assert_ne!(s.doc().unwrap().entity(h2).unwrap().common.layer, before);
+}
+
+#[test]
+fn every_cable_type_of_the_starting_library_can_be_given_to_a_cable() {
+    let mut s = metric();
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "circuit": "X1"})).unwrap();
+    for t in cadcraft_doc::standard_cable_types() {
+        s.execute("elecedit", &json!({"handle": r["handles"][0], "cableType": t.name}))
+            .unwrap_or_else(|e| panic!("the cable type {:?} is refused: {e}", t.name));
+    }
+}
+
+#[test]
+fn a_cable_written_as_text_keeps_it_in_its_label_and_is_not_sized_and_its_label_can_go_under_it() {
+    let mut s = metric();
+    s.execute("elecdeviceadd", &json!({"at": [0, 0], "kind": "socket", "circuit": "TD1-C1", "power": 2000})).unwrap();
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "circuit": "TD1-C1"})).unwrap();
+    let h = hd(&r["handles"][0]);
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "U/UTP cat 6 LSOH"})).unwrap();
+    let c = cable(&s, &r["handles"][0]);
+    assert_eq!((c.written.as_deref(), c.section_mm2), (Some("U/UTP cat 6 LSOH"), None));
+    assert!(texts(&s, h).iter().any(|t| t.contains("U/UTP cat 6 LSOH")), "{:?}", texts(&s, h));
+    // Sizing leaves it as it is written, and the check says it is not checked.
+    s.execute("circuitsize", &json!({})).unwrap();
+    assert_eq!(cable(&s, &r["handles"][0]).section_mm2, None);
+    let check = s.execute("circuitcheck", &json!({})).unwrap();
+    assert!(check.to_string().contains("written as text"), "{check}");
+    // A cable that reads as one gives the section back.
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "3G2.5"})).unwrap();
+    let c = cable(&s, &r["handles"][0]);
+    assert_eq!((c.written, c.section_mm2), (None, Some(2.5)));
+    // Under the cable: the label moves to the other side of it.
+    let y = |s: &Session| {
+        let d = s.doc().unwrap();
+        let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!() };
+        d.block(&i.block).unwrap().entities.iter().find_map(|e| if let EntityKind::Text(t) = &e.kind { Some(t.insert.y) } else { None }).unwrap()
+    };
+    assert!(y(&s) > 0.0);
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "labelSide": "below"})).unwrap();
+    assert!(y(&s) < 0.0);
+    assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "labelSide": "left"})).is_err());
 }

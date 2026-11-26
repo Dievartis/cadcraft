@@ -213,6 +213,13 @@ pub struct CableParams {
     /// The label is not drawn (the cable keeps its circuit, section and sums).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hide_label: bool,
+    /// The label is under the cable instead of above it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub label_below: bool,
+    /// The cable as the user wrote it when it does not read as a section ("U/UTP cat 6 LSOH"): written in the label as it is; the cable has no section and
+    /// is not sized.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub written: Option<String>,
     #[serde(default)]
     pub units: HvacUnits,
 }
@@ -238,6 +245,8 @@ impl CableParams {
             extra_m: 0.0,
             label_height_mm: default_label_mm(),
             hide_label: false,
+            label_below: false,
+            written: None,
             units,
         }
     }
@@ -247,8 +256,12 @@ impl CableParams {
             return Err(invalid("A cable has a usable length."));
         }
         check_circuit_name(&self.circuit, true)?;
-        if self.section_mm2.is_some_and(|s| !(s.is_finite() && (0.5..=630.0).contains(&s))) {
-            return Err(invalid("The section of a cable is 0.5 to 630 mm²."));
+        // As small as the conductors of a data or bus cable (0.22 mm², a cat. 6 pair 0.25 mm²); the circuit check warns of a power conductor below 1.5 mm².
+        if self.section_mm2.is_some_and(|s| !(s.is_finite() && (0.05..=630.0).contains(&s))) {
+            return Err(invalid("The section of a cable is 0.05 to 630 mm²."));
+        }
+        if self.written.as_deref().is_some_and(|w| w.trim().is_empty() || w.chars().count() > 80 || w.chars().any(char::is_control)) {
+            return Err(invalid("The cable as it is written is 1 to 80 characters."));
         }
         if self.protection_a.is_some_and(|a| !(a.is_finite() && (1.0..=2500.0).contains(&a))) {
             return Err(invalid("The rating of a protection is 1 to 2500 A."));
@@ -289,12 +302,16 @@ impl CableParams {
 
     /// What the section field of the cable says: the cable as it was written ("3G2.5", "2x0.75 blindé", or the section alone), empty while it is to be sized.
     pub fn spec_text(&self) -> String {
+        if let Some(w) = &self.written {
+            return w.clone();
+        }
         self.section_mm2.map_or(String::new(), |s| CableSpec { cores: self.cores, earth: self.earth, shielded: self.shielded, section_mm2: s }.text())
     }
 
     /// Gives the cable the conductors, the earth, the shield and the section of `spec`.
     pub fn set_spec(&mut self, spec: &CableSpec) {
         (self.cores, self.earth, self.shielded, self.section_mm2) = (spec.cores, spec.earth, spec.shielded, Some(spec.section_mm2));
+        self.written = None;
     }
 
     /// The layer of the cable: its use's, or the circuit's copy of it.
@@ -303,7 +320,8 @@ impl CableParams {
     }
 
     pub fn label_text(&self) -> String {
-        [self.circuit.trim().to_string(), self.size_text()].iter().filter(|t| !t.is_empty()).cloned().collect::<Vec<_>>().join(" ")
+        let size = self.written.clone().unwrap_or_else(|| self.size_text());
+        [self.circuit.trim().to_string(), size].iter().filter(|t| !t.is_empty()).cloned().collect::<Vec<_>>().join(" ")
     }
 
     /// The run drawn to scale: its centre line and a label. They are on layer 0, so they take the layer of the cable (its circuit's, or the one it was
@@ -315,7 +333,8 @@ impl CableParams {
         let text = self.label_text();
         if !text.is_empty() && !self.hide_label {
             let h = self.units.to_units(self.label_height_mm);
-            let up = if flip_label { -1.0 } else { 1.0 };
+            // Above the cable as it reads, or under it.
+            let up = if flip_label { -1.0 } else { 1.0 } * if self.label_below { -1.0 } else { 1.0 };
             let mut t = label(Vec2::new(self.length / 2.0, 1.2 * h * up), h, text);
             if let EntityKind::Text(x) = &mut t {
                 x.rotation = if flip_label { std::f64::consts::PI } else { 0.0 };
