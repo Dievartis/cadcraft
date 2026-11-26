@@ -1770,11 +1770,30 @@ fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams]
                 action = line_edit("section", if t.trim().is_empty() { Value::Null } else { json!(t.trim()) });
             }
         });
-        // A colour of its own for the line, "#rrggbb"; empty: the colour of its circuit's wire.
-        let colour_label = crate::tf!("Line {n}: colour (#rrggbb)", n = n);
+        // A colour of its own for the line, chosen as a layer's is (kept as "#rrggbb"); none: the colour of its circuit's wire.
+        let colour_label = crate::tf!("Line {n}: colour", n = n);
         prop_row(ui, &colour_label, |ui| {
-            if let Some(t) = edit_field(ui, ui.scope_id().with(("criser_colour", n, &ids)), line.colour.clone().unwrap_or_default()) {
-                action = line_edit("colour", if t.trim().is_empty() { Value::Null } else { json!(t.trim()) });
+            let own = line.own_colour().and_then(cadcraft_doc::parse_hex_colour).map(|(r, g, b)| cadcraft_color::Rgb(r, g, b));
+            let id = ui.scope_id().with(("criser_colour", n, &ids));
+            let width = (ui.available_width() - 30.0).max(60.0);
+            let picked = match own {
+                Some(rgb) => crate::layers::color_button(ui, id, cadcraft_color::Color::True(rgb), false, width),
+                None => crate::layers::color_button_resolved(
+                    ui,
+                    id,
+                    cadcraft_color::Color::ByLayer,
+                    cadcraft_color::Rgb(128, 128, 128),
+                    "Circuit colour",
+                    false,
+                    width,
+                ),
+            };
+            if let Some(c) = picked {
+                let cadcraft_color::Rgb(r, g, b) = c.resolve(cadcraft_color::Color::WHITE, cadcraft_color::Color::WHITE);
+                action = line_edit("colour", json!(format!("#{r:02x}{g:02x}{b:02x}")));
+            }
+            if own.is_some() && ui.small_button("×").on_hover_text(crate::i18n::t("Back to the circuit colour")).clicked() {
+                action = line_edit("colour", Value::Null);
             }
         });
         let mut numbers: Vec<(String, &str, Option<f64>)> = Vec::new();
