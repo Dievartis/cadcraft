@@ -117,12 +117,14 @@ fn insulation_shape(thickness: f64) -> Option<Shaped> {
     if !thickness.is_finite() || thickness <= 0.0 {
         return None;
     }
-    let stroke = (0..=48).map(|i| {
-        let t = f64::from(i) / 48.0;
-        let a = std::f64::consts::TAU * t;
-        let x = 1.5 * t + 0.19 * (2.0 * a).sin();
-        Vec2::new(x, 0.5 * a.sin()) * thickness
-    }).collect();
+    let stroke = (0..=48)
+        .map(|i| {
+            let t = f64::from(i) / 48.0;
+            let a = std::f64::consts::TAU * t;
+            let x = 1.5 * t + 0.19 * (2.0 * a).sin();
+            Vec2::new(x, 0.5 * a.sin()) * thickness
+        })
+        .collect();
     Some(Shaped { strokes: vec![stroke], width: 1.5 * thickness, ..Shaped::default() })
 }
 
@@ -216,6 +218,16 @@ impl Walk<'_> {
 mod tests {
     use super::*;
     use cadcraft_doc::DashElement;
+
+    #[test]
+    fn metric_insulation_draws_at_its_named_thickness_without_a_shape_file() {
+        let d = Drawing::new_metric();
+        let lt = cadcraft_doc::library::standard_linetypes_for(&d).into_iter().find(|lt| lt.name == "SOFT_INSULATION_100").unwrap();
+        let strokes = texts(&d, &[Vec2::ZERO, Vec2::new(600.0, 0.0)], &lt, 1.0, 0.0);
+        assert!(strokes.len() > 1);
+        let (low, high) = strokes[0].strokes.iter().flatten().fold((0.0_f64, 0.0_f64), |(lo, hi), point| (lo.min(point.y), hi.max(point.y)));
+        assert!((high - low - 100.0).abs() < 1e-8);
+    }
 
     fn gas() -> Linetype {
         Linetype {

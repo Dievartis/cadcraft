@@ -63,7 +63,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Option<
         .map(|b| b.name.clone())
         .collect();
     blocks.sort_by_key(|n| n.to_ascii_uppercase());
-    let layers: Vec<String> = d.layers.iter().map(|l| l.name.clone()).collect();
+    let layers = crate::layers::sorted_layer_names(d);
     let mut block = temp::<String>(ctx, "battman_block").filter(|b| blocks.contains(b)).or_else(|| blocks.first().cloned()).unwrap_or_default();
     let rows: Vec<Row> = d
         .block(&block)

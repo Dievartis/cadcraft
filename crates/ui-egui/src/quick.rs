@@ -147,7 +147,7 @@ pub fn qselect_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                     "color" => {
                         ["ByLayer", "ByBlock", "Red", "Yellow", "Green", "Cyan", "Blue", "Magenta", "White"].iter().map(ToString::to_string).collect()
                     }
-                    "layer" => app.session.doc().map(|d| d.layers.iter().map(|l| l.name.clone()).collect()).unwrap_or_default(),
+                    "layer" => app.session.doc().map(crate::layers::sorted_layer_names).unwrap_or_default(),
                     "linetype" => app.session.doc().map(|d| d.linetypes.iter().map(|l| l.name.clone()).collect()).unwrap_or_default(),
                     "type" => types.iter().map(|(n, _)| n.clone()).collect(),
                     _ => Vec::new(),
@@ -293,7 +293,7 @@ pub fn quick_properties(app: &mut CadApp, ctx: &egui::Context) {
     let color = ents.first().map(|e| e.common.color).filter(|c| ents.iter().all(|e| e.common.color == *c));
     let layer = same(&|e| e.common.layer.clone());
     let linetype = same(&|e| e.common.linetype.clone());
-    let layers: Vec<String> = d.layers.iter().map(|l| l.name.clone()).collect();
+    let layers = crate::layers::sorted_layer_names(d);
     let linetypes: Vec<String> = d.linetypes.iter().map(|l| l.name.clone()).collect();
     let kind = if ents.len() == 1 { Some(first.kind.clone()) } else { None };
     let ids: Vec<String> = sel.iter().map(|h| h.hex()).collect();

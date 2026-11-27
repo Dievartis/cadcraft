@@ -99,7 +99,7 @@ impl Default for CustomPattern {
 impl CustomPattern {
     fn encode(&self) -> Option<(String, String)> {
         let name = self.name.trim().to_ascii_uppercase();
-        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') || cadcraft_doc::library::pattern(&name).is_some() {
             return None;
         }
         let mut text = format!("*{name}, Custom pattern\n");
@@ -109,8 +109,8 @@ impl CustomPattern {
             }
             text.push_str(&format!("{},0,0,0,{}", family.angle, family.spacing));
             if !family.dashes.trim().is_empty() {
-                let dashes: Vec<_> = family.dashes.split_whitespace().map(|value| value.parse::<f64>().ok().filter(|v| v.is_finite()))
-                    .collect::<Option<_>>()?;
+                let dashes: Vec<_> =
+                    family.dashes.split_whitespace().map(|value| value.parse::<f64>().ok().filter(|v| v.is_finite())).collect::<Option<_>>()?;
                 if dashes.iter().all(|d| *d == 0.0) {
                     return None;
                 }
@@ -558,20 +558,24 @@ fn custom_pattern_ui(ui: &mut egui::Ui, custom: &mut Option<CustomPattern>) {
     let mut remove = None;
     egui::ScrollArea::vertical().id_salt("custom-hatch-families").max_height(125.0).show(ui, |ui| {
         for (index, family) in draft.families.iter_mut().enumerate() {
-            ui.push_id(index, |ui| ui.horizontal(|ui| {
-                let angle = ui.label(crate::tl!("Angle"));
-                ui.add(egui::DragValue::new(&mut family.angle).suffix("°")).labelled_by(angle.id);
-                let spacing = ui.label(crate::tl!("Spacing"));
-                ui.add(egui::DragValue::new(&mut family.spacing).range(0.0001..=1e6)).labelled_by(spacing.id);
-                let dashes = ui.label(crate::tl!("Dashes"));
-                ui.add(egui::TextEdit::singleline(&mut family.dashes).char_limit(120).desired_width(70.0)).labelled_by(dashes.id);
-                if ui.small_button("×").on_hover_text(crate::tl!("Remove")).clicked() {
-                    remove = Some(index);
-                }
-            }));
+            ui.push_id(index, |ui| {
+                ui.horizontal(|ui| {
+                    let angle = ui.label(crate::tl!("Angle"));
+                    ui.add(egui::DragValue::new(&mut family.angle).suffix("°")).labelled_by(angle.id);
+                    let spacing = ui.label(crate::tl!("Spacing"));
+                    ui.add(egui::DragValue::new(&mut family.spacing).range(0.0001..=1e6)).labelled_by(spacing.id);
+                    let dashes = ui.label(crate::tl!("Dashes"));
+                    ui.add(egui::TextEdit::singleline(&mut family.dashes).char_limit(120).desired_width(70.0)).labelled_by(dashes.id);
+                    if ui.small_button("×").on_hover_text(crate::tl!("Remove")).clicked() {
+                        remove = Some(index);
+                    }
+                })
+            });
         }
     });
-    if let Some(index) = remove && draft.families.len() > 1 {
+    if let Some(index) = remove
+        && draft.families.len() > 1
+    {
         draft.families.remove(index);
     }
     if ui.add_enabled(draft.families.len() < 16, egui::Button::new(crate::tl!("Add line family"))).clicked() {

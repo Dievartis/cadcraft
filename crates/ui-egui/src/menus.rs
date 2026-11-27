@@ -171,6 +171,12 @@ fn route_ui_subsystems(app: &mut CadApp, id: &str, params: &Value) -> Option<Res
     if let Some(r) = crate::blocks_palette::route(app, id, params) {
         return Some(r);
     }
+    if let Some(r) = crate::bvstate::route(app, id, params) {
+        return Some(r);
+    }
+    if let Some(r) = crate::blookup::route(app, id, params) {
+        return Some(r);
+    }
     if let Some(r) = crate::bedit::route(app, id, params) {
         return Some(r);
     }
@@ -740,6 +746,16 @@ fn animations_json(app: &CadApp) -> Value {
 pub enum Entry {
     Item { label: String, id: String, shortcut: Option<String>, enabled: bool },
     Sub { label: String, children: Vec<Entry> },
+}
+
+impl Entry {
+    /// An item that can run, or a submenu with one.
+    pub fn enabled(&self) -> bool {
+        match self {
+            Entry::Item { enabled, .. } => *enabled,
+            Entry::Sub { children, .. } => children.iter().any(Entry::enabled),
+        }
+    }
 }
 
 /// The full menu tree from the command registry plus UI commands, in registration order.

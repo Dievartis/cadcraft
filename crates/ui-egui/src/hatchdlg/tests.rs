@@ -20,6 +20,23 @@ fn app_with_rect() -> (CadApp, Handle) {
 }
 
 #[test]
+fn a_custom_hatch_created_in_the_dialog_stores_its_line_families() {
+    let (mut app, boundary) = app_with_rect();
+    open_create(&mut app, false);
+    let state = app.hatch_dlg.as_mut().unwrap();
+    state.handles.push(boundary);
+    state.custom = Some(CustomPattern {
+        name: "DIEVART_TEST_HATCH".into(),
+        families: vec![PatternFamily::default(), PatternFamily { angle: 90.0, spacing: 3.0, dashes: "2 -1".into() }],
+    });
+    assert!(ok(&mut app));
+    let drawing = app.session.doc().unwrap();
+    let hatch = drawing.model.iter().find_map(|e| if let EntityKind::Hatch(hatch) = &e.kind { Some(hatch) } else { None }).unwrap();
+    assert_eq!(hatch.pattern, "DIEVART_TEST_HATCH");
+    assert_eq!(hatch.pattern_lines.len(), 2);
+}
+
+#[test]
 fn pick_points_hides_the_dialog_and_brings_it_back_with_the_points() {
     let (mut app, _) = app_with_rect();
     open_create(&mut app, false);

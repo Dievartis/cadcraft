@@ -1136,6 +1136,11 @@
 
 	Trade Libraries	Bibliothèques métier
 	Dievartis fork: {version}	Fork Dievartis : {version}
+	Create a custom hatch pattern	Créer un motif de hachure
+	Pattern name	Nom du motif
+	Use spaces between dashes: positive draws, negative skips, zero marks a dot.	Séparez les longueurs par des espaces. Une valeur positive trace, une valeur négative laisse un vide et zéro place un point.
+	Add line family	Ajouter une famille de lignes
+	Check the pattern name, spacing and dash values.	Vérifiez le nom du motif, l’espacement et les longueurs des tirets.
 	Library settings	Réglages des bibliothèques
 	Furniture and equipment	Mobilier et équipements
 	HVAC	CVC

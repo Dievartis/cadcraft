@@ -103,6 +103,18 @@ fn width_replaces_the_opposite_corner() {
 }
 
 #[test]
+fn mtext_editor_and_created_entity_use_the_current_style() {
+    let mut session = Session::new();
+    session.doc_mut().unwrap().text_styles.push(TextStyle { name: "Notes".into(), ..TextStyle::default() });
+    session.execute("style.current", &json!({ "name": "Notes" })).unwrap();
+    session.cmdline("MTEXT 0,0 20,10").unwrap();
+    assert_eq!(session.editing_mtext().unwrap().style, "Notes");
+    session.cmdline("A note").unwrap();
+    session.cmdline("").unwrap();
+    assert_eq!(last_mtext(&session).style, "Notes");
+}
+
+#[test]
 fn style_and_columns() {
     let mut s = Session::new();
     s.doc_mut().unwrap().text_styles.push(TextStyle { name: "Notes".into(), ..TextStyle::default() });
