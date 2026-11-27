@@ -26,7 +26,6 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         "wallstyles" => crate::wallstyledlg::dialog(app, ctx, &mut open),
         "hatch" => crate::hatchdlg::dialog(app, ctx, &mut open),
         "aliasedit" => crate::aliasdlg::dialog(app, ctx, &mut open),
-        "wallstyles" => crate::wallstyledlg::dialog(app, ctx, &mut open),
         "controlpoints" => crate::ctrldlg::dialog(app, ctx, &mut open),
         "elecreport" => crate::elecdlg::dialog(app, ctx, &mut open),
         "titleblock" => crate::titleblockdlg::dialog(app, ctx, &mut open),
