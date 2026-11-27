@@ -873,6 +873,18 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
                 let _ = app.run("options", serde_json::Value::Object(changes));
             }
         });
+        // Keep the editor entry beside the tab selector so it remains visible even
+        // when the gallery has no items or the footer is collapsed.
+        let can_edit =
+            st.tab == Tab::Current && st.selected.as_deref().is_some_and(|name| app.session.doc().ok().and_then(|d| d.block(name)).is_some());
+        if ui
+            .add_enabled(can_edit, egui::Button::new(crate::tl!("Edit Block")))
+            .on_hover_text(crate::tl!("Open the selected block in the Block Editor"))
+            .clicked()
+            && let Some(name) = st.selected.as_deref()
+        {
+            let _ = app.run("bedit", json!({ "name": name }));
+        }
     });
     if st.tab == Tab::Catalogues {
         crate::catalogue::panel(app, ui);
@@ -946,12 +958,6 @@ pub fn section(app: &mut CadApp, ui: &mut egui::Ui) {
     ui.separator();
     let placing = app.session.prompt_text() != "Command:";
     ui.add_enabled_ui(!placing, |ui| options(ui, &mut st));
-    let can_edit = st.selected.as_deref().is_some_and(|name| app.session.doc().ok().and_then(|d| d.block(name)).is_some());
-    if ui.add_enabled(can_edit, egui::Button::new(crate::tl!("Edit Block"))).on_hover_text(crate::tl!("Open the selected block in the Block Editor")).clicked()
-        && let Some(name) = st.selected.as_deref()
-    {
-        let _ = app.run("bedit", json!({ "name": name }));
-    }
     let measured = ui.cursor().top() - footer_top + ui.spacing().item_spacing.y;
     ui.data_mut(|d| d.insert_temp(footer_id, measured));
     if (measured - footer_h).abs() > 0.5 {
