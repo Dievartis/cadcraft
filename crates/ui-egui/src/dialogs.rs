@@ -41,6 +41,7 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         "bedit" => crate::bedit::dialog(app, ctx, &mut open),
         "bvstate" => crate::bvstate::dialog(app, ctx, &mut open),
         "blookuptable" => crate::blookup::dialog(app, ctx, &mut open),
+        "bparameter" => crate::bparameter::dialog(app, ctx, &mut open),
         "authoring" => crate::bedit::authoring_dialog(app, ctx, &mut open),
         o if o == "options" || o.starts_with("options:") => crate::options::dialog(app, ctx, o, &mut open),
         o if o.starts_with("textedit:") => crate::textdlg::dialog(app, ctx, o, &mut open),

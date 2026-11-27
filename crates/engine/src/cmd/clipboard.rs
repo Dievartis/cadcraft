@@ -39,8 +39,26 @@ pub struct ClipSource {
 /// Put copies of `ents` from the active drawing on the clipboard, with `base` as base point.
 pub(crate) fn copy(s: &mut Session, ents: Vec<Entity>, base: Vec2) -> Result<()> {
     let uid = s.state()?.uid;
-    let defs = defs_for(s.doc()?, &ents);
-    set(s, ents, base, defs, Some(uid));
+    // Copying one member of a selectable group copies the complete group. This
+    // mirrors selection behaviour and lets the paste-side remapper recreate an
+    // independent group instead of leaving the copy partially grouped.
+    let d = s.doc()?;
+    let mut handles: HashSet<Handle> = ents.iter().map(|e| e.handle).collect();
+    for entity in &ents {
+        for index in super::groups::groups_of(d, entity.handle) {
+            if let Some(group) = d.groups.get(index) {
+                handles.extend(group.members.iter().copied());
+            }
+        }
+    }
+    let mut expanded = ents;
+    for entity in d.model.iter().chain(d.layouts.iter().flat_map(|l| l.entities.iter())) {
+        if handles.contains(&entity.handle) && !expanded.iter().any(|e| e.handle == entity.handle) {
+            expanded.push(entity.as_ref().clone());
+        }
+    }
+    let defs = defs_for(d, &expanded);
+    set(s, expanded, base, defs, Some(uid));
     Ok(())
 }
 

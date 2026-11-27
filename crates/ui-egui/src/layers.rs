@@ -110,22 +110,19 @@ pub fn color_palette(ui: &mut egui::Ui, id: egui::Id, current: Color, by: bool) 
             });
         }
         ui.add_space(6.0);
+        // Keep this final row on a fixed grid. An incomplete row must not stretch its cells.
         ui.horizontal(|ui| {
             for i in 1..=9u8 {
-                cell(ui, i, 18.0, &mut out);
-                ui.add_space(2.0);
+                cell(ui, i, 11.0, &mut out);
             }
-            ui.add_space(10.0);
-            for i in 250..=255u8 {
-                cell(ui, i, 18.0, &mut out);
-                ui.add_space(2.0);
+            let (r, resp) = ui.allocate_exact_size(vec2(11.0, 11.0), Sense::click());
+            ui.painter().rect_filled(r.shrink(0.5), 0.0, Color32::BLACK);
+            if resp.on_hover_text(crate::tl!("Black")).clicked() {
+                out = Some(Color::True(Rgb(0, 0, 0)));
             }
         });
         ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
         ui.add_space(6.0);
-        if ui.button(crate::tl!("Black")).clicked() {
-            out = Some(Color::True(Rgb(0, 0, 0)));
-        }
         if by {
             ui.horizontal(|ui| {
                 if ui.button(crate::tl!("ByLayer")).clicked() {

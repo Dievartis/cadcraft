@@ -43,16 +43,16 @@ fn the_filter_hides_unused_colors_and_restores_them() {
     let mut h = harness();
     let filter = "Show only colors used in the current drawing";
     // The table starts complete.
-    assert!(h.query_by_label("Color_1").is_some());
-    assert!(h.query_by_label("Color_2").is_some(), "the unused colour starts shown");
+    assert!(h.query_by_label("Color_001").is_some());
+    assert!(h.query_by_label("Color_002").is_some(), "the unused colour starts shown");
     h.get_by_label(filter).click();
     h.run_steps(2);
-    assert!(h.query_by_label("Color_1").is_some(), "the colour the line uses stays");
-    assert!(h.query_by_label("Color_2").is_none(), "the unused colour is hidden");
+    assert!(h.query_by_label("Color_001").is_some(), "the colour the line uses stays");
+    assert!(h.query_by_label("Color_002").is_none(), "the unused colour is hidden");
     assert!(h.query_by_label("Color_255").is_none());
     // Turning the filter off brings the complete table back, settings untouched.
     h.get_by_label(filter).click();
     h.run_steps(2);
-    assert!(h.query_by_label("Color_2").is_some(), "the whole table is back");
+    assert!(h.query_by_label("Color_002").is_some(), "the whole table is back");
     assert_eq!(h.state().session.doc().unwrap().plot_style_tables.len(), 0, "the filter changes no table");
 }

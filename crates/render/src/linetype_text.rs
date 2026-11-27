@@ -111,18 +111,20 @@ fn shape(d: &Drawing, el: &cadcraft_doc::DashElement, scale: f64) -> Option<Shap
     Some(Shaped { strokes, width: glyph.advance.x * k, ..Shaped::default() })
 }
 
-/// Original loop motif. A sinusoidal vertical path with a reverse sweep in x at
-/// each turning point draws two soft loops and returns to the next repeat's axis.
+/// Original insulation motif. Each repeat is a pair of crossed rounded loops,
+/// matching the conventional batt-insulation drafting symbol while remaining
+/// native to CADCraft and independent of an external shape font.
 fn insulation_shape(thickness: f64) -> Option<Shaped> {
     if !thickness.is_finite() || thickness <= 0.0 {
         return None;
     }
-    let stroke = (0..=48)
+    let stroke = (0..=96)
         .map(|i| {
-            let t = f64::from(i) / 48.0;
+            let t = f64::from(i) / 96.0;
             let a = std::f64::consts::TAU * t;
-            let x = 1.5 * t + 0.19 * (2.0 * a).sin();
-            Vec2::new(x, 0.5 * a.sin()) * thickness
+            let x = 1.5 * t + 0.34 * (2.0 * a).sin();
+            let y = 0.42 * a.cos();
+            Vec2::new(x, y) * thickness
         })
         .collect();
     Some(Shaped { strokes: vec![stroke], width: 1.5 * thickness, ..Shaped::default() })

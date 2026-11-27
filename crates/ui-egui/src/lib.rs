@@ -22,6 +22,7 @@ pub mod animation;
 pub mod attedit;
 pub mod autosave;
 pub mod bedit;
+pub mod bparameter;
 pub mod blookup;
 pub mod bvstate;
 pub mod canvas;

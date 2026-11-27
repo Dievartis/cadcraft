@@ -138,6 +138,10 @@ pub(super) fn paint(app: &mut CadApp, ctx: &egui::Context, p: &egui::Painter, xf
                     if ui.add_enabled(!current, egui::Button::new(crate::tl!("Save Block As"))).clicked() {
                         action = Some(("bsaveas", true));
                     }
+                    ui.separator();
+                    if ui.button(crate::tl!("BParameter")).on_hover_text(crate::tl!("Add or edit a dynamic block parameter")).clicked() {
+                        app.ui.dialog = Some("bparameter".into());
+                    }
                     if ui.button(crate::tl!("Close Block Editor")).clicked() {
                         action = Some(("bclose", true));
                     }

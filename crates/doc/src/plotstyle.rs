@@ -224,11 +224,11 @@ pub struct PlotStyleTable {
 
 impl PlotStyleTable {
     /// A colour-dependent table whose style for index colour `i` is `f(i)` (else object
-    /// properties), named `Color_i`.
+    /// properties), named `Color_001` through `Color_255`.
     pub fn color_dependent(name: &str, description: &str, f: impl Fn(u8) -> Option<PlotStyle>) -> PlotStyleTable {
         let styles = (1..=255u8)
             .map(|i| {
-                let label = format!("Color_{i}");
+                let label = format!("Color_{i:03}");
                 let mut s = f(i).unwrap_or_else(|| PlotStyle::object(&label));
                 s.name = label;
                 s
@@ -301,7 +301,7 @@ impl PlotStyleTable {
 
     /// The table with hostile or inconsistent values fixed: screening at most 100 %,
     /// lineweights at most 2.11 mm, names at most 255 characters; a colour-dependent table has
-    /// exactly 255 styles named `Color_1`..`Color_255`; a named table has unique, non-empty
+    /// exactly 255 styles named `Color_001`..`Color_255`; a named table has unique, non-empty
     /// style names (at most [`MAX_NAMED_STYLES`]) starting with `Normal`.
     pub fn sanitized(mut self) -> PlotStyleTable {
         let cut = |s: &str| s.chars().take(255).collect::<String>();
@@ -321,7 +321,7 @@ impl PlotStyleTable {
                     self.styles.push(PlotStyle::object(""));
                 }
                 for (i, s) in self.styles.iter_mut().enumerate() {
-                    s.name = format!("Color_{}", i + 1);
+                    s.name = format!("Color_{:03}", i + 1);
                 }
             }
             PlotStyleKind::Named => {
@@ -519,7 +519,7 @@ mod tests {
             assert_eq!(t.name, n);
             assert!(t.is_color_dependent());
             assert_eq!(t.styles.len(), CTB_STYLES);
-            assert_eq!(t.by_color(1).unwrap().name, "Color_1");
+            assert_eq!(t.by_color(1).unwrap().name, "Color_001");
             assert_eq!(t.by_color(255).unwrap().name, "Color_255");
             assert!(t.by_color(0).is_none());
         }
@@ -566,7 +566,7 @@ mod tests {
         assert_eq!((bad.styles[1].screening, bad.styles[1].lineweight), (100, Some(211)));
         let short = PlotStyleTable { styles: vec![PlotStyle::object("zz")], ..PlotStyleTable::default() }.sanitized();
         assert_eq!(short.styles.len(), CTB_STYLES);
-        assert_eq!(short.styles[0].name, "Color_1");
+        assert_eq!(short.styles[0].name, "Color_001");
     }
 
     #[test]
