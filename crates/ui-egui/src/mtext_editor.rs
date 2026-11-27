@@ -116,9 +116,11 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         // An existing MTEXT (TEXTEDIT) starts with its contents and their formats.
         let mut fmt = if mt.contents.is_empty() { Formatted::default() } else { Formatted::from_contents_with_height(&mt.contents, Some(mt.height)) };
         if let Some(f) = app.session.doc().ok().and_then(|d| d.text_style(&mt.style).map(|s| s.font.clone())) {
-            // A family name, not a font file (`txt.shx`, `arial.ttf`).
-            if !f.is_empty() && !f.contains('.') {
-                fmt.base_font = f;
+            if !f.trim().is_empty() {
+                fmt.base_font = match cadcraft_fonts::TextFont::resolve(&f) {
+                    cadcraft_fonts::TextFont::Outline(face) => face.family_name().unwrap_or(f),
+                    _ => f,
+                };
             }
         }
         // An existing text opens with the caret at its end.
@@ -257,7 +259,12 @@ fn toolbar(ui: &mut egui::Ui, st: &mut State, base_h: f64) {
             .width(120.0)
             .selected_text(shown.clone())
             .show_ui(ui, |ui| {
-                for fam in FAMILIES.iter().map(ToString::to_string).chain(cur.font.clone().filter(|f| !FAMILIES.contains(&f.as_str()))) {
+                let inherited = st.fmt.base_font.clone();
+                if ui.selectable_label(cur.font.is_none(), &inherited).clicked() {
+                    change(st, |c| c.font = None);
+                    refocus = true;
+                }
+                for fam in FAMILIES.iter().map(ToString::to_string).chain(cur.font.clone().filter(|f| !FAMILIES.contains(&f.as_str()))).filter(|f| *f != inherited) {
                     if ui.selectable_label(shown == fam, &fam).clicked() {
                         change(st, |c| c.font = Some(fam.clone()));
                         refocus = true;

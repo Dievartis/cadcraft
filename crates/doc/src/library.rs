@@ -8,11 +8,30 @@ use crate::{DashElement, Drawing, Linetype};
 
 pub mod files;
 
+/// Identifier of CADCraft's built-in insulation shape, rendered without a shape font.
+pub const INSULATION_SHAPE_FILE: &str = "cadcraft-insulation.shx";
+
+fn insulation(thickness_mm: u16) -> Linetype {
+    let thickness = f64::from(thickness_mm) / 25.4;
+    let period = thickness * 1.5;
+    Linetype {
+        name: format!("SOFT_INSULATION_{thickness_mm}"),
+        description: format!("Soft insulation, {thickness_mm} mm at scale 1 in a millimetre drawing"),
+        pattern: vec![DashElement {
+            shape: Some(1),
+            style: Some(INSULATION_SHAPE_FILE.into()),
+            scale: thickness,
+            offset: cadcraft_geom::Vec2::new(-period, 0.0),
+            ..DashElement::dash(-period)
+        }],
+    }
+}
+
 /// The standard linetype library, defined in inches. Load it into a drawing with
 /// [`standard_linetypes_for`], which scales it for metric drawings.
 pub fn standard_linetypes() -> Vec<Linetype> {
     let s = |name: &str, desc: &str, d: &[f64]| Linetype::simple(name, desc, d);
-    vec![
+    let mut types = vec![
         s("BORDER", "Border __ __ . __ __ . __ __ .", &[0.5, -0.25, 0.5, -0.25, 0.0, -0.25]),
         s("CENTER", "Center ____ _ ____ _ ____", &[1.25, -0.25, 0.25, -0.25]),
         s("CENTER2", "Center (.5x) ___ _ ___ _", &[0.75, -0.125, 0.125, -0.125]),
@@ -48,7 +67,9 @@ pub fn standard_linetypes() -> Vec<Linetype> {
             ],
         },
         s("ZIGZAG", "Zig zag /\\/\\/\\/\\/", &[0.0001, -0.2, 0.0001, -0.2]),
-    ]
+    ];
+    types.extend([40, 45, 60, 80, 100, 120, 140, 145, 160, 180, 200, 240, 300].into_iter().map(insulation));
+    types
 }
 
 /// The standard linetypes as loaded into `d`. In a metric drawing (`MEASUREMENT` 1) every length

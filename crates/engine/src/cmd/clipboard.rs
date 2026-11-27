@@ -91,6 +91,9 @@ pub(crate) fn paste(s: &mut Session, m: &Mat3) -> Result<Vec<Handle>> {
             st.push(e);
         }
     }
+    if let Some(defs) = defs.as_deref() {
+        copy_groups(d, defs, ents.iter().map(|e| e.handle).zip(out.iter().copied()).collect());
+    }
     s.set_selection(out.clone());
     Ok(out)
 }
@@ -143,10 +146,15 @@ pub fn system_text(s: &Session) -> Option<String> {
         None => Renames::default(),
     };
     d.header.set("INSBASE", HVal::Point(s.clipboard_base.to3(0.0)));
-    for e in &s.clipboard {
-        let e = adopt(&mut d, defs, e, &renames, &mut raster_map);
+    let mut handles = HashMap::new();
+    for source in &s.clipboard {
+        let e = adopt(&mut d, defs, source, &renames, &mut raster_map);
+        handles.insert(source.handle, e.handle);
         d.ensure_layer(&e.common.layer);
         d.model.push(e);
+    }
+    if let Some(defs) = defs {
+        copy_groups(&mut d, defs, handles);
     }
     let bytes = (hooks.write)(&d, "clipboard.dxf").ok()?;
     String::from_utf8(bytes).ok()
@@ -273,6 +281,8 @@ fn defs_for(src: &Drawing, ents: &[Entity]) -> Drawing {
         all.iter().filter(|t| used.contains(&up(name(t)))).cloned().collect()
     }
     let mut d = Drawing::new_imperial();
+    let handles: HashSet<_> = ents.iter().map(|e| e.handle).collect();
+    d.groups = src.groups.iter().filter(|g| !g.members.is_empty() && g.members.iter().all(|h| handles.contains(h))).cloned().collect();
     d.header = src.header.clone();
     d.layers = pick(&src.layers, &used.layers, |l| &l.name);
     d.linetypes = pick(&src.linetypes, &used.linetypes, |l| &l.name);
@@ -288,6 +298,26 @@ fn defs_for(src: &Drawing, ents: &[Entity]) -> Drawing {
     }
     d.layouts.clear();
     d
+}
+
+fn copy_groups(target: &mut Drawing, source: &Drawing, handles: HashMap<Handle, Handle>) {
+    let mut names: HashSet<_> = target.groups.iter().map(|g| up(&g.name)).collect();
+    let mut serial = 1;
+    for group in &source.groups {
+        if target.groups.len() >= super::groups::MAX_GROUPS {
+            break;
+        }
+        let Some(members) = group.members.iter().map(|h| handles.get(h).copied()).collect::<Option<Vec<_>>>() else { continue };
+        if members.is_empty() {
+            continue;
+        }
+        let mut name = group.name.clone();
+        while !names.insert(up(&name)) {
+            name = format!("*A{serial}");
+            serial += 1;
+        }
+        target.groups.push(cadcraft_doc::Group { name, members, ..group.clone() });
+    }
 }
 
 #[derive(Default)]

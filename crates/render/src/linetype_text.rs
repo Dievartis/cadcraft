@@ -98,6 +98,9 @@ fn shape(d: &Drawing, el: &cadcraft_doc::DashElement, scale: f64) -> Option<Shap
     let number = el.shape.filter(|n| *n != 0)?;
     let style = el.style.as_deref().map(str::trim).filter(|s| !s.is_empty())?;
     let file = d.text_style(style).map_or_else(|| style.to_string(), |ts| ts.font.clone());
+    if number == 1 && file.eq_ignore_ascii_case(cadcraft_doc::library::INSULATION_SHAPE_FILE) {
+        return insulation_shape(el.scale * scale);
+    }
     let font = cadcraft_fonts::shx::find(&file)?;
     let glyph = font.glyph(number, false)?;
     let k = if el.scale.is_finite() && el.scale > 0.0 { el.scale } else { 1.0 } * scale / font.units_per_height();
@@ -106,6 +109,21 @@ fn shape(d: &Drawing, el: &cadcraft_doc::DashElement, scale: f64) -> Option<Shap
     }
     let strokes = glyph.strokes.iter().map(|s| s.iter().map(|p| *p * k).collect()).collect();
     Some(Shaped { strokes, width: glyph.advance.x * k, ..Shaped::default() })
+}
+
+/// Original loop motif. A sinusoidal vertical path with a reverse sweep in x at
+/// each turning point draws two soft loops and returns to the next repeat's axis.
+fn insulation_shape(thickness: f64) -> Option<Shaped> {
+    if !thickness.is_finite() || thickness <= 0.0 {
+        return None;
+    }
+    let stroke = (0..=48).map(|i| {
+        let t = f64::from(i) / 48.0;
+        let a = std::f64::consts::TAU * t;
+        let x = 1.5 * t + 0.19 * (2.0 * a).sin();
+        Vec2::new(x, 0.5 * a.sin()) * thickness
+    }).collect();
+    Some(Shaped { strokes: vec![stroke], width: 1.5 * thickness, ..Shaped::default() })
 }
 
 /// The text and shape elements of `lt`, scaled by `scale`, in pattern order.

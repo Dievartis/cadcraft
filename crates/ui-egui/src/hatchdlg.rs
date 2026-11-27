@@ -47,6 +47,7 @@ pub struct Fill {
 #[derive(Clone, Debug, PartialEq)]
 pub struct HatchDlgState {
     pub fill: Fill,
+    custom: Option<CustomPattern>,
     /// The fill as the dialog opened: edit mode sends only what changed.
     pub opened: Fill,
     /// The hatches being edited; empty in create mode.
@@ -68,6 +69,60 @@ pub struct HatchDlgState {
     /// The space its picks were made in (`DocState::edit_space`, where HATCH adds the hatch): a
     /// switch to another layout drops the dialog.
     pub space: Space,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct CustomPattern {
+    name: String,
+    families: Vec<PatternFamily>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PatternFamily {
+    angle: f64,
+    spacing: f64,
+    dashes: String,
+}
+
+impl Default for PatternFamily {
+    fn default() -> Self {
+        Self { angle: 45.0, spacing: 5.0, dashes: String::new() }
+    }
+}
+
+impl Default for CustomPattern {
+    fn default() -> Self {
+        Self { name: "MY_PATTERN".into(), families: vec![PatternFamily::default()] }
+    }
+}
+
+impl CustomPattern {
+    fn encode(&self) -> Option<(String, String)> {
+        let name = self.name.trim().to_ascii_uppercase();
+        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+            return None;
+        }
+        let mut text = format!("*{name}, Custom pattern\n");
+        for family in &self.families {
+            if !family.angle.is_finite() || !family.spacing.is_finite() || family.spacing <= 0.0 {
+                return None;
+            }
+            text.push_str(&format!("{},0,0,0,{}", family.angle, family.spacing));
+            if !family.dashes.trim().is_empty() {
+                let dashes: Vec<_> = family.dashes.split_whitespace().map(|value| value.parse::<f64>().ok().filter(|v| v.is_finite()))
+                    .collect::<Option<_>>()?;
+                if dashes.iter().all(|d| *d == 0.0) {
+                    return None;
+                }
+                for dash in dashes {
+                    text.push_str(&format!(",{dash}"));
+                }
+            }
+            text.push('\n');
+        }
+        let parsed = cadcraft_doc::library::files::parse_pat(&text);
+        (parsed.items.len() == 1 && parsed.warnings.is_empty()).then_some((name, text))
+    }
 }
 
 /// Create mode, from the drawing's HATCH settings (HPNAME, HPSCALE, HPANG, HPASSOC, HPSEPARATE,
@@ -98,6 +153,7 @@ pub fn create_state(d: &Drawing, uid: u64, gradient: bool) -> HatchDlgState {
     HatchDlgState {
         opened: fill.clone(),
         fill,
+        custom: None,
         edit: Vec::new(),
         separate: h.i64("HPSEPARATE", 0) != 0,
         points: Vec::new(),
@@ -189,7 +245,14 @@ pub fn ok_call(st: &HatchDlgState) -> Option<(&'static str, Value)> {
             p.insert("color2".into(), json!(f.color2.name()));
             p.insert("centered".into(), json!(f.centered));
         } else {
-            p.insert("pattern".into(), json!(f.pattern));
+            let pattern = if let Some(custom) = &st.custom {
+                let (name, text) = custom.encode()?;
+                p.insert("patternText".into(), json!(text));
+                name
+            } else {
+                f.pattern.clone()
+            };
+            p.insert("pattern".into(), json!(pattern));
             p.insert("scale".into(), json!(f.scale));
         }
         p.insert("angle".into(), json!(f.angle));
@@ -436,6 +499,9 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             ui.vertical(|ui| {
                 ui.set_width(340.0);
                 fill_ui(ui, &mut st.fill, &mut action);
+                if st.edit.is_empty() && !st.fill.gradient {
+                    custom_pattern_ui(ui, &mut st.custom);
+                }
             });
             // Space, not a vertical separator: a separator takes the height available, and the
             // window grew by it every frame until the buttons left the screen.
@@ -450,7 +516,8 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
         }
         ui.separator();
         ui.horizontal(|ui| {
-            let ready = !st.edit.is_empty() || !(st.points.is_empty() && st.handles.is_empty());
+            let valid = st.fill.gradient || st.custom.as_ref().is_none_or(|draft| draft.encode().is_some());
+            let ready = valid && (!st.edit.is_empty() || !(st.points.is_empty() && st.handles.is_empty()));
             if ui.add_enabled(ready, egui::Button::new(crate::tl!("OK"))).clicked() {
                 action = Action::Ok;
             }
@@ -476,6 +543,42 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                 app.hatch_dlg = None;
             }
         }
+    }
+}
+
+fn custom_pattern_ui(ui: &mut egui::Ui, custom: &mut Option<CustomPattern>) {
+    let mut enabled = custom.is_some();
+    if ui.checkbox(&mut enabled, crate::tl!("Create a custom hatch pattern")).changed() {
+        *custom = enabled.then(CustomPattern::default);
+    }
+    let Some(draft) = custom else { return };
+    let name = ui.label(crate::tl!("Pattern name"));
+    ui.add(egui::TextEdit::singleline(&mut draft.name).char_limit(31)).labelled_by(name.id);
+    ui.label(crate::tl!("Use spaces between dashes: positive draws, negative skips, zero marks a dot."));
+    let mut remove = None;
+    egui::ScrollArea::vertical().id_salt("custom-hatch-families").max_height(125.0).show(ui, |ui| {
+        for (index, family) in draft.families.iter_mut().enumerate() {
+            ui.push_id(index, |ui| ui.horizontal(|ui| {
+                let angle = ui.label(crate::tl!("Angle"));
+                ui.add(egui::DragValue::new(&mut family.angle).suffix("°")).labelled_by(angle.id);
+                let spacing = ui.label(crate::tl!("Spacing"));
+                ui.add(egui::DragValue::new(&mut family.spacing).range(0.0001..=1e6)).labelled_by(spacing.id);
+                let dashes = ui.label(crate::tl!("Dashes"));
+                ui.add(egui::TextEdit::singleline(&mut family.dashes).char_limit(120).desired_width(70.0)).labelled_by(dashes.id);
+                if ui.small_button("×").on_hover_text(crate::tl!("Remove")).clicked() {
+                    remove = Some(index);
+                }
+            }));
+        }
+    });
+    if let Some(index) = remove && draft.families.len() > 1 {
+        draft.families.remove(index);
+    }
+    if ui.add_enabled(draft.families.len() < 16, egui::Button::new(crate::tl!("Add line family"))).clicked() {
+        draft.families.push(PatternFamily::default());
+    }
+    if draft.encode().is_none() {
+        ui.colored_label(Tokens::get().warn, crate::tl!("Check the pattern name, spacing and dash values."));
     }
 }
 

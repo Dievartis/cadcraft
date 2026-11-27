@@ -123,6 +123,9 @@ pub fn color_palette(ui: &mut egui::Ui, id: egui::Id, current: Color, by: bool) 
         });
         ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
         ui.add_space(6.0);
+        if ui.button(crate::tl!("Black")).clicked() {
+            out = Some(Color::True(Rgb(0, 0, 0)));
+        }
         if by {
             ui.horizontal(|ui| {
                 if ui.button(crate::tl!("ByLayer")).clicked() {
@@ -156,6 +159,12 @@ pub fn color_palette(ui: &mut egui::Ui, id: egui::Id, current: Color, by: bool) 
         }
     }
     out
+}
+
+pub(crate) fn sorted_layer_names(d: &cadcraft_doc::Drawing) -> Vec<String> {
+    let mut names: Vec<_> = d.layers.iter().map(|layer| layer.name.clone()).collect();
+    names.sort_by_cached_key(|name| natural_lower(name));
+    names
 }
 
 /// A small horizontal bar showing a lineweight.

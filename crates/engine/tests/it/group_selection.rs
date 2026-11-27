@@ -24,6 +24,20 @@ fn hex(hs: &[Handle]) -> Vec<String> {
     hs.iter().map(|h| h.hex()).collect()
 }
 
+#[test]
+fn pasting_a_group_keeps_a_separate_group_of_its_new_members() {
+    let (mut s, handles) = lines();
+    let members = hex(&handles[..2]);
+    s.execute("group", &json!({ "name": "Pair", "handles": members })).unwrap();
+    s.execute("copyclip", &json!({ "handles": members })).unwrap();
+    s.execute("pasteclip", &json!({ "at": [40, 0] })).unwrap();
+    let d = s.doc().unwrap();
+    assert_eq!(d.groups.len(), 2);
+    assert_eq!(d.groups[0].members, handles[..2]);
+    assert_ne!(d.groups[0].name, d.groups[1].name);
+    assert_eq!(d.groups[1].members, d.model.iter().skip(handles.len()).map(|e| e.handle).collect::<Vec<_>>());
+}
+
 fn members(s: &Session, name: &str) -> Vec<Handle> {
     s.doc().unwrap().groups.iter().find(|g| g.name == name).map(|g| g.members.clone()).unwrap_or_default()
 }

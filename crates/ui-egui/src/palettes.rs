@@ -961,10 +961,11 @@ fn shown_part(s: &str) -> String {
 }
 
 /// The current colour row: its menu of the standard colours; returns the colour picked.
-fn current_color_row(ui: &mut egui::Ui, cecolor: i64) -> Option<(&'static str, Value)> {
+fn current_color_row(ui: &mut egui::Ui, current: Color) -> Option<(&'static str, Value)> {
     let mut action = None;
     prop_row(ui, "Color", |ui| {
-        ui.menu_button(format!("■ {}", crate::i18n::t(&Color::from_aci(cecolor as i16).name())), |ui| {
+        let name = if current == Color::True(Rgb(0, 0, 0)) { "Black".to_owned() } else { current.name() };
+        ui.menu_button(format!("■ {}", crate::i18n::t(&name)), |ui| {
             for (n, c) in
                 [("ByLayer", 256), ("ByBlock", 0), ("Red", 1), ("Yellow", 2), ("Green", 3), ("Cyan", 4), ("Blue", 5), ("Magenta", 6), ("White", 7)]
             {
@@ -972,6 +973,10 @@ fn current_color_row(ui: &mut egui::Ui, cecolor: i64) -> Option<(&'static str, V
                     action = Some(("color", json!({ "color": c })));
                     ui.close();
                 }
+            }
+            if ui.button(crate::tl!("Black")).clicked() {
+                action = Some(("color", json!({ "color": "#000000" })));
+                ui.close();
             }
         });
     });
@@ -1008,7 +1013,7 @@ fn current_properties(app: &mut CadApp, ui: &mut egui::Ui) {
     let len = |v: f64| cadcraft_engine::units::format_distance(v, lu, lp);
     let mut bad: Option<String> = None;
     // Current properties for new objects; each row runs the command that sets it.
-    let layers: Vec<String> = d.layers.iter().map(|l| l.name.clone()).collect();
+    let layers = crate::layers::sorted_layer_names(d);
     let linetypes: Vec<String> = d.linetypes.iter().map(|l| l.name.clone()).collect();
     let text_styles: Vec<String> = d.text_styles.iter().map(|l| l.name.clone()).collect();
     let dim_styles: Vec<String> = d.dim_styles.iter().map(|l| l.name.clone()).collect();
@@ -1019,7 +1024,9 @@ fn current_properties(app: &mut CadApp, ui: &mut egui::Ui) {
     if let Some((c, p)) = block_edit_rows(app, d, ui) {
         act(c, p);
     }
-    if let Some((c, p)) = current_color_row(ui, h.i64("CECOLOR", 256)) {
+    let current_color = h.get("CECOLOR_RGB").and_then(|value| value.as_i64()).and_then(|value| u32::try_from(value).ok())
+        .map(|rgb| Color::True(Rgb::from_u32(rgb))).unwrap_or_else(|| Color::from_aci(h.i64("CECOLOR", 256) as i16));
+    if let Some((c, p)) = current_color_row(ui, current_color) {
         act(c, p);
     }
     prop_row(ui, "Layer", |ui| {
@@ -1178,7 +1185,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
     let lts = same("ltscale", &|e| format!("{:.4}", e.common.ltscale));
     let lw = same("lineweight", &|e| e.common.lineweight.name());
     let tr = same("transparency", &|e| e.common.transparency.name());
-    let layers: Vec<String> = d.layers.iter().map(|l| l.name.clone()).collect();
+    let layers = crate::layers::sorted_layer_names(d);
     let linetypes: Vec<String> = d.linetypes.iter().map(|l| l.name.clone()).collect();
     let ids = &*memo.ids();
     let mut set: Option<Value> = None;
