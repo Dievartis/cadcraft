@@ -26,6 +26,7 @@ mod elec_report;
 mod equipment;
 mod furniture;
 mod furniture_catalog;
+mod labels;
 mod library;
 mod network;
 mod network_legend;
@@ -50,6 +51,7 @@ mod takeoff;
 mod takeoff_cost;
 mod terminal;
 mod titleblock;
+mod upright;
 pub(crate) mod xdata;
 mod xlsx;
 mod zone;
@@ -157,12 +159,11 @@ pub fn preview_entities(pieces: Vec<HvacPiece>, at: Vec2, rotation: f64) -> Vec<
     pieces
         .into_iter()
         .map(|p| {
-            let color = hvac_layer_color(p.layer).unwrap_or(cadcraft_color::Color::ByLayer);
-            let mut e = crate::Entity {
-                handle: crate::Handle(0),
-                common: crate::Common { layer: p.layer.into(), color, ..Default::default() },
-                kind: p.kind,
-            };
+            // The layer's name is before a bar (`layer|linetype|colour`).
+            let layer = p.layer.split('|').next().unwrap_or(p.layer);
+            let color = hvac_layer_color(layer).unwrap_or(cadcraft_color::Color::ByLayer);
+            let mut e =
+                crate::Entity { handle: crate::Handle(0), common: crate::Common { layer: layer.into(), color, ..Default::default() }, kind: p.kind };
             e.kind.transform(&m);
             e
         })
@@ -328,6 +329,28 @@ impl crate::Drawing {
         }
     }
 
+    /// Makes `layer` when it is missing, with its own colour, or for a network the colour and the line type of its style.
+    pub(crate) fn ensure_hvac_layer(&mut self, layer: &str) {
+        if !self.ensure_layer(layer) {
+            return;
+        }
+        let own = self.hvac_colour(layer);
+        let look = self.network_look(layer);
+        if let Some(ref lt) = look.as_ref().map(|(_, lt)| lt.clone()) {
+            self.ensure_network_linetype(lt);
+        }
+        if let Some(l) = self.layers.iter_mut().find(|l| l.name == layer) {
+            match look {
+                Some((c, lt)) => (l.color, l.linetype) = (c, lt),
+                None => {
+                    if let Some(c) = own {
+                        l.color = c;
+                    }
+                }
+            }
+        }
+    }
+
     /// A new anonymous block holding `pieces`, at the block's origin; returns its name.
     pub(crate) fn hvac_block(&mut self, pieces: Vec<HvacPiece>) -> String {
         let name = self.anonymous_block_name("*U");
@@ -338,28 +361,12 @@ impl crate::Drawing {
             // `layer|linetype|colour layer`.
             let (layer, rest) = piece.layer.split_once('|').unwrap_or((piece.layer, "ByLayer"));
             let (linetype, colour_of) = rest.split_once('|').map_or((rest, None), |(l, c)| (l, Some(c)));
-            if self.ensure_layer(layer) {
-                let own = self.hvac_colour(layer);
-                // A new layer takes its own colour; one made for a network, the colour and the line type of its style.
-                let look = self.network_look(layer);
-                if let Some(ref lt) = look.as_ref().map(|(_, lt)| lt.clone()) {
-                    self.ensure_network_linetype(lt);
-                }
-                if let Some(l) = self.layers.iter_mut().find(|l| l.name == layer) {
-                    match look {
-                        Some((c, lt)) => (l.color, l.linetype) = (c, lt),
-                        None => {
-                            if let Some(c) = own {
-                                l.color = c;
-                            }
-                        }
-                    }
-                }
-            }
+            self.ensure_hvac_layer(layer);
             let mut common = crate::Common { layer: layer.into(), linetype: linetype.into(), ..Default::default() };
-            // A colour of its own is written "#rrggbb"; else it is the colour of the layer named.
+            // A colour of its own is written "#rrggbb", ByBlock takes the colour given to the object; else it is the colour of the layer named.
             if let Some(c) = colour_of.and_then(|n| match riser::parse_hex_colour(n) {
                 Some((r, g, b)) => Some(cadcraft_color::Color::True(cadcraft_color::Rgb(r, g, b))),
+                None if n == "ByBlock" => Some(cadcraft_color::Color::ByBlock),
                 None => self.hvac_colour(n),
             }) {
                 common.color = c;
@@ -368,6 +375,25 @@ impl crate::Drawing {
         }
         self.blocks.insert(name.clone(), std::sync::Arc::new(b));
         name
+    }
+}
+
+/// The piece layer of an object drawn on `layer` whose pieces take the colour given to the object (ByBlock): the layer's while it is ByLayer.
+pub(crate) fn by_block(layer: &'static str) -> &'static str {
+    match layer {
+        AHU_LAYER => "M-HVAC-AHU|ByLayer|ByBlock",
+        AIR_TERMINAL_LAYER => "M-HVAC-DIFF|ByLayer|ByBlock",
+        ACCESSORY_LAYER => "M-HVAC-ACC|ByLayer|ByBlock",
+        ACCESSORY_FIRE_LAYER => "M-HVAC-FIRE|ByLayer|ByBlock",
+        DUCT_LAYER => "M-HVAC-DUCT-SUP|ByLayer|ByBlock",
+        DUCT_EXTRACT_LAYER => "M-HVAC-DUCT-EXTR|ByLayer|ByBlock",
+        DUCT_FRESH_LAYER => "M-HVAC-DUCT-FRESH|ByLayer|ByBlock",
+        DUCT_EXHAUST_LAYER => "M-HVAC-DUCT-EXH|ByLayer|ByBlock",
+        DEVICE_LAYER => "E-DEVICE|ByLayer|ByBlock",
+        LIGHT_LAYER => "E-LIGHT|ByLayer|ByBlock",
+        PANEL_LAYER => "E-PANEL|ByLayer|ByBlock",
+        SAFETY_LAYER => "E-SAFETY|ByLayer|ByBlock",
+        other => other,
     }
 }
 

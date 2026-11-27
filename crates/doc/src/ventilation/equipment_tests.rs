@@ -81,7 +81,7 @@ fn every_kind_is_drawn_from_above_with_its_symbol_its_clearance_and_its_text() {
         let m = equipment_models_of(&models, kind).into_iter().next().unwrap();
         let p = EquipmentParams::from_model(&m, "G1", units());
         let pieces = p.generate().unwrap();
-        assert!(pieces.iter().any(|x| x.layer == EQUIPMENT_LAYER && matches!(x.kind, EntityKind::LwPolyline(_))), "{kind:?}");
+        assert!(pieces.iter().any(|x| x.layer.split('|').next() == Some(EQUIPMENT_LAYER) && matches!(x.kind, EntityKind::LwPolyline(_))), "{kind:?}");
         let texts: Vec<_> = pieces.iter().filter_map(|x| if let EntityKind::Text(t) = &x.kind { Some(t.value.clone()) } else { None }).collect();
         assert!(texts.iter().any(|t| t.starts_with("G1")), "{kind:?}: {texts:?}");
         assert!(texts.iter().any(|t| t.starts_with("Dim. ")), "{kind:?}: the sizes are written");

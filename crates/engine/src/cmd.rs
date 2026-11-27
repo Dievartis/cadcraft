@@ -46,7 +46,7 @@ mod titleblock;
 mod zone;
 pub use control::ControlLastUsed;
 pub use design::DesignLastUsed;
-pub use duct::{AhuLastUsed, DuctLastUsed};
+pub use duct::{AhuLastUsed, DuctJust, DuctLastUsed};
 pub use duct_acc::AccessoryLastUsed;
 pub use elec::{CableLastUsed, DeviceLastUsed};
 pub use equipment::EquipmentLastUsed;

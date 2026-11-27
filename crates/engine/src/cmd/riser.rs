@@ -39,7 +39,8 @@ pub fn specs() -> Vec<CommandSpec> {
             .interactive(|s| Ok(Box::new(RiserAddM::with_medium(s, RiserMedium::Bus)))),
         CommandSpec::new("riseredit", "Edit Riser", run_edit).params(
             "{handle | handles, name?, air?, direction?, width? + depth? (the shaft, mm), incomingFlow? (or null), incomingSize? (or null), flow? (or null), size? (or \"auto\"), height? (mm, or null); for a riser of cables: medium? (air|power|lighting|data|safety|bus), circuit?, load? (kW or null), \
-             incomingLoad? (kW or null), section? (mm² or null)} → {changed}",
+             incomingLoad? (kW or null), section? (mm² or null), \
+             line? ({index (from 1), circuit?, section?, load?, incomingLoad?, colour? (#rrggbb or null), way? (up|down|throughUp|throughDown|auto: the riser's)})} → {changed}",
         ),
     ]
 }
@@ -274,6 +275,16 @@ fn apply_cable_line(cmd: &str, line: &mut CableLine, v: &Value) -> Result<()> {
         if let Some(n) = clearable(cmd, v, key)? {
             *slot = n;
         }
+    }
+    // The way of the line (`way`): up, down, throughUp or throughDown; null or "auto": the riser's.
+    match v.get("way") {
+        None => {}
+        Some(Value::Null) => line.way = None,
+        Some(Value::String(t)) if t.trim().eq_ignore_ascii_case("auto") => line.way = None,
+        Some(Value::String(t)) => {
+            line.way = Some(cadcraft_doc::LineWay::parse(t).ok_or_else(|| bad(cmd, "`way` is up, down, throughUp, throughDown or auto"))?)
+        }
+        Some(_) => return Err(bad(cmd, "`way` is up, down, throughUp, throughDown or auto")),
     }
     // A colour of its own for the line, "#rrggbb"; null or empty gives it back the colour of its circuit's wire.
     match v.get("colour").or_else(|| v.get("color")) {

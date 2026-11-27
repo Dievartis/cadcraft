@@ -280,7 +280,8 @@ impl crate::Drawing {
             for h in hs {
                 let Some((mut c, ..)) = self.cable_ends(h) else { continue };
                 let mut changed = false;
-                if overwrite || c.section_mm2.is_none() {
+                // A cable written as text is the user's: it is not sized.
+                if (overwrite || c.section_mm2.is_none()) && c.written.is_none() {
                     changed |= c.section_mm2 != Some(section);
                     c.section_mm2 = Some(section);
                 }
@@ -346,6 +347,12 @@ fn circuit_report(
     }
     if a.cables.is_empty() {
         r.warnings.push("no cable is drawn for this circuit".into());
+    }
+    // A cable written as text has no section: the checks that need one leave it out.
+    let mut written: Vec<&str> = a.cables.iter().filter_map(|(_, c)| c.written.as_deref()).collect();
+    written.dedup();
+    if !written.is_empty() && !usage.is_signal() {
+        r.warnings.push(format!("{}: written as text, its section is not known and it is not checked", written.join(", ")));
     }
     // Power and lighting conductors are at least 1.5 mm² of copper (NF C 15-100, article 524; the minimum of aluminium is not checked here).
     if let Some(drawn) = r.section_mm2
@@ -512,6 +519,8 @@ pub struct CircuitChange {
     pub cores: Option<Option<u32>>,
     pub earth: Option<bool>,
     pub shielded: Option<bool>,
+    /// The cable as it was written when it does not read as a section (`Some(None)`: none).
+    pub written: Option<Option<String>>,
     pub protection_a: Option<Option<f64>>,
     pub cos_phi: Option<f64>,
     pub ambient_c: Option<f64>,
@@ -552,6 +561,9 @@ impl crate::Drawing {
             }
             if let Some(v) = change.shielded {
                 c.shielded = v;
+            }
+            if let Some(v) = &change.written {
+                c.written = v.clone();
             }
             if let Some(v) = change.protection_a {
                 c.protection_a = v;

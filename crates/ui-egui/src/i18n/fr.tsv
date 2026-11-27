@@ -1326,6 +1326,7 @@
 	Fire damper	Clapet coupe-feu
 	Silencer	Silencieux
 	Flexible connector	Manchette souple
+	Covered outlet	Sortie couverte
 	Specify location of accessory on a duct	Spécifiez la position de l'accessoire sur une gaine
 	Enter accessory length (mm)	Entrez la longueur de l'accessoire (mm)
 	Length (mm)	Longueur (mm)
@@ -1450,6 +1451,10 @@
 	Timber frame 145	Ossature bois 145
 	Partition 72/48	Cloison 72/48
 	Partition 98/48	Cloison 98/48
+	Glazed partition 72, full height, single glazing	Cloison vitrée amovible 72 toute hauteur, simple vitrage
+	Glazed partition 72, full height, double glazing	Cloison vitrée amovible 72 toute hauteur, double vitrage
+	Glazed partition 72 on a sill, single glazing	Cloison vitrée amovible 72 sur allège, simple vitrage
+	Glazed partition 72 on a sill, double glazing	Cloison vitrée amovible 72 sur allège, double vitrage
 	Rendered masonry + lining	Maçonnerie enduit + doublage
 	Rendered concrete + lining	Voile béton enduit + doublage
 	Rendered brick + lining	Brique enduit + doublage
@@ -3804,6 +3809,20 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	Use it for every drawing I open	L'utiliser pour chaque dessin que j'ouvre
 	Line {n}: section or cable (3G1.5, 2x0.75…)	Ligne {n} : section ou câble (3G1.5, 2x0.75…)
 	Line {n}: colour (#rrggbb)	Ligne {n} : couleur (#rrggbb)
+	Line {n}: colour	Ligne {n} : couleur
+	Circuit colour	Couleur du circuit
+	Label position	Place de l'étiquette
+	Above the cable	Au-dessus du câble
+	Below the cable	Sous le câble
+	Label of the cables	Étiquette des câbles
+	Above	Au-dessus
+	Below	Dessous
+	Show the label	Afficher l'étiquette
+	Line {n}: direction	Ligne {n} : sens
+	As the riser	Comme la colonne
+	Passes through, going up	Traverse en montant
+	Passes through, going down	Traverse en descendant
+	Back to the circuit colour	Revenir à la couleur du circuit
 	Connection altitudes (m, one per collar)	Altitudes des raccords (m, un par raccord)
 	Requires altitudes in metres, separated by commas.	Il faut des altitudes en mètres, séparées par des virgules.
 	Altitude of the far end (m)	Altitude de l'autre bout (m)
@@ -3902,3 +3921,11 @@ echo	{layers} layer(s) and {pipes} pipe(s) redrawn.	{layers} calque(s) et {pipes
 	Title of the sheet	Titre du plan
 	Insert the title block	Insérer le cartouche
 	Each logo and the picture of the project are kept in the drawing; the table of revisions grows with a new line.	Chaque logo et l'image du projet sont conservés dans le dessin ; le tableau des indices s'allonge d'une ligne à chaque nouvel indice.
+	Height (mm), empty if round	Hauteur (mm), vide si rond
+	Not set	Non défini
+	Reducer cone	Cône de la réduction
+	Back to automatic	Revenir à l'automatique
+	Hood overhang (mm)	Débord du capot (mm)
+	Follows its opening	Suit son ouverture
+	Alone	Seul
+	The runs joined to the end stay where they are	Les gaines, tuyaux ou câbles raccordés au bout restent en place

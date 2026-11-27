@@ -17,6 +17,8 @@ pub const EQUIPMENT_APP: &str = "CADCRAFT_EQUIP";
 /// The layer of an equipment's outline and symbol; its service clearance is on its own layer.
 pub const EQUIPMENT_LAYER: &str = "M-HVAC-EQUIP";
 pub const EQUIPMENT_ZONE_LAYER: &str = "M-HVAC-EQUIP-ZONE";
+/// The pieces of an equipment on its layer take the colour given to the equipment (ByBlock): the layer's while it is ByLayer.
+const EQUIPMENT_PIECE: &str = "M-HVAC-EQUIP|ByLayer|ByBlock";
 const XDATA_FORMAT: &str = "EQUIP1";
 /// Largest side of an equipment, mm.
 pub const MAX_EQUIPMENT_MM: f64 = 100_000.0;
@@ -438,8 +440,8 @@ impl EquipmentParams {
         let u = |mm: f64| self.units.to_units(mm);
         let (hl, hw) = (u(self.length_mm) / 2.0, u(self.width_mm) / 2.0);
         let h = u(self.label_height_mm);
-        let mut pieces = vec![polyline(EQUIPMENT_LAYER, rect_points(hl, hw), true)];
-        let line = |a: Vec2, b: Vec2| HvacPiece { layer: EQUIPMENT_LAYER, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
+        let mut pieces = vec![polyline(EQUIPMENT_PIECE, rect_points(hl, hw), true)];
+        let line = |a: Vec2, b: Vec2| HvacPiece { layer: EQUIPMENT_PIECE, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
         match self.kind {
             EquipmentKind::Chiller | EquipmentKind::VrfOutdoor | EquipmentKind::SplitOutdoor => {
                 // Fans in one row, or two over a wide unit: a circle crossed by two diameters.
@@ -450,7 +452,7 @@ impl EquipmentParams {
                 for i in 0..n {
                     let (row, col) = (i / cols, i % cols);
                     let c = Vec2::new(-hl + (col as f64 + 0.5) * 2.0 * hl / cols as f64, hw - (row as f64 + 0.5) * 2.0 * hw / rows as f64);
-                    pieces.push(HvacPiece { layer: EQUIPMENT_LAYER, kind: EntityKind::Circle(Circle { center: v3(c), radius: d / 2.0 }) });
+                    pieces.push(HvacPiece { layer: EQUIPMENT_PIECE, kind: EntityKind::Circle(Circle { center: v3(c), radius: d / 2.0 }) });
                     let r = d / 2.0 * std::f64::consts::FRAC_1_SQRT_2;
                     pieces.push(line(c + Vec2::new(-r, -r), c + Vec2::new(r, r)));
                     pieces.push(line(c + Vec2::new(-r, r), c + Vec2::new(r, -r)));
@@ -459,7 +461,7 @@ impl EquipmentParams {
             EquipmentKind::Cassette => {
                 // The panel, an outlet slot along each side and the crossed diagonals of the grille.
                 let (pl, pw) = (0.82 * hl, 0.82 * hw);
-                pieces.push(polyline(EQUIPMENT_LAYER, rect_points(pl, pw), true));
+                pieces.push(polyline(EQUIPMENT_PIECE, rect_points(pl, pw), true));
                 for (a, b) in [
                     (Vec2::new(-0.6 * pl, pw), Vec2::new(0.6 * pl, pw)),
                     (Vec2::new(-0.6 * pl, -pw), Vec2::new(0.6 * pl, -pw)),
@@ -477,12 +479,12 @@ impl EquipmentParams {
                 // flange along the front and a wider return flange along the back.
                 let depth = self.collar_depth();
                 if self.air_ports.is_empty() {
-                    pieces.push(polyline(EQUIPMENT_LAYER, rect_points_at(0.0, -hw - depth / 2.0, 0.4 * hl, depth / 2.0), true));
-                    pieces.push(polyline(EQUIPMENT_LAYER, rect_points_at(0.0, hw + depth / 2.0, 0.55 * hl, depth / 2.0), true));
+                    pieces.push(polyline(EQUIPMENT_PIECE, rect_points_at(0.0, -hw - depth / 2.0, 0.4 * hl, depth / 2.0), true));
+                    pieces.push(polyline(EQUIPMENT_PIECE, rect_points_at(0.0, hw + depth / 2.0, 0.55 * hl, depth / 2.0), true));
                 }
                 for (p, half) in self.air_ports.iter().zip(self.drawn_half_widths()) {
                     let cy = if p.inlet { hw + depth / 2.0 } else { -hw - depth / 2.0 };
-                    pieces.push(polyline(EQUIPMENT_LAYER, rect_points_at(u(p.along_mm), cy, half, depth / 2.0), true));
+                    pieces.push(polyline(EQUIPMENT_PIECE, rect_points_at(u(p.along_mm), cy, half, depth / 2.0), true));
                 }
                 let wing = 0.2 * hw.min(hl);
                 let (from, to) = (Vec2::new(0.0, 0.5 * hw), Vec2::new(0.0, -0.5 * hw));
@@ -490,7 +492,7 @@ impl EquipmentParams {
                 if self.kind == EquipmentKind::Dehumidifier {
                     // The compressor, beside the air path.
                     pieces.push(HvacPiece {
-                        layer: EQUIPMENT_LAYER,
+                        layer: EQUIPMENT_PIECE,
                         kind: EntityKind::Circle(Circle { center: v3(Vec2::new(0.6 * hl, 0.0)), radius: 0.22 * hw.min(hl) }),
                     });
                 }
@@ -515,12 +517,12 @@ impl EquipmentParams {
                 }
                 let (hinge, r) = (Vec2::new(-hl, -hw), 2.0 * hl);
                 let arc = (0..=8).map(|k| hinge + Vec2::from_angle(-(k as f64) / 8.0 * std::f64::consts::FRAC_PI_2) * r).collect();
-                pieces.push(polyline(EQUIPMENT_LAYER, arc, false));
+                pieces.push(polyline(EQUIPMENT_PIECE, arc, false));
                 pieces.push(line(hinge, hinge + Vec2::new(0.0, -r)));
                 if self.kind == EquipmentKind::FloorRack {
                     // The fan unit and the cable entry on its roof.
                     pieces.push(HvacPiece {
-                        layer: EQUIPMENT_LAYER,
+                        layer: EQUIPMENT_PIECE,
                         kind: EntityKind::Circle(Circle { center: v3(Vec2::new(0.0, 0.3 * hw)), radius: 0.25 * hl.min(hw) }),
                     });
                 }
@@ -534,7 +536,7 @@ impl EquipmentParams {
                         Vec2::new(x, -hw * (0.2 + 0.7 * (1.0 - (x / hl).powi(2))))
                     })
                     .collect();
-                pieces.push(polyline(EQUIPMENT_LAYER, front, false));
+                pieces.push(polyline(EQUIPMENT_PIECE, front, false));
             }
             EquipmentKind::WallUnit | EquipmentKind::CeilingUnit | EquipmentKind::FloorUnit => {
                 // The air outlet: lines along the front, an arrow out of it; a ceiling unit also shows its fan.
@@ -549,7 +551,7 @@ impl EquipmentParams {
                 ]);
                 if self.kind == EquipmentKind::CeilingUnit {
                     pieces.push(HvacPiece {
-                        layer: EQUIPMENT_LAYER,
+                        layer: EQUIPMENT_PIECE,
                         kind: EntityKind::Circle(Circle { center: v3(Vec2::new(-0.5 * hl, 0.0)), radius: 0.35 * hw }),
                     });
                 }
@@ -590,7 +592,7 @@ impl EquipmentParams {
             _ => 0.0,
         };
         pieces.push(HvacPiece {
-            layer: EQUIPMENT_LAYER,
+            layer: EQUIPMENT_PIECE,
             kind: label(
                 Vec2::new(0.0, -hw - zone - arrow - 1.2 * h),
                 h,
@@ -599,7 +601,7 @@ impl EquipmentParams {
         });
         let x = hl + zone + 2.0 * h;
         for (i, t) in self.spec_lines().into_iter().enumerate() {
-            pieces.push(HvacPiece { layer: EQUIPMENT_LAYER, kind: label_left(Vec2::new(x, hw - (i as f64) * 1.6 * h - h), h, t) });
+            pieces.push(HvacPiece { layer: EQUIPMENT_PIECE, kind: label_left(Vec2::new(x, hw - (i as f64) * 1.6 * h - h), h, t) });
         }
         Ok(pieces)
     }

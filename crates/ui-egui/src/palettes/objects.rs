@@ -63,7 +63,7 @@ pub(super) fn section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], len: &dyn 
     let risers: Vec<_> = sel.iter().filter_map(|h| d.entity(*h).and_then(|e| cadcraft_doc::any_riser_of(e))).collect();
     if !risers.is_empty() && risers.len() == sel.len() {
         if risers.iter().all(RiserParams::is_cable) {
-            return cable_riser_section(ui, sel, &risers, bad);
+            return cable_riser_section(ui, d, sel, &risers, bad);
         }
         return riser_section(ui, sel, &risers, bad);
     }
@@ -515,6 +515,21 @@ fn cable_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], cs: &[cadcraft_
     let mut action: Action = None;
     group(ui, "Cable");
     elec_text(ui, "elecedit", "Circuit", "circuit", &ids, cs.iter().map(|c| c.circuit.clone()).collect(), &mut action);
+    // Unticked: the cables are drawn without their label (ticked only when all of them show it).
+    let shown = cs.iter().all(|c| !c.hide_label);
+    prop_row(ui, "Show the label", |ui| {
+        let mut on = shown;
+        if ui.checkbox(&mut on, "").changed() {
+            action = Some(("elecedit", json!({ "handles": ids, "label": on })));
+        }
+    });
+    let below = shared(&cs.iter().map(|c| c.label_below).collect::<Vec<_>>());
+    prop_row(ui, "Label position", |ui| {
+        let shown = below.map_or(VARIES, |b| if b { "Below the cable" } else { "Above the cable" });
+        if let Some(k) = choice(ui, shown, &[("above", "Above the cable"), ("below", "Below the cable")]) {
+            action = Some(("elecedit", json!({ "handles": ids, "labelSide": k })));
+        }
+    });
     let usage = shared(&cs.iter().map(|c| c.usage.name().to_string()).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
     prop_row(ui, "Use", |ui| {
         if let Some(u) = pick_menu(ui, crate::i18n::t(&usage), cadcraft_doc::CableUsage::ALL.iter().map(|u| u.name().to_string())) {
@@ -542,8 +557,21 @@ fn cable_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], cs: &[cadcraft_
         }
     });
     // The library: a cable type gives its cable (and its use); the cable of this one can be kept under a name for other cables.
+    // Typed in: the name of a cable type of the library gives that type, anything else is the cable as written (as in the section's box).
     prop_row(ui, "Cable type", |ui| {
-        ui.menu_button(crate::i18n::t("Choose a cable type"), |ui| {
+        let shown = written.clone().unwrap_or_else(|| VARIES.into());
+        let field = ui.scope_id().with(("cable_type_typed", &ids));
+        ui.scope(|ui| {
+            ui.set_max_width((ui.available_width() - 30.0).max(60.0));
+            if let Some(t) = edit_field(ui, field, shown).map(|t| t.trim().to_string()).filter(|t| t != VARIES) {
+                let known = d.available_cable_types().into_iter().find(|c| c.name.eq_ignore_ascii_case(&t)).map(|c| c.name);
+                action = Some(match known {
+                    Some(name) => ("elecedit", json!({ "handles": ids, "cableType": name })),
+                    None => ("elecedit", json!({ "handles": ids, "section": if t.is_empty() { Value::Null } else { json!(t) } })),
+                });
+            }
+        });
+        ui.menu_button("▾", |ui| {
             let types = d.available_cable_types();
             for usage in cadcraft_doc::CableUsage::ALL {
                 let of_use: Vec<_> = types.iter().filter(|t| t.usage == Some(usage)).collect();
@@ -1691,7 +1719,7 @@ fn equipment_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], items: &[ca
 
 /// The Properties group of risers of cables or of a bus: name, direction, shaft and height, and the lines each holds (its use, its circuit or bus, its
 /// section and its loads); lines are added and removed.
-fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams], bad: &mut Option<String>) -> Action {
+fn cable_riser_section(ui: &mut egui::Ui, d: &Drawing, sel: &[Handle], risers: &[RiserParams], bad: &mut Option<String>) -> Action {
     let ids = handles(sel);
     let mut action: Action = None;
     let edit = |key: &str, value: Value| Some(("riseredit", json!({ "handles": ids, key: value })));
@@ -1770,11 +1798,50 @@ fn cable_riser_section(ui: &mut egui::Ui, sel: &[Handle], risers: &[RiserParams]
                 action = line_edit("section", if t.trim().is_empty() { Value::Null } else { json!(t.trim()) });
             }
         });
-        // A colour of its own for the line, "#rrggbb"; empty: the colour of its circuit's wire.
-        let colour_label = crate::tf!("Line {n}: colour (#rrggbb)", n = n);
+        // The way of the line at this level: the riser's, or its own (up, down, or passing through going up or down).
+        let way_label = crate::tf!("Line {n}: direction", n = n);
+        prop_row(ui, &way_label, |ui| {
+            let items = [
+                ("auto", "As the riser"),
+                ("up", "Goes up"),
+                ("down", "Goes down"),
+                ("throughUp", "Passes through, going up"),
+                ("throughDown", "Passes through, going down"),
+            ];
+            let key = line.way.map_or("auto", cadcraft_doc::LineWay::name);
+            let shown = items.iter().find(|(k, _)| *k == key).map_or("As the riser", |(_, w)| w);
+            if let Some(k) = choice(ui, shown, &items) {
+                action = line_edit("way", json!(k));
+            }
+        });
+        // A colour of its own for the line, chosen as a layer's is (kept as "#rrggbb"); none: the colour of its circuit's wire.
+        let colour_label = crate::tf!("Line {n}: colour", n = n);
         prop_row(ui, &colour_label, |ui| {
-            if let Some(t) = edit_field(ui, ui.scope_id().with(("criser_colour", n, &ids)), line.colour.clone().unwrap_or_default()) {
-                action = line_edit("colour", if t.trim().is_empty() { Value::Null } else { json!(t.trim()) });
+            let own = line.own_colour().and_then(cadcraft_doc::parse_hex_colour).map(|(r, g, b)| cadcraft_color::Rgb(r, g, b));
+            let id = ui.scope_id().with(("criser_colour", n, &ids));
+            let width = (ui.available_width() - 30.0).max(60.0);
+            let picked = match own {
+                Some(rgb) => crate::layers::color_button(ui, id, cadcraft_color::Color::True(rgb), false, width),
+                None => crate::layers::color_button_resolved(
+                    ui,
+                    id,
+                    cadcraft_color::Color::ByLayer,
+                    // The colour of the layer of its circuit's cables, as the line is drawn.
+                    d.layers
+                        .iter()
+                        .find(|l| l.name.eq_ignore_ascii_case(line.piece_layer()))
+                        .map_or(cadcraft_color::Rgb(255, 255, 255), |l| l.color.resolve(cadcraft_color::Color::WHITE, cadcraft_color::Color::WHITE)),
+                    "Circuit colour",
+                    false,
+                    width,
+                ),
+            };
+            if let Some(c) = picked {
+                let cadcraft_color::Rgb(r, g, b) = c.resolve(cadcraft_color::Color::WHITE, cadcraft_color::Color::WHITE);
+                action = line_edit("colour", json!(format!("#{r:02x}{g:02x}{b:02x}")));
+            }
+            if own.is_some() && ui.small_button("×").on_hover_text(crate::i18n::t("Back to the circuit colour")).clicked() {
+                action = line_edit("colour", Value::Null);
             }
         });
         let mut numbers: Vec<(String, &str, Option<f64>)> = Vec::new();
@@ -2270,6 +2337,29 @@ fn duct_section(ui: &mut egui::Ui, sel: &[Handle], ds: &[DuctParams], len: &dyn 
             }
         });
     }
+    // The ends cut on the slant (whistles), degrees: 0 or empty is square.
+    for (label, key, id, at_end) in
+        [("Start cut (degrees)", "cutStart", "duct_cut_start", false), ("End cut (degrees)", "cutEnd", "duct_cut_end", true)]
+    {
+        let cut = shared(&ds.iter().map(|p| format!("{}", p.cut_deg[usize::from(at_end)])).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+        prop_row(ui, label, |ui| {
+            if let Some(t) = edit_field(ui, ui.scope_id().with((id, &ids)), cut).filter(|t| t != VARIES) {
+                if t.trim().is_empty() {
+                    action = edit(key, Value::Null);
+                } else if let Some(deg) = number(Some(t), bad) {
+                    action = edit(key, json!(deg));
+                }
+            }
+        });
+    }
+    // A reducer whose cone was shaped by its grips: this gives back the symmetric 15 degree one.
+    if ds.iter().any(|p| p.reducer.is_some() && (p.reducer_shape.is_some() || p.reducer_len_mm.is_some())) {
+        prop_row(ui, "Reducer cone", |ui| {
+            if ui.button(crate::i18n::t("Back to automatic")).clicked() {
+                action = edit("coneAuto", json!(true));
+            }
+        });
+    }
     // The altitude of the underside, metres: empty gives it back to the height zone. Where two joined runs
     // differ, sizing makes the step between them and, where two cross, the lower passes under.
     let altitude = shared(&ds.iter().map(|p| p.level_mm.map(|b| format!("{}", b / 1000.0)).unwrap_or_default()).collect::<Vec<_>>())
@@ -2345,8 +2435,15 @@ fn accessory_section(ui: &mut egui::Ui, sel: &[Handle], accs: &[AccessoryParams]
             AccessoryKind::FireDamper => "Fire damper",
             AccessoryKind::Silencer => "Silencer",
             AccessoryKind::FlexConnector => "Flexible connector",
+            AccessoryKind::Hood => "Covered outlet",
         };
-        let items = [("damper", "Damper"), ("fireDamper", "Fire damper"), ("silencer", "Silencer"), ("flexConnector", "Flexible connector")];
+        let items = [
+            ("damper", "Damper"),
+            ("fireDamper", "Fire damper"),
+            ("silencer", "Silencer"),
+            ("flexConnector", "Flexible connector"),
+            ("hood", "Covered outlet"),
+        ];
         if let Some(k) = choice(ui, kind.map_or(VARIES, label), &items) {
             action = Some(("ductaccessoryedit", json!({ "handles": ids, "type": k })));
         }
@@ -2374,7 +2471,51 @@ fn accessory_section(ui: &mut egui::Ui, sel: &[Handle], accs: &[AccessoryParams]
             action = Some(("ductaccessoryedit", json!({ "handles": ids, "pressureDrop": p })));
         }
     });
-    if let [a] = accs {
+    if accs.iter().all(|a| a.kind == AccessoryKind::Hood) {
+        // A hood's opening and its air (which sets its colour).
+        let width = shared(&accs.iter().map(|a| format!("{:.0}", a.diameter_mm)).collect::<Vec<_>>()).unwrap_or_else(|| VARIES.into());
+        prop_row(ui, "Width (mm)", |ui| {
+            if let Some(w) = number(edit_field(ui, ui.scope_id().with(("acc_width", &ids)), width), bad) {
+                action = Some(("ductaccessoryedit", json!({ "handles": ids, "width": w })));
+            }
+        });
+        let height = shared(&accs.iter().map(|a| a.height_mm.map_or_else(String::new, |h| format!("{h:.0}"))).collect::<Vec<_>>())
+            .unwrap_or_else(|| VARIES.into());
+        prop_row(ui, "Height (mm), empty if round", |ui| {
+            if let Some(h) = number(edit_field(ui, ui.scope_id().with(("acc_height", &ids)), height), bad) {
+                action = Some(("ductaccessoryedit", json!({ "handles": ids, "height": h })));
+            }
+        });
+        let over = shared(&accs.iter().map(|a| a.overhang_mm.map_or_else(|| "0".to_string(), |o| format!("{o:.0}"))).collect::<Vec<_>>())
+            .unwrap_or_else(|| VARIES.into());
+        prop_row(ui, "Hood overhang (mm)", |ui| {
+            if let Some(o) = number(edit_field(ui, ui.scope_id().with(("acc_overhang", &ids)), over), bad) {
+                action = Some(("ductaccessoryedit", json!({ "handles": ids, "overhang": o })));
+            }
+        });
+        let follows = shared(&accs.iter().map(|a| !a.fixed).collect::<Vec<_>>());
+        prop_row(ui, "Follows its opening", |ui| {
+            let shown = follows.map_or(VARIES, |f| if f { "Yes" } else { "No" });
+            if let Some(k) = choice(ui, shown, &[("yes", "Yes"), ("no", "No")]) {
+                action = Some(("ductaccessoryedit", json!({ "handles": ids, "follow": k == "yes" })));
+            }
+        });
+        let air = shared(&accs.iter().map(|a| a.air).collect::<Vec<_>>());
+        prop_row(ui, "Air", |ui| {
+            let shown = air.map_or(VARIES, |a| match a {
+                None => "Not set",
+                Some(AirDirection::Supply) => "Supply",
+                Some(AirDirection::Extract) => "Extract",
+                Some(AirDirection::Fresh) => "Fresh air",
+                Some(AirDirection::Exhaust) => "Exhaust air",
+            });
+            let items = [("none", "Not set"), ("supply", "Supply"), ("extract", "Extract"), ("fresh", "Fresh air"), ("exhaust", "Exhaust air")];
+            if let Some(k) = choice(ui, shown, &items) {
+                let v = if k == "none" { Value::Null } else { json!(k) };
+                action = Some(("ductaccessoryedit", json!({ "handles": ids, "air": v })));
+            }
+        });
+    } else if let [a] = accs {
         prop_row(ui, "Duct", |ui| read_only(ui, &format!("Ø {:.0} mm", a.diameter_mm)));
     }
     altitude_row(ui, "ductaccessoryedit", &ids, accs.iter().map(|a| a.bottom_mm).collect(), bad, &mut action);

@@ -623,6 +623,11 @@ impl CadApp {
         self.pick_for(pick, false, Box::new(then))
     }
 
+    /// A picture the browser's file picker read for the Title Block dialog; `false` when the dialog was not waiting for one.
+    pub fn title_picture_arrived(&mut self, name: &str, bytes: &[u8]) -> bool {
+        titleblockdlg::picture_arrived(self, name, bytes)
+    }
+
     /// Show the dialog `pick` for `then`, bound to the active drawing when `bound`.
     fn pick_for(&mut self, pick: Pick, bound: bool, then: PickDone) -> Option<Result<Value, String>> {
         let available = match pick {
@@ -1523,6 +1528,15 @@ fn typed_open_path(line: &str) -> Option<String> {
         rest.strip_prefix('"').and_then(|r| r.strip_suffix('"')).unwrap_or(rest).to_string()
     };
     (!path.trim().is_empty()).then_some(path)
+}
+
+/// The version shown in the start page and About: the package's, and the commit it was built from when the build gave one (`CADCRAFT_COMMIT`, set by the
+/// update scripts), so that two builds of the same version can be told apart.
+pub fn version_text() -> String {
+    match option_env!("CADCRAFT_COMMIT").map(str::trim).filter(|c| !c.is_empty()) {
+        Some(commit) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
+        None => env!("CARGO_PKG_VERSION").to_string(),
+    }
 }
 
 #[cfg(test)]

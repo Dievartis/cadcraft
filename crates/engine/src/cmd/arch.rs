@@ -120,9 +120,13 @@ pub(crate) fn after_command(s: &mut Session, before: Option<&std::sync::Arc<Draw
     }
     // The elbows of the duct runs are drawn where two runs meet and turn, as soon as they are laid (sizing draws the same ones later).
     if st.doc.ducts_touched_since(b, &space) {
+        // A run laid by an edge whose width changed keeps that edge where it was laid, before its elbows are drawn again.
+        let _ = std::sync::Arc::make_mut(&mut st.doc).keep_duct_edges_since(b, &space);
         // The height zones first (the ducts under a beam are cut, made flat and given the altitude of the zone), then the bends, cones and steps that follow.
         let _ = std::sync::Arc::make_mut(&mut st.doc).draw_height_zones(&space);
         let _ = std::sync::Arc::make_mut(&mut st.doc).draw_duct_elbows(&space);
+        // The hoods covering the end of a duct follow its size and its air.
+        let _ = std::sync::Arc::make_mut(&mut st.doc).refresh_hoods();
     }
     // The same for the pipes: elbows where two pipes of one service turn, cones where their sizes differ.
     if st.doc.pipes_touched_since(b, &space) {
@@ -131,6 +135,14 @@ pub(crate) fn after_command(s: &mut Session, before: Option<&std::sync::Arc<Draw
     // The principle diagrams of the controls follow the control devices.
     if st.doc.controls_touched_since(b, &space) && st.doc.model.iter().any(|e| cadcraft_doc::control_schema_of(e).is_some()) {
         std::sync::Arc::make_mut(&mut st.doc).refresh_control_schemas();
+    }
+    // Every label of an object added, changed or turned reads left to right or from the bottom up, never upside down.
+    let upside_down = st.doc.upside_down_labels_since(b, &space);
+    if !upside_down.is_empty() {
+        let d = std::sync::Arc::make_mut(&mut st.doc);
+        for h in upside_down {
+            d.upright_labels(h);
+        }
     }
 }
 
@@ -444,6 +456,7 @@ fn fallback_style() -> WallStyle {
         description: String::new(),
         components: vec![WallComponent::new("Wall", 200.0, Default::default())],
         default_height: 2500.0,
+        glazed_above_mm: None,
     }
 }
 
@@ -644,7 +657,7 @@ fn run_wallstyleedit(s: &mut Session, p: &Value) -> Result<Value> {
         (Some(st), None) => st,
         (None, Some(from)) => WallStyle { name: name.to_string(), ..style_named(d, from)? },
         (None, None) if p.get("components").is_some() => {
-            WallStyle { name: name.to_string(), description: String::new(), components: Vec::new(), default_height: 2500.0 }
+            WallStyle { name: name.to_string(), description: String::new(), components: Vec::new(), default_height: 2500.0, glazed_above_mm: None }
         }
         (None, None) => return Err(other(format!("Cannot find wall style \"{name}\"; give `components` or `copyFrom` to create it."))),
     };

@@ -132,6 +132,32 @@ pub fn parse_hex_colour(text: &str) -> Option<(u8, u8, u8)> {
     Some((part(0)?, part(2)?, part(4)?))
 }
 
+/// Which way one line of a riser of cables goes at this level, when it is not the riser's way: it starts here and goes up or down, or it passes through
+/// the level (from below on up, or from above on down).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LineWay {
+    Up,
+    Down,
+    ThroughUp,
+    ThroughDown,
+}
+
+impl LineWay {
+    /// The name a command takes and gives: up, down, throughUp, throughDown.
+    pub fn name(self) -> &'static str {
+        match self {
+            LineWay::Up => "up",
+            LineWay::Down => "down",
+            LineWay::ThroughUp => "throughUp",
+            LineWay::ThroughDown => "throughDown",
+        }
+    }
+    pub fn parse(text: &str) -> Option<LineWay> {
+        [LineWay::Up, LineWay::Down, LineWay::ThroughUp, LineWay::ThroughDown].into_iter().find(|w| w.name().eq_ignore_ascii_case(text.trim()))
+    }
+}
+
 /// One line of a riser of cables: a circuit (or a bus) that goes through the shaft, with its section and its load.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -152,6 +178,9 @@ pub struct CableLine {
     /// A colour of its own for the line, "#rrggbb", instead of the colour of its circuit's wire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub colour: Option<String>,
+    /// The way the line goes at this level; none: the riser's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub way: Option<LineWay>,
     /// The load the line carries at this level, kW, and the part of it that goes on to, or comes from, the other floors.
     #[serde(default)]
     pub load_kw: Option<f64>,
@@ -169,9 +198,24 @@ impl CableLine {
             earth: false,
             shielded: false,
             colour: None,
+            way: None,
             load_kw: None,
             incoming_load_kw: None,
         }
+    }
+
+    /// Whether the line flows up, in a riser that goes `up`.
+    pub fn flows_up(&self, up: bool) -> bool {
+        match self.way {
+            Some(LineWay::Up | LineWay::ThroughUp) => true,
+            Some(LineWay::Down | LineWay::ThroughDown) => false,
+            None => up,
+        }
+    }
+
+    /// Whether the line passes through the level: it comes from one floor and goes on to the other.
+    pub fn passes_through(&self) -> bool {
+        matches!(self.way, Some(LineWay::ThroughUp | LineWay::ThroughDown))
     }
 
     /// The cable of the line as it is written: "3G1.5", "2x0.75 blindé", or just the section "35 mm²" when it was given alone.
@@ -268,6 +312,7 @@ impl CableData {
             earth: false,
             shielded: false,
             colour: None,
+            way: None,
             load_kw: self.legacy_load_kw.take(),
             incoming_load_kw: self.legacy_incoming_load_kw.take(),
         });
@@ -560,14 +605,19 @@ impl RiserParams {
             .cable
             .lines
             .iter()
-            .map(|l| Leader {
-                layer: l.piece_layer(),
-                width: 2.0 * r,
-                flows_up: self.up,
-                // A current comes from the source: below it when it goes up.
-                total_above: !self.up,
-                total: l.text(),
-                part: l.part().map(|kw| l.text_of(Some(kw))),
+            .map(|l| {
+                let flows_up = l.flows_up(self.up);
+                // A line that passes through has its text at both ends, the part going on when it has one.
+                let part = l.part().map(|kw| l.text_of(Some(kw)));
+                Leader {
+                    layer: l.piece_layer(),
+                    width: 2.0 * r,
+                    flows_up,
+                    // A current comes from the source: below it when it goes up.
+                    total_above: !flows_up,
+                    total: l.text(),
+                    part: if l.passes_through() { part.or_else(|| Some(l.text())) } else { part },
+                }
             })
             .collect();
         let (w, d) = self.shaft_mm();
@@ -577,9 +627,12 @@ impl RiserParams {
         pieces.extend(leader_pieces(h, u.to_units((w * w + d * d).sqrt()), &leaders, &centres, |i, c| {
             let layer = lines.get(i).map_or(RISER_LAYER, |l| l.piece_layer());
             let mut out = vec![HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: r }) }];
-            if up {
+            // A dot: the line goes up; a cross: it goes down; both: it passes through.
+            let (way_up, through) = lines.get(i).map_or((up, false), |l| (l.flows_up(up), l.passes_through()));
+            if way_up || through {
                 out.push(HvacPiece { layer, kind: EntityKind::Circle(Circle { center: v3(c), radius: 0.15 * r }) });
-            } else {
+            }
+            if !way_up || through {
                 let k = 0.5 * r;
                 for (a, b) in [((-k, -k), (k, k)), ((-k, k), (k, -k))] {
                     out.push(HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(c + Vec2::new(a.0, a.1)), b: v3(c + Vec2::new(b.0, b.1)) }) });

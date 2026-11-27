@@ -210,6 +210,16 @@ pub struct CableParams {
     pub extra_m: f64,
     #[serde(default = "default_label_mm")]
     pub label_height_mm: f64,
+    /// The label is not drawn (the cable keeps its circuit, section and sums).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_label: bool,
+    /// The label is under the cable instead of above it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub label_below: bool,
+    /// The cable as the user wrote it when it does not read as a section ("U/UTP cat 6 LSOH"): written in the label as it is; the cable has no section and
+    /// is not sized.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub written: Option<String>,
     #[serde(default)]
     pub units: HvacUnits,
 }
@@ -234,6 +244,9 @@ impl CableParams {
             grouped: 1,
             extra_m: 0.0,
             label_height_mm: default_label_mm(),
+            hide_label: false,
+            label_below: false,
+            written: None,
             units,
         }
     }
@@ -243,8 +256,12 @@ impl CableParams {
             return Err(invalid("A cable has a usable length."));
         }
         check_circuit_name(&self.circuit, true)?;
-        if self.section_mm2.is_some_and(|s| !(s.is_finite() && (0.5..=630.0).contains(&s))) {
-            return Err(invalid("The section of a cable is 0.5 to 630 mm²."));
+        // As small as the conductors of a data or bus cable (0.22 mm², a cat. 6 pair 0.25 mm²); the circuit check warns of a power conductor below 1.5 mm².
+        if self.section_mm2.is_some_and(|s| !(s.is_finite() && (0.05..=630.0).contains(&s))) {
+            return Err(invalid("The section of a cable is 0.05 to 630 mm²."));
+        }
+        if self.written.as_deref().is_some_and(|w| w.trim().is_empty() || w.chars().count() > 80 || w.chars().any(char::is_control)) {
+            return Err(invalid("The cable as it is written is 1 to 80 characters."));
         }
         if self.protection_a.is_some_and(|a| !(a.is_finite() && (1.0..=2500.0).contains(&a))) {
             return Err(invalid("The rating of a protection is 1 to 2500 A."));
@@ -285,12 +302,16 @@ impl CableParams {
 
     /// What the section field of the cable says: the cable as it was written ("3G2.5", "2x0.75 blindé", or the section alone), empty while it is to be sized.
     pub fn spec_text(&self) -> String {
+        if let Some(w) = &self.written {
+            return w.clone();
+        }
         self.section_mm2.map_or(String::new(), |s| CableSpec { cores: self.cores, earth: self.earth, shielded: self.shielded, section_mm2: s }.text())
     }
 
     /// Gives the cable the conductors, the earth, the shield and the section of `spec`.
     pub fn set_spec(&mut self, spec: &CableSpec) {
         (self.cores, self.earth, self.shielded, self.section_mm2) = (spec.cores, spec.earth, spec.shielded, Some(spec.section_mm2));
+        self.written = None;
     }
 
     /// The layer of the cable: its use's, or the circuit's copy of it.
@@ -299,18 +320,21 @@ impl CableParams {
     }
 
     pub fn label_text(&self) -> String {
-        [self.circuit.trim().to_string(), self.size_text()].iter().filter(|t| !t.is_empty()).cloned().collect::<Vec<_>>().join(" ")
+        let size = self.written.clone().unwrap_or_else(|| self.size_text());
+        [self.circuit.trim().to_string(), size].iter().filter(|t| !t.is_empty()).cloned().collect::<Vec<_>>().join(" ")
     }
 
-    /// The run drawn to scale: its centre line and a label.
+    /// The run drawn to scale: its centre line and a label. They are on layer 0, so they take the layer of the cable (its circuit's, or the one it was
+    /// put on) and its colour.
     pub fn generate(&self, flip_label: bool) -> Result<Vec<HvacPiece>> {
         self.validate()?;
-        let layer = self.layer();
+        let layer = "0";
         let mut pieces = vec![HvacPiece { layer, kind: line((0.0, 0.0), (self.length, 0.0)) }];
         let text = self.label_text();
-        if !text.is_empty() {
+        if !text.is_empty() && !self.hide_label {
             let h = self.units.to_units(self.label_height_mm);
-            let up = if flip_label { -1.0 } else { 1.0 };
+            // Above the cable as it reads, or under it.
+            let up = if flip_label { -1.0 } else { 1.0 } * if self.label_below { -1.0 } else { 1.0 };
             let mut t = label(Vec2::new(self.length / 2.0, 1.2 * h * up), h, text);
             if let EntityKind::Text(x) = &mut t {
                 x.rotation = if flip_label { std::f64::consts::PI } else { 0.0 };
@@ -603,7 +627,7 @@ impl DeviceParams {
     pub fn generate(&self) -> Result<Vec<HvacPiece>> {
         self.validate()?;
         let u = |mm: f64| self.units.to_units(mm);
-        let layer = self.layer();
+        let layer = super::by_block(self.layer());
         let mut shapes: Vec<EntityKind> = Vec::new();
         let mut half_height = 150.0;
         match self.kind {
@@ -749,7 +773,8 @@ impl crate::Drawing {
         common.xdata = xdata::replace(CABLE_APP, &common.xdata, p.to_xdata()?);
         common.layer = p.layer().into();
         let block = self.hvac_block(pieces);
-        self.ensure_layer(p.layer());
+        // Its pieces are on layer 0: the cable's layer is made here, with its colour.
+        self.ensure_hvac_layer(p.layer());
         let insert = crate::Insert { block, insert: v3(a), rotation, ..Default::default() };
         self.add(space, common, EntityKind::Insert(insert))
     }
@@ -759,6 +784,8 @@ impl crate::Drawing {
         let e = self.entity(h).ok_or(crate::DocError::NoEntity(h))?;
         let EntityKind::Insert(i) = &e.kind else { return Err(invalid("The object is not a cable.")) };
         let flip = super::duct::reads_upside_down(i.rotation);
+        // A cable put on a layer of the user's keeps it; one on its circuit's layer follows its circuit.
+        let on_its_own_layer = cable_of(e).is_none_or(|old| e.common.layer == old.layer());
         if !p.circuit.trim().is_empty() && self.network_style(&p.circuit).is_none() {
             self.set_network_style(&p.circuit, None, None)?;
         }
@@ -767,8 +794,10 @@ impl crate::Drawing {
         let tags = xdata::replace(CABLE_APP, &e.common.xdata, p.to_xdata()?);
         self.regenerate_hvac(h, pieces, tags)?;
         let layer = p.layer();
-        self.ensure_layer(layer);
-        self.modify_entity(h, |e| e.common.layer = layer.into())?;
+        self.ensure_hvac_layer(layer);
+        if on_its_own_layer {
+            self.modify_entity(h, |e| e.common.layer = layer.into())?;
+        }
         Ok(())
     }
 
@@ -843,6 +872,29 @@ impl crate::Drawing {
         self.ensure_layer(layer);
         self.modify_entity(h, |e| e.common.layer = layer.into())?;
         Ok(())
+    }
+}
+
+impl crate::Drawing {
+    /// Gives back their colour to the layers of cables left white (a few versions made them white), as a new cable's layer gets it: the colour of its
+    /// use, or of its circuit's network. Returns the layers given their colour.
+    pub fn restore_cable_layer_colours(&mut self) -> Vec<String> {
+        use cadcraft_color::Color;
+        let fixes: Vec<(String, Color)> = self
+            .layers
+            .iter()
+            .filter(|l| l.name.to_ascii_uppercase().starts_with("E-CABLE") && l.color == Color::WHITE)
+            .filter_map(|l| {
+                let c = self.network_look(&l.name).map(|(c, _)| c).or_else(|| self.hvac_colour(&l.name))?;
+                (c != Color::WHITE).then(|| (l.name.clone(), c))
+            })
+            .collect();
+        for (name, c) in &fixes {
+            if let Some(l) = self.layers.iter_mut().find(|l| l.name == *name) {
+                l.color = *c;
+            }
+        }
+        fixes.into_iter().map(|(n, _)| n).collect()
     }
 }
 

@@ -31,12 +31,12 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(
                 "{points (2 or more; one cable run per segment), circuit? (\"TD1-C3\": the board, then the circuit: its cables share a colour), usage? (power|lighting|data|safety), phases? (single|three), \
                  conductor? (copper|aluminium), insulation? (pvc|pr), laying? (B|C|E|F: the selection letter), section? (mm², or the cable as it is written: 3G1.5, 2x0.75 blindé; none while it is to be sized), cableType? (a cable type of the library), protection? (A), cosPhi?, ambient? (°C), \
-                 grouped? (circuits laid together), extra? (m of rises and slack per run), labelHeight? (mm)} → {handles}",
+                 grouped? (circuits laid together), extra? (m of rises and slack per run), labelHeight? (mm), label? (false: drawn without its label), labelSide? (above|below)} → {handles}",
             )
             .interactive(|s| Ok(Box::new(CableAddM::new(s)))),
         CommandSpec::new("elecedit", "Edit Electrical Object", run_edit).params(
             "{handle | handles, for a device: name?, circuit?, address? (on its KNX or DALI line), power? (W), flux? (lm or null), height? (mm; a board's underside), boardHeight? / boardWidth? / boardDepth? (mm, a board), supply? (A or null); for a cable: circuit?, usage?, phases?, conductor?, insulation?, laying?, \
-             section? (mm², null or auto: to be sized; or the cable as it is written: 3G1.5, 5G2.5, 2x0.75 blindé), cableType? (a cable type of the library: its cable and its use), protection? (A or null), cosPhi?, ambient?, grouped?, extra?} → {changed}",
+             section? (mm², null or auto: to be sized; or the cable as it is written: 3G1.5, 5G2.5, 2x0.75 blindé), cableType? (a cable type of the library: its cable and its use), protection? (A or null), cosPhi?, ambient?, grouped?, extra?, label? (whether its label is drawn), labelSide? (above|below)} → {changed}",
         ),
         CommandSpec::new("cabletypeadd", "Save Cable Type", run_cabletype_add)
             .params("{name, spec (the cable as it is written: 3G1.5, 5G2.5, 2x0.75 blindé), usage? (power, lighting, data, safety, bus, remote)} → {types}: keeps it in the drawing, for other cables"),
@@ -101,6 +101,11 @@ pub struct CableLastUsed {
     pub earth: bool,
     pub shielded: bool,
     pub protection_a: Option<f64>,
+    /// The cables are drawn without their label, or with it under them.
+    pub hide_label: bool,
+    pub label_below: bool,
+    /// The cable as it was typed when it does not read as a section.
+    pub written: Option<String>,
 }
 
 impl Default for CableLastUsed {
@@ -114,6 +119,9 @@ impl Default for CableLastUsed {
             earth: false,
             shielded: false,
             protection_a: None,
+            hide_label: false,
+            label_below: false,
+            written: None,
         }
     }
 }
@@ -121,6 +129,9 @@ impl Default for CableLastUsed {
 impl CableLastUsed {
     /// The cable as it is written ("3G1.5", "2x0.75 blindé", "16"), or "Auto" while it is to be sized.
     fn spec_text(&self) -> String {
+        if let Some(w) = &self.written {
+            return w.clone();
+        }
         self.section_mm2
             .map_or("Auto".to_string(), |s| CableSpec { cores: self.cores, earth: self.earth, shielded: self.shielded, section_mm2: s }.text())
     }
@@ -180,6 +191,7 @@ fn change_of(cmd: &str, p: &Value, d: &cadcraft_doc::Drawing) -> Result<CircuitC
         cores: None,
         earth: None,
         shielded: None,
+        written: None,
         protection_a: clearable(cmd, p, "protection")?,
         cos_phi: number(cmd, p, "cosPhi")?,
         ambient_c: number(cmd, p, "ambient")?,
@@ -188,17 +200,26 @@ fn change_of(cmd: &str, p: &Value, d: &cadcraft_doc::Drawing) -> Result<CircuitC
     };
     let set_spec = |ch: &mut CircuitChange, spec: &CableSpec| {
         (ch.section_mm2, ch.cores, ch.earth, ch.shielded) = (Some(Some(spec.section_mm2)), Some(spec.cores), Some(spec.earth), Some(spec.shielded));
+        ch.written = Some(None);
     };
     match p.get("section") {
         None => {}
-        Some(Value::Null) => ch.section_mm2 = Some(None),
-        Some(Value::String(t)) if t.trim().is_empty() || t.trim().eq_ignore_ascii_case("auto") => ch.section_mm2 = Some(None),
-        Some(Value::String(t)) => {
-            let spec =
-                parse_cable_spec(t).ok_or_else(|| bad(cmd, "`section` is a number of mm², auto, or a cable such as 3G1.5 or 2x0.75 blindé"))?;
-            set_spec(&mut ch, &spec);
+        Some(Value::Null) => (ch.section_mm2, ch.written) = (Some(None), Some(None)),
+        Some(Value::String(t)) if t.trim().is_empty() || t.trim().eq_ignore_ascii_case("auto") => {
+            (ch.section_mm2, ch.written) = (Some(None), Some(None))
         }
-        Some(_) => ch.section_mm2 = clearable(cmd, p, "section")?,
+        Some(Value::String(t)) => match parse_cable_spec(t) {
+            Some(spec) => set_spec(&mut ch, &spec),
+            // Any other text is the cable as the user writes it: kept as it is, with no section.
+            None => {
+                (ch.section_mm2, ch.cores, ch.earth, ch.shielded) = (Some(None), Some(None), Some(false), Some(false));
+                ch.written = Some(Some(t.trim().to_string()));
+            }
+        },
+        Some(_) => {
+            ch.section_mm2 = clearable(cmd, p, "section")?;
+            ch.written = Some(None);
+        }
     }
     if let Some(name) = str_param(p, "cableType") {
         let t = d.cable_type_named(name).ok_or_else(|| bad(cmd, format!("`cableType` {name:?} is not in the cable library: see CABLETYPELIST")))?;
@@ -206,6 +227,24 @@ fn change_of(cmd: &str, p: &Value, d: &cadcraft_doc::Drawing) -> Result<CircuitC
         ch.usage = ch.usage.or(t.usage);
     }
     Ok(ch)
+}
+
+/// `label`: whether the cable's label is drawn.
+/// `labelSide`: above or below the cable; `Some(true)` for below.
+fn label_side_param(cmd: &str, p: &Value) -> Result<Option<bool>> {
+    match str_param(p, "labelSide").map(|t| t.trim().to_ascii_lowercase()).as_deref() {
+        None => Ok(None),
+        Some("above") => Ok(Some(false)),
+        Some("below") => Ok(Some(true)),
+        Some(_) => Err(bad(cmd, "`labelSide` is above or below")),
+    }
+}
+
+fn label_param(cmd: &str, p: &Value) -> Result<Option<bool>> {
+    match p.get("label") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v.as_bool().map(Some).ok_or_else(|| bad(cmd, "`label` must be true or false")),
+    }
 }
 
 fn apply_change(c: &mut CableParams, ch: &CircuitChange) {
@@ -235,6 +274,9 @@ fn apply_change(c: &mut CableParams, ch: &CircuitChange) {
     }
     if let Some(v) = ch.shielded {
         c.shielded = v;
+    }
+    if let Some(v) = &ch.written {
+        c.written = v.clone();
     }
     if let Some(v) = ch.protection_a {
         c.protection_a = v;
@@ -359,6 +401,9 @@ fn cable_params(s: &Session, last: &CableLastUsed) -> Result<CableParams> {
     c.section_mm2 = last.section_mm2;
     (c.cores, c.earth, c.shielded) = (last.cores, last.earth, last.shielded);
     c.protection_a = last.protection_a;
+    c.hide_label = last.hide_label;
+    c.label_below = last.label_below;
+    c.written = last.written.clone();
     Ok(c)
 }
 
@@ -383,6 +428,12 @@ fn run_cable_add(s: &mut Session, p: &Value) -> Result<Value> {
     apply_change(&mut params, &change_of(CMD, p, s.doc()?)?);
     if let Some(l) = number(CMD, p, "labelHeight")? {
         params.label_height_mm = l;
+    }
+    if let Some(show) = label_param(CMD, p)? {
+        params.hide_label = !show;
+    }
+    if let Some(below) = label_side_param(CMD, p)? {
+        params.label_below = below;
     }
     params.length = 1.0;
     params.validate().map_err(doc_err)?;
@@ -445,6 +496,12 @@ fn run_edit(s: &mut Session, p: &Value) -> Result<Value> {
         let e = s.doc()?.entity(h).cloned().ok_or_else(|| bad(CMD, "no such object"))?;
         if let Some(mut c) = cable_of(&e) {
             apply_change(&mut c, &change);
+            if let Some(show) = label_param(CMD, p)? {
+                c.hide_label = !show;
+            }
+            if let Some(below) = label_side_param(CMD, p)? {
+                c.label_below = below;
+            }
             if let Some(n) = &circuit {
                 c.circuit = n.clone();
             }
@@ -621,6 +678,7 @@ enum CableAsk {
     Usage,
     Section,
     Protection,
+    Label,
 }
 
 struct CableAddM {
@@ -636,11 +694,12 @@ impl CableAddM {
     fn settings(&self, s: &mut Session) {
         let l = &self.last;
         s.echo(format!(
-            "Current settings: Circuit = {}, Usage = {}, Section = {}, Protection = {}",
+            "Current settings: Circuit = {}, Usage = {}, Section = {}, Protection = {}, Label = {}",
             if l.circuit.is_empty() { "-" } else { &l.circuit },
             l.usage.name(),
             l.spec_text(),
-            l.protection_a.map_or("Auto".to_string(), |v| format!("{v} A"))
+            l.protection_a.map_or("Auto".to_string(), |v| format!("{v} A")),
+            if l.hide_label { "No" } else { "Yes" }
         ));
     }
 }
@@ -664,8 +723,15 @@ impl Interactive for CableAddM {
             }
             CableAsk::Protection => Prompt::new("Enter the rating of the breaker (A) or [Auto]", Accept::TEXT)
                 .default(self.last.protection_a.map_or("Auto".to_string(), |v| v.to_string())),
+            CableAsk::Label => Prompt::new("Label of the cables", super::curves::KW).kw(&["Above", "Below", "No"]).default(
+                match (self.last.hide_label, self.last.label_below) {
+                    (true, _) => "No",
+                    (false, true) => "Below",
+                    (false, false) => "Above",
+                },
+            ),
             CableAsk::Point => match self.pts.last().copied() {
-                None => Prompt::new("Specify start point of cable", Accept::POINT).kw(&["Circuit", "Usage", "Section", "Protection"]),
+                None => Prompt::new("Specify start point of cable", Accept::POINT).kw(&["Circuit", "Usage", "Section", "Protection", "Label"]),
                 last => Prompt::new("Specify next point", Accept::POINT).kw(&["Undo"]).base_opt(last),
             },
         }
@@ -686,13 +752,20 @@ impl Interactive for CableAddM {
                 None => s.echo("Enter Power, Lighting, Data or Safety."),
             },
             (CableAsk::Section, Some(t)) => {
+                self.last.written = None;
                 if t.eq_ignore_ascii_case("auto") {
                     (self.last.section_mm2, self.last.cores, self.last.earth, self.last.shielded) = (None, None, false, false);
                 } else if let Some(spec) = parse_cable_spec(&t) {
                     (self.last.section_mm2, self.last.cores, self.last.earth, self.last.shielded) =
                         (Some(spec.section_mm2), spec.cores, spec.earth, spec.shielded);
+                } else if t.chars().count() <= 80 && !t.chars().any(char::is_control) {
+                    // Any other text is the cable as it is written: kept, with no section.
+                    (self.last.section_mm2, self.last.cores, self.last.earth, self.last.shielded) = (None, None, false, false);
+                    self.last.written = Some(t);
                 } else {
-                    s.echo("Requires a cable as 3G1.5 or 2x0.75 blindé, a section in mm², or Auto.");
+                    s.echo(
+                        "Requires a cable as 3G1.5 or 2x0.75 blindé, a section in mm², Auto, or the cable as it is written (80 characters at most).",
+                    );
                 }
             }
             (CableAsk::Protection, Some(t)) => {
@@ -703,6 +776,12 @@ impl Interactive for CableAddM {
                     None => s.echo("Requires a rating in A or Auto."),
                 }
             }
+            (CableAsk::Label, Some(t)) => match t.to_ascii_lowercase().as_str() {
+                "above" | "a" | "yes" | "y" => (self.last.hide_label, self.last.label_below) = (false, false),
+                "below" | "b" => (self.last.hide_label, self.last.label_below) = (false, true),
+                "no" | "n" => self.last.hide_label = true,
+                _ => s.echo("Enter Above, Below or No."),
+            },
             _ => {}
         }
         if self.ask != CableAsk::Point {
@@ -716,6 +795,7 @@ impl Interactive for CableAddM {
                 "Usage" => self.ask = CableAsk::Usage,
                 "Section" => self.ask = CableAsk::Section,
                 "Protection" => self.ask = CableAsk::Protection,
+                "Label" => self.ask = CableAsk::Label,
                 "Undo" => {
                     self.pts.pop();
                 }

@@ -168,6 +168,9 @@ mod web {
     }
 
     pub fn start() {
+        // There is no child process in a browser: the DWG reader and writer run in the page, on files the person picked on their own machine. Without this they
+        // refuse ("no worker is configured") and DWG neither opens nor saves.
+        cadcraft_io::dwg_worker::allow_in_process();
         eframe::WebLogger::init(log::LevelFilter::Info).ok();
         cadcraft_engine::cmd::file::set_io(cadcraft_engine::cmd::file::IoHooks {
             read: |b, name| cadcraft_io::read(b, name).map_err(|e| e.to_string()),
@@ -275,6 +278,12 @@ mod web {
                         let pdf_picker = inbox.clone();
                         app.services.pick_pdf = Some(Box::new(move || {
                             pdf_picker.pick_pdf();
+                            None
+                        }));
+                        // The Title Block dialog's pictures: the same picker, limited to pictures; the file reaches the dialog when it arrives.
+                        let image_picker = inbox.clone();
+                        app.services.pick_image = Some(Box::new(move || {
+                            image_picker.pick_image();
                             None
                         }));
                         let host = app_bridge.inspect(|bridge| {

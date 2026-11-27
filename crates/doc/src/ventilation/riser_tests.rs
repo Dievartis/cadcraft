@@ -237,3 +237,13 @@ fn a_riser_drawn_with_one_circuit_before_it_held_lines_is_read_as_one_line() {
     assert_eq!(old.cable.lines.len(), 1);
     assert_eq!((old.cable.lines[0].usage, old.cable.lines[0].circuit.as_str(), old.cable.lines[0].section_mm2), (CableUsage::Bus, "BUS1", Some(1.5)));
 }
+
+#[test]
+fn a_line_passing_through_a_level_is_marked_both_ways_and_written_at_both_ends() {
+    let texts = |p: &RiserParams| p.generate().unwrap().iter().filter(|x| matches!(x.kind, EntityKind::Text(_))).count();
+    let marks = |p: &RiserParams| p.generate().unwrap().iter().filter(|x| matches!(x.kind, EntityKind::Line(_) | EntityKind::Circle(_))).count();
+    let starts = cable_riser(vec![CableLine { circuit: "A".into(), ..CableLine::new(CableUsage::Power) }]);
+    let through = cable_riser(vec![CableLine { circuit: "A".into(), way: Some(LineWay::ThroughUp), ..CableLine::new(CableUsage::Power) }]);
+    assert!(texts(&through) > texts(&starts), "the line is written where it comes from and where it goes on to");
+    assert!(marks(&through) > marks(&starts), "a dot and a cross, and a leader at both ends");
+}

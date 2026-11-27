@@ -200,7 +200,7 @@ pub struct TerminalParams {
 }
 
 fn line(a: Vec2, b: Vec2) -> HvacPiece {
-    HvacPiece { layer: AIR_TERMINAL_LAYER, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) }
+    HvacPiece { layer: super::by_block(AIR_TERMINAL_LAYER), kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) }
 }
 
 fn rect(half: Vec2) -> HvacPiece {
@@ -212,11 +212,11 @@ fn rect(half: Vec2) -> HvacPiece {
         elevation: 0.0,
         plinegen: false,
     };
-    HvacPiece { layer: AIR_TERMINAL_LAYER, kind: EntityKind::LwPolyline(poly) }
+    HvacPiece { layer: super::by_block(AIR_TERMINAL_LAYER), kind: EntityKind::LwPolyline(poly) }
 }
 
 fn circle(radius: f64) -> HvacPiece {
-    HvacPiece { layer: AIR_TERMINAL_LAYER, kind: EntityKind::Circle(Circle { center: v3(Vec2::ZERO), radius }) }
+    HvacPiece { layer: super::by_block(AIR_TERMINAL_LAYER), kind: EntityKind::Circle(Circle { center: v3(Vec2::ZERO), radius }) }
 }
 
 /// The layer of the arrows (and the ducts) of an air direction: blue for supply, magenta for extract.
@@ -349,7 +349,7 @@ impl TerminalParams {
         };
         let at = Vec2::new(0.0, -self.half().y - below - 1.2 * h);
         v.push(HvacPiece {
-            layer: AIR_TERMINAL_LAYER,
+            layer: super::by_block(AIR_TERMINAL_LAYER),
             kind: label(
                 at,
                 h,

@@ -98,3 +98,17 @@ fn a_drawing_elevation_is_one_block_with_the_openings_found_in_the_wall() {
     assert!(d.add_wall_elevation(&Space::Model, Common::default(), h, Vec2::ZERO, ElevationSide::Right).is_err());
     assert!(d.add_wall_elevation(&Space::Model, Common::default(), wh, Vec2::new(f64::NAN, 0.0), ElevationSide::Right).is_err());
 }
+
+#[test]
+fn a_glazed_partition_shows_its_glass_from_its_sill_or_from_the_floor() {
+    let glass_from = |name: &str| {
+        let mut w = wall(&[(0.0, 0.0), (4000.0, 0.0)]);
+        w.style = standard_wall_styles().into_iter().find(|s| s.name == name).expect("a style");
+        let (_, pieces) = pieces_of(&w, &[], &[], ElevationSide::Right);
+        pieces.iter().filter(|p| p.layer == ELEVATION_WINDOW_LAYER).filter_map(|p| corners(p).iter().map(|c| c.1).reduce(f64::min)).reduce(f64::min)
+    };
+    let sill = glass_from("Glazed partition 72 on a sill, double glazing").expect("glass above the sill");
+    assert!(sill > 500.0 && sill < 2500.0, "{sill}");
+    assert_eq!(glass_from("Glazed partition 72, full height, single glazing"), Some(0.0), "glass from the floor");
+    assert_eq!(glass_from("Concrete 200"), None, "a wall that is not glazed");
+}

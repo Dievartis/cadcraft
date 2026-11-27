@@ -38,7 +38,7 @@ pub fn specs() -> Vec<CommandSpec> {
             )
             .interactive(|s| Ok(Box::new(DuctAddM::new(s)))),
         CommandSpec::new("ductedit", "Edit Duct", run_ductedit)
-            .params("{handle | handles, diameter? (mm, or auto: sizing chooses the size) | width? and/or height? (mm; a rectangular section: a side alone changes that side), kind?, air?, flexible? (true or false), shape? (round or rectangular: each duct keeps its size and takes the other shape), insulation? (outside, inside or none), insulationThickness? (mm, default 30), flow? (m³/h: sizing keeps it and sizes the run for it; auto gives it back), altitude? (m: the underside, or null), endAltitude? (m, or null for a level run: the altitude of the underside at the far end, so that the run slopes from its altitude to this one; its true length, longer than its length in plan, is the one that loses pressure and is counted)} → {changed}"),
+            .params("{handle | handles, diameter? (mm, or auto: sizing chooses the size) | width? and/or height? (mm; a rectangular section: a side alone changes that side), kind?, air?, flexible? (true or false), shape? (round or rectangular: each duct keeps its size and takes the other shape), insulation? (outside, inside or none), insulationThickness? (mm, default 30), coneAuto? (true: a reducer's cone goes back to the symmetric 15 degree one, after its corners were set by hand), cutStart? / cutEnd? (degrees, -75 to 75, or 0 or null: the end of the run cut on the slant, a whistle; not drawn at an end with an elbow or a cone), flow? (m³/h: sizing keeps it and sizes the run for it; auto gives it back), altitude? (m: the underside, or null), endAltitude? (m, or null for a level run: the altitude of the underside at the far end, so that the run slopes from its altitude to this one; its true length, longer than its length in plan, is the one that loses pressure and is counted)} → {changed}"),
         CommandSpec::new("ductconnect", "Connect Terminals", run_ductconnect).menu(&["Draw", "HVAC", "Connect Terminals"]).params(
             "{terminals? (handles; default every terminal no duct reaches), maxDistance? (mm, default 3000)} → {created (flexible ducts), skipped}",
         ),
@@ -79,6 +79,43 @@ pub struct DuctLastUsed {
     /// `None`: not fixed, sizing takes it from the terminals the duct serves.
     pub air: Option<AirDirection>,
     pub flexible: bool,
+    /// Which edge of the duct the points clicked follow.
+    pub justification: DuctJust,
+}
+
+/// Which edge of a duct the points clicked follow (Tab while DUCTADD asks for a point): the middle (its axis), the bottom edge (the duct is above
+/// the clicked line, as the line runs to the right) or the top one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DuctJust {
+    #[default]
+    Middle,
+    Bottom,
+    Top,
+}
+
+impl DuctJust {
+    fn next(self) -> DuctJust {
+        match self {
+            DuctJust::Middle => DuctJust::Bottom,
+            DuctJust::Bottom => DuctJust::Top,
+            DuctJust::Top => DuctJust::Middle,
+        }
+    }
+    fn name(self) -> &'static str {
+        match self {
+            DuctJust::Middle => "Middle",
+            DuctJust::Bottom => "Bottom",
+            DuctJust::Top => "Top",
+        }
+    }
+    /// Which side of the clicked line the axis is on: +1 to its left (as it runs), -1 to its right, 0 on it.
+    fn side(self) -> f64 {
+        match self {
+            DuctJust::Middle => 0.0,
+            DuctJust::Bottom => 1.0,
+            DuctJust::Top => -1.0,
+        }
+    }
 }
 
 /// A size the user gives a duct: a diameter, or width and height.
@@ -117,7 +154,7 @@ impl Imposed {
 
 impl Default for DuctLastUsed {
     fn default() -> Self {
-        DuctLastUsed { diameter_mm: 200.0, kind: DuctKind::Auto, air: None, flexible: false }
+        DuctLastUsed { diameter_mm: 200.0, kind: DuctKind::Auto, air: None, flexible: false, justification: DuctJust::Middle }
     }
 }
 
@@ -610,6 +647,11 @@ fn duct_params(s: &Session, last: &DuctLastUsed, label_mm: f64) -> Result<DuctPa
         height_mm: 0.0,
         flexible: last.flexible,
         reducer: None,
+        reducer_len_mm: None,
+        reducer_shape: None,
+        label_shift_mm: None,
+        kept_edge: None,
+        cut_deg: [0.0, 0.0],
         elbow: None,
         trim_start_mm: 0.0,
         trim_end_mm: 0.0,
@@ -679,14 +721,53 @@ struct DuctAddM {
     last: DuctLastUsed,
     /// The size the user typed, if any: sizing then leaves it.
     imposed: Option<Imposed>,
+    /// The points clicked: the line the duct follows, by its middle or by one of its edges.
     pts: Vec<Vec2>,
+    /// How far each run's axis lies to the left of that line (drawing units, negative to its right), one per run.
+    offs: Vec<f64>,
     handles: Vec<Handle>,
     ask: DuctAsk,
 }
 
+/// The axis of run `k` along the clicked line `pts`, each run moved sideways by its offset; where two runs meet with the same offset their axes meet at the
+/// corner of the offset lines.
+fn shifted(pts: &[Vec2], offs: &[f64], k: usize) -> (Vec2, Vec2) {
+    let n = |i: usize| (pts[i + 1] - pts[i]).normalized().perp();
+    let same = |i: usize, j: usize| (offs[i] - offs[j]).abs() < 1e-9;
+    let (nk, o) = (n(k), offs[k]);
+    let corner = |at: Vec2, other: Vec2| {
+        let d = 1.0 + nk.dot(other);
+        // A turn back on itself has no corner: the run is just moved.
+        if d < 0.2 { at + nk * o } else { at + (nk + other) * (o / d) }
+    };
+    let a = if k > 0 && same(k - 1, k) { corner(pts[k], n(k - 1)) } else { pts[k] + nk * o };
+    let b = if k + 1 < offs.len() && same(k, k + 1) { corner(pts[k + 1], n(k + 1)) } else { pts[k + 1] + nk * o };
+    (a, b)
+}
+
 impl DuctAddM {
     fn new(s: &Session) -> Self {
-        DuctAddM { last: s.last_used.duct.clone(), imposed: None, pts: Vec::new(), handles: Vec::new(), ask: DuctAsk::Point }
+        DuctAddM { last: s.last_used.duct.clone(), imposed: None, pts: Vec::new(), offs: Vec::new(), handles: Vec::new(), ask: DuctAsk::Point }
+    }
+    /// How far the axis of a run laid now lies to the left of the line clicked.
+    fn offset(&self, s: &Session) -> f64 {
+        self.params(s).map_or(0.0, |p| p.units.to_units(p.plan_width_mm()) / 2.0 * self.last.justification.side())
+    }
+    /// Lays run `k` again (or for the first time) from the clicked line, in place of the one there was.
+    fn lay(&mut self, s: &mut Session, k: usize) -> Result<()> {
+        let (a, b) = shifted(&self.pts, &self.offs, k);
+        let mut params = self.params(s)?;
+        // Laid by an edge: the run keeps that edge on the line when its width changes later (sizing, Properties).
+        params.kept_edge = self.offs.get(k).copied().filter(|o| *o != 0.0).map(f64::signum);
+        if let Some(old) = self.handles.get(k).copied() {
+            s.doc_mut()?.remove_entity(old);
+        }
+        let h = add_run(s, &params, a, b)?;
+        match self.handles.get_mut(k) {
+            Some(slot) => *slot = h,
+            None => self.handles.push(h),
+        }
+        Ok(())
     }
     fn settings(&self, s: &mut Session) {
         let d = self.imposed_text();
@@ -717,16 +798,24 @@ impl DuctAddM {
             if last.near(p, 1e-9) {
                 return Ok(Step::Continue);
             }
-            match self.params(s).and_then(|params| add_run(s, &params, last, p)) {
-                Ok(h) => {
-                    self.handles.push(h);
-                    s.last_used.duct = self.last.clone();
-                }
+            let off = self.offset(s);
+            let k = self.offs.len();
+            self.pts.push(p);
+            self.offs.push(off);
+            // The run before takes the corner it now shares with this one.
+            let laid =
+                self.lay(s, k).and_then(|()| if k > 0 && off != 0.0 && (self.offs[k - 1] - off).abs() < 1e-9 { self.lay(s, k - 1) } else { Ok(()) });
+            match laid {
+                Ok(()) => s.last_used.duct = self.last.clone(),
                 Err(e) => {
+                    self.pts.pop();
+                    self.offs.pop();
                     s.echo(e.to_string());
                     return Ok(Step::Continue);
                 }
             }
+            s.last_point = p;
+            return Ok(Step::Continue);
         }
         self.pts.push(p);
         s.last_point = p;
@@ -743,8 +832,16 @@ impl DuctAddM {
                     && let Some(h) = self.handles.pop()
                 {
                     s.doc_mut()?.remove_entity(h);
+                    self.offs.pop();
                 }
                 self.pts.pop();
+                // The run before gives back the corner it shared.
+                if let Some(k) = self.offs.len().checked_sub(1)
+                    && self.offs[k] != 0.0
+                    && let Err(e) = self.lay(s, k)
+                {
+                    s.echo(e.to_string());
+                }
             }
             _ => {}
         }
@@ -792,6 +889,14 @@ impl Interactive for DuctAddM {
         self.settings(s);
         Ok(Step::Continue)
     }
+    fn cycle_alignment(&mut self, s: &mut Session) -> Option<String> {
+        if self.ask != DuctAsk::Point {
+            return None;
+        }
+        self.last.justification = self.last.justification.next();
+        s.last_used.duct.justification = self.last.justification;
+        Some(format!("Justification = {}", self.last.justification.name()))
+    }
     fn prompt(&self, _s: &Session) -> Prompt {
         match self.ask {
             DuctAsk::Diameter => Prompt::new("Enter duct diameter (mm), width x height (mm) or [Auto]", Accept::TEXT).default(self.imposed_text()),
@@ -827,9 +932,22 @@ impl Interactive for DuctAddM {
         self.pts.last().map(|l| vec![EntityKind::Line(cadcraft_doc::Line { a: l.to3(0.0), b: c.to3(0.0) })]).unwrap_or_default()
     }
     fn preview_objects(&self, s: &Session, c: Vec2) -> Vec<cadcraft_doc::Entity> {
-        // The run under way, as wide as it will be.
-        match (self.ask, self.pts.last().copied(), self.params(s)) {
-            (DuctAsk::Point, Some(last), Ok(p)) if !last.near(c, 1e-9) => p.preview(last, c),
+        // The run under way, as wide as it will be, with the edge Tab chose on the line followed.
+        let (DuctAsk::Point, Ok(p)) = (self.ask, self.params(s)) else { return Vec::new() };
+        let off = self.offset(s);
+        match self.pts.last().copied() {
+            // Before the first point: a stretch of duct on the cursor, to choose where it hangs.
+            None => {
+                let at = c + Vec2::new(0.0, off);
+                p.preview(at, at + Vec2::new(4.0 * p.units.to_units(p.plan_width_mm()), 0.0))
+            }
+            Some(last) if !last.near(c, 1e-9) => {
+                let (mut pts, mut offs) = (self.pts.clone(), self.offs.clone());
+                pts.push(c);
+                offs.push(off);
+                let (a, b) = shifted(&pts, &offs, offs.len() - 1);
+                p.preview(a, b)
+            }
             _ => Vec::new(),
         }
     }
@@ -923,6 +1041,18 @@ fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
             Some(Some(v.as_f64().filter(|f| f.is_finite() && *f > 0.0).ok_or_else(|| bad(CMD, "`openFlow` must be a flow above 0 (m³/h) or null"))?))
         }
     };
+    // The cut on the slant at each end (a whistle), degrees: 0 or null makes it square again.
+    let cut = |key: &str| -> Result<Option<f64>> {
+        match p.get(key) {
+            None => Ok(None),
+            Some(Value::Null) => Ok(Some(0.0)),
+            Some(v) => {
+                Ok(Some(v.as_f64().filter(|x| x.is_finite()).ok_or_else(|| bad(CMD, format!("`{key}` must be a number of degrees or null")))?))
+            }
+        }
+    };
+    let (cut_start, cut_end) = (cut("cutStart")?, cut("cutEnd")?);
+    let cone_auto = bool_param(CMD, p, "coneAuto")? == Some(true);
     let d = s.doc()?;
     let mut next = Vec::with_capacity(hs.len());
     for h in &hs {
@@ -965,6 +1095,10 @@ fn run_ductedit(s: &mut Session, p: &Value) -> Result<Value> {
             Some(Some(f)) => (dp.flow_m3h, dp.flow_set) = (Some(f), true),
             Some(None) => dp.flow_set = false,
             None => {}
+        }
+        dp.cut_deg = [cut_start.unwrap_or(dp.cut_deg[0]), cut_end.unwrap_or(dp.cut_deg[1])];
+        if cone_auto {
+            (dp.reducer_len_mm, dp.reducer_shape) = (None, None);
         }
         if let Some(e) = end_altitude {
             dp.end_level_mm = e;
@@ -1081,6 +1215,11 @@ fn run_ductconnect(s: &mut Session, p: &Value) -> Result<Value> {
             height_mm: 0.0,
             flexible: true,
             reducer: None,
+            reducer_len_mm: None,
+            reducer_shape: None,
+            label_shift_mm: None,
+            kept_edge: None,
+            cut_deg: [0.0, 0.0],
             elbow: None,
             trim_start_mm: 0.0,
             trim_end_mm: 0.0,
@@ -1349,6 +1488,8 @@ fn run_ductsize(s: &mut Session, p: &Value) -> Result<Value> {
         if p.get("autoCross").and_then(Value::as_bool).unwrap_or(true) { d.cross_ducts_by_altitude(30.0).map_err(doc_err)? } else { 0 };
     // Where the ducts one over the other have their sides drawn straight is known once all are sized: the dashes go on the rest.
     d.refresh_cover_straights().map_err(doc_err)?;
+    // The air of the ducts is known once sized: the hoods that follow them take it, and their size.
+    d.refresh_hoods().map_err(doc_err)?;
     let ducts = nets.first().map_or(0, |n| n.duct_count);
     let isolated = nets.first().map_or(0, |n| n.isolated.len());
     Ok(json!({ "networks": out, "cuts": cuts, "rebalanced": rebalanced, "stepWarnings": step_warnings, "autoCrossed": auto_crossed,

@@ -359,7 +359,7 @@ fn the_unit_the_duct_and_the_accessory_are_seen_before_they_are_placed() {
     assert!(!s.preview(cadcraft_geom::Vec2::new(0.0, 0.0)).is_empty(), "the unit");
     s.cmdline("").unwrap();
     s.cmdline("ductadd").unwrap();
-    assert!(s.preview(cadcraft_geom::Vec2::new(1000.0, 0.0)).is_empty(), "no start point yet");
+    assert!(!s.preview(cadcraft_geom::Vec2::new(1000.0, 0.0)).is_empty(), "a stretch of duct hangs on the cursor before the first point");
     s.cmdline("0,0").unwrap();
     let p = s.preview(cadcraft_geom::Vec2::new(4000.0, 0.0));
     assert!(p.iter().filter(|e| matches!(e.kind, cadcraft_doc::EntityKind::LwPolyline(_))).count() >= 2, "the two sides of the duct");
@@ -1658,4 +1658,283 @@ fn a_duct_of_another_air_going_through_a_joint_does_not_stop_its_elbow_and_two_s
     let sup = s.execute("ductadd", &json!({"points": [[0, 5000], [2000, 5000]], "air": "supply", "diameter": 400})).unwrap();
     let ext = s.execute("ductadd", &json!({"points": [[0, 5000], [0, 7000]], "air": "extract", "diameter": 400})).unwrap();
     assert!(elbow_of(&s, &sup["handles"][0]).is_none() && elbow_of(&s, &ext["handles"][0]).is_none());
+}
+
+#[test]
+fn ductaccessoryadd_hood_covers_the_end_of_a_duct_and_goes_free_elsewhere() {
+    let mut s = metric();
+    s.execute("ductadd", &json!({"points": [[0, 0], [0, 4000]], "diameter": 315})).unwrap();
+    let r = s.execute("ductaccessoryadd", &json!({"at": [0, 3800], "type": "hood"})).unwrap();
+    assert!(r["duct"].is_string(), "{r}");
+    let at = |s: &Session, r: &serde_json::Value| match &s.doc().unwrap().entity(hd(&r["handle"])).unwrap().kind {
+        cadcraft_doc::EntityKind::Insert(i) => (i.insert.x, i.insert.y, i.rotation),
+        _ => panic!("not a block reference"),
+    };
+    let (x, y, rot) = at(&s, &r);
+    assert!(x.abs() < 1e-9 && (3990.0..=4000.0).contains(&y), "at the end of the duct, not where it was clicked");
+    assert!((rot - std::f64::consts::FRAC_PI_2).abs() < 1e-9, "pointing out of the duct");
+    assert_eq!(accessories(&s)[0].1.diameter_mm, 315.0);
+
+    let r = s.execute("ductaccessoryadd", &json!({"at": [5000, 5000], "type": "hood"})).unwrap();
+    assert!(r["duct"].is_null(), "{r}");
+    let (x, y, _) = at(&s, &r);
+    assert_eq!((x, y), (5000.0, 5000.0), "free, where it was put");
+}
+
+#[test]
+fn ductaccessoryedit_sets_a_hoods_size_and_air_and_moves_it_to_the_layer_of_that_air() {
+    let mut s = metric();
+    s.execute("ductadd", &json!({"points": [[0, 0], [0, 4000]], "diameter": 315})).unwrap();
+    let r = s.execute("ductaccessoryadd", &json!({"at": [0, 3800], "type": "hood"})).unwrap();
+    s.execute("ductaccessoryedit", &json!({"handle": r["handle"], "width": 500, "height": 300, "air": "fresh"})).unwrap();
+    let a = &accessories(&s)[0].1;
+    assert_eq!((a.diameter_mm, a.height_mm, a.air), (500.0, Some(300.0), Some(cadcraft_doc::AirDirection::Fresh)));
+    let e = s.doc().unwrap().entity(hd(&r["handle"])).unwrap();
+    assert_eq!(e.common.layer, a.layer(), "drawn in the colour of its air");
+    s.execute("ductaccessoryedit", &json!({"handle": r["handle"], "height": 0, "air": null})).unwrap();
+    let a = &accessories(&s)[0].1;
+    assert_eq!((a.height_mm, a.air), (None, None));
+    assert!(s.execute("ductaccessoryedit", &json!({"handle": r["handle"], "air": "steam"})).is_err());
+}
+
+#[test]
+fn a_hood_set_by_hand_stops_following_its_duct_and_follows_again_when_told() {
+    let mut s = metric();
+    s.execute("ductadd", &json!({"points": [[0, 0], [0, 4000]], "diameter": 315})).unwrap();
+    let r = s.execute("ductaccessoryadd", &json!({"at": [0, 3800], "type": "hood"})).unwrap();
+    assert!(!accessories(&s)[0].1.fixed, "it follows from the start");
+    s.execute("ductaccessoryedit", &json!({"handle": r["handle"], "width": 500})).unwrap();
+    assert!(accessories(&s)[0].1.fixed);
+    s.execute("ductaccessoryedit", &json!({"handle": r["handle"], "follow": true})).unwrap();
+    let a = &accessories(&s)[0].1;
+    assert!(!a.fixed && a.diameter_mm == 315.0, "back to the duct's width: {a:?}");
+}
+
+#[test]
+fn a_reducers_cone_has_a_grip_at_each_corner_and_takes_any_shape_until_told_to_go_back() {
+    let mut s = metric();
+    let r = s.execute("ductadd", &json!({"points": [[0, 0], [3000, 0], [6000, 0]], "diameter": 500})).unwrap();
+    let last = r["handles"].as_array().unwrap().last().unwrap().clone();
+    s.execute("ductedit", &json!({"handles": [last.clone()], "shape": "rectangular", "width": 900, "height": 720})).unwrap();
+    let params = |s: &Session| duct_of(s.doc().unwrap().entity(hd(&last)).unwrap()).unwrap();
+    let grips = |s: &Session| {
+        let d = s.doc().unwrap();
+        d.entity_grips(d.entity(hd(&last)).unwrap())
+    };
+    let before = grips(&s);
+    assert_eq!(before.len(), 8, "three for the run, one for the cone's length, one at each corner of the cone");
+    // The corners are across the run from each other (near the junction: the round duct's width; at the far end: the run's).
+    assert!(before[4].y > before[5].y && before[6].y > before[7].y && (before[6].y - before[7].y) > (before[4].y - before[5].y));
+    // The far corner above goes on along the run: the cone gets longer on that side only.
+    s.execute("grip.stretch", &json!({"handle": last.clone(), "index": 6, "to": [before[6].x + 700.0, before[6].y]})).unwrap();
+    let after = grips(&s);
+    assert!(after[6].x > before[6].x + 600.0 && (after[7].x - before[7].x).abs() < 1e-6, "one side only");
+    assert!((after[6].y - before[6].y).abs() < 1e-6, "dragged along the run only, it stays where its side is");
+    // Dragged across as well it goes where it is dragged: onto the corner of a duct that is not in line, say.
+    s.execute("grip.stretch", &json!({"handle": last.clone(), "index": 7, "to": [before[7].x + 100.0, before[7].y - 150.0]})).unwrap();
+    let moved = grips(&s);
+    assert!((moved[7].y - (before[7].y - 150.0)).abs() < 1e-6 && (moved[7].x - (before[7].x + 100.0)).abs() < 1e-6, "{:?}", moved[7]);
+    assert!((moved[6].y - before[6].y).abs() < 1e-6, "the other corners stay");
+    // A corner on the junction slides along the run: the junction is slanted.
+    s.execute("grip.stretch", &json!({"handle": last.clone(), "index": 5, "to": [before[5].x + 300.0, before[5].y]})).unwrap();
+    assert!(grips(&s)[5].x > before[5].x + 200.0 && (grips(&s)[4].x - before[4].x).abs() < 1e-6);
+    assert!(params(&s).reducer_shape.is_some());
+    // It goes back to the symmetric cone when asked.
+    s.execute("ductedit", &json!({"handles": [last.clone()], "coneAuto": true})).unwrap();
+    assert!(params(&s).reducer_shape.is_none() && params(&s).reducer.is_some());
+    assert_eq!(grips(&s).len(), 8);
+}
+
+#[test]
+fn a_run_laid_over_the_end_of_another_on_the_same_line_does_not_give_that_one_a_reducer() {
+    let mut s = metric();
+    let r = s.execute("ductadd", &json!({"points": [[0, 0], [3000, 0], [6000, 0]], "diameter": 500})).unwrap();
+    let hs = r["handles"].as_array().unwrap().clone();
+    s.execute("ductedit", &json!({"handles": [hs[1].clone()], "shape": "rectangular", "width": 900, "height": 720})).unwrap();
+    let first = |s: &Session| duct_of(s.doc().unwrap().entity(hd(&hs[0])).unwrap()).unwrap().reducer;
+    assert!(first(&s).is_none());
+    // The wider run's start dragged back over the round one: it is no trunk the round run branches from.
+    s.execute("grip.stretch", &json!({"handle": hs[1].clone(), "index": 0, "to": [2000, 0]})).unwrap();
+    assert!(first(&s).is_none(), "{:?}", first(&s));
+    // A run that really ends on the side of another still takes the cone from it.
+    let t = s.execute("ductadd", &json!({"points": [[4000, 2000], [4000, 0]], "diameter": 200})).unwrap();
+    let branch = duct_of(s.doc().unwrap().entity(hd(&t["handles"][0])).unwrap()).unwrap().reducer;
+    assert!(branch.is_some_and(|b| b.from_mm > 800.0), "{branch:?}");
+}
+
+#[test]
+fn tab_chooses_which_edge_of_the_duct_follows_the_points_clicked_and_the_corners_stay_joined() {
+    let mut s = metric();
+    let ends = |s: &Session| -> Vec<(cadcraft_geom::Vec2, cadcraft_geom::Vec2)> {
+        let d = s.doc().unwrap();
+        d.model.iter().filter_map(|e| d.duct_ends(e.handle)).map(|(_, a, b)| (a, b)).collect()
+    };
+    // Middle at first: the points are the axis. Tab: the bottom edge follows them, the duct (200 wide) is above; Tab again: the top edge.
+    s.cmdline("ductadd").unwrap();
+    s.cmdline("0,0").unwrap();
+    s.cmdline("3000,0").unwrap();
+    assert!(s.cycle_alignment());
+    s.cmdline("3000,3000").unwrap();
+    let r = ends(&s);
+    assert_eq!(r.len(), 2);
+    assert!(r[0].0.y.abs() < 1e-6 && r[0].1.y.abs() < 1e-6, "the first run kept the axis: {r:?}");
+    s.cmdline("").unwrap();
+    // The bottom edge: the axis lies above the line clicked, and a corner joins two runs that follow the same edge.
+    s.cmdline("ductadd").unwrap();
+    assert!(s.cycle_alignment(), "the choice is kept for the next duct: now the top edge");
+    s.cmdline("").unwrap();
+    s.cmdline("ductadd").unwrap();
+    s.cmdline("0,5000").unwrap();
+    s.cmdline("3000,5000").unwrap();
+    s.cmdline("3000,8000").unwrap();
+    s.cmdline("").unwrap();
+    let r = ends(&s);
+    // The second duct: the top edge follows the line at y = 5000, so the duct hangs below it, and the two runs meet at one corner.
+    let second: Vec<_> = r.iter().filter(|(a, b)| a.y > 4000.0 && b.y > 4000.0).collect();
+    assert_eq!(second.len(), 2, "{r:?}");
+    let flat = second.iter().find(|(a, b)| (a.y - b.y).abs() < 1e-6).unwrap();
+    let up = second.iter().find(|(a, b)| (a.x - b.x).abs() < 1e-6).unwrap();
+    assert!(flat.0.y < 5000.0, "the duct hangs below the line followed: {flat:?}");
+    assert!(flat.1.near(up.0, 1e-6), "the runs meet at the corner: {flat:?} {up:?}");
+    // A command with nothing to change does not take it.
+    s.cmdline("line").unwrap();
+    assert!(!s.cycle_alignment());
+}
+
+#[test]
+fn the_labels_of_objects_turned_any_way_never_read_upside_down() {
+    let mut s = metric();
+    s.execute("ductadd", &json!({"points": [[0, 0], [4000, 0]]})).unwrap();
+    let objects: Vec<Value> = [
+        ("ahuadd", json!({"at": [-3000, 3000]})),
+        ("airterminaladd", json!({"at": [5000, 3000], "flow": 100})),
+        ("ductaccessoryadd", json!({"at": [2000, 0]})),
+        ("equipmentadd", json!({"at": [9000, 3000], "kind": "cassette", "name": "UI1"})),
+    ]
+    .into_iter()
+    .map(|(add, p)| {
+        let r = s.execute(add, &p).unwrap();
+        r.get("handle").unwrap_or(&r["handles"][0]).clone()
+    })
+    .collect();
+    // Every text of an object, as it reads in the drawing: its angle, and whether it is upside down.
+    let upside_down = |s: &Session, h: &Value| {
+        let d = s.doc().unwrap();
+        let EntityKind::Insert(i) = &d.entity(hd(h)).unwrap().kind else { panic!("{h}") };
+        let texts: Vec<f64> = d
+            .block(&i.block)
+            .unwrap()
+            .entities
+            .iter()
+            .filter_map(|e| match &e.kind {
+                EntityKind::Text(t) => Some((i.rotation + t.rotation).rem_euclid(std::f64::consts::TAU)),
+                _ => None,
+            })
+            .collect();
+        assert!(!texts.is_empty(), "{h}: has a label");
+        texts.iter().any(|a| *a > std::f64::consts::FRAC_PI_2 + 1e-6 && *a < 3.0 * std::f64::consts::FRAC_PI_2 - 1e-6)
+    };
+    for angle in [90, 180, 225, 270] {
+        for h in &objects {
+            s.execute("rotate", &json!({ "handles": [h], "base": [0, 0], "angle": angle })).unwrap();
+            assert!(!upside_down(&s, h), "{h} turned {angle}°: its label reads upside down");
+        }
+    }
+}
+
+#[test]
+fn the_duct_joined_to_a_dragged_end_follows_it_unless_asked_to_stay() {
+    let start = |s: &Session, h: Handle| s.doc().unwrap().duct_ends(h).unwrap().1;
+    let laid = || {
+        let mut s = metric();
+        let r = s.execute("ductadd", &json!({"points": [[0, 0], [4000, 0], [4000, 3000]], "diameter": 315})).unwrap();
+        let hs: Vec<Handle> = r["handles"].as_array().unwrap().iter().map(hd).collect();
+        // Only the first run is selected.
+        s.set_selection(vec![hs[0]]);
+        (s, hs)
+    };
+    let corner = cadcraft_geom::Vec2::new(4000.0, 0.0);
+    let to = cadcraft_geom::Vec2::new(4500.0, 500.0);
+    // Dragged by its grip: the run joined at that end follows it.
+    let (mut s, hs) = laid();
+    s.start_grip_edit(&[(hs[0], 2)]).unwrap();
+    s.cmdline("4500,500").unwrap();
+    assert!(start(&s, hs[1]).dist(to) < 1e-6, "the joined run follows");
+    // With the Alone option, it stays.
+    let (mut s, hs) = laid();
+    s.start_grip_edit(&[(hs[0], 2)]).unwrap();
+    s.cmdline("Alone").unwrap();
+    s.cmdline("4500,500").unwrap();
+    assert!(start(&s, hs[1]).dist(corner) < 1e-6, "Alone: the joined run stays");
+    assert!(s.doc().unwrap().duct_ends(hs[0]).unwrap().2.dist(to) < 1e-6, "the dragged end moved");
+    // The same in JSON: `follow: false`.
+    let (mut s, hs) = laid();
+    s.execute("grip.stretch", &json!({"handle": hs[0].hex(), "index": 2, "to": [4500, 500], "follow": false})).unwrap();
+    assert!(start(&s, hs[1]).dist(corner) < 1e-6);
+    s.execute("grip.stretch", &json!({"handle": hs[0].hex(), "index": 2, "to": [4000, 0]})).unwrap();
+    s.execute("grip.stretch", &json!({"handle": hs[0].hex(), "index": 2, "to": [4500, 500]})).unwrap();
+    assert!(start(&s, hs[1]).dist(to) < 1e-6);
+}
+
+#[test]
+fn a_duct_laid_by_an_edge_keeps_that_edge_on_the_line_when_it_is_made_wider() {
+    let mut s = metric();
+    // Laid by the bottom edge (Tab once): an L along y = 0 then up x = 3000; the duct hangs to the left of the line, Ø200.
+    s.cmdline("ductadd").unwrap();
+    assert!(s.cycle_alignment());
+    for t in ["0,0", "3000,0", "3000,3000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    let runs = |s: &Session| -> Vec<(Handle, f64, cadcraft_geom::Vec2, cadcraft_geom::Vec2)> {
+        let d = s.doc().unwrap();
+        d.model.iter().filter_map(|e| d.duct_ends(e.handle).map(|(p, a, b)| (e.handle, p.plan_width_mm(), a, b))).collect()
+    };
+    let before = runs(&s);
+    assert_eq!(before.len(), 2);
+    let r0 = before[0].1 / 2.0;
+    let flat = |r: &[(Handle, f64, cadcraft_geom::Vec2, cadcraft_geom::Vec2)]| *r.iter().find(|x| (x.2.y - x.3.y).abs() < 1e-6).unwrap();
+    let up = |r: &[(Handle, f64, cadcraft_geom::Vec2, cadcraft_geom::Vec2)]| *r.iter().find(|x| (x.2.x - x.3.x).abs() < 1e-6).unwrap();
+    assert!((flat(&before).2.y - r0).abs() < 1e-6, "the bottom edge on y = 0");
+    // Both made Ø400: the edges stay on the lines clicked, and the corner stays joined.
+    let hs: Vec<String> = before.iter().map(|x| x.0.hex()).collect();
+    s.execute("ductedit", &json!({"handles": hs, "diameter": 400})).unwrap();
+    let after = runs(&s);
+    let (f, u) = (flat(&after), up(&after));
+    assert!((f.1 - 400.0).abs() < 1e-6);
+    assert!((f.2.y - 200.0).abs() < 1e-6, "the bottom edge still on y = 0: {f:?}");
+    assert!((u.2.x - 2800.0).abs() < 1e-6, "the right edge still on x = 3000: {u:?}");
+    let corner = cadcraft_geom::Vec2::new(2800.0, 200.0);
+    assert!([f.2, f.3].iter().any(|p| p.dist(corner) < 1e-6) && [u.2, u.3].iter().any(|p| p.dist(corner) < 1e-6), "{f:?} {u:?}");
+}
+
+#[test]
+fn the_pipe_or_cable_joined_to_a_dragged_end_follows_it_unless_asked_to_stay() {
+    for (add, p) in [
+        ("pipeadd", json!({"points": [[0, 0], [4000, 0], [4000, 3000]], "service": "chilledWater", "dn": 50})),
+        ("cableadd", json!({"points": [[0, 0], [4000, 0], [4000, 3000]], "circuit": "TD1-C1", "usage": "power"})),
+    ] {
+        let start = |s: &Session, h: Handle| {
+            let d = s.doc().unwrap();
+            d.pipe_ends(h).map(|(_, a, _)| a).or_else(|| d.cable_ends(h).map(|(_, a, _)| a)).unwrap()
+        };
+        let laid = || {
+            let mut s = metric();
+            let r = s.execute(add, &p).unwrap();
+            let hs: Vec<Handle> = r["handles"].as_array().unwrap().iter().map(hd).collect();
+            let first_end = |s: &Session, h| start(s, h).dist(cadcraft_geom::Vec2::ZERO) < 1e-6;
+            // The run from 0,0 first.
+            let (a, b) = if first_end(&s, hs[0]) { (hs[0], hs[1]) } else { (hs[1], hs[0]) };
+            s.set_selection(vec![a]);
+            (s, a, b)
+        };
+        let (mut s, a, b) = laid();
+        s.start_grip_edit(&[(a, 2)]).unwrap();
+        s.cmdline("4500,500").unwrap();
+        assert!(start(&s, b).dist(cadcraft_geom::Vec2::new(4500.0, 500.0)) < 1e-6, "{add}: the joined run follows");
+        let (mut s, a, b) = laid();
+        s.start_grip_edit(&[(a, 2)]).unwrap();
+        s.cmdline("Alone").unwrap();
+        s.cmdline("4500,500").unwrap();
+        assert!(start(&s, b).dist(cadcraft_geom::Vec2::new(4000.0, 0.0)) < 1e-6, "{add}: Alone, the joined run stays");
+    }
 }

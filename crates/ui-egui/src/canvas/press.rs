@@ -53,6 +53,13 @@ impl Press {
         (pos.distance(self.origin) <= TOLERANCE).then_some((self.origin, modifiers))
     }
 
+    /// For a press on a grip ([`Self::on_grip`]) whose button came up at `pos`, further than [`TOLERANCE`] from where it went down: `Some` (where it
+    /// went down, the modifiers then), a drag of the grip to `pos`.
+    pub(crate) fn grip_drag(&self, pos: Pos2) -> Option<(Pos2, Modifiers)> {
+        let modifiers = self.on_grip?;
+        (pos.distance(self.origin) > TOLERANCE).then_some((self.origin, modifiers))
+    }
+
     /// Whether the press went down on a grip ([`Self::on_grip`]).
     pub(crate) fn is_on_grip(&self) -> bool {
         self.on_grip.is_some()
@@ -135,6 +142,8 @@ mod tests {
         assert!(p.is_on_grip());
         assert_eq!(p.grip_click(pos2(103.0, 104.0)), Some((pos2(100.0, 100.0), Modifiers::SHIFT)));
         assert_eq!(p.grip_click(pos2(120.0, 100.0)), None, "a drag from the grip is no click");
+        assert_eq!(p.grip_drag(pos2(120.0, 100.0)), Some((pos2(100.0, 100.0), Modifiers::SHIFT)), "but it is a drag");
+        assert_eq!(p.grip_drag(pos2(103.0, 104.0)), None);
         let elsewhere = Press::new(pos2(100.0, 100.0), false);
         assert!(!elsewhere.is_on_grip());
         assert_eq!(elsewhere.grip_click(pos2(100.0, 100.0)), None);

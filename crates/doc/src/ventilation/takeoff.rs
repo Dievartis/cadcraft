@@ -359,7 +359,13 @@ impl crate::Drawing {
         for e in self.model.iter() {
             let EntityKind::Insert(i) = &e.kind else { continue };
             if let Some(a) = accessory_of(e) {
-                add_count(&mut t.accessories, a.kind.name(), &format!("Ø{:.0}", a.diameter_mm), None);
+                // A hood is told apart by its size, its length and its air.
+                let size = if a.kind == super::AccessoryKind::Hood {
+                    format!("{} L{:.0}{}", a.size_text(), a.length_mm, a.air.map_or(String::new(), |x| format!(" {}", x.tag())))
+                } else {
+                    format!("Ø{:.0}", a.diameter_mm)
+                };
+                add_count(&mut t.accessories, a.kind.name(), &size, None);
             } else if let Some(x) = air_terminal_of(e) {
                 match t.terminals.iter_mut().find(|q| q.model == x.model.name && q.air == x.air && same_flow(q.flow_m3h, x.flow_m3h)) {
                     Some(q) => q.count += 1,
@@ -695,6 +701,7 @@ fn tr(lang: &str, key: &str) -> String {
         "fireDamper" => "Clapet coupe-feu",
         "silencer" => "Silencieux",
         "flexConnector" => "Manchette souple",
+        "hood" => "Sortie couverte",
         "supply" => "Soufflage",
         "extract" => "Reprise",
         "fresh" => "Air neuf",

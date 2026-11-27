@@ -92,10 +92,14 @@ fn a_cable_is_given_by_its_conductors_and_section_as_it_is_written_and_by_a_cabl
     assert_eq!(cable(&s, &r["handles"][0]).size_text(), "4x1.5 blindé");
     s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "auto"})).unwrap();
     assert_eq!(cable(&s, &r["handles"][0]).size_text(), "");
-    // Refused.
-    for bad in ["3G", "abc", "0x1.5", "3G700"] {
-        assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "section": bad})).is_err(), "{bad}");
+    // Any other text is kept as it is written, with no section (the circuit check says it is not checked); too long, or not a text, is refused.
+    for text in ["3G", "abc", "0x1.5", "3G700"] {
+        s.execute("elecedit", &json!({"handle": r["handles"][0], "section": text})).unwrap();
+        let c = cable(&s, &r["handles"][0]);
+        assert_eq!((c.written.as_deref(), c.section_mm2), (Some(text), None));
     }
+    assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "x".repeat(81)})).is_err());
+    assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "section": true})).is_err());
     // A cable type of the starting list gives its cable and its use.
     let t = s
         .execute("cableadd", &json!({"points": [[0, 1500], [5000, 1500]], "circuit": "TC1", "cableType": "Remote control 2x0.75 shielded"}))
@@ -157,4 +161,182 @@ fn a_riser_line_takes_its_cable_as_written_and_a_colour_of_its_own() {
     assert!(riser(&s).cable.lines[1].colour.is_none());
     assert!(s.execute("riseredit", &json!({"handle": h.hex(), "line": {"index": 1, "colour": "orange"}})).is_err());
     assert!(s.execute("riseredit", &json!({"handle": h.hex(), "line": {"index": 1, "section": "abc"}})).is_err());
+}
+
+#[test]
+fn a_cables_label_can_be_left_off_and_put_back_and_the_choice_holds_for_the_next_cables() {
+    let mut s = metric();
+    // Without its label: no text, and the cable keeps its circuit and section.
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "circuit": "TD1-C1", "section": "3G1.5", "label": false})).unwrap();
+    let h = hd(&r["handles"][0]);
+    assert!(texts(&s, h).is_empty());
+    assert_eq!(cable(&s, &r["handles"][0]).size_text(), "3G1.5");
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "label": true})).unwrap();
+    assert!(!texts(&s, h).is_empty(), "the label is back");
+    assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "label": "no"})).is_err());
+    // At the command line: Label No is kept for the cables drawn after it.
+    for t in ["cableadd", "l", "n", "0,1000", "5000,1000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    for t in ["cableadd", "0,2000", "5000,2000", ""] {
+        s.cmdline(t).unwrap();
+    }
+    let d = s.doc().unwrap();
+    let drawn: Vec<Handle> = d.model.iter().filter(|e| cable_of(e).is_some()).map(|e| e.handle).filter(|x| *x != h).collect();
+    assert_eq!(drawn.len(), 2);
+    assert!(drawn.iter().all(|x| texts(&s, *x).is_empty()), "both drawn without their label");
+}
+
+#[test]
+fn a_cable_put_on_a_layer_takes_its_colour_and_keeps_it_when_edited() {
+    let mut s = metric();
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "circuit": "TD1-C1"})).unwrap();
+    let h = hd(&r["handles"][0]);
+    // Its pieces are on layer 0: they take the layer the cable is on, and so its colour.
+    let d = s.doc().unwrap();
+    let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!() };
+    let block = d.blocks.values().find(|b| b.name == i.block).unwrap();
+    assert!(block.entities.iter().all(|e| e.common.layer == "0"), "the pieces follow the cable's layer");
+    // Put on a layer of the user's, it stays there when the cable is changed.
+    s.execute("layer.new", &json!({"name": "MY-CABLES", "color": 3})).unwrap();
+    s.execute("properties.set", &json!({"handles": [r["handles"][0]], "layer": "MY-CABLES"})).unwrap();
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "3G2.5"})).unwrap();
+    assert_eq!(s.doc().unwrap().entity(h).unwrap().common.layer, "MY-CABLES");
+    // One on its circuit's layer follows its circuit.
+    let r2 = s.execute("cableadd", &json!({"points": [[0, 1000], [5000, 1000]], "circuit": "TD1-C1"})).unwrap();
+    let h2 = hd(&r2["handles"][0]);
+    let before = s.doc().unwrap().entity(h2).unwrap().common.layer.clone();
+    s.execute("elecedit", &json!({"handle": r2["handles"][0], "circuit": "TD1-C2"})).unwrap();
+    assert_ne!(s.doc().unwrap().entity(h2).unwrap().common.layer, before);
+}
+
+#[test]
+fn every_cable_type_of_the_starting_library_can_be_given_to_a_cable() {
+    let mut s = metric();
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "circuit": "X1"})).unwrap();
+    for t in cadcraft_doc::standard_cable_types() {
+        s.execute("elecedit", &json!({"handle": r["handles"][0], "cableType": t.name}))
+            .unwrap_or_else(|e| panic!("the cable type {:?} is refused: {e}", t.name));
+    }
+}
+
+#[test]
+fn a_cable_written_as_text_keeps_it_in_its_label_and_is_not_sized_and_its_label_can_go_under_it() {
+    let mut s = metric();
+    s.execute("elecdeviceadd", &json!({"at": [0, 0], "kind": "socket", "circuit": "TD1-C1", "power": 2000})).unwrap();
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "circuit": "TD1-C1"})).unwrap();
+    let h = hd(&r["handles"][0]);
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "U/UTP cat 6 LSOH"})).unwrap();
+    let c = cable(&s, &r["handles"][0]);
+    assert_eq!((c.written.as_deref(), c.section_mm2), (Some("U/UTP cat 6 LSOH"), None));
+    assert!(texts(&s, h).iter().any(|t| t.contains("U/UTP cat 6 LSOH")), "{:?}", texts(&s, h));
+    // Sizing leaves it as it is written, and the check says it is not checked.
+    s.execute("circuitsize", &json!({})).unwrap();
+    assert_eq!(cable(&s, &r["handles"][0]).section_mm2, None);
+    let check = s.execute("circuitcheck", &json!({})).unwrap();
+    assert!(check.to_string().contains("written as text"), "{check}");
+    // A cable that reads as one gives the section back.
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "section": "3G2.5"})).unwrap();
+    let c = cable(&s, &r["handles"][0]);
+    assert_eq!((c.written, c.section_mm2), (None, Some(2.5)));
+    // Under the cable: the label moves to the other side of it.
+    let y = |s: &Session| {
+        let d = s.doc().unwrap();
+        let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!() };
+        d.block(&i.block).unwrap().entities.iter().find_map(|e| if let EntityKind::Text(t) = &e.kind { Some(t.insert.y) } else { None }).unwrap()
+    };
+    assert!(y(&s) > 0.0);
+    s.execute("elecedit", &json!({"handle": r["handles"][0], "labelSide": "below"})).unwrap();
+    assert!(y(&s) < 0.0);
+    assert!(s.execute("elecedit", &json!({"handle": r["handles"][0], "labelSide": "left"})).is_err());
+}
+
+#[test]
+fn a_new_cable_puts_its_layer_in_the_drawing_with_the_colour_of_its_use() {
+    let mut s = metric();
+    for (usage, circuit) in [("bus", "BUS1"), ("remote", "TC1"), ("power", "")] {
+        let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "usage": usage, "circuit": circuit})).unwrap();
+        let c = cable(&s, &r["handles"][0]);
+        let d = s.doc().unwrap();
+        let layer = d.layer(&d.entity(hd(&r["handles"][0])).unwrap().common.layer).unwrap();
+        // The layer of a circuit takes its style's colour, else the colour of its use; never the white of a bare new layer.
+        let want = d.layer(c.layer()).map(|l| l.color);
+        assert_eq!(Some(layer.color), want);
+        assert_ne!(layer.color, cadcraft_color::Color::WHITE, "{usage}: the layer has a colour");
+        assert_ne!(layer.color, cadcraft_color::Color::Index(7), "{usage}: the layer has a colour");
+    }
+}
+
+#[test]
+fn a_drawing_whose_cable_layers_were_left_white_gets_their_colour_back_when_opened() {
+    let mut s = metric();
+    let r = s.execute("cableadd", &json!({"points": [[0, 0], [5000, 0]], "usage": "bus", "circuit": "BUS1"})).unwrap();
+    let layer = s.doc().unwrap().entity(hd(&r["handles"][0])).unwrap().common.layer.clone();
+    let colour = s.doc().unwrap().layer(&layer).unwrap().color;
+    // As a few versions left it, and a layer of the user's that is white stays so.
+    s.doc_mut().unwrap().layers.iter_mut().find(|l| l.name == layer).unwrap().color = cadcraft_color::Color::WHITE;
+    s.execute("layer.new", &json!({"name": "MINE"})).unwrap();
+    cadcraft_engine::cmd::file::set_io(cadcraft_engine::cmd::file::IoHooks {
+        read: |bytes, name| cadcraft_io::read(bytes, name).map_err(|e| e.to_string()),
+        write: |d, name| cadcraft_io::write(d, name).map_err(|e| e.to_string()),
+        plot: None,
+    });
+    let bytes = cadcraft_io::write(s.doc().unwrap(), "plan.dxf").unwrap();
+    let mut s = Session::new();
+    s.execute("open", &json!({ "data": cadcraft_engine::cmd::file::base64_encode(&bytes), "name": "plan.dxf" })).unwrap();
+    let d = s.doc().unwrap();
+    assert_eq!(d.layer(&layer).unwrap().color, colour, "the cable layer has its colour again");
+    assert_eq!(d.layer("MINE").unwrap().color, cadcraft_color::Color::WHITE);
+}
+
+#[test]
+fn units_terminals_accessories_and_devices_take_the_colour_given_to_them_and_keep_it_when_changed() {
+    let mut s = metric();
+    s.execute("ductadd", &json!({"points": [[0, 0], [4000, 0]]})).unwrap();
+    let cases = [
+        ("ahuadd", json!({"at": [-3000, 3000]}), "ahuedit", json!({"name": "CTA2"}), cadcraft_doc::AHU_LAYER),
+        ("airterminaladd", json!({"at": [5000, 3000], "flow": 100}), "airterminaledit", json!({"flow": 120}), cadcraft_doc::AIR_TERMINAL_LAYER),
+        ("ductaccessoryadd", json!({"at": [2000, 0]}), "ductaccessoryedit", json!({"length": 400}), cadcraft_doc::ACCESSORY_LAYER),
+        ("elecdeviceadd", json!({"at": [8000, 3000], "kind": "socket"}), "elecedit", json!({"address": "A1"}), cadcraft_doc::DEVICE_LAYER),
+    ];
+    for (add, p, edit, change, layer) in cases {
+        let a = s.execute(add, &p).unwrap();
+        let handle = a.get("handle").unwrap_or(&a["handles"][0]).clone();
+        let h = hd(&handle);
+        let by_block = |s: &Session| {
+            let d = s.doc().unwrap();
+            let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!("{add}") };
+            let on_layer: Vec<_> = d.block(&i.block).unwrap().entities.iter().filter(|e| e.common.layer == layer).collect();
+            !on_layer.is_empty() && on_layer.iter().all(|e| e.common.color == cadcraft_color::Color::ByBlock)
+        };
+        assert!(by_block(&s), "{add}: drawn in the colour of the object");
+        s.execute("properties.set", &json!({"handles": [handle], "color": "red"})).unwrap();
+        let mut change = change;
+        change["handle"] = handle.clone();
+        s.execute(edit, &change).unwrap();
+        assert_eq!(s.doc().unwrap().entity(h).unwrap().common.color, cadcraft_color::Color::Index(1), "{add}: its colour kept by {edit}");
+        assert!(by_block(&s), "{add}: still drawn in it");
+    }
+}
+
+#[test]
+fn an_equipment_takes_the_colour_given_to_it_and_keeps_it_when_changed() {
+    let mut s = metric();
+    let a = s.execute("equipmentadd", &json!({"at": [0, 0], "kind": "cassette", "name": "UI1"})).unwrap();
+    let h = hd(&a["handle"]);
+    // Its drawing on the equipment layer follows the colour of the equipment (ByLayer at first: the layer's).
+    let pieces_by_block = |s: &Session| {
+        let d = s.doc().unwrap();
+        let EntityKind::Insert(i) = &d.entity(h).unwrap().kind else { panic!() };
+        let b = d.block(&i.block).unwrap();
+        let on_layer: Vec<_> = b.entities.iter().filter(|e| e.common.layer == cadcraft_doc::EQUIPMENT_LAYER).collect();
+        !on_layer.is_empty() && on_layer.iter().all(|e| e.common.color == cadcraft_color::Color::ByBlock)
+    };
+    assert!(pieces_by_block(&s));
+    assert_eq!(s.doc().unwrap().entity(h).unwrap().common.color, cadcraft_color::Color::ByLayer);
+    // A colour of its own, kept when the equipment is changed and redrawn.
+    s.execute("properties.set", &json!({"handles": [a["handle"]], "color": "red"})).unwrap();
+    s.execute("equipmentedit", &json!({"handle": a["handle"], "name": "UI2"})).unwrap();
+    assert_eq!(s.doc().unwrap().entity(h).unwrap().common.color, cadcraft_color::Color::Index(1));
+    assert!(pieces_by_block(&s));
 }

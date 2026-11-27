@@ -6,7 +6,7 @@
 use cadcraft_geom::{PolyVertex, Vec2};
 use serde::{Deserialize, Serialize};
 
-use super::{HvacPiece, HvacUnits, check_label_height, invalid, label, v3, xdata};
+use super::{AirDirection, HvacPiece, HvacUnits, check_label_height, invalid, label, v3, xdata};
 use crate::{EntityKind, Line, LwPolyline, RawTag, Result};
 
 /// The registered application name of an accessory's extended data.
@@ -37,10 +37,14 @@ pub enum AccessoryKind {
     Silencer,
     /// A flexible connector (manchette souple).
     FlexConnector,
+    /// A covered outlet or inlet (sortie couverte, capot pare-pluie): a hood with a mesh on its face, at the end of a duct, on a unit's
+    /// collar or free against a wall. Drawn from its origin outwards, the mesh at the far end.
+    Hood,
 }
 
 impl AccessoryKind {
-    pub const ALL: [AccessoryKind; 4] = [AccessoryKind::Damper, AccessoryKind::FireDamper, AccessoryKind::Silencer, AccessoryKind::FlexConnector];
+    pub const ALL: [AccessoryKind; 5] =
+        [AccessoryKind::Damper, AccessoryKind::FireDamper, AccessoryKind::Silencer, AccessoryKind::FlexConnector, AccessoryKind::Hood];
 
     pub fn parse(text: &str) -> Option<AccessoryKind> {
         match text.trim().to_ascii_lowercase().as_str() {
@@ -48,6 +52,7 @@ impl AccessoryKind {
             "firedamper" | "fire" | "f" | "ccf" => Some(AccessoryKind::FireDamper),
             "silencer" | "s" | "silencieux" => Some(AccessoryKind::Silencer),
             "flexconnector" | "flex" | "manchette" => Some(AccessoryKind::FlexConnector),
+            "hood" | "h" | "capot" | "sortie couverte" | "sortiecouverte" => Some(AccessoryKind::Hood),
             _ => None,
         }
     }
@@ -59,6 +64,7 @@ impl AccessoryKind {
             AccessoryKind::FireDamper => "fireDamper",
             AccessoryKind::Silencer => "silencer",
             AccessoryKind::FlexConnector => "flexConnector",
+            AccessoryKind::Hood => "hood",
         }
     }
 
@@ -69,6 +75,7 @@ impl AccessoryKind {
             AccessoryKind::FireDamper => "CCF",
             AccessoryKind::Silencer => "SIL",
             AccessoryKind::FlexConnector => "MS",
+            AccessoryKind::Hood => "CAP",
         }
     }
 
@@ -79,6 +86,7 @@ impl AccessoryKind {
             AccessoryKind::FireDamper => 300.0,
             AccessoryKind::Silencer => 1000.0,
             AccessoryKind::FlexConnector => 200.0,
+            AccessoryKind::Hood => 600.0,
         }
     }
 
@@ -89,6 +97,7 @@ impl AccessoryKind {
             AccessoryKind::FireDamper => Loss::Zeta(0.4),
             AccessoryKind::Silencer => Loss::Pascals(30.0),
             AccessoryKind::FlexConnector => Loss::Zeta(0.05),
+            AccessoryKind::Hood => Loss::Zeta(2.5),
         }
     }
 }
@@ -126,9 +135,29 @@ pub struct AccessoryParams {
     pub bottom_mm: Option<f64>,
     #[serde(default)]
     pub units: HvacUnits,
+    /// A hood's air (air neuf, rejet…): it is then drawn on the layer, and so in the colour, of the ducts of that air.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub air: Option<AirDirection>,
+    /// A hood's height, mm, when its opening is a rectangle (`diameter_mm` is then its width); none for a round one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height_mm: Option<f64>,
+    /// A hood's size and air were set by hand: it stops following the duct or collar it covers (see [`crate::Drawing::refresh_hoods`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fixed: bool,
+    /// How far a hood's casing sticks out on each side of its opening, mm; none (0) draws it as wide as the opening.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overhang_mm: Option<f64>,
 }
 
 impl AccessoryParams {
+    /// The size as written: "Ø250" or "400×250".
+    pub fn size_text(&self) -> String {
+        match self.height_mm {
+            Some(h) => format!("{:.0}×{h:.0}", self.diameter_mm),
+            None => format!("Ø{:.0}", self.diameter_mm),
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         check_label_height(self.label_height_mm)?;
         super::check_altitude(self.bottom_mm)?;
@@ -138,6 +167,12 @@ impl AccessoryParams {
         }
         if !(self.diameter_mm.is_finite() && (super::DUCT_DIAMETER_MM.0..=super::DUCT_DIAMETER_MM.1).contains(&self.diameter_mm)) {
             return Err(invalid("An accessory sits on a duct of 20 to 5000 mm."));
+        }
+        if self.height_mm.is_some_and(|h| !(h.is_finite() && (super::DUCT_DIAMETER_MM.0..=super::DUCT_DIAMETER_MM.1).contains(&h))) {
+            return Err(invalid("An accessory's height is 20 to 5000 mm."));
+        }
+        if self.overhang_mm.is_some_and(|o| !(o.is_finite() && (0.0..=2000.0).contains(&o))) {
+            return Err(invalid("A hood's overhang is 0 to 2000 mm."));
         }
         if self.zeta.is_some_and(|z| !(z.is_finite() && (0.0..=MAX_ACCESSORY_ZETA).contains(&z))) {
             return Err(invalid(format!("An accessory's loss coefficient is 0 to {MAX_ACCESSORY_ZETA}.")));
@@ -160,6 +195,11 @@ impl AccessoryParams {
     /// Half the accessory's length and half the width drawn across the duct, drawing units.
     pub(super) fn half(&self) -> Vec2 {
         let r = self.units.to_units(self.diameter_mm) / 2.0;
+        if self.kind == AccessoryKind::Hood {
+            // As wide as the opening it covers, plus the overhang asked for.
+            let out = self.units.to_units(self.overhang_mm.unwrap_or(0.0));
+            return Vec2::new(self.units.to_units(self.length_mm) / 2.0, r + out);
+        }
         let overhang = (0.2 * r).max(self.units.to_units(20.0));
         // A silencer is wider than its duct.
         let width = if self.kind == AccessoryKind::Silencer { 1.3 * r } else { r } + overhang;
@@ -168,14 +208,22 @@ impl AccessoryParams {
 
     /// The layer of the accessory: its own for a fire damper, the accessories' for the others.
     pub fn layer(&self) -> &'static str {
-        if self.kind == AccessoryKind::FireDamper { ACCESSORY_FIRE_LAYER } else { ACCESSORY_LAYER }
+        match (self.kind, self.air) {
+            (AccessoryKind::FireDamper, _) => ACCESSORY_FIRE_LAYER,
+            // A hood with an air is drawn like the ducts of that air.
+            (AccessoryKind::Hood, Some(AirDirection::Supply)) => super::DUCT_LAYER,
+            (AccessoryKind::Hood, Some(AirDirection::Extract)) => super::DUCT_EXTRACT_LAYER,
+            (AccessoryKind::Hood, Some(AirDirection::Fresh)) => super::DUCT_FRESH_LAYER,
+            (AccessoryKind::Hood, Some(AirDirection::Exhaust)) => super::DUCT_EXHAUST_LAYER,
+            _ => ACCESSORY_LAYER,
+        }
     }
 
     pub fn generate(&self) -> Result<Vec<HvacPiece>> {
         self.validate()?;
         let half = self.half();
         let r = self.units.to_units(self.diameter_mm) / 2.0;
-        let layer = self.layer();
+        let layer = super::by_block(self.layer());
         let line = |a: Vec2, b: Vec2| HvacPiece { layer, kind: EntityKind::Line(Line { a: v3(a), b: v3(b) }) };
         let poly = |pts: Vec<Vec2>, closed: bool| HvacPiece {
             layer,
@@ -190,6 +238,24 @@ impl AccessoryParams {
         let corners = vec![Vec2::new(-half.x, -half.y), Vec2::new(half.x, -half.y), Vec2::new(half.x, half.y), Vec2::new(-half.x, half.y)];
         let mut v = Vec::new();
         match self.kind {
+            AccessoryKind::Hood => {
+                // From the origin (the end of the duct) outwards: the casing, then the mesh band at the far end as crossed diagonals.
+                let len = 2.0 * half.x;
+                let casing = vec![Vec2::new(0.0, -half.y), Vec2::new(len, -half.y), Vec2::new(len, half.y), Vec2::new(0.0, half.y)];
+                v.push(poly(casing, true));
+                let edge = 0.78 * len;
+                v.push(line(Vec2::new(edge, -half.y), Vec2::new(edge, half.y)));
+                // The roof's slope, seen from above: a line from each rear corner to the mesh.
+                v.push(line(Vec2::new(0.0, -half.y), Vec2::new(edge, -0.6 * half.y)));
+                v.push(line(Vec2::new(0.0, half.y), Vec2::new(edge, 0.6 * half.y)));
+                let cells = 4;
+                for k in 0..cells {
+                    let y0 = -half.y + 2.0 * half.y * f64::from(k) / f64::from(cells);
+                    let y1 = y0 + 2.0 * half.y / f64::from(cells);
+                    v.push(line(Vec2::new(edge, y0), Vec2::new(len, y1)));
+                    v.push(line(Vec2::new(edge, y1), Vec2::new(len, y0)));
+                }
+            }
             AccessoryKind::Damper => {
                 v.push(poly(corners, true));
                 // The blade, half open.
@@ -227,13 +293,19 @@ impl AccessoryParams {
         let h = self.units.to_units(self.label_height_mm);
         let text = match self.loss() {
             Loss::Pascals(p) if self.kind == AccessoryKind::Silencer => format!("{} {p:.0} Pa", self.kind.code()),
+            // A hood's size and length, then its air: "CAP 400×250 L600 R".
+            _ if self.kind == AccessoryKind::Hood => {
+                let air = self.air.map_or(String::new(), |a| format!(" {}", a.tag()));
+                format!("{} {} L{:.0}{air}", self.kind.code(), self.size_text(), self.length_mm)
+            }
             _ => format!("{} Ø{:.0}", self.kind.code(), self.diameter_mm),
         };
         let text = match super::altitude_tag(self.bottom_mm) {
             Some(t) => format!("{text} {t}"),
             None => text,
         };
-        v.push(HvacPiece { layer, kind: label(Vec2::new(0.0, -half.y - 1.2 * h), h, text) });
+        let label_x = if self.kind == AccessoryKind::Hood { half.x } else { 0.0 };
+        v.push(HvacPiece { layer, kind: label(Vec2::new(label_x, -half.y - 1.2 * h), h, text) });
         Ok(v)
     }
 
@@ -262,7 +334,105 @@ pub fn accessory_of(e: &crate::Entity) -> Option<AccessoryParams> {
     }
 }
 
+/// Where a hood goes: the point it starts from (the end of a duct, or of a unit's collar), the direction it points
+/// out (radians) and the width of the opening it covers, mm.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HoodAnchor {
+    pub origin: Vec2,
+    pub angle: f64,
+    pub width_mm: f64,
+    /// The duct it covers the end of, when it is on one: its loss is then in that duct's network.
+    pub duct: Option<crate::Handle>,
+    /// The height of a rectangular opening, mm.
+    pub height_mm: Option<f64>,
+    /// The air of the duct or collar, when it is known.
+    pub air: Option<AirDirection>,
+}
+
+/// The width of a collar whose size is not given, mm.
+const DEFAULT_COLLAR_MM: f64 = 400.0;
+/// How far inside the end of a duct a hood starts, mm: so that the hood is read as sitting on that duct.
+const HOOD_NUDGE_MM: f64 = 1.0;
+/// How near a unit's collar `at` has to be to pick it, mm.
+const COLLAR_REACH_MM: f64 = 300.0;
+
 impl crate::Drawing {
+    /// The opening a hood put at `at` covers: the nearer end of the duct under `at`, else the collar of a unit within reach.
+    /// `None` when there is neither (the hood then goes free, where the user put it). A duct wins: one that starts at a collar
+    /// is covered at its own end, not at the collar it leaves.
+    pub fn hood_anchor(&self, at: Vec2) -> Option<HoodAnchor> {
+        let units = HvacUnits::of(self);
+        if let Some((h, ..)) = self.duct_under(at)
+            && let Some((p, a, b)) = self.duct_ends(h)
+        {
+            let towards_b = at.dist(b) <= at.dist(a);
+            let (end, outward) = if towards_b { (b, (b - a).normalized()) } else { (a, (a - b).normalized()) };
+            let height_mm = (p.shape == super::DuctShape::Rectangular).then_some(p.height_mm);
+            return Some(HoodAnchor {
+                origin: end - outward * units.to_units(HOOD_NUDGE_MM),
+                angle: outward.angle(),
+                width_mm: p.plan_width_mm(),
+                duct: Some(h),
+                height_mm,
+                air: Some(p.air),
+            });
+        }
+        let reach = units.to_units(COLLAR_REACH_MM);
+        let mut best: Option<(f64, HoodAnchor)> = None;
+        for e in self.model.iter() {
+            let (EntityKind::Insert(i), Some(p)) = (&e.kind, super::ahu_of(e)) else { continue };
+            let (s, c) = i.rotation.sin_cos();
+            let turn = |v: Vec2| Vec2::new(v.x * c - v.y * s, v.x * s + v.y * c);
+            let base = Vec2::new(i.insert.x, i.insert.y);
+            for (idx, (tip, normal)) in p.port_tips().into_iter().enumerate() {
+                let world = base + turn(tip);
+                let d = world.dist(at);
+                if d <= reach && best.as_ref().is_none_or(|b| d < b.0) {
+                    let size = p.port_sizes.get(idx).copied().flatten();
+                    let width = size.map_or(DEFAULT_COLLAR_MM, |z| z.width_mm());
+                    let height_mm = match size {
+                        Some(super::RiserSize::Rectangular { height_mm, .. }) => Some(height_mm),
+                        _ => None,
+                    };
+                    let air = p.roles().get(idx).copied();
+                    best = Some((d, HoodAnchor { origin: world, angle: turn(normal).angle(), width_mm: width, duct: None, height_mm, air }));
+                }
+            }
+        }
+        best.map(|(_, a)| a)
+    }
+
+    /// Gives each hood that follows its opening (not `fixed`) the width, height and air of the duct or collar it covers, when
+    /// they changed. A hood is told from other objects by the opening being where it starts. Returns how many changed.
+    pub fn refresh_hoods(&mut self) -> Result<usize> {
+        let hoods: Vec<(crate::Handle, AccessoryParams, Vec2)> = self
+            .model
+            .iter()
+            .filter_map(|e| {
+                let a = accessory_of(e).filter(|a| a.kind == AccessoryKind::Hood && !a.fixed)?;
+                let EntityKind::Insert(i) = &e.kind else { return None };
+                Some((e.handle, a, Vec2::new(i.insert.x, i.insert.y)))
+            })
+            .collect();
+        let mut changed = 0;
+        for (h, mut a, at) in hoods {
+            let Some(found) = self.hood_anchor(at) else { continue };
+            // The opening it covers has to be where the hood starts, not another one near it.
+            if found.origin.dist(at) > a.units.to_units(5.0) {
+                continue;
+            }
+            if (a.diameter_mm, a.height_mm) == (found.width_mm, found.height_mm) && a.air == found.air {
+                continue;
+            }
+            (a.diameter_mm, a.height_mm, a.air) = (found.width_mm, found.height_mm, found.air);
+            if a.validate().is_ok() {
+                self.regenerate_accessory(h, &a)?;
+                changed += 1;
+            }
+        }
+        Ok(changed)
+    }
+
     /// The duct that `at` is on, with the foot of `at` on its axis and the duct's direction: the
     /// nearest duct whose axis passes within [`super::AXIS_REACH`] diameters of `at`, along its length.
     pub fn duct_under(&self, at: Vec2) -> Option<(crate::Handle, Vec2, f64)> {
