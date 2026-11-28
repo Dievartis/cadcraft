@@ -62,6 +62,8 @@ pub struct HatchDlgState {
     pub remove_loops: Vec<usize>,
     /// A HATCHPICK the dialog started that hasn't ended yet.
     pub picking: Option<PickMode>,
+    /// The next point pick defines a repeating tile for the custom pattern.
+    capture_tile: bool,
     /// The last command error, shown in the dialog.
     pub error: Option<String>,
     /// The drawing the dialog belongs to (`DocState::uid`).
@@ -161,6 +163,7 @@ pub fn create_state(d: &Drawing, uid: u64, gradient: bool) -> HatchDlgState {
         loop_outer: Vec::new(),
         remove_loops: Vec::new(),
         picking: None,
+        capture_tile: false,
         error: None,
         uid,
         space: Space::Model,
@@ -419,7 +422,27 @@ pub fn resume(app: &mut CadApp) {
         next.space = st.space.clone();
         st = next;
     } else if let Some(p) = picks {
-        merge_picks(&mut st, p);
+        if st.capture_tile && mode == PickMode::Points {
+            if p.points.len() >= 2 {
+                let dx = (p.points[1].x - p.points[0].x).abs().max(1e-6);
+                let dy = (p.points[1].y - p.points[0].y).abs().max(1e-6);
+                st.custom = Some(CustomPattern {
+                    name: "CAPTURED_TILE".into(),
+                    families: vec![
+                        PatternFamily { angle: 0.0, spacing: dy, dashes: format!("{dx}") },
+                        PatternFamily { angle: 90.0, spacing: dx, dashes: format!("{dy}") },
+                    ],
+                });
+                st.capture_tile = false;
+                st.points.clear();
+                st.handles.clear();
+            } else {
+                st.error = Some(crate::tl!("Pick two opposite corners for the tile").into());
+                st.capture_tile = false;
+            }
+        } else {
+            merge_picks(&mut st, p);
+        }
     }
     app.hatch_dlg = Some(st);
     app.ui.dialog = Some("hatch".into());
@@ -500,7 +523,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                 ui.set_width(340.0);
                 fill_ui(ui, &mut st.fill, &mut action);
                 if st.edit.is_empty() && !st.fill.gradient {
-                    custom_pattern_ui(ui, &mut st.custom, &mut action);
+                    custom_pattern_ui(ui, &mut st.custom, &mut st.capture_tile, &mut action);
                 }
             });
             // Space, not a vertical separator: a separator takes the height available, and the
@@ -546,7 +569,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
     }
 }
 
-fn custom_pattern_ui(ui: &mut egui::Ui, custom: &mut Option<CustomPattern>, action: &mut Action) {
+fn custom_pattern_ui(ui: &mut egui::Ui, custom: &mut Option<CustomPattern>, capture_tile: &mut bool, action: &mut Action) {
     let mut enabled = custom.is_some();
     if ui.checkbox(&mut enabled, crate::tl!("Create a custom hatch pattern")).changed() {
         *custom = enabled.then(CustomPattern::default);
@@ -557,6 +580,9 @@ fn custom_pattern_ui(ui: &mut egui::Ui, custom: &mut Option<CustomPattern>, acti
         .on_hover_text(crate::tl!("Pick two opposite corners to define the repeating tile"))
         .clicked()
     {
+        // The two corners become the horizontal and vertical repeat steps.
+        // The normal boundary picker remains available separately.
+        *capture_tile = true;
         *action = Action::Pick(PickMode::Points);
     }
     let name = ui.label(crate::tl!("Pattern name"));

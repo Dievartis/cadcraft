@@ -575,7 +575,7 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
                                 let response = response.on_hover_text(st.color.map(|c| format!("RGB : {}", c.hex())).unwrap_or_else(|| {
                                     index_rgb.map_or_else(
                                         || crate::tl!("Object color").to_owned(),
-                                        |c| format!("ACI : {:03}", style_aci(&st.name).unwrap_or(0)),
+                                        |_c| format!("ACI : {:03}", style_aci(&st.name).unwrap_or(0)),
                                     )
                                 }));
                                 egui::Popup::from_toggle_button_response(&response)
