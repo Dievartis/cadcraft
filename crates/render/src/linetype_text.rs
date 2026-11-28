@@ -111,20 +111,30 @@ fn shape(d: &Drawing, el: &cadcraft_doc::DashElement, scale: f64) -> Option<Shap
     Some(Shaped { strokes, width: glyph.advance.x * k, ..Shaped::default() })
 }
 
-/// Original insulation motif. Each repeat is a pair of crossed rounded loops,
-/// matching the conventional batt-insulation drafting symbol while remaining
-/// native to CADCraft and independent of an external shape font.
+/// Original insulation motif. Each repeat is a pointed top flowing into a
+/// rounded U-shaped bottom and back to the next top point. Two cubic halves
+/// keep the joins continuous while matching the conventional batt symbol.
 fn insulation_shape(thickness: f64) -> Option<Shaped> {
     if !thickness.is_finite() || thickness <= 0.0 {
         return None;
     }
+    let period = 1.5;
+    let cubic = |t: f64, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2| {
+        let u = 1.0 - t;
+        p0 * (u * u * u) + p1 * (3.0 * u * u * t) + p2 * (3.0 * u * t * t) + p3 * (t * t * t)
+    };
+    let top = Vec2::new(0.0, 0.5);
+    let bottom = Vec2::new(period * 0.5, -0.5);
+    let next = Vec2::new(period, 0.5);
     let stroke = (0..=96)
         .map(|i| {
             let t = f64::from(i) / 96.0;
-            let a = std::f64::consts::TAU * t;
-            let x = 1.5 * t + 0.34 * (2.0 * a).sin();
-            let y = 0.42 * a.cos();
-            Vec2::new(x, y) * thickness
+            let p = if t <= 0.5 {
+                cubic(t * 2.0, top, Vec2::new(period * 0.12, 0.5), Vec2::new(period * 0.32, -0.5), bottom)
+            } else {
+                cubic((t - 0.5) * 2.0, bottom, Vec2::new(period * 0.68, -0.5), Vec2::new(period * 0.88, 0.5), next)
+            };
+            p * thickness
         })
         .collect();
     Some(Shaped { strokes: vec![stroke], width: 1.5 * thickness, ..Shaped::default() })
