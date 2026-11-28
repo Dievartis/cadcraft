@@ -500,7 +500,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                 ui.set_width(340.0);
                 fill_ui(ui, &mut st.fill, &mut action);
                 if st.edit.is_empty() && !st.fill.gradient {
-                    custom_pattern_ui(ui, &mut st.custom);
+                    custom_pattern_ui(ui, &mut st.custom, &mut action);
                 }
             });
             // Space, not a vertical separator: a separator takes the height available, and the
@@ -546,12 +546,19 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
     }
 }
 
-fn custom_pattern_ui(ui: &mut egui::Ui, custom: &mut Option<CustomPattern>) {
+fn custom_pattern_ui(ui: &mut egui::Ui, custom: &mut Option<CustomPattern>, action: &mut Action) {
     let mut enabled = custom.is_some();
     if ui.checkbox(&mut enabled, crate::tl!("Create a custom hatch pattern")).changed() {
         *custom = enabled.then(CustomPattern::default);
     }
     let Some(draft) = custom else { return };
+    if ui
+        .button(crate::tl!("Capture square tile from drawing"))
+        .on_hover_text(crate::tl!("Pick two opposite corners to define the repeating tile"))
+        .clicked()
+    {
+        *action = Action::Pick(PickMode::Points);
+    }
     let name = ui.label(crate::tl!("Pattern name"));
     ui.add(egui::TextEdit::singleline(&mut draft.name).char_limit(31)).labelled_by(name.id);
     ui.label(crate::tl!("Use spaces between dashes: positive draws, negative skips, zero marks a dot."));

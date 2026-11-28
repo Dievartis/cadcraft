@@ -147,6 +147,18 @@ fn used_aci_colors(d: &Drawing) -> BTreeSet<u8> {
     state.used
 }
 
+/// True colours remain RGB values and have no ACI row in a CTB. Keep them visible
+/// in the manager so the user can audit mixed indexed/RGB drawings.
+fn used_true_colors(d: &Drawing) -> BTreeSet<(u8, u8, u8)> {
+    let mut colors = BTreeSet::new();
+    for entity in d.model.iter().chain(d.layouts.iter().flat_map(|layout| layout.entities.iter())) {
+        if let Color::True(rgb) = entity.common.color {
+            colors.insert((rgb.0, rgb.1, rgb.2));
+        }
+    }
+    colors
+}
+
 fn style_aci(name: &str) -> Option<u8> {
     name.strip_prefix("Color_").and_then(|s| s.parse::<u8>().ok()).filter(|i| *i > 0)
 }
@@ -362,6 +374,7 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
             ui.label(RichText::new(crate::tl!("A built-in table: editing it keeps an edited copy in the drawing.")).color(t.text_faint));
         }
         let used_colors = if table.is_color_dependent() { used_aci_colors(d) } else { BTreeSet::new() };
+        let true_colors = if table.is_color_dependent() { used_true_colors(d) } else { BTreeSet::new() };
         // Selection is keyed by style name, never by its displayed row position.
         let mut rows: Vec<_> = table.styles.iter().collect();
         if !named && state.only_used {
@@ -535,7 +548,10 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
                                 if response.hovered() {
                                     ui.painter().rect_filled(rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
                                 }
-                                if let Some(rgb) = st.color {
+                                let index_rgb = style_aci(&st.name).map(|i| aci_rgb(i));
+                                let shown_rgb =
+                                    st.color.or_else(|| (table.name.eq_ignore_ascii_case(cadcraft_doc::DEFAULT_CTB)).then_some(index_rgb).flatten());
+                                if let Some(rgb) = shown_rgb {
                                     let square =
                                         egui::Rect::from_min_size(egui::pos2(rect.left() + 3.0, rect.center().y - 6.0), egui::vec2(12.0, 12.0));
                                     swatch_at(ui, square, egui::Color32::from_rgb(rgb.0, rgb.1, rgb.2));
@@ -556,9 +572,12 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
                                         ui.visuals().text_color(),
                                     );
                                 }
-                                let response = response.on_hover_text(
-                                    st.color.map(|c| format!("RGB : {}", c.hex())).unwrap_or_else(|| crate::tl!("Object color").to_owned()),
-                                );
+                                let response = response.on_hover_text(st.color.map(|c| format!("RGB : {}", c.hex())).unwrap_or_else(|| {
+                                    index_rgb.map_or_else(
+                                        || crate::tl!("Object color").to_owned(),
+                                        |c| format!("ACI : {:03}", style_aci(&st.name).unwrap_or(0)),
+                                    )
+                                }));
                                 egui::Popup::from_toggle_button_response(&response)
                                     .id(id)
                                     .width(310.0)
@@ -650,6 +669,18 @@ fn content(app: &mut CadApp, ui: &mut egui::Ui) -> Action {
                 }
             });
         });
+        if !named && state.only_used && !true_colors.is_empty() {
+            ui.separator();
+            ui.label(crate::tl!("True colors used in the drawing"));
+            ui.horizontal_wrapped(|ui| {
+                for (r, g, b) in true_colors {
+                    let color = egui::Color32::from_rgb(r, g, b);
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                    swatch_at(ui, rect, color);
+                    ui.label(format!("#{r:02X}{g:02X}{b:02X}"));
+                }
+            });
+        }
         ctx.data_mut(|d| d.insert_persisted(state_id, columns));
         if named {
             ui.separator();
